@@ -273,17 +273,22 @@ watch([routeChatId, () => props.active], ([id, active]) => {
   void resumeChatFromRoute(id)
 }, { immediate: true })
 
-// ── The canvas pane rides the route too (?canvas) ────────────────────────────
+// ── The canvas pane rides the route too (?canvas[=name]) ────────────────────
 // Same axis rules as ?chat: written with replace so history never stacks, and
-// only meaningful beside an open chat — the canvas is the chat's output
-// surface, not the workspace's.
+// only shown beside an open chat, whose most recent canvas is the default
+// pick. A name in the query pins one canvas; a bare ?canvas (written as
+// canvas=1) leaves the pick to the pane.
 const canvasRequested = computed(() => route.name === 'agents' && route.query.canvas !== undefined)
 const canvasVisible = computed(() => canvasRequested.value && routeChatId.value !== null)
+const canvasName = computed<string | null>(() => {
+  const raw = route.query.canvas
+  return typeof raw === 'string' && raw !== '' && raw !== '1' ? raw : null
+})
 
-function syncCanvasQuery(open: boolean): void {
+function syncCanvasQuery(open: boolean, name?: string): void {
   if (route.name !== 'agents') return
-  const next = open ? '1' : undefined
-  if ((route.query.canvas !== undefined ? '1' : undefined) === next) return
+  const next = open ? (name ?? (typeof route.query.canvas === 'string' && route.query.canvas !== '' ? route.query.canvas : '1')) : undefined
+  if (route.query.canvas === next) return
   void router.replace({ name: 'agents', params: route.params, query: { ...route.query, canvas: next } })
 }
 
@@ -295,11 +300,6 @@ useWailsEvent('canvas:updated', (event) => {
   if (!canvasVisible.value && Number(payload) === routeChatId.value) canvasUnseen.value = true
 })
 watch(canvasVisible, (visible) => { if (visible) canvasUnseen.value = false })
-
-// Picker labels: the cross-workspace session list is already loaded for the
-// sidebar, so the canvas pane borrows names from it rather than re-fetching.
-const sessionNames = computed<Record<number, string>>(() =>
-  Object.fromEntries(recents.value.map((row) => [row.id, row.name])))
 
 async function resumeChatFromRoute(id: number): Promise<void> {
   await ready()
@@ -855,10 +855,11 @@ onBeforeUnmount(() => {
         v-if="canvasVisible && routeChatId !== null"
         :session="routeChatId"
         :workspace="paneWorkspaceDir"
-        :session-names="sessionNames"
+        :name="canvasName"
         :client="client"
         @close="syncCanvasQuery(false)"
         @open-url="openLink"
+        @pick="(name) => syncCanvasQuery(true, name)"
       />
     </div>
 

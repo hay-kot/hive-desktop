@@ -60,6 +60,8 @@ func seedAgentSession(t *testing.T, core *app.App, workspace, name string) int64
 
 type canvasView struct {
 	Workspace string `json:"workspace"`
+	Name      string `json:"name"`
+	Title     string `json:"title"`
 	Session   int64  `json:"session"`
 	Blocks    []struct {
 		ID    string `json:"id"`
@@ -68,6 +70,15 @@ type canvasView struct {
 		Body  string `json:"body"`
 		URL   string `json:"url"`
 	} `json:"blocks"`
+}
+
+type canvasListView struct {
+	Canvases []struct {
+		Name       string `json:"name"`
+		Title      string `json:"title"`
+		Session    int64  `json:"session"`
+		BlockCount int    `json:"blockCount"`
+	} `json:"canvases"`
 }
 
 func TestCanvasToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
@@ -87,59 +98,95 @@ func TestCanvasToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 		assert.Equal(t, "object", schema["type"], "tool %s input schema is not type object", tool.Name)
 	}
 
-	assert.ElementsMatch(t, []string{"put_block", "remove_block", "clear_canvas", "read_canvas"}, names)
+	assert.ElementsMatch(t, []string{"put_block", "remove_block", "clear_canvas", "delete_canvas", "read_canvas", "list_canvases"}, names)
 }
 
 func TestCanvasRoundTrip(t *testing.T) {
 	core, session := testCanvasSession(t)
 	id := seedAgentSession(t, core, "demo", "chat")
 
-	var got canvasView
-	call(t, session, "read_canvas", map[string]any{"session": id}, &got)
-	assert.Equal(t, "demo", got.Workspace)
-	assert.Empty(t, got.Blocks, "a never-written canvas answers empty, not an error")
+	var listed canvasListView
+	call(t, session, "list_canvases", map[string]any{"session": id}, &listed)
+	assert.Empty(t, listed.Canvases, "a fresh workspace has no canvases")
 
+	var got canvasView
 	call(t, session, "put_block", map[string]any{
-		"session": id, "id": "status", "kind": "markdown", "title": "Progress", "body": "working…",
+		"session": id, "canvas": "plan", "canvasTitle": "The Plan",
+		"id": "status", "kind": "markdown", "title": "Progress", "body": "working…",
 	}, &got)
+	assert.Equal(t, "demo", got.Workspace)
+	assert.Equal(t, "plan", got.Name)
+	assert.Equal(t, "The Plan", got.Title)
+	assert.Equal(t, id, got.Session, "the creating chat is recorded")
 	call(t, session, "put_block", map[string]any{
-		"session": id, "id": "pr", "kind": "link", "title": "The PR", "url": "https://example.com/pr/1",
+		"session": id, "canvas": "plan", "id": "pr", "kind": "link", "title": "The PR", "url": "https://example.com/pr/1",
 	}, &got)
 	require.Len(t, got.Blocks, 2)
+	assert.Equal(t, "The Plan", got.Title, "an omitted canvasTitle keeps the stored one")
 
 	// Same id revises in place: position and count hold, content changes.
 	call(t, session, "put_block", map[string]any{
-		"session": id, "id": "status", "kind": "markdown", "body": "done",
+		"session": id, "canvas": "plan", "id": "status", "kind": "markdown", "body": "done",
 	}, &got)
 	require.Len(t, got.Blocks, 2)
 	assert.Equal(t, "status", got.Blocks[0].ID)
 	assert.Equal(t, "done", got.Blocks[0].Body)
 
-	call(t, session, "remove_block", map[string]any{"session": id, "id": "pr"}, &got)
+	// A second name is a second canvas, listed beside the first.
+	call(t, session, "put_block", map[string]any{
+		"session": id, "canvas": "report", "id": "a", "kind": "markdown", "body": "x",
+	}, &got)
+	call(t, session, "list_canvases", map[string]any{"session": id}, &listed)
+	require.Len(t, listed.Canvases, 2)
+	names := []string{listed.Canvases[0].Name, listed.Canvases[1].Name}
+	assert.ElementsMatch(t, []string{"plan", "report"}, names)
+
+	call(t, session, "remove_block", map[string]any{"session": id, "canvas": "plan", "id": "pr"}, &got)
 	require.Len(t, got.Blocks, 1)
 
-	call(t, session, "clear_canvas", map[string]any{"session": id}, &got)
+	call(t, session, "clear_canvas", map[string]any{"session": id, "canvas": "plan"}, &got)
+	assert.Empty(t, got.Blocks)
+	assert.Equal(t, "The Plan", got.Title, "clear keeps the canvas and its title")
+
+	call(t, session, "read_canvas", map[string]any{"session": id, "canvas": "plan"}, &got)
 	assert.Empty(t, got.Blocks)
 
-	call(t, session, "read_canvas", map[string]any{"session": id}, &got)
-	assert.Empty(t, got.Blocks)
+	var deleted struct {
+		Deleted string `json:"deleted"`
+	}
+	call(t, session, "delete_canvas", map[string]any{"session": id, "canvas": "report"}, &deleted)
+	assert.Equal(t, "report", deleted.Deleted)
+	call(t, session, "list_canvases", map[string]any{"session": id}, &listed)
+	require.Len(t, listed.Canvases, 1)
+	assert.Equal(t, "plan", listed.Canvases[0].Name)
 }
 
 func TestCanvasToolErrors(t *testing.T) {
 	core, session := testCanvasSession(t)
 	id := seedAgentSession(t, core, "demo", "chat")
 
-	text := callErr(t, session, "read_canvas", map[string]any{"session": 999})
+	text := callErr(t, session, "read_canvas", map[string]any{"session": 999, "canvas": "plan"})
 	assert.Contains(t, text, "not_found")
 
-	text = callErr(t, session, "remove_block", map[string]any{"session": id, "id": "ghost"})
+	text = callErr(t, session, "read_canvas", map[string]any{"session": id, "canvas": "ghost"})
+	assert.Contains(t, text, "not_found", "a name nothing was written under is not_found, not blank")
+
+	text = callErr(t, session, "delete_canvas", map[string]any{"session": id, "canvas": "ghost"})
 	assert.Contains(t, text, "not_found")
 
-	text = callErr(t, session, "put_block", map[string]any{"session": id, "id": "a", "kind": "html", "body": "x"})
+	var got canvasView
+	call(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x"}, &got)
+	text = callErr(t, session, "remove_block", map[string]any{"session": id, "canvas": "plan", "id": "ghost"})
+	assert.Contains(t, text, "not_found")
+
+	text = callErr(t, session, "put_block", map[string]any{"session": id, "canvas": "Bad Name", "id": "a", "kind": "markdown", "body": "x"})
+	assert.Contains(t, text, "invalid")
+
+	text = callErr(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "html", "body": "x"})
 	assert.Contains(t, text, "invalid")
 
 	text = callErr(t, session, "put_block", map[string]any{
-		"session": id, "id": "a", "kind": "link", "title": "x", "url": "javascript:alert(1)",
+		"session": id, "canvas": "plan", "id": "a", "kind": "link", "title": "x", "url": "javascript:alert(1)",
 	})
 	assert.Contains(t, text, "invalid")
 }
@@ -194,8 +241,11 @@ func TestCanvasMountedBesideTheDesktopServer(t *testing.T) {
 	t.Cleanup(func() { _ = canvasSession.Close() })
 
 	var got canvasView
-	call(t, canvasSession, "read_canvas", map[string]any{"session": id}, &got)
+	call(t, canvasSession, "put_block", map[string]any{
+		"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x",
+	}, &got)
 	assert.Equal(t, "demo", got.Workspace)
+	assert.Equal(t, "plan", got.Name)
 
 	// The desktop server still answers at its own path with its own table.
 	desktopSession, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil).

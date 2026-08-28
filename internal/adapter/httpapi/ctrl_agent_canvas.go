@@ -11,7 +11,7 @@ import (
 
 // The canvas surface here is reads only: writes arrive exclusively through
 // the hive-canvas MCP tools, so the pane can never race the agent through a
-// second mutation path (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+// second mutation path (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 
 type agentCanvasBlock struct {
 	ID        string `json:"id"`
@@ -25,6 +25,8 @@ type agentCanvasBlock struct {
 
 type agentCanvasView struct {
 	Workspace string             `json:"workspace"`
+	Name      string             `json:"name"`
+	Title     string             `json:"title"`
 	Session   int64              `json:"session"`
 	CreatedAt int64              `json:"createdAt"`
 	UpdatedAt int64              `json:"updatedAt"`
@@ -33,6 +35,8 @@ type agentCanvasView struct {
 
 type agentCanvasMeta struct {
 	Workspace  string `json:"workspace"`
+	Name       string `json:"name"`
+	Title      string `json:"title"`
 	Session    int64  `json:"session"`
 	CreatedAt  int64  `json:"createdAt"`
 	UpdatedAt  int64  `json:"updatedAt"`
@@ -40,20 +44,26 @@ type agentCanvasMeta struct {
 }
 
 type agentCanvasRequest struct {
-	Session int64 `json:"session"`
+	Workspace string `json:"workspace"`
+	Name      string `json:"name"`
 }
 
 func (b agentCanvasRequest) Validate() error {
-	return criterio.Run("session", b.Session, criterio.Positive[int64]())
+	return criterio.ValidateStruct(
+		criterio.Run("workspace", b.Workspace, criterio.Required),
+		criterio.Run("name", b.Name, criterio.Required),
+	)
 }
 
-// AgentCanvas reads one chat session's canvas.
+// AgentCanvas reads one canvas by workspace and name. A name nothing was
+// written under answers an empty canvas, so the pane never errors on a
+// canvas deleted while it was open.
 func (ctrl *Controller) AgentCanvas(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentCanvasRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}
-	c, err := ctrl.core.Canvas.Get(r.Context(), body.Session)
+	c, err := ctrl.core.Canvas.GetForWorkspace(r.Context(), body.Workspace, body.Name)
 	if err != nil {
 		return err
 	}
@@ -85,7 +95,7 @@ func (ctrl *Controller) AgentCanvasList(w http.ResponseWriter, r *http.Request) 
 	views := make([]agentCanvasMeta, 0, len(metas))
 	for _, m := range metas {
 		views = append(views, agentCanvasMeta{
-			Workspace: m.Workspace, Session: m.Session,
+			Workspace: m.Workspace, Name: m.Name, Title: m.Title, Session: m.Session,
 			CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, BlockCount: m.BlockCount,
 		})
 	}
@@ -101,7 +111,7 @@ func toAgentCanvasView(c canvas.Canvas) agentCanvasView {
 		})
 	}
 	return agentCanvasView{
-		Workspace: c.Workspace, Session: c.Session,
+		Workspace: c.Workspace, Name: c.Name, Title: c.Title, Session: c.Session,
 		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, Blocks: blocks,
 	}
 }

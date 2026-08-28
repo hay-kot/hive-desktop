@@ -22,8 +22,8 @@ const canvasServerName = "hive-canvas"
 // CanvasController is the canvas server's half of what Controller is for the
 // app-control surface: a separate server with its own small tool table, so a
 // workspace can enable the canvas without the app-driving tools
-// (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry). Same stateless posture,
-// same loopback threat model.
+// (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+// Same stateless posture, same loopback threat model.
 type CanvasController struct {
 	core *app.App
 	log  zerolog.Logger
@@ -46,8 +46,8 @@ func (ctrl *CanvasController) Server() *mcp.Server {
 		Name:    canvasServerName,
 		Title:   "Hive Canvas",
 		Version: version,
-		Description: "This chat's canvas: put markdown and link blocks in front of the user in a pane " +
-			"beside the conversation, revise them in place, and read back what is showing.",
+		Description: "The workspace's canvases: named surfaces of markdown and link blocks shown to the user " +
+			"in a pane beside the conversation. Put blocks, revise them in place, and read back what is showing.",
 	}, nil)
 	ctrl.register(srv)
 	return srv

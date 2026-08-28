@@ -20,25 +20,30 @@ func TestAgentCanvasReadsOverTheWire(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	resp := h.post(t, AgentWorkspacesPathPrefix+"canvas", "", agentCanvasRequest{Session: rec.ID})
+	resp := h.post(t, AgentWorkspacesPathPrefix+"canvas", "", agentCanvasRequest{Workspace: "demo", Name: "plan"})
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the canvas read rides the terminal bearer gate")
 
-	resp = h.post(t, AgentWorkspacesPathPrefix+"canvas", testToken, agentCanvasRequest{Session: 999})
-	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "an unknown session is 404, not an empty canvas")
-
-	resp = h.post(t, AgentWorkspacesPathPrefix+"canvas", testToken, agentCanvasRequest{Session: rec.ID})
+	resp = h.post(t, AgentWorkspacesPathPrefix+"canvas", testToken, agentCanvasRequest{Workspace: "demo", Name: "plan"})
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var view agentCanvasView
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&view))
 	assert.Equal(t, "demo", view.Workspace)
+	assert.Equal(t, "plan", view.Name)
 	require.NotNil(t, view.Blocks, "blocks is never null on the wire")
-	assert.Empty(t, view.Blocks)
+	assert.Empty(t, view.Blocks, "a name nothing was written under answers empty, not an error")
 
-	_, err = h.core.Canvas.PutBlock(t.Context(), rec.ID, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "hello"})
+	_, err = h.core.Canvas.PutBlock(t.Context(), rec.ID, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "hello"})
 	require.NoError(t, err)
+
+	resp = h.post(t, AgentWorkspacesPathPrefix+"canvas", testToken, agentCanvasRequest{Workspace: "demo", Name: "plan"})
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&view))
+	assert.Equal(t, "The Plan", view.Title)
+	assert.Equal(t, rec.ID, view.Session)
+	require.Len(t, view.Blocks, 1)
 
 	listResp := h.post(t, AgentWorkspacesPathPrefix+"canvases", testToken, agentCanvasListRequest{Workspace: "demo"})
 	defer func() { _ = listResp.Body.Close() }()
@@ -46,6 +51,8 @@ func TestAgentCanvasReadsOverTheWire(t *testing.T) {
 	var list agentCanvasListResponse
 	require.NoError(t, json.NewDecoder(listResp.Body).Decode(&list))
 	require.Len(t, list.Canvases, 1)
+	assert.Equal(t, "plan", list.Canvases[0].Name)
+	assert.Equal(t, "The Plan", list.Canvases[0].Title)
 	assert.Equal(t, rec.ID, list.Canvases[0].Session)
 	assert.Equal(t, 1, list.Canvases[0].BlockCount)
 

@@ -4,15 +4,19 @@ The `hive-canvas` MCP server is the chat's output surface: its tools put
 content in front of the user in a pane beside the conversation, in the Agents
 area, while the session keeps running. It is the difference between describing
 a document in terminal scrollback and handing the user one to read
-(ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+(ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 
 Like `hive-desktop`, the server is the running app itself — nothing to
 install, nothing to fetch. It is a separate entry so a workspace can have a
 canvas without granting the app-control tool set, and the other way around.
 
-## What goes on a canvas
+## What a canvas is
 
-A canvas is an ordered list of blocks, one canvas per chat session:
+A canvas is a named artifact in the workspace: an ordered list of blocks,
+saved as `canvases/<name>.json` in the workspace folder. A chat can make as
+many as it needs — name them by artifact (`release-notes`, `perf-report`),
+give each a display title, and they outlive the conversation that made them.
+Blocks are:
 
 - **markdown** — a title (optional) and a body, rendered as GitHub-flavored
   markdown. Raw HTML in the body is escaped, not rendered.
@@ -24,14 +28,18 @@ which is how a status line is revised instead of duplicated.
 
 ## Tools
 
-- `put_block` — create or replace one block.
+- `put_block` — create or replace one block; the first write under a new
+  canvas name creates that canvas.
 - `remove_block` — remove one block by id.
-- `clear_canvas` — remove every block; the canvas itself survives.
-- `read_canvas` — read the canvas exactly as the user sees it.
+- `clear_canvas` — remove every block; the canvas, its name and title survive.
+- `delete_canvas` — remove a canvas entirely.
+- `read_canvas` — read one canvas exactly as the user sees it.
+- `list_canvases` — every canvas in the workspace, including ones earlier
+  chats made.
 
-Every tool takes a `session` id naming the chat whose canvas it touches. Hive
-sets it in the launched process's environment as `HIVE_AGENT_SESSION`; a chat
-launched before canvas support existed does not have the variable until it is
+Every tool takes a `session` id naming the calling chat. Hive sets it in the
+launched process's environment as `HIVE_AGENT_SESSION`; a chat launched
+before canvas support existed does not have the variable until it is
 relaunched.
 
 ## Launch
@@ -49,4 +57,4 @@ registry** — the live address is resolved when the catalogue is rendered
 the loopback server is disabled.
 
 The server requires no token. It sits behind the loopback bind, spawns no
-processes, and writes nothing outside the canvas pane the user is looking at.
+processes, and writes only under the workspace's `canvases/` directory.

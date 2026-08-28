@@ -421,11 +421,10 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
-	canvasStore := canvas.NewStore(filepath.Join(cfg.Paths.StateDir, "canvases"))
-	a.Canvas = newCanvasService(canvasStore, a.Store, func(workspace string, session int64) {
+	a.Canvas = newCanvasService(canvas.NewStore(cfg.Paths.AgentWorkspacesDir), a.Store, func(workspace string, session int64) {
 		a.Events.Publish(a.ctx, events.CanvasUpdated{Workspace: workspace, Session: session})
 	})
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL, canvasStore)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL)
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
 	// Tasks answering KindUnavailable instead.

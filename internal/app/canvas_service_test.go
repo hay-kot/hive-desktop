@@ -40,22 +40,35 @@ func TestCanvasUnknownSessionIsNotFound(t *testing.T) {
 	svc, _ := testCanvasService(t)
 	ctx := t.Context()
 
-	_, err := svc.Get(ctx, 99)
+	_, err := svc.Get(ctx, 99, "plan")
 	assert.Equal(t, KindNotFound, KindOf(err))
-	_, err = svc.PutBlock(ctx, 99, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = svc.PutBlock(ctx, 99, "plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindNotFound, KindOf(err))
-	_, err = svc.RemoveBlock(ctx, 99, "a")
+	_, err = svc.RemoveBlock(ctx, 99, "plan", "a")
 	assert.Equal(t, KindNotFound, KindOf(err))
-	_, err = svc.Clear(ctx, 99)
+	_, err = svc.Clear(ctx, 99, "plan")
+	assert.Equal(t, KindNotFound, KindOf(err))
+	err = svc.Delete(ctx, 99, "plan")
+	assert.Equal(t, KindNotFound, KindOf(err))
+	_, err = svc.List(ctx, 99)
 	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
-func TestCanvasGetOnUnwrittenSessionAnswersEmpty(t *testing.T) {
+func TestCanvasGetUnknownNameIsNotFound(t *testing.T) {
 	svc, updates := testCanvasService(t)
 
-	c, err := svc.Get(t.Context(), 1)
+	_, err := svc.Get(t.Context(), 1, "plan")
+	assert.Equal(t, KindNotFound, KindOf(err), "an agent asking by name should learn the name is wrong")
+	assert.Empty(t, *updates, "a read never notifies")
+}
+
+func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
+	svc, updates := testCanvasService(t)
+
+	c, err := svc.GetForWorkspace(t.Context(), "ws", "plan")
 	require.NoError(t, err)
-	assert.Equal(t, "ws", c.Workspace, "the workspace comes from the session record")
+	assert.Equal(t, "ws", c.Workspace)
+	assert.Equal(t, "plan", c.Name)
 	assert.NotNil(t, c.Blocks)
 	assert.Empty(t, c.Blocks)
 	assert.Empty(t, *updates, "a read never notifies")
@@ -78,9 +91,15 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 		"javascript url":        {ID: "a", Kind: canvas.KindLink, Title: "t", URL: "javascript:alert(1)"},
 	}
 	for name, block := range cases {
-		_, err := svc.PutBlock(ctx, 1, block)
+		_, err := svc.PutBlock(ctx, 1, "plan", "", block)
 		assert.Equal(t, KindInvalid, KindOf(err), name)
 	}
+
+	_, err := svc.PutBlock(ctx, 1, "Bad Name", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	assert.Equal(t, KindInvalid, KindOf(err), "an invalid canvas name is the caller's mistake")
+	_, err = svc.PutBlock(ctx, 1, "plan", strings.Repeat("t", maxCanvasTitleLength+1), canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	assert.Equal(t, KindInvalid, KindOf(err), "an oversized canvas title is refused")
+
 	assert.Empty(t, *updates, "a refused write never notifies")
 }
 
@@ -88,25 +107,44 @@ func TestCanvasMutationsNotify(t *testing.T) {
 	svc, updates := testCanvasService(t)
 	ctx := t.Context()
 
-	_, err := svc.PutBlock(ctx, 1, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err := svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
-	_, err = svc.PutBlock(ctx, 1, canvas.Block{ID: "pr", Kind: canvas.KindLink, Title: "PR", URL: "https://example.com/pr/1"})
+	_, err = svc.PutBlock(ctx, 1, "plan", "", canvas.Block{ID: "pr", Kind: canvas.KindLink, Title: "PR", URL: "https://example.com/pr/1"})
 	require.NoError(t, err)
-	_, err = svc.RemoveBlock(ctx, 1, "pr")
+	_, err = svc.RemoveBlock(ctx, 1, "plan", "pr")
 	require.NoError(t, err)
-	c, err := svc.Clear(ctx, 1)
+	c, err := svc.Clear(ctx, 1, "plan")
 	require.NoError(t, err)
 	assert.Empty(t, c.Blocks)
+	assert.Equal(t, "The Plan", c.Title)
+	err = svc.Delete(ctx, 1, "plan")
+	require.NoError(t, err)
 
-	require.Len(t, *updates, 4)
+	require.Len(t, *updates, 5)
 	for _, update := range *updates {
 		assert.Equal(t, canvasUpdate{"ws", 1}, update)
 	}
 }
 
+func TestCanvasMutationsOnUnknownCanvasAreNotFound(t *testing.T) {
+	svc, updates := testCanvasService(t)
+	ctx := t.Context()
+
+	_, err := svc.RemoveBlock(ctx, 1, "ghost", "a")
+	assert.Equal(t, KindNotFound, KindOf(err))
+	_, err = svc.Clear(ctx, 1, "ghost")
+	assert.Equal(t, KindNotFound, KindOf(err))
+	err = svc.Delete(ctx, 1, "ghost")
+	assert.Equal(t, KindNotFound, KindOf(err))
+	assert.Empty(t, *updates)
+}
+
 func TestCanvasRemoveAbsentBlockIsNotFound(t *testing.T) {
 	svc, _ := testCanvasService(t)
-	_, err := svc.RemoveBlock(t.Context(), 1, "ghost")
+	ctx := t.Context()
+	_, err := svc.PutBlock(ctx, 1, "plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	require.NoError(t, err)
+	_, err = svc.RemoveBlock(ctx, 1, "plan", "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
@@ -118,12 +156,18 @@ func TestCanvasListForWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, metas)
 
-	_, err = svc.PutBlock(ctx, 1, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 	metas, err = svc.ListForWorkspace(ctx, "ws")
 	require.NoError(t, err)
 	require.Len(t, metas, 1)
+	assert.Equal(t, "plan", metas[0].Name)
+	assert.Equal(t, "The Plan", metas[0].Title)
 	assert.Equal(t, int64(1), metas[0].Session)
+
+	fromSession, err := svc.List(ctx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, metas, fromSession, "List resolves the session's workspace and answers the same rows")
 
 	_, err = svc.ListForWorkspace(ctx, "../escape")
 	assert.Equal(t, KindInvalid, KindOf(err))

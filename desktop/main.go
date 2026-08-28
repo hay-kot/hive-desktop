@@ -165,7 +165,7 @@ func main() {
 	}
 	// The canvas MCP server is a separate mount and catalogue entry, so a
 	// workspace can enable the canvas without the app-control tool set
-	// (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+	// (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 	if core.MountAPI(mcpsrv.CanvasPathPrefix, mcpsrv.NewCanvas(core, logger, mcpsrv.Options{Version: version}).Handler()) {
 		logger.Info().Str("path", mcpsrv.CanvasPathPrefix).Msg("canvas MCP server mounted")
 	}

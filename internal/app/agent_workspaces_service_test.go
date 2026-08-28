@@ -40,7 +40,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	require.NoError(t, awStore.Reload())
 
 	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL }, canvas.NewStore(t.TempDir()))
+		func(context.Context) string { return testMCPBaseURL })
 }
 
 // testMCPBaseURL stands in for this run's loopback base URL, which the
@@ -312,20 +312,17 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, liveAgentSessionCount(t, svc))
 
-	canvases, isStore := svc.canvases.(*canvas.Store)
-	require.True(t, isStore)
-	_, err = canvases.Upsert("demo", s1.ID, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
-	require.NoError(t, err)
-	_, err = canvases.Upsert("demo", s2.ID, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	canvases := canvas.NewStore(root)
+	_, err = canvases.Upsert("demo", "plan", s1.ID, "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
 	_, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), s1.ID)
 	require.NoError(t, err)
 	assert.False(t, ok, "the record is gone too")
-	_, ok, err = canvases.Load("demo", s1.ID)
+	_, ok, err = canvases.Load("demo", "plan")
 	require.NoError(t, err)
-	assert.False(t, ok, "the session's canvas dies with its record")
+	assert.True(t, ok, "the canvas outlives the chat that made it")
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
@@ -334,7 +331,7 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	assert.False(t, ok)
 	metas, err := canvases.List("demo")
 	require.NoError(t, err)
-	assert.Empty(t, metas, "the workspace's canvases go with it")
+	assert.Len(t, metas, 1, "canvases live in the workspace folder, which deletion never touches")
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "every live terminal the workspace held is gone")
 }
 

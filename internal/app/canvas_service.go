@@ -14,18 +14,22 @@ import (
 // cannot make the pane unrenderable.
 const maxCanvasBodyBytes = 256 * 1024
 
-const maxCanvasBlockIDLength = 200
+const (
+	maxCanvasBlockIDLength = 200
+	maxCanvasTitleLength   = 200
+)
 
-// canvasSessionResolver is the one store read every canvas operation starts
+// canvasSessionResolver is the one store read every canvas mutation starts
 // with: the session record is the authority on which workspace a canvas
-// belongs to, so a caller never names the workspace itself.
+// belongs to, so an agent never names the workspace itself.
 type canvasSessionResolver interface {
 	GetAgentWorkspaceSession(ctx context.Context, id int64) (store.AgentWorkspaceSession, bool, error)
 }
 
-// CanvasService is the per-chat canvas: agent-written blocks the Agents area
-// shows beside the conversation. Writes arrive only through the hive-canvas
-// MCP tools; the frontend reads (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+// CanvasService is the workspace's canvases: named, agent-written artifacts
+// the Agents area shows beside the conversation. Writes arrive only through
+// the hive-canvas MCP tools; the frontend reads
+// (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 type CanvasService struct {
 	store     *canvas.Store
 	sessions  canvasSessionResolver
@@ -36,76 +40,122 @@ func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpd
 	return &CanvasService{store: store, sessions: sessions, onUpdated: onUpdated}
 }
 
-// Get returns a session's canvas. A session that exists but has never been
-// written to answers an empty canvas — emptiness is an answer; not_found
-// means the session id itself resolves to nothing.
-func (s *CanvasService) Get(ctx context.Context, session int64) (canvas.Canvas, error) {
+// Get returns one canvas in the calling session's workspace. A name nothing
+// was ever written under is not_found — unlike the pane, an agent asking for
+// a canvas by name should learn the name is wrong, not see a blank surface.
+func (s *CanvasService) Get(ctx context.Context, session int64, name string) (canvas.Canvas, error) {
 	rec, err := s.resolve(ctx, session)
 	if err != nil {
 		return canvas.Canvas{}, err
 	}
-	c, ok, err := s.store.Load(rec.Workspace, session)
+	c, ok, err := s.store.Load(rec.Workspace, name)
 	if err != nil {
-		return canvas.Canvas{}, Wrap(err, KindInternal, "loading canvas for session %d", session)
+		return canvas.Canvas{}, s.storeError(err, name)
 	}
 	if !ok {
-		return canvas.Canvas{Workspace: rec.Workspace, Session: session, Blocks: []canvas.Block{}}, nil
+		return canvas.Canvas{}, Errorf(KindNotFound, "no canvas named %q in this workspace", name)
 	}
 	return c, nil
 }
 
-// PutBlock creates or replaces one block on a session's canvas and returns
-// the canvas after the write.
-func (s *CanvasService) PutBlock(ctx context.Context, session int64, b canvas.Block) (canvas.Canvas, error) {
+// PutBlock creates or replaces one block, creating the canvas on its first
+// write. A non-empty title renames the canvas; empty leaves the stored one.
+// Returns the canvas after the write.
+func (s *CanvasService) PutBlock(ctx context.Context, session int64, name, title string, b canvas.Block) (canvas.Canvas, error) {
 	rec, err := s.resolve(ctx, session)
 	if err != nil {
 		return canvas.Canvas{}, err
 	}
+	if len(title) > maxCanvasTitleLength {
+		return canvas.Canvas{}, Errorf(KindInvalid, "canvas title is too long (%d chars max)", maxCanvasTitleLength)
+	}
 	if err := validateBlock(&b); err != nil {
 		return canvas.Canvas{}, err
 	}
-	c, err := s.store.Upsert(rec.Workspace, session, b)
+	c, err := s.store.Upsert(rec.Workspace, name, session, title, b)
 	if err != nil {
-		return canvas.Canvas{}, Wrap(err, KindInternal, "writing block %q for session %d", b.ID, session)
+		return canvas.Canvas{}, s.storeError(err, name)
 	}
 	s.notify(rec.Workspace, session)
 	return c, nil
 }
 
 // RemoveBlock deletes one block by id and returns the canvas that remains.
-func (s *CanvasService) RemoveBlock(ctx context.Context, session int64, blockID string) (canvas.Canvas, error) {
+func (s *CanvasService) RemoveBlock(ctx context.Context, session int64, name, blockID string) (canvas.Canvas, error) {
 	rec, err := s.resolve(ctx, session)
 	if err != nil {
 		return canvas.Canvas{}, err
 	}
-	c, removed, err := s.store.Remove(rec.Workspace, session, blockID)
+	c, removed, err := s.store.Remove(rec.Workspace, name, blockID)
 	if err != nil {
-		return canvas.Canvas{}, Wrap(err, KindInternal, "removing block %q for session %d", blockID, session)
+		return canvas.Canvas{}, s.storeError(err, name)
 	}
 	if !removed {
-		return canvas.Canvas{}, Errorf(KindNotFound, "no block %q on this canvas", blockID)
+		return canvas.Canvas{}, Errorf(KindNotFound, "no block %q on canvas %q", blockID, name)
 	}
 	s.notify(rec.Workspace, session)
 	return c, nil
 }
 
-// Clear removes every block at once; the canvas itself survives.
-func (s *CanvasService) Clear(ctx context.Context, session int64) (canvas.Canvas, error) {
+// Clear removes every block at once; the canvas, its title and its file
+// survive.
+func (s *CanvasService) Clear(ctx context.Context, session int64, name string) (canvas.Canvas, error) {
 	rec, err := s.resolve(ctx, session)
 	if err != nil {
 		return canvas.Canvas{}, err
 	}
-	c, err := s.store.Clear(rec.Workspace, session)
+	c, err := s.store.Clear(rec.Workspace, name)
 	if err != nil {
-		return canvas.Canvas{}, Wrap(err, KindInternal, "clearing canvas for session %d", session)
+		return canvas.Canvas{}, s.storeError(err, name)
 	}
 	s.notify(rec.Workspace, session)
+	return c, nil
+}
+
+// Delete removes one canvas file entirely.
+func (s *CanvasService) Delete(ctx context.Context, session int64, name string) error {
+	rec, err := s.resolve(ctx, session)
+	if err != nil {
+		return err
+	}
+	existed, err := s.store.Delete(rec.Workspace, name)
+	if err != nil {
+		return s.storeError(err, name)
+	}
+	if !existed {
+		return Errorf(KindNotFound, "no canvas named %q in this workspace", name)
+	}
+	s.notify(rec.Workspace, session)
+	return nil
+}
+
+// List returns the calling session's workspace canvases, most recently
+// updated first.
+func (s *CanvasService) List(ctx context.Context, session int64) ([]canvas.Meta, error) {
+	rec, err := s.resolve(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	return s.ListForWorkspace(ctx, rec.Workspace)
+}
+
+// GetForWorkspace is the pane's read: workspace-addressed, and a name
+// nothing was written under answers an empty canvas rather than an error, so
+// the pane never flashes a failure for a canvas that was deleted under it.
+func (s *CanvasService) GetForWorkspace(_ context.Context, dir, name string) (canvas.Canvas, error) {
+	c, ok, err := s.store.Load(dir, name)
+	if err != nil {
+		return canvas.Canvas{}, s.storeError(err, name)
+	}
+	if !ok {
+		return canvas.Canvas{Workspace: dir, Name: name, Blocks: []canvas.Block{}}, nil
+	}
 	return c, nil
 }
 
 // ListForWorkspace returns a workspace's canvas metadata, most recently
-// updated first. A canvas whose session record is gone still lists — the
-// content outlives the chat, and the UI labels the orphan by date.
+// updated first. A canvas whose creating chat is gone still lists — the
+// artifact outlives the chat that produced it.
 func (s *CanvasService) ListForWorkspace(_ context.Context, dir string) ([]canvas.Meta, error) {
 	metas, err := s.store.List(dir)
 	if err != nil {
@@ -129,6 +179,22 @@ func (s *CanvasService) resolve(ctx context.Context, session int64) (store.Agent
 		return store.AgentWorkspaceSession{}, Errorf(KindNotFound, "session %d not found", session)
 	}
 	return rec, nil
+}
+
+// storeError maps the store's sentinel errors onto typed service errors, so
+// a bad name or a missing canvas reads as the caller's mistake, not an
+// internal failure.
+func (s *CanvasService) storeError(err error, name string) error {
+	switch {
+	case errors.Is(err, canvas.ErrInvalidName):
+		return Errorf(KindInvalid, "canvas name %q is not allowed: use a short lowercase name like release-notes (letters, digits, dots, hyphens, underscores)", name)
+	case errors.Is(err, canvas.ErrInvalidWorkspace):
+		return Errorf(KindInvalid, "workspace is not a valid workspace directory name")
+	case errors.Is(err, canvas.ErrNotFound):
+		return Errorf(KindNotFound, "no canvas named %q in this workspace", name)
+	default:
+		return Wrap(err, KindInternal, "canvas %q", name)
+	}
 }
 
 func (s *CanvasService) notify(workspace string, session int64) {

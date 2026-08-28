@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentCanvasPane from '../AgentCanvasPane.vue'
-import { openSelect } from '../../test-utils/select'
+import { chooseOption, openSelect } from '../../test-utils/select'
 import type { AgentWorkspacesClient, CanvasBlock, ChatCanvasMeta } from '../../lib/agentWorkspacesClient'
 
 const wailsEvents = vi.hoisted(() => ({
@@ -22,16 +22,21 @@ function block(overrides: Partial<CanvasBlock>): CanvasBlock {
   return { id: 'b', kind: 'markdown', title: '', body: '', url: '', createdAt: 1, updatedAt: 1, ...overrides }
 }
 
-function fakeCanvasClient(blocks: CanvasBlock[], metas: ChatCanvasMeta[] = []) {
+function meta(overrides: Partial<ChatCanvasMeta>): ChatCanvasMeta {
+  return { workspace: 'web-app', name: 'plan', title: '', session: 7, createdAt: 1, updatedAt: 1, blockCount: 1, ...overrides }
+}
+
+function fakeCanvasClient(blocks: CanvasBlock[], metas: ChatCanvasMeta[] = [meta({})]) {
   return {
-    canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', session: 7, createdAt: 1, updatedAt: 1, blocks }),
+    canvas: vi.fn().mockImplementation((workspace: string, name: string) =>
+      Promise.resolve({ workspace, name, title: '', session: 7, createdAt: 1, updatedAt: 1, blocks })),
     canvases: vi.fn().mockResolvedValue(metas),
   } as unknown as AgentWorkspacesClient
 }
 
-async function mountPane(client: AgentWorkspacesClient, sessionNames: Record<number, string> = { 7: 'New Chat' }) {
+async function mountPane(client: AgentWorkspacesClient, name: string | null = null) {
   const wrapper = mount(AgentCanvasPane, {
-    props: { session: 7, workspace: 'web-app', sessionNames, client },
+    props: { session: 7, workspace: 'web-app', name, client },
   })
   await flushPromises()
   return wrapper
@@ -78,24 +83,49 @@ describe('AgentCanvasPane', () => {
     expect(wrapper.emitted('open-url')).toEqual([['https://example.com/pr/1']])
   })
 
-  it('shows the empty state for a canvas with no blocks', async () => {
-    const wrapper = await mountPane(fakeCanvasClient([]))
+  it('shows the empty state when the workspace has no canvases', async () => {
+    const wrapper = await mountPane(fakeCanvasClient([], []))
     expect(wrapper.find('[data-testid="agent-canvas-empty"]').exists()).toBe(true)
   })
 
-  // The picker labels canvases by session name; a canvas whose session record
-  // is gone still lists, labeled by date instead of by a name nothing has.
-  it('labels an orphaned canvas by date in the picker', async () => {
-    const metas: ChatCanvasMeta[] = [
-      { workspace: 'web-app', session: 7, createdAt: 1, updatedAt: Date.now(), blockCount: 1 },
-      { workspace: 'web-app', session: 9, createdAt: 1, updatedAt: Date.now(), blockCount: 2 },
-    ]
-    const wrapper = await mountPane(fakeCanvasClient([], metas))
+  // No route-pinned name: the default pick prefers the open chat's canvas
+  // over a more recently updated one another chat made.
+  it('defaults to the open chat\'s canvas', async () => {
+    const client = fakeCanvasClient([], [
+      meta({ name: 'other-report', session: 9, updatedAt: 5 }),
+      meta({ name: 'plan', session: 7, updatedAt: 3 }),
+    ])
+    await mountPane(client)
+
+    expect(vi.mocked(client.canvas)).toHaveBeenCalledWith('web-app', 'plan')
+  })
+
+  it('pins the route-named canvas and labels the picker by title', async () => {
+    const client = fakeCanvasClient([], [
+      meta({ name: 'plan', title: 'The Plan', session: 7 }),
+      meta({ name: 'perf-report', title: '', session: 9 }),
+    ])
+    const wrapper = await mountPane(client, 'perf-report')
+
+    expect(vi.mocked(client.canvas)).toHaveBeenCalledWith('web-app', 'perf-report')
 
     const popover = await openSelect(wrapper, 'agent-canvas-picker')
     const labels = Array.from(popover.querySelectorAll('[role="option"]')).map((option) => option.textContent?.trim())
-    expect(labels).toContain('New Chat')
-    expect(labels?.some((label) => label?.startsWith('Canvas ·'))).toBe(true)
+    expect(labels).toContain('The Plan')
+    expect(labels).toContain('perf-report')
+  })
+
+  it('emits pick instead of switching locally', async () => {
+    const client = fakeCanvasClient([], [
+      meta({ name: 'plan', title: 'The Plan', session: 7 }),
+      meta({ name: 'perf-report', session: 9 }),
+    ])
+    const wrapper = await mountPane(client)
+
+    await chooseOption(wrapper, 'agent-canvas-picker', 'perf-report')
+    await flushPromises()
+
+    expect(wrapper.emitted('pick')).toEqual([['perf-report']])
   })
 
   it('re-reads the canvas on canvas:updated', async () => {

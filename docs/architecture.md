@@ -1457,7 +1457,10 @@ directory splits **authored** files a user (or an agent, via the
 `hive-agent-workspaces` skill) writes — `agent-workspace.yaml`, `AGENTS.md`,
 `docs/` — from **generated** ones `agentws.Generate` produces on every open —
 `CLAUDE.md`, `.mcp.json`, `.codex/config.toml`, `.claude/skills/`,
-`.agents/skills/`, an empty `docs/` seed. ADR workspace-directories-are-generated-and-disposable is the contract behind that
+`.agents/skills/`, an empty `docs/` seed. A third kind sits beside both:
+`canvases/` holds agent-produced artifacts written through the `hive-canvas`
+MCP tools — durable output, neither reconciled nor regenerated, described
+later in this section. ADR workspace-directories-are-generated-and-disposable is the contract behind that
 split: generated output is disposable, never drift-tracked, and a hand edit to
 it is silently replaced on the next open, because Hive owns this whole
 subtree. This is the only installer: nothing writes a skill into an agent's
@@ -1538,20 +1541,25 @@ alongside whatever the user's own global codex config already has, and the UI
 states that rather than leaving an unbounded tool set looking identical to a
 bounded one.
 
-Each chat session may have a **canvas** — agent-written markdown and link
+A chat's agent may write **canvases** — named surfaces of markdown and link
 blocks shown in a pane beside the conversation
-(ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry). Content is
-one JSON file per session under `<StateDir>/canvases/<workspace>/`, owned by
-`internal/app/canvas` and served by `CanvasService`, which resolves every
-call through the session record — the record is the authority on the
-workspace, and its deletion deletes the canvas. Writes exist only as the
-`hive-canvas` MCP tools (a second app-hosted server in `mcpsrv`, mounted at
-`/mcp/canvas`); the frontend reads over the agents HTTP client and re-reads
-on the coalesced `canvas:updated` wake-up. The agent learns its own session
-id from `HIVE_AGENT_SESSION`, injected at launch via `tmux new-session -e`.
-An app-hosted catalogue entry declares its mount as `Descriptor.RuntimePath`,
-joined with the live loopback base when the catalogue is rendered; a pinning
-test in `mcpsrv` keeps those paths agreeing with the adapter's constants.
+(ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+Each is one JSON file at `<workspace>/canvases/<name>.json` in the workspace
+folder, owned by `internal/app/canvas` and served by `CanvasService`: a
+canvas is keyed by (workspace, name), carries a display title and the
+creating session as provenance, and outlives both the chat and the workspace
+record — deletion never touches the workspace directory, and the generator's
+reconcile never enters `canvases/`. Every mutation resolves the workspace
+through the session record — the record is the authority, the agent never
+names the workspace. Writes exist only as the `hive-canvas` MCP tools (a
+second app-hosted server in `mcpsrv`, mounted at `/mcp/canvas`); the
+frontend reads over the agents HTTP client, addressed by (workspace, name),
+and re-reads on the coalesced `canvas:updated` wake-up. The agent learns its
+own session id from `HIVE_AGENT_SESSION`, injected at launch via
+`tmux new-session -e`. An app-hosted catalogue entry declares its mount as
+`Descriptor.RuntimePath`, joined with the live loopback base when the
+catalogue is rendered; a pinning test in `mcpsrv` keeps those paths agreeing
+with the adapter's constants.
 
 `agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
 or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is

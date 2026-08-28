@@ -177,7 +177,7 @@ export interface MissingSkillPackage {
   selectedBy: string[]
 }
 
-/** One block on a chat's canvas; kind decides which content field is set. */
+/** One block on a canvas; kind decides which content field is set. */
 export interface CanvasBlock {
   id: string
   kind: 'markdown' | 'link' | string
@@ -188,9 +188,11 @@ export interface CanvasBlock {
   updatedAt: number
 }
 
-/** One chat session's canvas, blocks in display order. */
+/** One named canvas in a workspace, blocks in display order. `session` is the chat that created it. */
 export interface ChatCanvas {
   workspace: string
+  name: string
+  title: string
   session: number
   createdAt: number
   updatedAt: number
@@ -200,6 +202,8 @@ export interface ChatCanvas {
 /** One row of a workspace's canvas listing — metadata only, for the picker. */
 export interface ChatCanvasMeta {
   workspace: string
+  name: string
+  title: string
   session: number
   createdAt: number
   updatedAt: number
@@ -272,8 +276,8 @@ export interface AgentWorkspacesClient {
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
-  /** One chat session's canvas; a session with no canvas answers empty, an unknown session rejects. */
-  canvas(session: number): Promise<ChatCanvas>
+  /** One canvas by workspace and name; a name nothing was written under answers empty. */
+  canvas(workspace: string, name: string): Promise<ChatCanvas>
   /** A workspace's canvases, most recently updated first — metadata only. */
   canvases(workspace: string): Promise<ChatCanvasMeta[]>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
@@ -397,8 +401,8 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async deleteSession(id) {
       await post('/sessions/delete', { id })
     },
-    async canvas(session) {
-      const body = await post<ChatCanvas>('/canvas', { session })
+    async canvas(workspace, name) {
+      const body = await post<ChatCanvas>('/canvas', { workspace, name })
       if (!body) throw new AgentRequestError('the canvas could not be read', '')
       return { ...body, blocks: body.blocks ?? [] }
     },

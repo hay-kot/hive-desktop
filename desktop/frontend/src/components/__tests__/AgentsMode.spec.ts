@@ -152,7 +152,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     skillPackages: vi.fn().mockResolvedValue({ packages: [], skills: [], problem: '' }),
     revealSkillPackages: vi.fn().mockResolvedValue(undefined),
     revealSharedSkills: vi.fn().mockResolvedValue(undefined),
-    canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', session: 7, createdAt: 0, updatedAt: 0, blocks: [] }),
+    canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', name: 'plan', title: '', session: 7, createdAt: 0, updatedAt: 0, blocks: [] }),
     canvases: vi.fn().mockResolvedValue([]),
   }
 }

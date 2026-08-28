@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// The chat's canvas: agent-written markdown and link blocks, read-only in the
-// webview — writes arrive only through the hive-canvas MCP tools, so this
-// pane re-reads on canvas:updated rather than ever mutating
-// (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+// A workspace's canvases: agent-written markdown and link blocks, read-only
+// in the webview — writes arrive only through the hive-canvas MCP tools, so
+// this pane re-reads on canvas:updated rather than ever mutating
+// (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 import { computed, toRef, watch } from 'vue'
 import IconX from '~icons/lucide/x'
 import AppSelect from './AppSelect.vue'
@@ -11,31 +11,30 @@ import type { AppSelectOption } from './AppSelect.vue'
 import { useAgentCanvas } from '../composables/useAgentCanvas'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
-import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
 import type { AgentWorkspacesClient, CanvasBlock } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
-  /** The open chat — the canvas shown until the picker chooses another. */
+  /** The open chat, whose most recent canvas is the default pick. */
   session: number
   /** The open chat's workspace, whose canvases fill the picker. */
   workspace: string
-  /** Session id → display name, for picker labels; an absent id is an orphan. */
-  sessionNames: Record<number, string>
+  /** The route-pinned canvas name; null lets the default win. */
+  name: string | null
   client: AgentWorkspacesClient | null
 }>()
-const emit = defineEmits<{ close: []; 'open-url': [url: string] }>()
+const emit = defineEmits<{ close: []; 'open-url': [url: string]; pick: [name: string] }>()
 
-const { canvas, metas, session: shownSession, loading, error, show, wake } =
+const { canvas, metas, shown, loading, error, show, wake } =
   useAgentCanvas(toRef(props, 'client'))
 
-watch(() => [props.session, props.workspace] as const, ([id, dir]) => {
-  show(id, dir)
+watch(() => [props.workspace, props.name, props.session] as const, ([dir, name, session]) => {
+  show(dir, name, session)
 }, { immediate: true })
 
+// A pick pins the name in the route; the prop watcher above brings it back.
 function pick(value: string): void {
-  const id = Number.parseInt(value, 10)
-  if (Number.isInteger(id)) show(id, props.workspace)
+  emit('pick', value)
 }
 
 // Every write re-reads both the shown canvas and the picker's listing: the
@@ -44,11 +43,12 @@ useWailsEvent('canvas:updated', () => wake())
 
 const pickerOptions = computed<AppSelectOption[]>(() => {
   const options = metas.value.map((meta) => ({
-    value: String(meta.session),
-    label: props.sessionNames[meta.session] ?? `Canvas · ${relativeAge(meta.updatedAt)}`,
+    value: meta.name,
+    label: meta.title || meta.name,
   }))
-  if (!options.some((option) => option.value === String(props.session))) {
-    options.unshift({ value: String(props.session), label: props.sessionNames[props.session] ?? 'Current chat' })
+  const current = shown.value
+  if (current && !options.some((option) => option.value === current)) {
+    options.unshift({ value: current, label: current })
   }
   return options
 })
@@ -96,7 +96,7 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
         size="sm"
         aria-label="Canvas"
         testid="agent-canvas-picker"
-        :model-value="String(shownSession ?? props.session)"
+        :model-value="shown ?? ''"
         :options="pickerOptions"
         @update:model-value="pick"
       />

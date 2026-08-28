@@ -25,7 +25,7 @@ func testStore(t *testing.T) *Store {
 
 func TestLoadAbsentIsNotAnError(t *testing.T) {
 	s := testStore(t)
-	_, ok, err := s.Load("ws", 1)
+	_, ok, err := s.Load("ws", "plan")
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
@@ -33,26 +33,31 @@ func TestLoadAbsentIsNotAnError(t *testing.T) {
 func TestUpsertAppendsThenUpdatesInPlace(t *testing.T) {
 	s := testStore(t)
 
-	c, err := s.Upsert("ws", 1, Block{ID: "plan", Kind: KindMarkdown, Body: "v1"})
+	c, err := s.Upsert("ws", "plan", 1, "The Plan", Block{ID: "plan", Kind: KindMarkdown, Body: "v1"})
 	require.NoError(t, err)
 	require.Len(t, c.Blocks, 1)
 	created := c.Blocks[0].CreatedAt
 	assert.NotZero(t, created)
 	assert.NotZero(t, c.CreatedAt)
+	assert.Equal(t, int64(1), c.Session)
+	assert.Equal(t, "The Plan", c.Title)
 
-	c, err = s.Upsert("ws", 1, Block{ID: "result", Kind: KindLink, Title: "PR", URL: "https://example.com"})
+	c, err = s.Upsert("ws", "plan", 1, "", Block{ID: "result", Kind: KindLink, Title: "PR", URL: "https://example.com"})
 	require.NoError(t, err)
 	require.Len(t, c.Blocks, 2)
+	assert.Equal(t, "The Plan", c.Title, "an empty title leaves the stored one")
 
-	c, err = s.Upsert("ws", 1, Block{ID: "plan", Kind: KindMarkdown, Body: "v2"})
+	c, err = s.Upsert("ws", "plan", 2, "Revised", Block{ID: "plan", Kind: KindMarkdown, Body: "v2"})
 	require.NoError(t, err)
 	require.Len(t, c.Blocks, 2)
 	assert.Equal(t, "plan", c.Blocks[0].ID, "an updated block keeps its position")
 	assert.Equal(t, "v2", c.Blocks[0].Body)
 	assert.Equal(t, created, c.Blocks[0].CreatedAt, "an updated block keeps its CreatedAt")
 	assert.Greater(t, c.Blocks[0].UpdatedAt, created)
+	assert.Equal(t, int64(1), c.Session, "the creating session never changes")
+	assert.Equal(t, "Revised", c.Title)
 
-	reloaded, ok, err := s.Load("ws", 1)
+	reloaded, ok, err := s.Load("ws", "plan")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, c, reloaded)
@@ -60,52 +65,57 @@ func TestUpsertAppendsThenUpdatesInPlace(t *testing.T) {
 
 func TestRemove(t *testing.T) {
 	s := testStore(t)
-	_, err := s.Upsert("ws", 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	_, err := s.Upsert("ws", "plan", 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 
-	c, removed, err := s.Remove("ws", 1, "a")
+	c, removed, err := s.Remove("ws", "plan", "a")
 	require.NoError(t, err)
 	assert.True(t, removed)
 	assert.Empty(t, c.Blocks)
 
-	_, removed, err = s.Remove("ws", 1, "a")
+	_, removed, err = s.Remove("ws", "plan", "a")
 	require.NoError(t, err)
 	assert.False(t, removed)
 
-	_, removed, err = s.Remove("ws", 99, "a")
-	require.NoError(t, err)
-	assert.False(t, removed, "a never-written canvas removes nothing")
+	_, _, err = s.Remove("ws", "other", "a")
+	require.ErrorIs(t, err, ErrNotFound, "a never-written canvas is not found")
 }
 
 func TestClearKeepsTheCanvas(t *testing.T) {
 	s := testStore(t)
-	first, err := s.Upsert("ws", 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	first, err := s.Upsert("ws", "plan", 1, "The Plan", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 
-	c, err := s.Clear("ws", 1)
+	c, err := s.Clear("ws", "plan")
 	require.NoError(t, err)
 	assert.Empty(t, c.Blocks)
 	assert.Equal(t, first.CreatedAt, c.CreatedAt, "clear keeps the canvas's CreatedAt")
+	assert.Equal(t, "The Plan", c.Title, "clear keeps the title")
 
-	reloaded, ok, err := s.Load("ws", 1)
+	reloaded, ok, err := s.Load("ws", "plan")
 	require.NoError(t, err)
 	require.True(t, ok, "the file survives a clear")
 	assert.Empty(t, reloaded.Blocks)
+
+	_, err = s.Clear("ws", "other")
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestListOrdersByUpdatedAtDesc(t *testing.T) {
 	s := testStore(t)
-	_, err := s.Upsert("ws", 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	_, err := s.Upsert("ws", "plan", 1, "The Plan", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
-	_, err = s.Upsert("ws", 2, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	_, err = s.Upsert("ws", "report", 2, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
-	_, err = s.Upsert("ws", 1, Block{ID: "b", Kind: KindMarkdown, Body: "y"})
+	_, err = s.Upsert("ws", "plan", 1, "", Block{ID: "b", Kind: KindMarkdown, Body: "y"})
 	require.NoError(t, err)
 
 	metas, err := s.List("ws")
 	require.NoError(t, err)
 	require.Len(t, metas, 2)
-	assert.Equal(t, int64(1), metas[0].Session, "the most recently updated canvas lists first")
+	assert.Equal(t, "plan", metas[0].Name, "the most recently updated canvas lists first")
+	assert.Equal(t, "The Plan", metas[0].Title)
+	assert.Equal(t, int64(1), metas[0].Session)
 	assert.Equal(t, 2, metas[0].BlockCount)
 
 	empty, err := s.List("other")
@@ -113,43 +123,57 @@ func TestListOrdersByUpdatedAtDesc(t *testing.T) {
 	assert.Empty(t, empty)
 }
 
-func TestDeleteSessionAndWorkspaceAreIdempotent(t *testing.T) {
+func TestDeleteReportsExistence(t *testing.T) {
 	s := testStore(t)
-	_, err := s.Upsert("ws", 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	_, err := s.Upsert("ws", "plan", 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 
-	require.NoError(t, s.DeleteSession("ws", 1))
-	require.NoError(t, s.DeleteSession("ws", 1))
-	_, ok, err := s.Load("ws", 1)
+	existed, err := s.Delete("ws", "plan")
+	require.NoError(t, err)
+	assert.True(t, existed)
+
+	existed, err = s.Delete("ws", "plan")
+	require.NoError(t, err)
+	assert.False(t, existed)
+
+	_, ok, err := s.Load("ws", "plan")
 	require.NoError(t, err)
 	assert.False(t, ok)
-
-	_, err = s.Upsert("ws", 2, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
-	require.NoError(t, err)
-	require.NoError(t, s.DeleteWorkspace("ws"))
-	require.NoError(t, s.DeleteWorkspace("ws"))
-	metas, err := s.List("ws")
-	require.NoError(t, err)
-	assert.Empty(t, metas)
 }
 
 func TestInvalidWorkspaceRefused(t *testing.T) {
 	s := testStore(t)
 	for _, dir := range []string{"", ".", "..", "a/b", "../escape"} {
-		_, err := s.Upsert(dir, 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+		_, err := s.Upsert(dir, "plan", 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 		require.ErrorIs(t, err, ErrInvalidWorkspace, "dir %q", dir)
 		_, err = s.List(dir)
 		require.ErrorIs(t, err, ErrInvalidWorkspace, "dir %q", dir)
 	}
 }
 
+func TestInvalidNameRefused(t *testing.T) {
+	s := testStore(t)
+	long := make([]byte, maxNameLength+1)
+	for i := range long {
+		long[i] = 'a'
+	}
+	for _, name := range []string{"", ".", "..", "a/b", "../escape", ".hidden", "-plan", "plan-", "Report", "has space", string(long)} {
+		_, err := s.Upsert("ws", name, 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+		require.ErrorIs(t, err, ErrInvalidName, "name %q", name)
+	}
+	for _, name := range []string{"plan", "release-notes", "perf.report", "a", "v2_draft"} {
+		_, err := s.Upsert("ws", name, 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+		require.NoError(t, err, "name %q", name)
+	}
+}
+
 func TestCorruptFileIsAnErrorNotABlankCanvas(t *testing.T) {
 	s := testStore(t)
-	_, err := s.Upsert("ws", 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	_, err := s.Upsert("ws", "plan", 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(s.root, "ws", "1.json"), []byte("{not json"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(s.root, "ws", canvasesDirName, "plan.json"), []byte("{not json"), 0o600))
 
-	_, _, err = s.Load("ws", 1)
+	_, _, err = s.Load("ws", "plan")
 	require.Error(t, err)
 	_, err = s.List("ws")
 	require.Error(t, err)
@@ -157,15 +181,15 @@ func TestCorruptFileIsAnErrorNotABlankCanvas(t *testing.T) {
 
 func TestWritesLeaveNoTempFiles(t *testing.T) {
 	s := testStore(t)
-	_, err := s.Upsert("ws", 1, Block{ID: "a", Kind: KindMarkdown, Body: "x"})
+	_, err := s.Upsert("ws", "plan", 1, "", Block{ID: "a", Kind: KindMarkdown, Body: "x"})
 	require.NoError(t, err)
-	_, err = s.Clear("ws", 1)
+	_, err = s.Clear("ws", "plan")
 	require.NoError(t, err)
 
-	entries, err := os.ReadDir(filepath.Join(s.root, "ws"))
+	entries, err := os.ReadDir(filepath.Join(s.root, "ws", canvasesDirName))
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
-	assert.Equal(t, "1.json", entries[0].Name())
+	assert.Equal(t, "plan.json", entries[0].Name())
 
 	metas, err := s.List("ws")
 	require.NoError(t, err)

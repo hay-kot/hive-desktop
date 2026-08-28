@@ -81,20 +81,11 @@ type AgentWorkspacesService struct {
 	// is down. Read per call rather than captured, because the listener's
 	// port is not known when this service is built and can change if it
 	// rebinds.
-	mcpBase  func(context.Context) string
-	canvases canvasDeleter
+	mcpBase func(context.Context) string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string, canvases canvasDeleter) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase, canvases: canvases}
-}
-
-// canvasDeleter is the slice of the canvas store session/workspace deletion
-// rides on: a chat's canvas dies with its record, so the delete happens
-// inside the operation rather than beside it.
-type canvasDeleter interface {
-	DeleteSession(workspace string, session int64) error
-	DeleteWorkspace(workspace string) error
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
 }
 
 // catalogue is the merged catalogue with this install's own entries resolved.
@@ -545,13 +536,6 @@ func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) er
 	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
 		return terminalError(err, "closing session %q", rec.Name)
 	}
-	// Canvas before record: a failure here keeps the record, which beats an
-	// orphaned canvas the workspace listing would show as a dated ghost.
-	if s.canvases != nil {
-		if err := s.canvases.DeleteSession(rec.Workspace, rec.ID); err != nil {
-			return Wrap(err, KindInternal, "deleting canvas for session %q", rec.Name)
-		}
-	}
 	if err := s.db.DeleteAgentWorkspaceSession(ctx, id); err != nil {
 		return Wrap(err, KindInternal, "deleting session %q", rec.Name)
 	}
@@ -576,11 +560,6 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	}
 	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
-	}
-	if s.canvases != nil {
-		if err := s.canvases.DeleteWorkspace(dir); err != nil {
-			return Wrap(err, KindInternal, "deleting canvases for workspace %q", dir)
-		}
 	}
 	return nil
 }
@@ -1001,7 +980,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	name := sessionName(rec.ID)
 	// The record id is the canvas tools' session argument; handing it to the
 	// process at launch is what lets the agent name its own chat without
-	// guessing (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+	// guessing (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 	env := []string{
 		fmt.Sprintf("HIVE_AGENT_SESSION=%d", rec.ID),
 		"HIVE_AGENT_WORKSPACE=" + dir,
