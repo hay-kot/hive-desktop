@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,11 @@ var ErrInvalidName = errors.New("canvas: invalid canvas name")
 // ErrNotFound reports an operation on a canvas that does not exist. Distinct
 // from an invalid name: the name is fine, there is just no file behind it.
 var ErrNotFound = errors.New("canvas: not found")
+
+// ErrAnchorNotFound reports a before-anchor id that names no block on the
+// canvas — including a block the same write is moving, which cannot anchor
+// itself.
+var ErrAnchorNotFound = errors.New("canvas: anchor block not found")
 
 const (
 	KindMarkdown = "markdown"
@@ -137,12 +143,14 @@ func (s *Store) Load(workspace, name string) (Canvas, bool, error) {
 	return s.load(workspace, name)
 }
 
-// Upsert writes one block, creating the canvas on first write: an id already
-// on the canvas is replaced in place, keeping its position and CreatedAt; a
-// new id appends. session is recorded at creation and never changes; a
-// non-empty title replaces the stored one. Returns the canvas after the
-// write.
-func (s *Store) Upsert(workspace, name string, session int64, title string, b Block) (Canvas, error) {
+// Upsert writes blocks in order in one atomic file write, creating the
+// canvas on the first: an id already on the canvas is replaced in place,
+// keeping its position and CreatedAt; a new id appends. A non-empty before
+// names an existing block id every written block is instead placed ahead of
+// — an existing id then moves there, still keeping its CreatedAt. session is
+// recorded at creation and never changes; a non-empty title replaces the
+// stored one. Returns the canvas after the write.
+func (s *Store) Upsert(workspace, name string, session int64, title, before string, blocks ...Block) (Canvas, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -158,19 +166,26 @@ func (s *Store) Upsert(workspace, name string, session int64, title string, b Bl
 		c.Title = title
 	}
 
-	b.CreatedAt = nowMillis
-	b.UpdatedAt = nowMillis
-	replaced := false
-	for i, existing := range c.Blocks {
-		if existing.ID == b.ID {
-			b.CreatedAt = existing.CreatedAt
-			c.Blocks[i] = b
-			replaced = true
-			break
+	for _, b := range blocks {
+		b.CreatedAt = nowMillis
+		b.UpdatedAt = nowMillis
+		if i := blockIndex(c.Blocks, b.ID); i >= 0 {
+			b.CreatedAt = c.Blocks[i].CreatedAt
+			if before == "" {
+				c.Blocks[i] = b
+				continue
+			}
+			c.Blocks = slices.Delete(c.Blocks, i, i+1)
 		}
-	}
-	if !replaced {
-		c.Blocks = append(c.Blocks, b)
+		if before == "" {
+			c.Blocks = append(c.Blocks, b)
+			continue
+		}
+		anchor := blockIndex(c.Blocks, before)
+		if anchor < 0 {
+			return Canvas{}, fmt.Errorf("%w: %q", ErrAnchorNotFound, before)
+		}
+		c.Blocks = slices.Insert(c.Blocks, anchor, b)
 	}
 	c.UpdatedAt = nowMillis
 
@@ -178,6 +193,15 @@ func (s *Store) Upsert(workspace, name string, session int64, title string, b Bl
 		return Canvas{}, err
 	}
 	return c, nil
+}
+
+func blockIndex(blocks []Block, id string) int {
+	for i, b := range blocks {
+		if b.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 // Remove deletes one block by id, reporting whether it was present. A canvas

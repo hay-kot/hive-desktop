@@ -24,22 +24,28 @@ Blocks are:
   openable link.
 
 Block ids are the agent's own: reusing an id updates that block in place,
-which is how a status line is revised instead of duplicated.
+which is how a status line is revised instead of duplicated; a `before`
+anchor places or moves a block ahead of an existing one.
 
 ## Tools
 
 - `put_block` — create or replace one block; the first write under a new
-  canvas name creates that canvas.
+  canvas name creates that canvas. Answers with the canvas metadata and the
+  stored block, never the whole surface.
+- `put_blocks` — write a batch of blocks in one atomic call, for laying out
+  a canvas whole instead of block by block.
 - `remove_block` — remove one block by id.
 - `clear_canvas` — remove every block; the canvas, its name and title survive.
 - `delete_canvas` — remove a canvas entirely.
-- `read_canvas` — read one canvas exactly as the user sees it.
+- `read_canvas` — read one canvas exactly as the user sees it, every block
+  in order.
 - `list_canvases` — every canvas in the workspace, including ones earlier
   chats made.
-- `open_canvas` / `close_canvas` — show or hide the pane beside this chat,
-  optionally pinned to one canvas. Applies only while the user is viewing
-  this chat; open when something is finished and worth looking at, not on
-  every write.
+- `open_canvas` / `close_canvas` — ask to show or hide the pane beside this
+  chat, optionally pinned to one canvas. Best-effort: it applies only while
+  the user is viewing this chat, and there is no acknowledgment either way.
+  Open when something is finished and worth looking at, not on every write —
+  a write while the pane is closed already lights an unseen dot.
 
 Every tool takes a `session` id naming the calling chat. Hive sets it in the
 launched process's environment as `HIVE_AGENT_SESSION`; a chat launched

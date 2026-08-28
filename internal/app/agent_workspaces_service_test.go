@@ -313,7 +313,7 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.Equal(t, 2, liveAgentSessionCount(t, svc))
 
 	canvases := canvas.NewStore(root)
-	_, err = canvases.Upsert("demo", "plan", s1.ID, "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = canvases.Upsert("demo", "plan", s1.ID, "", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))

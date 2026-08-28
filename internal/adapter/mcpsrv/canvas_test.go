@@ -81,6 +81,20 @@ type canvasListView struct {
 	} `json:"canvases"`
 }
 
+// canvasWriteView is what every mutation answers: metadata, plus the stored
+// block for a single-block write — never the whole surface.
+type canvasWriteView struct {
+	Workspace  string `json:"workspace"`
+	Name       string `json:"name"`
+	Title      string `json:"title"`
+	Session    int64  `json:"session"`
+	BlockCount int    `json:"blockCount"`
+	Block      *struct {
+		ID   string `json:"id"`
+		Body string `json:"body"`
+	} `json:"block"`
+}
+
 func TestCanvasToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 	_, session := testCanvasSession(t)
 
@@ -98,7 +112,7 @@ func TestCanvasToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 		assert.Equal(t, "object", schema["type"], "tool %s input schema is not type object", tool.Name)
 	}
 
-	assert.ElementsMatch(t, []string{"put_block", "remove_block", "clear_canvas", "delete_canvas", "read_canvas", "list_canvases", "open_canvas", "close_canvas"}, names)
+	assert.ElementsMatch(t, []string{"put_block", "put_blocks", "remove_block", "clear_canvas", "delete_canvas", "read_canvas", "list_canvases", "open_canvas", "close_canvas"}, names)
 }
 
 func TestCanvasRoundTrip(t *testing.T) {
@@ -109,44 +123,66 @@ func TestCanvasRoundTrip(t *testing.T) {
 	call(t, session, "list_canvases", map[string]any{"session": id}, &listed)
 	assert.Empty(t, listed.Canvases, "a fresh workspace has no canvases")
 
-	var got canvasView
+	var wrote canvasWriteView
 	call(t, session, "put_block", map[string]any{
 		"session": id, "canvas": "plan", "canvasTitle": "The Plan",
 		"id": "status", "kind": "markdown", "title": "Progress", "body": "working…",
-	}, &got)
-	assert.Equal(t, "demo", got.Workspace)
-	assert.Equal(t, "plan", got.Name)
-	assert.Equal(t, "The Plan", got.Title)
-	assert.Equal(t, id, got.Session, "the creating chat is recorded")
+	}, &wrote)
+	assert.Equal(t, "demo", wrote.Workspace)
+	assert.Equal(t, "plan", wrote.Name)
+	assert.Equal(t, "The Plan", wrote.Title)
+	assert.Equal(t, id, wrote.Session, "the creating chat is recorded")
+	assert.Equal(t, 1, wrote.BlockCount)
+	require.NotNil(t, wrote.Block, "a single-block write echoes the stored block")
+	assert.Equal(t, "status", wrote.Block.ID)
 	call(t, session, "put_block", map[string]any{
 		"session": id, "canvas": "plan", "id": "pr", "kind": "link", "title": "The PR", "url": "https://example.com/pr/1",
-	}, &got)
-	require.Len(t, got.Blocks, 2)
-	assert.Equal(t, "The Plan", got.Title, "an omitted canvasTitle keeps the stored one")
+	}, &wrote)
+	assert.Equal(t, 2, wrote.BlockCount)
+	assert.Equal(t, "The Plan", wrote.Title, "an omitted canvasTitle keeps the stored one")
 
 	// Same id revises in place: position and count hold, content changes.
 	call(t, session, "put_block", map[string]any{
 		"session": id, "canvas": "plan", "id": "status", "kind": "markdown", "body": "done",
-	}, &got)
+	}, &wrote)
+	assert.Equal(t, 2, wrote.BlockCount)
+	assert.Equal(t, "done", wrote.Block.Body)
+	var got canvasView
+	call(t, session, "read_canvas", map[string]any{"session": id, "canvas": "plan"}, &got)
 	require.Len(t, got.Blocks, 2)
 	assert.Equal(t, "status", got.Blocks[0].ID)
 	assert.Equal(t, "done", got.Blocks[0].Body)
 
-	// A second name is a second canvas, listed beside the first.
+	// A before anchor places a block ahead of an existing one.
 	call(t, session, "put_block", map[string]any{
-		"session": id, "canvas": "report", "id": "a", "kind": "markdown", "body": "x",
-	}, &got)
+		"session": id, "canvas": "plan", "id": "intro", "kind": "markdown", "body": "i", "before": "status",
+	}, &wrote)
+	call(t, session, "read_canvas", map[string]any{"session": id, "canvas": "plan"}, &got)
+	require.Len(t, got.Blocks, 3)
+	assert.Equal(t, "intro", got.Blocks[0].ID)
+
+	// A batch is one atomic write: a second canvas appears whole.
+	wrote = canvasWriteView{}
+	call(t, session, "put_blocks", map[string]any{
+		"session": id, "canvas": "report", "blocks": []map[string]any{
+			{"id": "a", "kind": "markdown", "body": "x"},
+			{"id": "b", "kind": "link", "title": "The PR", "url": "https://example.com/pr/1"},
+		},
+	}, &wrote)
+	assert.Equal(t, "report", wrote.Name)
+	assert.Equal(t, 2, wrote.BlockCount)
+	assert.Nil(t, wrote.Block, "a batch echoes no single block")
 	call(t, session, "list_canvases", map[string]any{"session": id}, &listed)
 	require.Len(t, listed.Canvases, 2)
 	names := []string{listed.Canvases[0].Name, listed.Canvases[1].Name}
 	assert.ElementsMatch(t, []string{"plan", "report"}, names)
 
-	call(t, session, "remove_block", map[string]any{"session": id, "canvas": "plan", "id": "pr"}, &got)
-	require.Len(t, got.Blocks, 1)
+	call(t, session, "remove_block", map[string]any{"session": id, "canvas": "plan", "id": "pr"}, &wrote)
+	assert.Equal(t, 2, wrote.BlockCount)
 
-	call(t, session, "clear_canvas", map[string]any{"session": id, "canvas": "plan"}, &got)
-	assert.Empty(t, got.Blocks)
-	assert.Equal(t, "The Plan", got.Title, "clear keeps the canvas and its title")
+	call(t, session, "clear_canvas", map[string]any{"session": id, "canvas": "plan"}, &wrote)
+	assert.Equal(t, 0, wrote.BlockCount)
+	assert.Equal(t, "The Plan", wrote.Title, "clear keeps the canvas and its title")
 
 	call(t, session, "read_canvas", map[string]any{"session": id, "canvas": "plan"}, &got)
 	assert.Empty(t, got.Blocks)
@@ -166,21 +202,21 @@ func TestCanvasPaneToggle(t *testing.T) {
 	id := seedAgentSession(t, core, "demo", "chat")
 
 	var pane struct {
-		Open bool `json:"open"`
+		Requested string `json:"requested"`
 	}
 	call(t, session, "open_canvas", map[string]any{"session": id}, &pane)
-	assert.True(t, pane.Open)
+	assert.Equal(t, "open", pane.Requested, "the result reports the ask, not a pane state nothing acknowledges")
 
 	text := callErr(t, session, "open_canvas", map[string]any{"session": id, "canvas": "ghost"})
 	assert.Contains(t, text, "not_found", "pinning the pane to a canvas requires it to exist")
 
-	var got canvasView
-	call(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x"}, &got)
+	var wrote canvasWriteView
+	call(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x"}, &wrote)
 	call(t, session, "open_canvas", map[string]any{"session": id, "canvas": "plan"}, &pane)
-	assert.True(t, pane.Open)
+	assert.Equal(t, "open", pane.Requested)
 
 	call(t, session, "close_canvas", map[string]any{"session": id}, &pane)
-	assert.False(t, pane.Open)
+	assert.Equal(t, "close", pane.Requested)
 }
 
 func TestCanvasToolErrors(t *testing.T) {

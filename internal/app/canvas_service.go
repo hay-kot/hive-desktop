@@ -63,8 +63,30 @@ func (s *CanvasService) Get(ctx context.Context, session int64, name string) (ca
 
 // PutBlock creates or replaces one block, creating the canvas on its first
 // write. A non-empty title renames the canvas; empty leaves the stored one.
-// Returns the canvas after the write.
-func (s *CanvasService) PutBlock(ctx context.Context, session int64, name, title string, b canvas.Block) (canvas.Canvas, error) {
+// A non-empty before places the block ahead of that existing block id
+// instead of appending. Returns the canvas after the write.
+func (s *CanvasService) PutBlock(ctx context.Context, session int64, name, title, before string, b canvas.Block) (canvas.Canvas, error) {
+	return s.putBlocks(ctx, session, name, title, before, []canvas.Block{b})
+}
+
+// maxCanvasBatchBlocks caps one put_blocks call; a layout larger than this
+// is written in slices.
+const maxCanvasBatchBlocks = 50
+
+// PutBlocks writes a batch of blocks as one atomic canvas write — one file
+// write, one pane render. Every block is validated before any is written, so
+// a rejected batch leaves the canvas untouched.
+func (s *CanvasService) PutBlocks(ctx context.Context, session int64, name, title string, blocks []canvas.Block) (canvas.Canvas, error) {
+	if len(blocks) == 0 {
+		return canvas.Canvas{}, Errorf(KindInvalid, "a batch needs at least one block")
+	}
+	if len(blocks) > maxCanvasBatchBlocks {
+		return canvas.Canvas{}, Errorf(KindInvalid, "too many blocks in one batch (%d max)", maxCanvasBatchBlocks)
+	}
+	return s.putBlocks(ctx, session, name, title, "", blocks)
+}
+
+func (s *CanvasService) putBlocks(ctx context.Context, session int64, name, title, before string, blocks []canvas.Block) (canvas.Canvas, error) {
 	rec, err := s.resolve(ctx, session)
 	if err != nil {
 		return canvas.Canvas{}, err
@@ -72,11 +94,24 @@ func (s *CanvasService) PutBlock(ctx context.Context, session int64, name, title
 	if len(title) > maxCanvasTitleLength {
 		return canvas.Canvas{}, Errorf(KindInvalid, "canvas title is too long (%d chars max)", maxCanvasTitleLength)
 	}
-	if err := validateBlock(&b); err != nil {
-		return canvas.Canvas{}, err
+	seen := make(map[string]bool, len(blocks))
+	for i := range blocks {
+		if err := validateBlock(&blocks[i]); err != nil {
+			if len(blocks) > 1 {
+				return canvas.Canvas{}, Wrap(err, KindInvalid, "blocks[%d]", i)
+			}
+			return canvas.Canvas{}, err
+		}
+		if seen[blocks[i].ID] {
+			return canvas.Canvas{}, Errorf(KindInvalid, "block id %q appears twice in one batch", blocks[i].ID)
+		}
+		seen[blocks[i].ID] = true
 	}
-	c, err := s.store.Upsert(rec.Workspace, name, session, title, b)
+	c, err := s.store.Upsert(rec.Workspace, name, session, title, before, blocks...)
 	if err != nil {
+		if errors.Is(err, canvas.ErrAnchorNotFound) {
+			return canvas.Canvas{}, Errorf(KindNotFound, "no block %q on canvas %q to place before", before, name)
+		}
 		return canvas.Canvas{}, s.storeError(err, name)
 	}
 	s.notify(rec.Workspace, session)

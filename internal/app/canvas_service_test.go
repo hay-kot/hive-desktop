@@ -60,7 +60,7 @@ func TestCanvasUnknownSessionIsNotFound(t *testing.T) {
 
 	_, err := svc.Get(ctx, 99, "plan")
 	assert.Equal(t, KindNotFound, KindOf(err))
-	_, err = svc.PutBlock(ctx, 99, "plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = svc.PutBlock(ctx, 99, "plan", "", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindNotFound, KindOf(err))
 	_, err = svc.RemoveBlock(ctx, 99, "plan", "a")
 	assert.Equal(t, KindNotFound, KindOf(err))
@@ -109,25 +109,81 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 		"javascript url":        {ID: "a", Kind: canvas.KindLink, Title: "t", URL: "javascript:alert(1)"},
 	}
 	for name, block := range cases {
-		_, err := svc.PutBlock(ctx, 1, "plan", "", block)
+		_, err := svc.PutBlock(ctx, 1, "plan", "", "", block)
 		assert.Equal(t, KindInvalid, KindOf(err), name)
 	}
 
-	_, err := svc.PutBlock(ctx, 1, "Bad Name", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err := svc.PutBlock(ctx, 1, "Bad Name", "", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindInvalid, KindOf(err), "an invalid canvas name is the caller's mistake")
-	_, err = svc.PutBlock(ctx, 1, "plan", strings.Repeat("t", maxCanvasTitleLength+1), canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = svc.PutBlock(ctx, 1, "plan", strings.Repeat("t", maxCanvasTitleLength+1), "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindInvalid, KindOf(err), "an oversized canvas title is refused")
 
 	assert.Empty(t, signals.updates, "a refused write never notifies")
+}
+
+func TestCanvasPutBlocks(t *testing.T) {
+	svc, signals := testCanvasService(t)
+	ctx := t.Context()
+
+	_, err := svc.PutBlocks(ctx, 1, "plan", "The Plan", nil)
+	assert.Equal(t, KindInvalid, KindOf(err), "an empty batch is refused")
+
+	_, err = svc.PutBlocks(ctx, 1, "plan", "", []canvas.Block{
+		{ID: "a", Kind: canvas.KindMarkdown, Body: "x"},
+		{ID: "b", Kind: canvas.KindLink, Title: "t"},
+	})
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "blocks[1]", "the error names which block was rejected")
+
+	_, err = svc.PutBlocks(ctx, 1, "plan", "", []canvas.Block{
+		{ID: "a", Kind: canvas.KindMarkdown, Body: "x"},
+		{ID: "a", Kind: canvas.KindMarkdown, Body: "y"},
+	})
+	assert.Equal(t, KindInvalid, KindOf(err), "duplicate ids in one batch are refused")
+
+	metas, err := svc.ListForWorkspace(ctx, "ws")
+	require.NoError(t, err)
+	assert.Empty(t, metas, "a rejected batch writes nothing")
+	assert.Empty(t, signals.updates)
+
+	c, err := svc.PutBlocks(ctx, 1, "plan", "The Plan", []canvas.Block{
+		{ID: "a", Kind: canvas.KindMarkdown, Body: "x"},
+		{ID: "b", Kind: canvas.KindMarkdown, Body: "y"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, c.Blocks, 2)
+	assert.Len(t, signals.updates, 1, "one batch, one notify")
+
+	oversized := make([]canvas.Block, maxCanvasBatchBlocks+1)
+	for i := range oversized {
+		oversized[i] = canvas.Block{ID: strings.Repeat("a", i+1), Kind: canvas.KindMarkdown, Body: "x"}
+	}
+	_, err = svc.PutBlocks(ctx, 1, "plan", "", oversized)
+	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+func TestCanvasPutBlockBeforeAnchor(t *testing.T) {
+	svc, _ := testCanvasService(t)
+	ctx := t.Context()
+
+	_, err := svc.PutBlock(ctx, 1, "plan", "", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	require.NoError(t, err)
+
+	c, err := svc.PutBlock(ctx, 1, "plan", "", "a", canvas.Block{ID: "intro", Kind: canvas.KindMarkdown, Body: "i"})
+	require.NoError(t, err)
+	assert.Equal(t, "intro", c.Blocks[0].ID)
+
+	_, err = svc.PutBlock(ctx, 1, "plan", "", "ghost", canvas.Block{ID: "x", Kind: canvas.KindMarkdown, Body: "x"})
+	assert.Equal(t, KindNotFound, KindOf(err), "a missing anchor is the caller's mistake")
 }
 
 func TestCanvasMutationsNotify(t *testing.T) {
 	svc, signals := testCanvasService(t)
 	ctx := t.Context()
 
-	_, err := svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err := svc.PutBlock(ctx, 1, "plan", "The Plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
-	_, err = svc.PutBlock(ctx, 1, "plan", "", canvas.Block{ID: "pr", Kind: canvas.KindLink, Title: "PR", URL: "https://example.com/pr/1"})
+	_, err = svc.PutBlock(ctx, 1, "plan", "", "", canvas.Block{ID: "pr", Kind: canvas.KindLink, Title: "PR", URL: "https://example.com/pr/1"})
 	require.NoError(t, err)
 	_, err = svc.RemoveBlock(ctx, 1, "plan", "pr")
 	require.NoError(t, err)
@@ -165,7 +221,7 @@ func TestCanvasSetPaneOpen(t *testing.T) {
 	err := svc.SetPaneOpen(ctx, 1, "ghost", true)
 	assert.Equal(t, KindNotFound, KindOf(err), "opening pinned to a canvas requires it to exist")
 
-	_, err = svc.PutBlock(ctx, 1, "plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = svc.PutBlock(ctx, 1, "plan", "", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 	require.NoError(t, svc.SetPaneOpen(ctx, 1, "plan", true))
 	require.NoError(t, svc.SetPaneOpen(ctx, 1, "", false))
@@ -183,7 +239,7 @@ func TestCanvasSetPaneOpen(t *testing.T) {
 func TestCanvasRemoveAbsentBlockIsNotFound(t *testing.T) {
 	svc, _ := testCanvasService(t)
 	ctx := t.Context()
-	_, err := svc.PutBlock(ctx, 1, "plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err := svc.PutBlock(ctx, 1, "plan", "", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 	_, err = svc.RemoveBlock(ctx, 1, "plan", "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
@@ -196,7 +252,7 @@ func TestCanvasExport(t *testing.T) {
 	_, err := svc.MarkdownForWorkspace(ctx, "ws", "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
 
-	_, err = svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "hello"})
+	_, err = svc.PutBlock(ctx, 1, "plan", "The Plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "hello"})
 	require.NoError(t, err)
 
 	markdown, err := svc.MarkdownForWorkspace(ctx, "ws", "plan")
@@ -223,7 +279,7 @@ func TestCanvasListForWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, metas)
 
-	_, err = svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	_, err = svc.PutBlock(ctx, 1, "plan", "The Plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	require.NoError(t, err)
 	metas, err = svc.ListForWorkspace(ctx, "ws")
 	require.NoError(t, err)
