@@ -5,6 +5,7 @@
 // (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 import { computed, ref, toRef, watch } from 'vue'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconFileText from '~icons/lucide/file-text'
 import IconX from '~icons/lucide/x'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import { useAgentCanvas } from '../composables/useAgentCanvas'
@@ -115,23 +116,23 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
 
     <div
       v-if="browsing"
-      class="hive-scroll min-h-0 flex-1 overflow-y-auto p-2"
+      class="hive-scroll min-h-0 flex-1 divide-y divide-border overflow-y-auto"
       data-testid="agent-canvas-browse"
     >
       <button
         v-for="meta in metas"
         :key="meta.name"
         type="button"
-        class="flex w-full cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-chip"
-        :class="meta.name === shown ? 'bg-chip' : ''"
+        class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-chip"
         :aria-current="meta.name === shown ? 'true' : undefined"
         :data-testid="'agent-canvas-browse-' + meta.name"
         @click="pick(meta.name)"
       >
+        <IconFileText class="size-3.5 shrink-0" :class="meta.name === shown ? 'text-accent' : 'text-text-4'" aria-hidden="true" />
         <span class="min-w-0 flex-1 truncate text-[12.5px]" :class="meta.name === shown ? 'text-text' : 'text-text-2'">{{ meta.title || meta.name }}</span>
         <span class="shrink-0 font-mono text-[10.5px] text-text-4">{{ relativeAge(meta.updatedAt) }}</span>
       </button>
-      <p v-if="!metas.length" class="px-2 py-1.5 text-xs leading-relaxed text-text-4">No canvases yet.</p>
+      <p v-if="!metas.length" class="px-3 py-2 text-xs leading-relaxed text-text-4">No canvases yet.</p>
     </div>
 
     <div v-else class="hive-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
