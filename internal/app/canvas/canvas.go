@@ -88,6 +88,33 @@ type Meta struct {
 	BlockCount int    `json:"blockCount"`
 }
 
+// Markdown renders a canvas as one standalone document: the canvas title as
+// a top-level heading, each markdown block's title demoted beneath it, and
+// link blocks as plain markdown links. It is the export shape behind the
+// pane's copy and save actions, so both always agree.
+func Markdown(c Canvas) string {
+	var b strings.Builder
+	if c.Title != "" {
+		b.WriteString("# " + c.Title + "\n\n")
+	}
+	for i, block := range c.Blocks {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		switch block.Kind {
+		case KindLink:
+			b.WriteString("[" + block.Title + "](" + block.URL + ")")
+		default:
+			if block.Title != "" {
+				b.WriteString("## " + block.Title + "\n\n")
+			}
+			b.WriteString(block.Body)
+		}
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 // Store reads and writes canvas files under the agent-workspace root. The
 // mutex serializes read-modify-write cycles; the MCP server and the HTTP
 // reads run in this one process, so no cross-process coordination is needed.

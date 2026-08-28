@@ -3,17 +3,23 @@
 // in the webview — writes arrive only through the hive-canvas MCP tools, so
 // this pane re-reads on canvas:updated rather than ever mutating
 // (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
-import { computed, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch } from 'vue'
+import { Dialogs } from '@wailsio/runtime'
+import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconCopy from '~icons/lucide/copy'
+import IconDownload from '~icons/lucide/download'
 import IconFileText from '~icons/lucide/file-text'
+import IconSearch from '~icons/lucide/search'
 import IconX from '~icons/lucide/x'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import { useAgentCanvas } from '../composables/useAgentCanvas'
+import { useClipboard } from '../composables/useClipboard'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
-import type { AgentWorkspacesClient, CanvasBlock } from '../lib/agentWorkspacesClient'
+import type { AgentWorkspacesClient, CanvasBlock, ChatCanvasMeta } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
   /** The open chat, whose most recent canvas is the default pick. */
@@ -39,6 +45,82 @@ watch(() => [props.workspace, props.name, props.session] as const, ([dir, name, 
 const browsing = ref(false)
 
 const headerTitle = computed(() => canvas.value?.title || shown.value || 'Canvas')
+
+const search = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
+watch(browsing, (open) => {
+  if (!open) return
+  search.value = ''
+  void nextTick(() => searchInput.value?.focus())
+})
+
+// The Code sidebar filter's escape ladder: a first Esc clears the text, a
+// second leaves the browse view.
+function escapeSearch(): void {
+  if (search.value) search.value = ''
+  else browsing.value = false
+}
+
+// Copy is fetch-first (usePrompts' shape): the Go side renders the markdown
+// so copy and save can never disagree, and a failure before SetText is still
+// a failed copy as far as the user is concerned.
+const { copy, setStatus: setCopyStatus, status: copyStatus } = useClipboard()
+async function copyCanvas(): Promise<void> {
+  const name = shown.value
+  if (!name || !props.client) return
+  try {
+    await copy(await props.client.canvasMarkdown(props.workspace, name))
+  } catch {
+    setCopyStatus('error')
+  }
+}
+
+// Status mechanics only — the same auto-resetting affordance, driving the
+// save button instead of a clipboard.
+const { setStatus: setSaveStatus, status: saveStatus } = useClipboard()
+async function downloadCanvas(): Promise<void> {
+  const name = shown.value
+  if (!name || !props.client) return
+  try {
+    const path = await Dialogs.SaveFile({ Filename: `${name}.md`, Title: 'Export canvas' })
+    if (!path) return
+    await props.client.exportCanvas(props.workspace, name, path)
+    setSaveStatus('success')
+  } catch {
+    setSaveStatus('error')
+  }
+}
+
+const filteredMetas = computed(() => {
+  const query = search.value.trim().toLowerCase()
+  if (!query) return metas.value
+  return metas.value.filter((meta) =>
+    meta.name.toLowerCase().includes(query) || meta.title.toLowerCase().includes(query))
+})
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function activityGroup(updatedAt: number, now: number): string {
+  const age = now - updatedAt
+  if (age < DAY_MS) return 'Today'
+  if (age < 7 * DAY_MS) return 'Last week'
+  if (age < 30 * DAY_MS) return 'Last 30 days'
+  return 'Older'
+}
+
+// The listing arrives most-recently-updated first, so one sequential pass
+// yields the groups already in display order.
+const groupedMetas = computed(() => {
+  const now = Date.now()
+  const groups: Array<{ label: string; metas: ChatCanvasMeta[] }> = []
+  for (const meta of filteredMetas.value) {
+    const label = activityGroup(meta.updatedAt, now)
+    const last = groups[groups.length - 1]
+    if (last?.label === label) last.metas.push(meta)
+    else groups.push({ label, metas: [meta] })
+  }
+  return groups
+})
 
 // A pick pins the name in the route; the prop watcher above brings it back.
 function pick(name: string): void {
@@ -105,6 +187,26 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
       </button>
       <div class="min-w-0 flex-1" />
       <button
+        v-if="shown"
+        type="button"
+        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] hover:bg-chip hover:text-text"
+        :class="copyStatus === 'error' ? 'text-severity-error' : 'text-text-3'"
+        :title="copyStatus === 'success' ? 'Copied' : 'Copy as Markdown'"
+        :aria-label="copyStatus === 'success' ? 'Copied' : 'Copy as Markdown'"
+        data-testid="agent-canvas-copy"
+        @click="copyCanvas"
+      ><component :is="copyStatus === 'success' ? IconCheck : IconCopy" class="size-3.5" /></button>
+      <button
+        v-if="shown"
+        type="button"
+        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] hover:bg-chip hover:text-text"
+        :class="saveStatus === 'error' ? 'text-severity-error' : 'text-text-3'"
+        :title="saveStatus === 'success' ? 'Saved' : 'Save as Markdown…'"
+        :aria-label="saveStatus === 'success' ? 'Saved' : 'Save as Markdown…'"
+        data-testid="agent-canvas-download"
+        @click="downloadCanvas"
+      ><component :is="saveStatus === 'success' ? IconCheck : IconDownload" class="size-3.5" /></button>
+      <button
         type="button"
         class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
         title="Close canvas"
@@ -114,25 +216,48 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
       ><IconX class="size-3.5" /></button>
     </div>
 
-    <div
-      v-if="browsing"
-      class="hive-scroll min-h-0 flex-1 divide-y divide-border overflow-y-auto"
-      data-testid="agent-canvas-browse"
-    >
-      <button
-        v-for="meta in metas"
-        :key="meta.name"
-        type="button"
-        class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-chip"
-        :aria-current="meta.name === shown ? 'true' : undefined"
-        :data-testid="'agent-canvas-browse-' + meta.name"
-        @click="pick(meta.name)"
-      >
-        <IconFileText class="size-3.5 shrink-0" :class="meta.name === shown ? 'text-accent' : 'text-text-4'" aria-hidden="true" />
-        <span class="min-w-0 flex-1 truncate text-[12.5px]" :class="meta.name === shown ? 'text-text' : 'text-text-2'">{{ meta.title || meta.name }}</span>
-        <span class="shrink-0 font-mono text-[10.5px] text-text-4">{{ relativeAge(meta.updatedAt) }}</span>
-      </button>
-      <p v-if="!metas.length" class="px-3 py-2 text-xs leading-relaxed text-text-4">No canvases yet.</p>
+    <div v-if="browsing" class="flex min-h-0 flex-1 flex-col" data-testid="agent-canvas-browse">
+      <!-- Flush in the bar, the Code sidebar's filter shape: a boxed field in
+           a pane this narrow reads as chrome. -->
+      <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        <IconSearch class="size-3 shrink-0" :class="search ? 'text-text-3' : 'text-text-4'" />
+        <input
+          ref="searchInput"
+          v-model="search"
+          type="text"
+          placeholder="Filter…"
+          aria-label="Filter canvases"
+          class="min-w-0 flex-1 bg-transparent text-[12.5px] text-text outline-none placeholder:text-text-4"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          data-testid="agent-canvas-search"
+          @keydown.esc.prevent="escapeSearch"
+        >
+      </div>
+      <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-2 pt-1">
+        <template v-for="group in groupedMetas" :key="group.label">
+          <p class="px-3 pb-1 pt-2.5 text-[10.5px] font-medium uppercase tracking-wide text-text-4">{{ group.label }}</p>
+          <div class="divide-y divide-border">
+            <button
+              v-for="meta in group.metas"
+              :key="meta.name"
+              type="button"
+              class="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left hover:bg-chip"
+              :aria-current="meta.name === shown ? 'true' : undefined"
+              :data-testid="'agent-canvas-browse-' + meta.name"
+              @click="pick(meta.name)"
+            >
+              <IconFileText class="size-3.5 shrink-0" :class="meta.name === shown ? 'text-accent' : 'text-text-4'" aria-hidden="true" />
+              <span class="min-w-0 flex-1 truncate text-[12.5px]" :class="meta.name === shown ? 'text-text' : 'text-text-2'">{{ meta.title || meta.name }}</span>
+              <span class="shrink-0 font-mono text-[10.5px] text-text-4">{{ relativeAge(meta.updatedAt) }}</span>
+            </button>
+          </div>
+        </template>
+        <p v-if="!filteredMetas.length" class="px-3 py-2 text-xs leading-relaxed text-text-4">
+          {{ metas.length ? 'No canvases match.' : 'No canvases yet.' }}
+        </p>
+      </div>
     </div>
 
     <div v-else class="hive-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">

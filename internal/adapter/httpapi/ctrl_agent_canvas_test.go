@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -63,4 +65,23 @@ func TestAgentCanvasReadsOverTheWire(t *testing.T) {
 	require.NoError(t, json.NewDecoder(empty.Body).Decode(&emptyList))
 	require.NotNil(t, emptyList.Canvases, "canvases is never null on the wire")
 	assert.Empty(t, emptyList.Canvases)
+
+	mdResp := h.post(t, AgentWorkspacesPathPrefix+"canvas/markdown", testToken, agentCanvasRequest{Workspace: "demo", Name: "plan"})
+	defer func() { _ = mdResp.Body.Close() }()
+	require.Equal(t, http.StatusOK, mdResp.StatusCode)
+	var md agentCanvasMarkdownResponse
+	require.NoError(t, json.NewDecoder(mdResp.Body).Decode(&md))
+	assert.Equal(t, "# The Plan\n\nhello\n", md.Markdown)
+
+	missing := h.post(t, AgentWorkspacesPathPrefix+"canvas/markdown", testToken, agentCanvasRequest{Workspace: "demo", Name: "ghost"})
+	_ = missing.Body.Close()
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode, "copying a canvas that does not exist is a surfaced mistake")
+
+	dest := filepath.Join(t.TempDir(), "plan.md")
+	exportResp := h.post(t, AgentWorkspacesPathPrefix+"canvas/export", testToken, agentCanvasExportRequest{Workspace: "demo", Name: "plan", Path: dest})
+	defer func() { _ = exportResp.Body.Close() }()
+	require.Equal(t, http.StatusOK, exportResp.StatusCode)
+	written, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, md.Markdown, string(written))
 }

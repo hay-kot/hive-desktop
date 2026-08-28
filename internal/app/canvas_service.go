@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
@@ -173,6 +175,37 @@ func (s *CanvasService) GetForWorkspace(_ context.Context, dir, name string) (ca
 		return canvas.Canvas{Workspace: dir, Name: name, Blocks: []canvas.Block{}}, nil
 	}
 	return c, nil
+}
+
+// MarkdownForWorkspace renders one canvas as a standalone markdown document
+// — the pane's copy action. A name nothing was written under is not_found:
+// exporting nothing is a mistake worth surfacing, unlike showing it.
+func (s *CanvasService) MarkdownForWorkspace(_ context.Context, dir, name string) (string, error) {
+	c, ok, err := s.store.Load(dir, name)
+	if err != nil {
+		return "", s.storeError(err, name)
+	}
+	if !ok {
+		return "", Errorf(KindNotFound, "no canvas named %q in this workspace", name)
+	}
+	return canvas.Markdown(c), nil
+}
+
+// ExportForWorkspace writes one canvas's markdown rendering to path — the
+// pane's save action, with path coming from the native save dialog, which is
+// why it must already be absolute.
+func (s *CanvasService) ExportForWorkspace(ctx context.Context, dir, name, path string) error {
+	markdown, err := s.MarkdownForWorkspace(ctx, dir, name)
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(path) {
+		return Errorf(KindInvalid, "export path must be absolute")
+	}
+	if err := os.WriteFile(path, []byte(markdown), 0o644); err != nil {
+		return Wrap(err, KindInternal, "writing export for canvas %q", name)
+	}
+	return nil
 }
 
 // ListForWorkspace returns a workspace's canvas metadata, most recently

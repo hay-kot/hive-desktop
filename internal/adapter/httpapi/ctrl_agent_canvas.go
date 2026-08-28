@@ -9,9 +9,12 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 )
 
-// The canvas surface here is reads only: writes arrive exclusively through
-// the hive-canvas MCP tools, so the pane can never race the agent through a
-// second mutation path (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+// The canvas surface here never mutates a canvas: content writes arrive
+// exclusively through the hive-canvas MCP tools, so the pane can never race
+// the agent through a second mutation path
+// (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+// Export writes a rendering elsewhere on disk; the canvas itself stays
+// agent-owned.
 
 type agentCanvasBlock struct {
 	ID        string `json:"id"`
@@ -100,6 +103,55 @@ func (ctrl *Controller) AgentCanvasList(w http.ResponseWriter, r *http.Request) 
 		})
 	}
 	return server.JSON(w, http.StatusOK, agentCanvasListResponse{Canvases: views})
+}
+
+type agentCanvasMarkdownResponse struct {
+	Markdown string `json:"markdown"`
+}
+
+// AgentCanvasMarkdown renders one canvas as a standalone markdown document,
+// for the pane's copy action.
+func (ctrl *Controller) AgentCanvasMarkdown(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentCanvasRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	markdown, err := ctrl.core.Canvas.MarkdownForWorkspace(r.Context(), body.Workspace, body.Name)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, agentCanvasMarkdownResponse{Markdown: markdown})
+}
+
+type agentCanvasExportRequest struct {
+	Workspace string `json:"workspace"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+}
+
+func (b agentCanvasExportRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("workspace", b.Workspace, criterio.Required),
+		criterio.Run("name", b.Name, criterio.Required),
+		criterio.Run("path", b.Path, criterio.Required),
+	)
+}
+
+type agentCanvasExportResponse struct {
+	Path string `json:"path"`
+}
+
+// AgentCanvasExport writes one canvas's markdown rendering to a path the
+// user chose in the native save dialog.
+func (ctrl *Controller) AgentCanvasExport(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentCanvasExportRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.Canvas.ExportForWorkspace(r.Context(), body.Workspace, body.Name, body.Path); err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, agentCanvasExportResponse{Path: body.Path})
 }
 
 func toAgentCanvasView(c canvas.Canvas) agentCanvasView {

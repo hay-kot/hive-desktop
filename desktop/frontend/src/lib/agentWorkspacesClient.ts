@@ -280,6 +280,10 @@ export interface AgentWorkspacesClient {
   canvas(workspace: string, name: string): Promise<ChatCanvas>
   /** A workspace's canvases, most recently updated first — metadata only. */
   canvases(workspace: string): Promise<ChatCanvasMeta[]>
+  /** One canvas rendered as a standalone markdown document — the copy action. */
+  canvasMarkdown(workspace: string, name: string): Promise<string>
+  /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
+  exportCanvas(workspace: string, name: string, path: string): Promise<void>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
   openStream(name: string): WebSocket
 }
@@ -409,6 +413,14 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async canvases(workspace) {
       const body = await post<{ canvases: ChatCanvasMeta[] | null }>('/canvases', { workspace })
       return body?.canvases ?? []
+    },
+    async canvasMarkdown(workspace, name) {
+      const body = await post<{ markdown: string }>('/canvas/markdown', { workspace, name })
+      if (!body) throw new AgentRequestError('the canvas could not be rendered', '')
+      return body.markdown
+    },
+    async exportCanvas(workspace, name, path) {
+      await post('/canvas/export', { workspace, name, path })
     },
     openStream,
   }

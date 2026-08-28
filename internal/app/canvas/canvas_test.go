@@ -141,6 +141,22 @@ func TestDeleteReportsExistence(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestMarkdownRendersTitleBlocksAndLinks(t *testing.T) {
+	c := Canvas{
+		Title: "The Plan",
+		Blocks: []Block{
+			{ID: "intro", Kind: KindMarkdown, Title: "Intro", Body: "hello"},
+			{ID: "body", Kind: KindMarkdown, Body: "world"},
+			{ID: "pr", Kind: KindLink, Title: "The PR", URL: "https://example.com/pr/1"},
+		},
+	}
+	want := "# The Plan\n\n## Intro\n\nhello\n\nworld\n\n[The PR](https://example.com/pr/1)\n"
+	assert.Equal(t, want, Markdown(c))
+
+	assert.Equal(t, "hello\n", Markdown(Canvas{Blocks: []Block{{Kind: KindMarkdown, Body: "hello"}}}),
+		"no canvas title means no heading")
+}
+
 func TestInvalidWorkspaceRefused(t *testing.T) {
 	s := testStore(t)
 	for _, dir := range []string{"", ".", "..", "a/b", "../escape"} {

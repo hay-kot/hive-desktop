@@ -17,6 +17,15 @@ vi.mock('../../composables/useWailsEvent', () => ({
   },
 }))
 
+const runtime = vi.hoisted(() => ({
+  setText: vi.fn().mockResolvedValue(undefined),
+  saveFile: vi.fn().mockResolvedValue('/tmp/plan.md'),
+}))
+vi.mock('@wailsio/runtime', () => ({
+  Clipboard: { SetText: runtime.setText },
+  Dialogs: { SaveFile: runtime.saveFile },
+}))
+
 function block(overrides: Partial<CanvasBlock>): CanvasBlock {
   return { id: 'b', kind: 'markdown', title: '', body: '', url: '', createdAt: 1, updatedAt: 1, ...overrides }
 }
@@ -30,6 +39,8 @@ function fakeCanvasClient(blocks: CanvasBlock[], metas: ChatCanvasMeta[] = [meta
     canvas: vi.fn().mockImplementation((workspace: string, name: string) =>
       Promise.resolve({ workspace, name, title: '', session: 7, createdAt: 1, updatedAt: 1, blocks })),
     canvases: vi.fn().mockResolvedValue(metas),
+    canvasMarkdown: vi.fn().mockResolvedValue('# The Plan\n\nhello\n'),
+    exportCanvas: vi.fn().mockResolvedValue(undefined),
   } as unknown as AgentWorkspacesClient
 }
 
@@ -127,6 +138,63 @@ describe('AgentCanvasPane', () => {
 
     expect(wrapper.emitted('pick')).toEqual([['perf-report']])
     expect(wrapper.find('[data-testid="agent-canvas-browse"]').exists()).toBe(false)
+  })
+
+  it('filters the browse list from the search input', async () => {
+    const client = fakeCanvasClient([], [
+      meta({ name: 'plan', title: 'The Plan' }),
+      meta({ name: 'perf-report' }),
+    ])
+    const wrapper = await mountPane(client)
+
+    await wrapper.get('[data-testid="agent-canvas-title"]').trigger('click')
+    await wrapper.get('[data-testid="agent-canvas-search"]').setValue('perf')
+
+    expect(wrapper.find('[data-testid="agent-canvas-browse-plan"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agent-canvas-browse-perf-report"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="agent-canvas-search"]').setValue('nothing-matches')
+    expect(wrapper.get('[data-testid="agent-canvas-browse"]').text()).toContain('No canvases match.')
+  })
+
+  it('groups the browse list by activity', async () => {
+    const client = fakeCanvasClient([], [
+      meta({ name: 'fresh', updatedAt: Date.now() }),
+      meta({ name: 'stale', updatedAt: 1 }),
+    ])
+    const wrapper = await mountPane(client)
+
+    await wrapper.get('[data-testid="agent-canvas-title"]').trigger('click')
+
+    const browse = wrapper.get('[data-testid="agent-canvas-browse"]').text()
+    expect(browse).toContain('Today')
+    expect(browse).toContain('Older')
+  })
+
+  it('copies the Go-rendered markdown to the native clipboard', async () => {
+    const client = fakeCanvasClient([])
+    const wrapper = await mountPane(client)
+
+    await wrapper.get('[data-testid="agent-canvas-copy"]').trigger('click')
+    await flushPromises()
+
+    expect(vi.mocked(client.canvasMarkdown)).toHaveBeenCalledWith('web-app', 'plan')
+    expect(runtime.setText).toHaveBeenCalledWith('# The Plan\n\nhello\n')
+  })
+
+  it('saves through the native dialog and skips a cancelled one', async () => {
+    const client = fakeCanvasClient([])
+    const wrapper = await mountPane(client)
+
+    await wrapper.get('[data-testid="agent-canvas-download"]').trigger('click')
+    await flushPromises()
+    expect(runtime.saveFile).toHaveBeenCalledWith(expect.objectContaining({ Filename: 'plan.md' }))
+    expect(vi.mocked(client.exportCanvas)).toHaveBeenCalledWith('web-app', 'plan', '/tmp/plan.md')
+
+    runtime.saveFile.mockResolvedValueOnce('')
+    await wrapper.get('[data-testid="agent-canvas-download"]').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(client.exportCanvas)).toHaveBeenCalledTimes(1)
   })
 
   it('re-reads the canvas on canvas:updated', async () => {

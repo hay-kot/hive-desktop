@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -185,6 +187,32 @@ func TestCanvasRemoveAbsentBlockIsNotFound(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.RemoveBlock(ctx, 1, "plan", "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
+}
+
+func TestCanvasExport(t *testing.T) {
+	svc, signals := testCanvasService(t)
+	ctx := t.Context()
+
+	_, err := svc.MarkdownForWorkspace(ctx, "ws", "ghost")
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	_, err = svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "hello"})
+	require.NoError(t, err)
+
+	markdown, err := svc.MarkdownForWorkspace(ctx, "ws", "plan")
+	require.NoError(t, err)
+	assert.Equal(t, "# The Plan\n\nhello\n", markdown)
+
+	err = svc.ExportForWorkspace(ctx, "ws", "plan", "relative.md")
+	assert.Equal(t, KindInvalid, KindOf(err), "the save dialog hands back absolute paths; anything else is a caller bug")
+
+	dest := filepath.Join(t.TempDir(), "plan.md")
+	require.NoError(t, svc.ExportForWorkspace(ctx, "ws", "plan", dest))
+	written, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, markdown, string(written))
+
+	assert.Len(t, signals.updates, 1, "an export is not a content update")
 }
 
 func TestCanvasListForWorkspace(t *testing.T) {
