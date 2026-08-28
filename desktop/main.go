@@ -163,6 +163,12 @@ func main() {
 	if core.MountAPI(mcpsrv.PathPrefix, mcpsrv.New(core, logger, mcpsrv.Options{Version: version}).Handler()) {
 		logger.Info().Str("path", mcpsrv.PathPrefix).Msg("agent MCP server mounted")
 	}
+	// The canvas MCP server is a separate mount and catalogue entry, so a
+	// workspace can enable the canvas without the app-control tool set
+	// (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+	if core.MountAPI(mcpsrv.CanvasPathPrefix, mcpsrv.NewCanvas(core, logger, mcpsrv.Options{Version: version}).Handler()) {
+		logger.Info().Str("path", mcpsrv.CanvasPathPrefix).Msg("canvas MCP server mounted")
+	}
 	terminal := wailsui.TerminalTransport{}
 	popupTerminal := wailsui.PopupTerminalTransport{}
 	agents := wailsui.AgentsTransport{}

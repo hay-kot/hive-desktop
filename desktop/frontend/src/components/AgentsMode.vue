@@ -10,7 +10,7 @@
 // TerminalMode.vue is narrower — the aside/main split, plus (since ADR agent-workspace-sessions-are-tmux-sessions)
 // the pane's xterm wiring itself: a session is a tmux session, addressed and
 // framed exactly like a hive one, just not discovered through hive.
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Browser } from '@wailsio/runtime'
 import { FitAddon } from '@xterm/addon-fit'
@@ -18,8 +18,11 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
+import IconPanelRight from '~icons/lucide/panel-right'
+import AgentCanvasPane from './AgentCanvasPane.vue'
 import AgentsSidebar from './AgentsSidebar.vue'
 import AgentWorkspaceEditor from './AgentWorkspaceEditor.vue'
+import AppTooltip from './AppTooltip.vue'
 import BaseButton from './BaseButton.vue'
 import ChatRenameDialog from './ChatRenameDialog.vue'
 import NewChatDialog from './NewChatDialog.vue'
@@ -28,6 +31,7 @@ import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { useTerminalFont } from '../composables/useTerminalFont'
 import { useTheme } from '../composables/useTheme'
+import { useWailsEvent } from '../composables/useWailsEvent'
 import { xtermTheme } from '../lib/terminalTheme'
 import { decodeFrame, encodeInputFrames, encodePasteFrames } from '../lib/agentWorkspacesClient'
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
@@ -252,7 +256,10 @@ function syncChatQuery(id: number | null): void {
   if (route.name !== 'agents') return
   const next = id === null ? undefined : String(id)
   if ((typeof route.query.chat === 'string' ? route.query.chat : undefined) === next) return
-  void router.replace({ name: 'agents', params: route.params, query: { ...route.query, chat: next } })
+  // A closed chat takes its canvas along: ?canvas names a view of the open
+  // chat, so it must not linger and reopen against whatever comes next.
+  const canvas = next === undefined ? undefined : route.query.canvas
+  void router.replace({ name: 'agents', params: route.params, query: { ...route.query, chat: next, canvas } })
 }
 
 watch([paneStatus, openSessionId], ([status, id]) => {
@@ -265,6 +272,53 @@ watch([routeChatId, () => props.active], ([id, active]) => {
   if (openSessionId.value === id || paneStatus.value !== 'idle') return
   void resumeChatFromRoute(id)
 }, { immediate: true })
+
+// ── The canvas pane rides the route too (?canvas[=name]) ────────────────────
+// Same axis rules as ?chat: written with replace so history never stacks, and
+// only shown beside an open chat, whose most recent canvas is the default
+// pick. A name in the query pins one canvas; a bare ?canvas (written as
+// canvas=1) leaves the pick to the pane.
+const canvasRequested = computed(() => route.name === 'agents' && route.query.canvas !== undefined)
+const canvasVisible = computed(() => canvasRequested.value && routeChatId.value !== null)
+const canvasName = computed<string | null>(() => {
+  const raw = route.query.canvas
+  return typeof raw === 'string' && raw !== '' && raw !== '1' ? raw : null
+})
+
+function syncCanvasQuery(open: boolean, name?: string): void {
+  if (route.name !== 'agents') return
+  const next = open ? (name ?? (typeof route.query.canvas === 'string' && route.query.canvas !== '' ? route.query.canvas : '1')) : undefined
+  if (route.query.canvas === next) return
+  void router.replace({ name: 'agents', params: route.params, query: { ...route.query, canvas: next } })
+}
+
+// The dot on the toggle: an agent wrote to a chat's canvas the user was not
+// looking at. Keyed by the authoring session so a write to a background chat
+// lights its dot on return and a chat switch never inherits another chat's
+// dot; viewing a chat with its pane open clears its entry. Content is never
+// carried here — opening the pane reads it.
+const unseenCanvasSessions = reactive(new Set<number>())
+useWailsEvent('canvas:updated', (event) => {
+  const payload = Array.isArray(event.data) ? event.data[0] : event.data
+  const session = Number(payload)
+  if (!Number.isInteger(session) || session <= 0) return
+  if (canvasVisible.value && session === routeChatId.value) return
+  unseenCanvasSessions.add(session)
+})
+watch([canvasVisible, routeChatId], ([visible, id]) => {
+  if (visible && id !== null) unseenCanvasSessions.delete(id)
+})
+const canvasUnseen = computed(() => routeChatId.value !== null && unseenCanvasSessions.has(routeChatId.value))
+
+// An agent can ask to open or close the pane (open_canvas / close_canvas).
+// Honored only for the chat in view: an agent must never drag the user away
+// from a different chat — its write already lights the unseen dot there.
+useWailsEvent('canvas:toggle', (event) => {
+  const payload = (Array.isArray(event.data) ? event.data[0] : event.data) as
+    { session: number; name: string; open: boolean } | undefined
+  if (!payload || Number(payload.session) !== routeChatId.value) return
+  syncCanvasQuery(payload.open, payload.name || undefined)
+})
 
 async function resumeChatFromRoute(id: number): Promise<void> {
   await ready()
@@ -732,7 +786,27 @@ onBeforeUnmount(() => {
           :editor-title="editor.command ? editor.title : ''"
           @open-editor="openPaneWorkspaceInEditor"
           @reveal="revealPaneWorkspace"
-        />
+        >
+          <template #actions>
+            <AppTooltip text="Toggle canvas">
+              <button
+                type="button"
+                class="relative flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text aria-pressed:text-text"
+                aria-label="Toggle canvas"
+                :aria-pressed="canvasRequested"
+                data-testid="agents-pane-statusbar-canvas"
+                @click="syncCanvasQuery(!canvasRequested)"
+              >
+                <IconPanelRight class="size-3.5" />
+                <span
+                  v-if="canvasUnseen"
+                  class="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-accent"
+                  data-testid="agents-canvas-unseen"
+                />
+              </button>
+            </AppTooltip>
+          </template>
+        </PaneStatusBar>
 
         <div class="relative min-h-0 flex-1 bg-app">
           <!-- TerminalTab.vue's shape, for the same reasons: xterm opens in the
@@ -792,6 +866,20 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+
+      <!-- A sibling of the pane column, never inside it: the terminal host
+           must not be re-keyed or unmounted by the canvas opening, and the
+           ResizeObserver absorbs the width change with an ordinary size vote. -->
+      <AgentCanvasPane
+        v-if="canvasVisible && routeChatId !== null"
+        :session="routeChatId"
+        :workspace="paneWorkspaceDir"
+        :name="canvasName"
+        :client="client"
+        @close="syncCanvasQuery(false)"
+        @open-url="openLink"
+        @pick="(name) => syncCanvasQuery(true, name)"
+      />
     </div>
 
     <AgentWorkspaceEditor

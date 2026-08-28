@@ -310,11 +310,16 @@ func WebhookBaseURLAt(host string, port int) string {
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + webhook.PathPrefix
 }
 
+// HTTPBaseURLAt is the loopback server's base URL, which the catalogue joins
+// with each app-hosted entry's RuntimePath to resolve its live address.
+func HTTPBaseURLAt(host string, port int) string {
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port))
+}
+
 // MCPEndpointAt is the URL of the agent MCP server — the same loopback server
 // the webhook listener uses (ADR agent-http-api), at the /mcp path (ADR mcp-replaces-the-agent-facing-http-api). It lives
-// here, not in the adapter, because the prompt text and a workspace's
-// generated .mcp.json both embed it; the /mcp literal avoids an import cycle
-// back into the adapter.
+// here, not in the adapter, because the prompt text embeds it; the /mcp
+// literal avoids an import cycle back into the adapter.
 func MCPEndpointAt(host string, port int) string {
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/mcp"
+	return HTTPBaseURLAt(host, port) + "/mcp"
 }

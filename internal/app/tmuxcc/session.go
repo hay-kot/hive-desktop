@@ -27,7 +27,12 @@ var ErrSessionExists = errors.New("tmuxcc: session already exists")
 // tmux itself is spawned with is therefore load-bearing rather than incidental:
 // a pane inherits the client that created it, so ManagerOptions.Environ is the
 // floor under whatever the startup files that do run add to it.
-func (m *Manager) NewSession(ctx context.Context, name, dir, command string) error {
+//
+// env entries ("KEY=VALUE") are set in the session's own environment via
+// new-session -e (tmux ≥ 3.2, which Available already requires), so — unlike
+// prefixing the command line — they also seed any window the process opens in
+// the session later.
+func (m *Manager) NewSession(ctx context.Context, name, dir, command string, env []string) error {
 	if err := m.Available(ctx); err != nil {
 		return err
 	}
@@ -42,7 +47,11 @@ func (m *Manager) NewSession(ctx context.Context, name, dir, command string) err
 		return fmt.Errorf("%w: %s", ErrSessionExists, name)
 	}
 
-	args := []string{"new-session", "-d", "-s", name, "-c", dir, "--"}
+	args := []string{"new-session", "-d", "-s", name, "-c", dir}
+	for _, pair := range env {
+		args = append(args, "-e", pair)
+	}
+	args = append(args, "--")
 	args = append(args, loginShellArgv(command)...)
 	if _, err := m.oneShot(ctx, args...); err != nil {
 		return fmt.Errorf("tmuxcc: new session %s: %w", name, err)

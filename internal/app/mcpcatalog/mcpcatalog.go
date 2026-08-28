@@ -51,4 +51,9 @@ type Descriptor struct {
 	// whose URL cannot be resolved reports that as a Problem rather than
 	// rendering a URL that does not answer.
 	RuntimeURL bool
+	// RuntimePath is the path a RuntimeURL entry is served under on the
+	// loopback server; the resolved URL is the live base plus this. The
+	// literal lives here, in core, because the adapter cannot be imported
+	// back — a pinning test in mcpsrv asserts the two agree.
+	RuntimePath string
 }

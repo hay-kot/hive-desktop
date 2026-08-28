@@ -177,6 +177,39 @@ export interface MissingSkillPackage {
   selectedBy: string[]
 }
 
+/** One block on a canvas; kind decides which content field is set. */
+export interface CanvasBlock {
+  id: string
+  kind: 'markdown' | 'link' | string
+  title: string
+  body: string
+  url: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** One named canvas in a workspace, blocks in display order. `session` is the chat that created it. */
+export interface WorkspaceCanvas {
+  workspace: string
+  name: string
+  title: string
+  session: number
+  createdAt: number
+  updatedAt: number
+  blocks: CanvasBlock[]
+}
+
+/** One row of a workspace's canvas listing — metadata only, for the picker. */
+export interface WorkspaceCanvasMeta {
+  workspace: string
+  name: string
+  title: string
+  session: number
+  createdAt: number
+  updatedAt: number
+  blockCount: number
+}
+
 export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
@@ -243,6 +276,14 @@ export interface AgentWorkspacesClient {
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
+  /** One canvas by workspace and name; a name nothing was written under answers empty. */
+  canvas(workspace: string, name: string): Promise<WorkspaceCanvas>
+  /** A workspace's canvases, most recently updated first — metadata only. */
+  canvases(workspace: string): Promise<WorkspaceCanvasMeta[]>
+  /** One canvas rendered as a standalone markdown document — the copy action. */
+  canvasMarkdown(workspace: string, name: string): Promise<string>
+  /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
+  exportCanvas(workspace: string, name: string, path: string): Promise<void>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
   openStream(name: string): WebSocket
 }
@@ -363,6 +404,23 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async deleteSession(id) {
       await post('/sessions/delete', { id })
+    },
+    async canvas(workspace, name) {
+      const body = await post<WorkspaceCanvas>('/canvas', { workspace, name })
+      if (!body) throw new AgentRequestError('the canvas could not be read', '')
+      return { ...body, blocks: body.blocks ?? [] }
+    },
+    async canvases(workspace) {
+      const body = await post<{ canvases: WorkspaceCanvasMeta[] | null }>('/canvases', { workspace })
+      return body?.canvases ?? []
+    },
+    async canvasMarkdown(workspace, name) {
+      const body = await post<{ markdown: string }>('/canvas/markdown', { workspace, name })
+      if (!body) throw new AgentRequestError('the canvas could not be rendered', '')
+      return body.markdown
+    },
+    async exportCanvas(workspace, name, path) {
+      await post('/canvas/export', { workspace, name, path })
     },
     openStream,
   }

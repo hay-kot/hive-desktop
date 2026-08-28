@@ -137,7 +137,7 @@ func (s *TerminalsService) startScratch(ctx context.Context) error {
 	if err != nil {
 		return Wrap(err, KindUnavailable, "finding your home directory to open the scratch terminal in")
 	}
-	return terminalError(s.manager.NewSession(ctx, ScratchSlug, home, ""), "starting the scratch terminal")
+	return terminalError(s.manager.NewSession(ctx, ScratchSlug, home, "", nil), "starting the scratch terminal")
 }
 
 // Kill kills the tmux session slug names and reports whether there was one to

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app"
 )
 
@@ -26,14 +28,16 @@ import (
 // ("clearing image for profile \"x\""), so dropping the cause hands an agent a
 // dangling phrase with no reason in it. The consumer here is a model debugging
 // its own call on the user's machine — the detail is the answer, not a leak.
-func (ctrl *Controller) toolError(err error) error {
+func (ctrl *Controller) toolError(err error) error { return toolError(ctrl.log, err) }
+
+func toolError(log zerolog.Logger, err error) error {
 	if err == nil {
 		return nil
 	}
 	var appErr *app.Error
 	if errors.As(err, &appErr) {
 		if appErr.Err != nil {
-			ctrl.log.Debug().Err(err).Str("kind", string(appErr.Kind)).Msg("mcp tool refused a call")
+			log.Debug().Err(err).Str("kind", string(appErr.Kind)).Msg("mcp tool refused a call")
 			// Rendered, not wrapped: what crosses is text for a model to read,
 			// and the chain itself has no meaning on the far side of JSON-RPC.
 			return fmt.Errorf("%s: %s: %s", appErr.Kind, appErr.Msg, appErr.Err.Error())
@@ -42,6 +46,6 @@ func (ctrl *Controller) toolError(err error) error {
 	}
 	// Unclassified means internal by definition — nobody decided otherwise.
 	// Its text is for the log, not for the model.
-	ctrl.log.Error().Err(err).Msg("mcp tool failed")
+	log.Error().Err(err).Msg("mcp tool failed")
 	return fmt.Errorf("%s: the app could not complete the request", app.KindInternal)
 }

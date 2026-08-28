@@ -124,6 +124,16 @@ export interface BuildInfo {
 }
 
 /**
+ * CanvasToggle is the canvas:toggle payload: which chat's pane to open or
+ * close, and the canvas to pin when opening (empty leaves the pane's pick).
+ */
+export interface CanvasToggle {
+    "session": number;
+    "name": string;
+    "open": boolean;
+}
+
+/**
  * DevToolsInfo is what the frontend needs before it decides to render the pane.
  */
 export interface DevToolsInfo {

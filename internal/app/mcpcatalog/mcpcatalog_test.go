@@ -58,6 +58,8 @@ func TestEveryDescriptorRendersAServer(t *testing.T) {
 			// catalogue is rendered, and must be absent until then.
 			assert.Emptyf(t, server.URL,
 				"MCP type %q declares RuntimeURL but ships a static URL, which would be served instead of the live one", mcpType)
+			assert.Truef(t, strings.HasPrefix(descriptor.RuntimePath, "/"),
+				"MCP type %q declares RuntimeURL but no absolute RuntimePath, so no live URL could ever be composed", mcpType)
 		case server.Transport == TransportHttp, server.Transport == TransportSse:
 			assert.NotEmptyf(t, server.URL, "MCP type %q is %s but has no URL", mcpType, server.Transport)
 		}

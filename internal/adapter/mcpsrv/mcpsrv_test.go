@@ -652,8 +652,8 @@ func TestMountedOnTheSharedLoopbackServer(t *testing.T) {
 	require.Len(t, got.Items, 1)
 	assert.Equal(t, "ext-mounted", got.Items[0].ExternalID)
 
-	// The endpoint MCPEndpointAt hands a workspace's .mcp.json has to be the
-	// one that answers, or a generated config points at nothing.
+	// The endpoint MCPEndpointAt renders into prompt text has to be the one
+	// that answers, or the printed URL points at nothing.
 	assert.Equal(t, endpoint, app.MCPEndpointAt(core.Webhooks.Host(), port))
 }
 
