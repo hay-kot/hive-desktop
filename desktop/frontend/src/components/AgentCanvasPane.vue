@@ -19,7 +19,7 @@ import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
-import type { AgentWorkspacesClient, CanvasBlock, ChatCanvasMeta } from '../lib/agentWorkspacesClient'
+import type { AgentWorkspacesClient, CanvasBlock, WorkspaceCanvasMeta } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
   /** The open chat, whose most recent canvas is the default pick. */
@@ -112,7 +112,7 @@ function activityGroup(updatedAt: number, now: number): string {
 // yields the groups already in display order.
 const groupedMetas = computed(() => {
   const now = Date.now()
-  const groups: Array<{ label: string; metas: ChatCanvasMeta[] }> = []
+  const groups: Array<{ label: string; metas: WorkspaceCanvasMeta[] }> = []
   for (const meta of filteredMetas.value) {
     const label = activityGroup(meta.updatedAt, now)
     const last = groups[groups.length - 1]

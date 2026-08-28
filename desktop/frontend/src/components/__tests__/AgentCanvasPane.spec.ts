@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentCanvasPane from '../AgentCanvasPane.vue'
-import type { AgentWorkspacesClient, CanvasBlock, ChatCanvasMeta } from '../../lib/agentWorkspacesClient'
+import type { AgentWorkspacesClient, CanvasBlock, WorkspaceCanvasMeta } from '../../lib/agentWorkspacesClient'
 
 const wailsEvents = vi.hoisted(() => ({
   handlers: [] as Array<[string, (event: { data: unknown }) => void]>,
@@ -30,11 +30,11 @@ function block(overrides: Partial<CanvasBlock>): CanvasBlock {
   return { id: 'b', kind: 'markdown', title: '', body: '', url: '', createdAt: 1, updatedAt: 1, ...overrides }
 }
 
-function meta(overrides: Partial<ChatCanvasMeta>): ChatCanvasMeta {
+function meta(overrides: Partial<WorkspaceCanvasMeta>): WorkspaceCanvasMeta {
   return { workspace: 'web-app', name: 'plan', title: '', session: 7, createdAt: 1, updatedAt: 1, blockCount: 1, ...overrides }
 }
 
-function fakeCanvasClient(blocks: CanvasBlock[], metas: ChatCanvasMeta[] = [meta({})]) {
+function fakeCanvasClient(blocks: CanvasBlock[], metas: WorkspaceCanvasMeta[] = [meta({})]) {
   return {
     canvas: vi.fn().mockImplementation((workspace: string, name: string) =>
       Promise.resolve({ workspace, name, title: '', session: 7, createdAt: 1, updatedAt: 1, blocks })),

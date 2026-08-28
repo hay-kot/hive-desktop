@@ -1,6 +1,6 @@
 import { ref, shallowRef, watch } from 'vue'
 import type { Ref, ShallowRef } from 'vue'
-import type { AgentWorkspacesClient, ChatCanvas, ChatCanvasMeta } from '../lib/agentWorkspacesClient'
+import type { AgentWorkspacesClient, WorkspaceCanvas, WorkspaceCanvasMeta } from '../lib/agentWorkspacesClient'
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
@@ -18,8 +18,8 @@ function message(error: unknown, fallback: string): string {
  * to the workspace's most recent.
  */
 export function useAgentCanvas(client: Ref<AgentWorkspacesClient | null>) {
-  const canvas: ShallowRef<ChatCanvas | null> = shallowRef(null)
-  const metas: Ref<ChatCanvasMeta[]> = ref([])
+  const canvas: ShallowRef<WorkspaceCanvas | null> = shallowRef(null)
+  const metas: Ref<WorkspaceCanvasMeta[]> = ref([])
   const shown: Ref<string | null> = ref(null)
   const workspace = ref('')
   const requested: Ref<string | null> = ref(null)
@@ -30,7 +30,7 @@ export function useAgentCanvas(client: Ref<AgentWorkspacesClient | null>) {
   let queued = false
   let running = false
 
-  function defaultName(listed: ChatCanvasMeta[]): string | null {
+  function defaultName(listed: WorkspaceCanvasMeta[]): string | null {
     const own = listed.find((meta) => meta.session === preferSession.value)
     return own?.name ?? listed[0]?.name ?? null
   }

@@ -189,7 +189,7 @@ export interface CanvasBlock {
 }
 
 /** One named canvas in a workspace, blocks in display order. `session` is the chat that created it. */
-export interface ChatCanvas {
+export interface WorkspaceCanvas {
   workspace: string
   name: string
   title: string
@@ -200,7 +200,7 @@ export interface ChatCanvas {
 }
 
 /** One row of a workspace's canvas listing — metadata only, for the picker. */
-export interface ChatCanvasMeta {
+export interface WorkspaceCanvasMeta {
   workspace: string
   name: string
   title: string
@@ -277,9 +277,9 @@ export interface AgentWorkspacesClient {
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
   /** One canvas by workspace and name; a name nothing was written under answers empty. */
-  canvas(workspace: string, name: string): Promise<ChatCanvas>
+  canvas(workspace: string, name: string): Promise<WorkspaceCanvas>
   /** A workspace's canvases, most recently updated first — metadata only. */
-  canvases(workspace: string): Promise<ChatCanvasMeta[]>
+  canvases(workspace: string): Promise<WorkspaceCanvasMeta[]>
   /** One canvas rendered as a standalone markdown document — the copy action. */
   canvasMarkdown(workspace: string, name: string): Promise<string>
   /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
@@ -406,12 +406,12 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
       await post('/sessions/delete', { id })
     },
     async canvas(workspace, name) {
-      const body = await post<ChatCanvas>('/canvas', { workspace, name })
+      const body = await post<WorkspaceCanvas>('/canvas', { workspace, name })
       if (!body) throw new AgentRequestError('the canvas could not be read', '')
       return { ...body, blocks: body.blocks ?? [] }
     },
     async canvases(workspace) {
-      const body = await post<{ canvases: ChatCanvasMeta[] | null }>('/canvases', { workspace })
+      const body = await post<{ canvases: WorkspaceCanvasMeta[] | null }>('/canvases', { workspace })
       return body?.canvases ?? []
     },
     async canvasMarkdown(workspace, name) {
