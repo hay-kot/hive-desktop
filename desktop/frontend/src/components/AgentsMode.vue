@@ -10,7 +10,7 @@
 // TerminalMode.vue is narrower — the aside/main split, plus (since ADR agent-workspace-sessions-are-tmux-sessions)
 // the pane's xterm wiring itself: a session is a tmux session, addressed and
 // framed exactly like a hive one, just not discovered through hive.
-import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Browser } from '@wailsio/runtime'
 import { FitAddon } from '@xterm/addon-fit'
@@ -292,14 +292,23 @@ function syncCanvasQuery(open: boolean, name?: string): void {
   void router.replace({ name: 'agents', params: route.params, query: { ...route.query, canvas: next } })
 }
 
-// The dot on the toggle: an agent wrote to the open chat's canvas while the
-// pane was closed. Content is never carried here — opening the pane reads it.
-const canvasUnseen = ref(false)
+// The dot on the toggle: an agent wrote to a chat's canvas the user was not
+// looking at. Keyed by the authoring session so a write to a background chat
+// lights its dot on return and a chat switch never inherits another chat's
+// dot; viewing a chat with its pane open clears its entry. Content is never
+// carried here — opening the pane reads it.
+const unseenCanvasSessions = reactive(new Set<number>())
 useWailsEvent('canvas:updated', (event) => {
   const payload = Array.isArray(event.data) ? event.data[0] : event.data
-  if (!canvasVisible.value && Number(payload) === routeChatId.value) canvasUnseen.value = true
+  const session = Number(payload)
+  if (!Number.isInteger(session) || session <= 0) return
+  if (canvasVisible.value && session === routeChatId.value) return
+  unseenCanvasSessions.add(session)
 })
-watch(canvasVisible, (visible) => { if (visible) canvasUnseen.value = false })
+watch([canvasVisible, routeChatId], ([visible, id]) => {
+  if (visible && id !== null) unseenCanvasSessions.delete(id)
+})
+const canvasUnseen = computed(() => routeChatId.value !== null && unseenCanvasSessions.has(routeChatId.value))
 
 // An agent can ask to open or close the pane (open_canvas / close_canvas).
 // Honored only for the chat in view: an agent must never drag the user away

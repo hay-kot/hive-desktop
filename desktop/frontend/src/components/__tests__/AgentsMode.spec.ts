@@ -453,6 +453,30 @@ describe('AgentsMode', () => {
     expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
   })
 
+  // The dot is keyed by chat: a write to a background chat never marks the one
+  // in view, but is remembered and lights that chat's own toggle when it comes
+  // into view — the non-intrusive path the tool descriptions promise.
+  it('lights the dot for a background chat when that chat is opened', async () => {
+    const { wrapper, client } = await mountWithOpenChat()
+
+    wailsEvents.fire('canvas:updated', 9)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('close-session', { ...chatRow })
+    await flushPromises()
+    client.startSession.mockResolvedValueOnce({
+      id: 9, workspace: 'web-app', name: 'Second', agent: 'claude', lastOpenedAt: 0,
+      terminalId: 't9', windowId: 'w9', cols: 80, rows: 24, resumeAttempted: false, notice: '',
+    })
+    await startChat(wrapper)
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
+  })
+
   // open_canvas / close_canvas arrive as canvas:toggle. Only the open chat's
   // ask is honored — an agent must never drag the user away from another chat.
   it('opens and closes the pane on canvas:toggle for the open chat only', async () => {
