@@ -94,6 +94,15 @@ onClickOutside(viewMenu, () => { if (viewMenuOpen.value) closeViewMenu() })
 onMounted(() => document.addEventListener('keydown', onDocumentKeydown))
 onBeforeUnmount(() => document.removeEventListener('keydown', onDocumentKeydown))
 
+// Selected, not just focused: view.focus-search means "start a new search"
+// far more often than "edit the old one" — same call TerminalMode's own
+// filter field makes on the session-tree half of that command.
+const searchInput = ref<HTMLInputElement | null>(null)
+function focusSearch(): void {
+  searchInput.value?.select()
+}
+defineExpose({ focusSearch })
+
 // Keep the selected row in view when navigation moves the cursor by keyboard
 // (mirrors CommandPalette's scrollIntoView on selection change).
 const listContainer = ref<HTMLElement | null>(null)
@@ -114,6 +123,7 @@ watch(() => props.selectedId, async (id) => {
       <label class="search-box">
         <IconSearch class="size-[14px] shrink-0 text-text-3" />
         <input
+          ref="searchInput"
           :value="search"
           type="text"
           class="search-input"

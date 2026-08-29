@@ -49,6 +49,7 @@ import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { sessionRepository, terminalSessionGroups, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalPinnedChats } from '../composables/useTerminalPinnedChats'
 import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
+import { setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
@@ -66,7 +67,6 @@ import { createTerminalClient, getTerminalEndpoint, type WindowForeground, type 
 import { appErrorMessage } from '../lib/appError'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
-import { terminalWindowCommandID } from '../keybindings/catalog'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import { OpenSessionInEditor, RevealSession } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
@@ -94,6 +94,13 @@ const { poolSize } = useTerminalPoolSize()
 const pool = shallowReactive(new Map<string, UseTerminalWindows>())
 const lastUsed: string[] = []
 const activeSlug = ref('')
+// What attachedRow (below) and current track is on-screen state: activeSlug,
+// which the route drives and clears on a trip to the hub. The window-row
+// projection (useAttachedTerminalWindows) names the attached session, not the
+// visible one, so it is keyed off this instead — set on every real attach,
+// left alone by the route-driven detach, and cleared only when dropSession
+// lets that session's pool entry go.
+const lastAttachedSlug = ref('')
 const current = computed(() => (activeSlug.value ? pool.get(activeSlug.value) ?? null : null))
 // What the main area shows. It lags the selection during a cold attach: the
 // outgoing session holds the pane until the incoming one has painted — or
@@ -167,6 +174,10 @@ function dropSession(slug: string): void {
   pool.delete(slug)
   const at = lastUsed.indexOf(slug)
   if (at !== -1) lastUsed.splice(at, 1)
+  // This is the pool's one real exit, so it is where the projection's own
+  // attach reference gives up on a session too — never on the route-driven
+  // detach, which leaves the pool (and this) untouched.
+  if (lastAttachedSlug.value === slug) lastAttachedSlug.value = ''
 }
 
 const route = useRoute()
@@ -177,6 +188,15 @@ const router = useRouter()
 // switches); window changes replace (tab flips must not pile up entries).
 const routeSlug = computed(() => (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
 const routeWindow = computed(() => (typeof route.query.window === 'string' ? route.query.window : ''))
+
+// Shared by the attach path (openSession, on a fresh or already-pooled slug)
+// and the same-slug case (the watch below, for a push that only changes
+// ?window): a wanted window is worth a select exactly when it names a tab
+// this session actually has and is not already showing.
+function selectIfWanted(session: UseTerminalWindows, windowId: string): void {
+  if (!windowId || windowId === session.activeWindowId.value) return
+  if (session.tabs.value.some((tab) => tab.windowId === windowId)) void session.select(windowId)
+}
 
 // The resume snapshot: entering bare /terminal re-attaches this instead of
 // landing on the picker. Cleared when the session is closed on purpose or no
@@ -947,12 +967,14 @@ function relativeWindow(delta: number): TerminalWindowTab | undefined {
   return tabs[(at + delta + tabs.length) % tabs.length]
 }
 
-// The Code view's palette library: the attached session's windows and
-// operations under the session's own name, then every other session as an
-// attach row — the mode's objects, the way the hub's palette lists its feeds.
-// Registered here because everything it acts on lives in this component, and
-// gated on `active` inside the getter: the mode is mounted once and only
-// hidden, so scope disposal never fires on a trip to the hub.
+// The Code view's palette library: the attached session's own operations,
+// under the session's own name. Window and attach rows are registered at App
+// level instead (useAppPaletteRows), since a fresh launch has to be able to
+// list a session or its windows before this async component has ever
+// mounted — a row registered here cannot be global. What is left here acts on
+// state that lives in this component, and is gated on `active` inside the
+// getter: the mode is mounted once and only hidden, so scope disposal never
+// fires on a trip to the hub.
 useCommands(() => {
   if (!props.active) return []
   const cmds: Command[] = []
@@ -960,19 +982,6 @@ useCommands(() => {
   const attached = attachedRow.value
   if (attached) {
     const group = attached.name
-    windowRowsFor(attached).forEach((win, index) => {
-      cmds.push({
-        id: `terminal:window:${win.windowId}`,
-        title: `Go to window: ${win.name}`,
-        group,
-        order: -3,
-        keywords: ['window', 'tab', 'jump', 'switch'],
-        icon: IconTerminal,
-        hint: formatCombo(combosFor(terminalWindowCommandID(index + 1))[0] ?? ''),
-        run: () => openTreeWindow(attached, win),
-      })
-    })
-
     const hive = isHiveSession(attached)
     if ((hive && attached.state === 'active') || isScratch(attached)) {
       if (!rowRunning(attached)) {
@@ -981,6 +990,7 @@ useCommands(() => {
           title: isScratch(attached) ? 'Start terminal' : 'Start session',
           group,
           order: -3,
+          scope: 'actions',
           keywords: ['session', 'run', 'launch'],
           icon: IconPlay,
           run: () => void startSession(attached.slug),
@@ -991,6 +1001,7 @@ useCommands(() => {
         title: 'Kill terminal…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session', 'stop'],
         icon: IconSquare,
         run: () => requestKill(attached),
@@ -1002,6 +1013,7 @@ useCommands(() => {
         title: 'Session details…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session', 'info'],
         icon: IconInfo,
         run: () => void openSessionDetail(attached),
@@ -1010,6 +1022,7 @@ useCommands(() => {
         title: 'Rename session…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session'],
         icon: IconPencil,
         run: () => requestRename(attached),
@@ -1020,6 +1033,7 @@ useCommands(() => {
           title: 'Recycle session…',
           group,
           order: -3,
+          scope: 'actions',
           keywords: ['session', 'reset'],
           icon: IconRecycle,
           run: () => void requestRecycle(attached),
@@ -1030,6 +1044,7 @@ useCommands(() => {
         title: 'Delete session…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session', 'remove'],
         icon: IconTrash,
         run: () => void requestDelete(attached),
@@ -1041,6 +1056,7 @@ useCommands(() => {
           title: entry.label,
           group,
           order: -3,
+          scope: 'actions',
           keywords: ['session', 'action'],
           iconName: entry.iconName,
           iconColor: entry.iconColor,
@@ -1060,6 +1076,7 @@ useCommands(() => {
             title: entry.label,
             group,
             order: -3,
+            scope: 'actions',
             keywords: ['window', 'action', activeWindow.name],
             iconName: entry.iconName,
             iconColor: entry.iconColor,
@@ -1075,6 +1092,7 @@ useCommands(() => {
         title: 'Open in Chats',
         group,
         order: -3,
+        scope: 'goto',
         keywords: ['chat', 'chats', 'agents'],
         icon: IconMessagesSquare,
         run: () => openChatInAgents(attached),
@@ -1083,6 +1101,7 @@ useCommands(() => {
         title: 'Unpin from Code',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['chat', 'pin'],
         icon: IconPinOff,
         run: () => unpinSlug(attached.slug),
@@ -1090,24 +1109,36 @@ useCommands(() => {
     }
   }
 
-  for (const group of sessionGroups.value) {
-    for (const row of group.sessions) {
-      if (row.slug === activeSlug.value) continue
-      cmds.push({
-        id: `terminal:attach:${row.slug}`,
-        title: `Attach session: ${row.name}`,
-        group: 'Sessions',
-        order: -2,
-        keywords: [row.slug, group.name, 'session', 'attach', 'switch', 'open'],
-        icon: IconTerminal,
-        hint: group.name,
-        run: () => selectSessionRow(row),
-      })
-    }
-  }
-
   return cmds
 })
+
+// The App-level palette's window rows (useAppPaletteRows) read this
+// projection rather than component state, so they can list a session's tabs
+// before this async component has ever mounted, and so a jump still works
+// after a trip back to the hub — the reason these rows moved to App level in
+// the first place. Keyed off lastAttachedSlug and the pool rather than
+// attachedRow/windowRowsFor, which follow activeSlug and only show a
+// session's live tabs while it is the on-screen one: both go stale the
+// moment the route leaves /terminal, which this must not.
+watch(
+  () => {
+    const live = lastAttachedSlug.value ? pool.get(lastAttachedSlug.value) : undefined
+    const row = live ? attachable.value.find((candidate) => candidate.slug === lastAttachedSlug.value) : undefined
+    if (!live || !row) return null
+    return {
+      slug: row.slug,
+      name: row.name,
+      windows: live.tabs.value.map((tab) => ({
+        windowId: tab.windowId,
+        name: tab.name || tab.windowId,
+        active: tab.windowId === live.activeWindowId.value,
+      })),
+    }
+  },
+  (next) => setAttachedTerminalWindows(next),
+  { immediate: true },
+)
+onBeforeUnmount(() => setAttachedTerminalWindows(null))
 
 // `!` in the palette opens a window on the attached session running the rest of
 // the line — a shell in that checkout, in the strip beside the others, which
@@ -1125,7 +1156,7 @@ useShellEscape((line) => {
     hint: `new window in ${attached.name}`,
     run: () => void current.value?.newWindow(line),
   }]
-})
+}, () => props.active)
 
 onMounted(() => setTerminalTreeHandles({
   focusTree: focusTreeCursor,
@@ -1380,6 +1411,16 @@ watch([client, routeSlug], ([ready, slug]) => {
   else detachSession()
 }, { immediate: true })
 
+// `?window` is a route input in its own right, not only something read at
+// attach time: a same-slug push that changes only the window (the App-level
+// palette's window rows) moves neither of the pair above, so it needs its own
+// watcher. The mirror watch just below then rewrites the URL to the same
+// value once the resulting active-changed event lands — same value, so it
+// does not loop back into this one.
+watch(routeWindow, (wanted) => {
+  if (current.value) selectIfWanted(current.value, wanted)
+})
+
 // Mirror the attached window into the URL and the resume snapshot. Guarded to
 // the live route so a navigation away cannot claw the history entry back.
 watch([activeSlug, () => current.value?.activeWindowId.value ?? ''], ([slug, windowId]) => {
@@ -1548,23 +1589,23 @@ function openSession(slug: string): void {
   const pooled = pool.get(slug)
   if (pooled && pooled.status.value !== 'ended') {
     touchPool(slug)
-    const wanted = routeWindow.value
-    if (wanted && wanted !== pooled.activeWindowId.value && pooled.tabs.value.some((tab) => tab.windowId === wanted)) {
-      void pooled.select(wanted)
-    }
+    lastAttachedSlug.value = slug
+    selectIfWanted(pooled, routeWindow.value)
     return
   }
   if (pooled) dropSession(slug)
   const opened = useTerminalWindows(slug, client.value)
   pool.set(slug, opened)
   touchPool(slug)
+  // Set after the possible dropSession above, which would otherwise clear it
+  // straight back to '' for this same slug.
+  lastAttachedSlug.value = slug
   // Captured before attach: the mirror watcher rewrites ?window to tmux's
   // active the moment windows land, and the wanted one must survive that.
   const wanted = routeWindow.value
   void opened.start().then(() => {
-    if (pool.get(slug) !== opened || !wanted) return
-    // A window that no longer exists falls through to tmux's own active.
-    if (opened.tabs.value.some((tab) => tab.windowId === wanted)) void opened.select(wanted)
+    if (pool.get(slug) !== opened) return
+    selectIfWanted(opened, wanted)
   })
 }
 

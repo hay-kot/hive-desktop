@@ -3,16 +3,6 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, 
 import { Events, Window } from '@wailsio/runtime'
 import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
-import IconMessagesSquare from '~icons/lucide/messages-square'
-import IconCode from '~icons/lucide/code'
-import IconGauge from '~icons/lucide/gauge'
-import IconInbox from '~icons/lucide/inbox'
-import IconLayoutGrid from '~icons/lucide/layout-grid'
-import IconList from '~icons/lucide/list'
-import IconPalette from '~icons/lucide/palette'
-import IconRss from '~icons/lucide/rss'
-import IconShare2 from '~icons/lucide/share-2'
-import IconWorkflow from '~icons/lucide/workflow'
 import TitleBar from './components/TitleBar.vue'
 import ProfileRail from './components/ProfileRail.vue'
 import SideBar from './components/SideBar.vue'
@@ -36,13 +26,14 @@ import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
 import OnboardingScreen from './components/OnboardingScreen.vue'
 import ToastStack from './components/ToastStack.vue'
+import SequenceHint from './components/SequenceHint.vue'
 import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useNotificationSettings } from './composables/useNotificationSettings'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
 import { useOpenModalCount } from './composables/useOpenModalCount'
-import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
+import { useCommandPalette } from './composables/useCommands'
 import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
 import { useDevTools } from './composables/useDevTools'
@@ -57,9 +48,9 @@ import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
-import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
-import { commands as bindableCommands, commandPiercesPane, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
-import { setTheme, themeLabels, themes } from './composables/useTheme'
+import { comboFromEvent, SEQUENCE_TIMEOUT_MS, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
+import { commandById, commandPiercesPane, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
+import { useAppPaletteRows } from './composables/useAppPaletteRows'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
@@ -72,8 +63,7 @@ import {
   type ProfileSettingsSection,
 } from './router'
 import type { SidebarSelection } from './types/feed'
-import { containerLine, kind } from './lib/itemPresentation'
-import { actionTypeMeta } from './lib/actionPresentation'
+import { kind } from './lib/itemPresentation'
 
 // Only true when Vite is serving in dev mode (under `wails3 dev`). The dev
 // strip is that build's own chrome and never ships; the developer tools behind
@@ -824,7 +814,7 @@ async function toggleMaximise(): Promise<void> {
 
 // ── Command palette ──────────────────────────────────────────────────────────
 
-const { open: paletteOpen, toggle: togglePalette } = useCommandPalette()
+const { open: paletteOpen, toggle: togglePalette, openWithScope } = useCommandPalette()
 const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
 const { current: appError, dismissError } = useErrorDialog()
 
@@ -867,7 +857,7 @@ function togglePopupTerminal(): void {
 // pop-up that appeared only to report that is worse than one that never opened
 // (ADR quick-terminal-launchers-are-session-scoped).
 function toggleLauncher(actionID: string): void {
-  const command = catalogById.value.get(launcherCommandID(actionID))
+  const command = commandById.value.get(launcherCommandID(actionID))
   if (command && !contextActive(command.context)) return
   popupTerminalMounted.value = true
   popupTerminal.toggle({ launcher: actionID, sessionSlug: onScreenSessionSlug.value || undefined })
@@ -892,6 +882,11 @@ useWailsEvent('jobs:updated', () => { void refreshItemSessions() })
 function openItemSession(slug: string): void {
   void router.push({ name: 'terminal', params: { slug } })
 }
+
+// So view.focus-search can reach the feed's search box the same way
+// TerminalMode.vue's own filter field is reached — through a handle, not a
+// prop, since the command fires from the global keymap rather than a click.
+const feedListRef = ref<InstanceType<typeof FeedList> | null>(null)
 
 // One handler per bindable command id. Both the keydown dispatcher and the
 // command palette run through this map, so each command has a single
@@ -919,9 +914,14 @@ const runMap: Record<string, () => void | Promise<void>> = {
     void nextTick(focusTerminalTree)
   },
   'terminal.focus-pane': focusTerminalPane,
-  'terminal.focus-filter': () => {
-    terminalSidebarCollapsed.value = false
-    void nextTick(focusTerminalFilter)
+  // One combo, dispatched on whichever surface is on screen — the feed's
+  // search box and the session tree's filter are otherwise unrelated fields.
+  'view.focus-search': () => {
+    if (feedNavActive.value) void nextTick(() => feedListRef.value?.focusSearch())
+    else if (terminalActive.value) {
+      terminalSidebarCollapsed.value = false
+      void nextTick(focusTerminalFilter)
+    }
   },
   'terminal.new-window': newTerminalWindow,
   'terminal.close-window': closeTerminalWindow,
@@ -931,6 +931,13 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'agents.focus-pane': focusAgentsPane,
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
+  'view.go-inbox': () => setMode('hub'),
+  'view.go-code': () => setMode('terminal'),
+  'view.go-chats': () => setMode('agents'),
+  'settings.open': () => requestOpenSettings('application'),
+  'history.back': () => router.back(),
+  'history.forward': () => router.forward(),
+  'palette.keys': () => openWithScope('keys'),
 }
 
 // Resolves a command id to its implementation. Launchers and the numbered
@@ -950,8 +957,6 @@ function runCommand(id: string): void {
   }
   void runMap[id]?.()
 }
-
-const catalogById = computed(() => new Map(bindableCommands.value.map((command) => [command.id, command])))
 
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
@@ -986,186 +991,86 @@ const anyOverlayOpen = computed(() => otherOverlayOpen.value || tasksOpen.value)
 // ...) must keep tasks.toggle from also closing the overlay underneath it.
 const openModalCount = useOpenModalCount()
 
-// Seed commands — reactive getter so they update when profiles/flows load.
-// Filtered by where the user is standing: a row whose command cannot fire
-// there — a feed command over the terminal, a session launcher outside a
-// session (ADR quick-terminal-launchers-are-session-scoped) — does not appear,
-// and the hub's own objects (feeds, profiles, flow nodes, themes) are listed
-// only on the hub, the way Code lists sessions and windows only there.
-useCommands(computed(() => {
-  const cmds: Command[] = []
-
-  // Bindable app commands and the configured launchers, each with its live
-  // shortcut hint.
-  for (const command of bindableCommands.value) {
-    if (command.paletteHidden || !contextActive(command.context)) continue
-    cmds.push({
-      id: command.id,
-      title: command.title,
-      group: command.group,
-      keywords: command.keywords,
-      icon: command.icon,
-      hint: formatCombo(kb.bindings.value[command.id]?.[0] ?? ''),
-      run: () => runCommand(command.id),
-    })
-  }
-
-  // A row per mode this one is not: with the other modes' objects hidden,
-  // these keep a mode change reachable without the title bar.
-  if (shellLoaded.value && !onboardingActive.value) {
-    if (mode.value !== 'hub') {
-      cmds.push({
-        id: 'mode:hub',
-        title: 'Go to Inbox',
-        group: 'View',
-        keywords: ['inbox', 'hub', 'feed', 'mode'],
-        icon: IconInbox,
-        run: () => setMode('hub'),
-      })
-    }
-    if (mode.value !== 'terminal') {
-      cmds.push({
-        id: 'mode:terminal',
-        title: 'Go to Code',
-        group: 'View',
-        keywords: ['code', 'terminal', 'sessions', 'mode'],
-        icon: IconCode,
-        run: () => setMode('terminal'),
-      })
-    }
-    if (mode.value !== 'agents') {
-      cmds.push({
-        id: 'mode:agents',
-        title: 'Go to Chats',
-        group: 'View',
-        keywords: ['chats', 'agents', 'chat', 'mode'],
-        icon: IconMessagesSquare,
-        run: () => setMode('agents'),
-      })
-    }
-  }
-
-  if (hubActive.value) {
-    // Profiles
-    for (const p of profiles.value) {
-      cmds.push({
-        id: `profile:${p.id}`,
-        title: `Switch to profile: ${p.name}`,
-        group: 'Profiles',
-        icon: IconLayoutGrid,
-        run: () => requestSelectProfile(p.id),
-      })
-    }
-
-    // Feeds — Trash first, then the sidebar's feeds in their own order.
-    const profileName = activeProfile.value?.name
-
-    cmds.push({
-      id: 'view:trash',
-      title: 'Open Trash',
-      group: 'Feeds',
-      icon: IconList,
-      hint: profileName,
-      run: () => navigateSidebar({ type: 'trash' }),
-    })
-
-    for (const f of activeProfile.value?.feeds ?? []) {
-      cmds.push({
-        id: `feed:${f.id}`,
-        title: `Select feed: ${f.name}`,
-        group: 'Feeds',
-        icon: IconRss,
-        hint: profileName,
-        run: () => navigateSidebar({ type: 'feed', feedId: f.id }),
-      })
-    }
-
-    // The selected item's configured actions, under its own reference — the
-    // same set the detail pane draws as cards. Running one from here goes
-    // through invokeAction, so an action that declares inputs opens its form
-    // and an interactive launch-session opens the session dialog, exactly as a
-    // card click does.
-    if (feedNavActive.value && selectedItem.value) {
-      const itemGroup = containerLine(selectedItem.value) || 'Item'
-      for (const action of actions.value) {
-        const meta = actionTypeMeta(action.type)
-        cmds.push({
-          id: `item:action:${action.id}`,
-          title: action.label,
-          group: itemGroup,
-          order: -3,
-          keywords: ['action', 'item', action.type],
-          iconName: meta.icon,
-          iconColor: meta.color,
-          run: () => void invokeAction(action.id),
-        })
-      }
-    }
-
-    cmds.push({
-      id: 'profile:new',
-      title: 'New profile…',
-      group: 'Profiles',
-      keywords: ['workspace', 'create'],
-      run: openNewProfile,
-    })
-
-    // View — enter/exit the flows canvas for the active profile.
-    cmds.push({
-      id: 'flow:edit',
-      title: flowsActive.value ? 'Back to feed' : 'Edit flow…',
-      group: 'View',
-      keywords: ['flows', 'pipeline', 'nodes', 'canvas', 'editor'],
-      icon: IconWorkflow,
-      run: () => { flowsActive.value ? requestExitFlows() : openFlows() },
-    })
-
-    // Jump to any node in the active flow by name (8d) — opens the canvas
-    // focused/centered on that node, same as "Reveal in flow" from the sidebar.
-    for (const node of session.activeFlow.value?.nodes ?? []) {
-      cmds.push({
-        id: `flow:node:${node.id}`,
-        title: `Jump to node: ${node.name || node.type}`,
-        group: 'Flow',
-        keywords: ['flows', 'node', 'canvas', 'reveal'],
-        icon: IconShare2,
-        run: () => openFlows(node.id),
-      })
-    }
-
-    // Themes
-    for (const t of themes) {
-      cmds.push({
-        id: `theme:${t}`,
-        title: `Theme: ${themeLabels[t]}`,
-        group: 'Theme',
-        keywords: ['theme', 'appearance', t],
-        icon: IconPalette,
-        run: () => setTheme(t),
-      })
-    }
-  }
-
-  // The palette is the only way in outside a Vite build, where the dev strip
-  // carries the link.
-  if (devToolsEnabled.value) {
-    cmds.push({
-      id: 'dev:open',
-      title: 'Open developer tools',
-      group: 'View',
-      keywords: ['runtime', 'performance', 'memory', 'cpu', 'diagnostics'],
-      icon: IconGauge,
-      run: () => { void router.push({ name: 'dev' }) },
-    })
-  }
-
-  return cmds
-}))
+// Everything the palette lists lives in this composable — catalog commands,
+// mode switches, and the hub's own objects, plus the Go-to rows (sessions,
+// windows, settings sections, chats) that are global rather than tied to a
+// lazily mounted mode. App.vue keeps the dispatcher (runCommand, runMap) and
+// hands over the narrow bundle of state and functions the rows need.
+useAppPaletteRows({
+  runCommand,
+  contextActive,
+  mode,
+  shellLoaded,
+  onboardingActive,
+  hubActive,
+  devToolsEnabled,
+  router,
+  profiles,
+  activeProfile,
+  requestSelectProfile,
+  navigateSidebar,
+  selectedItem,
+  actions,
+  invokeAction,
+  flowsActive,
+  openFlows,
+  requestExitFlows,
+  openNewProfile,
+  onScreenSessionSlug,
+})
 
 // ── Global input navigation ──────────────────────────────────────────────────
 // Resolves a keydown against the configurable keymap and runs the matched
 // command. Bare (modifier-less) keys are ignored while typing; feed commands
 // only fire on the feed; overlays suppress everything but the palette toggle.
+
+// One timer at a time, for a sequence prefix that is also a complete binding
+// (Zed's prefix rule): a continuation cancels it, and its fire dispatches
+// through the same gate as everything else below rather than trusting the
+// state that was true when it was armed.
+let sequenceTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelSequenceTimer(): void {
+  if (sequenceTimer === null) return
+  clearTimeout(sequenceTimer)
+  sequenceTimer = null
+}
+
+function resetSequence(): void {
+  cancelSequenceTimer()
+  kb.clearPendingSequence()
+}
+
+// The gate an ordinary dispatch applies, factored out so the deferred
+// sequence timer's fire runs it too.
+function dispatchIfActive(id: string): boolean {
+  const command = commandById.value.get(id)
+  if (!command) return false
+  if (anyOverlayOpen.value && id !== 'palette.toggle') {
+    // tasks.toggle has to reach the dispatcher while its own overlay owns the
+    // screen — that is what lets it close again — but only that overlay: a
+    // different modal (report, new-profile, a confirm stacked inside Tasks
+    // itself) still swallows it like any other command.
+    const closesTasksOverlay = id === 'tasks.toggle' && tasksOpen.value && !otherOverlayOpen.value && openModalCount.value === 0
+    if (!closesTasksOverlay) return false
+  }
+  if (!contextActive(command.context)) return false
+  runCommand(id)
+  return true
+}
+
+function armSequenceTimer(deferredCommandId: string): void {
+  sequenceTimer = setTimeout(() => {
+    sequenceTimer = null
+    kb.clearPendingSequence()
+    dispatchIfActive(deferredCommandId)
+  }, SEQUENCE_TIMEOUT_MS)
+}
+
+// A sequence started before the palette opened — by a chord, or by a mouse
+// click, which never reaches stepSequence at all — has nowhere to go once it
+// does; onGlobalKeydown's own swallow case gives Esc the same treatment.
+watch(paletteOpen, (open) => { if (open) resetSequence() })
 
 function onGlobalKeydown(e: KeyboardEvent): void {
   // The exceptions to the rule below, which hands a focused terminal every key.
@@ -1187,7 +1092,8 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // terminal the program inside cannot use (ADR quick-terminal-launchers-are-session-scoped).
     const id = kb.resolve(comboFromEvent(e) ?? '')
     const pierces = !!id && (commandPiercesPane(id) || launcherActionID(id) !== null)
-    if (id && pierces && contextActive(catalogById.value.get(id)?.context ?? 'global')) {
+    if (id && pierces && contextActive(commandById.value.get(id)?.context ?? 'global')) {
+      resetSequence()
       e.preventDefault()
       runCommand(id)
       return
@@ -1198,7 +1104,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // answers. A bare Ctrl+K stays with the pane; it is readline's
     // kill-to-end-of-line, and Ctrl+T is its transpose.
     const escaped = kb.resolve(terminalEscapeCombo(e) ?? '')
-    const command = escaped ? catalogById.value.get(escaped) : undefined
+    const command = escaped ? commandById.value.get(escaped) : undefined
     if (escaped && command?.escapesPane && contextActive(command.context)) {
       e.preventDefault()
       runCommand(escaped)
@@ -1207,8 +1113,14 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   }
 
   // A focused terminal owns every key, modifiers included, so tmux prefixes
-  // reach the pane instead of firing a Hive shortcut.
-  if (isTerminalTarget(e.target)) return
+  // reach the pane instead of firing a Hive shortcut. It cannot host a pending
+  // sequence either — the pane would swallow whatever completes it — so
+  // landing here (or the focusin listener below, for a focus change that
+  // isn't a keystroke) always clears one.
+  if (isTerminalTarget(e.target)) {
+    resetSequence()
+    return
+  }
 
   // WebKit can treat an unhandled Backspace as browser Back. Suppress that
   // default outside editors while still allowing components such as the flow
@@ -1218,27 +1130,58 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (kb.recording.value) return // the settings editor is capturing this key
   const combo = comboFromEvent(e)
   if (!combo) return
+
+  const transition = kb.stepSequence(kb.pendingSequence.value, combo)
+  switch (transition.kind) {
+    case 'run':
+      resetSequence()
+      if (dispatchIfActive(transition.commandId)) e.preventDefault()
+      return
+    case 'extend': {
+      // A sequence can only start outside an editable field and outside an
+      // overlay. Continuing one already pending is unaffected: by the time
+      // either is open, whatever got it there has already cleared pending —
+      // a completed run, an ordinary dispatch below, the palette watch above,
+      // or a focus change into the field (onWindowFocusIn).
+      //
+      // A discarded start falls through to the dispatch below rather than
+      // returning: the combo may also be a complete binding in its own right
+      // (Zed's prefix rule), and that exact binding still has to fire — a bare
+      // leader then hits the editable bare-key bail and types normally, same
+      // as if it had never been a prefix of anything.
+      const isStart = kb.pendingSequence.value === null
+      if (isStart && (isEditableTarget(e.target) || anyOverlayOpen.value)) break
+      cancelSequenceTimer()
+      kb.pendingSequence.value = transition.pending
+      e.preventDefault()
+      if (transition.deferredCommandId) armSequenceTimer(transition.deferredCommandId)
+      return
+    }
+    case 'swallow':
+      resetSequence()
+      e.preventDefault()
+      return
+    case 'pass':
+      if (kb.pendingSequence.value) resetSequence()
+      break
+  }
+
   const id = kb.resolve(combo)
   if (!id) return
-  const command = catalogById.value.get(id)
-  if (!command) return
 
   const mods = combo.split('+')
   const hasModifier = mods.includes('mod') || mods.includes('ctrl') || mods.includes('alt')
   if (isEditableTarget(e.target) && !hasModifier) return
 
-  if (anyOverlayOpen.value && id !== 'palette.toggle') {
-    // tasks.toggle has to reach the dispatcher while its own overlay owns the
-    // screen — that is what lets it close again — but only that overlay: a
-    // different modal (report, new-profile, a confirm stacked inside Tasks
-    // itself) still swallows it like any other command.
-    const closesTasksOverlay = id === 'tasks.toggle' && tasksOpen.value && !otherOverlayOpen.value && openModalCount.value === 0
-    if (!closesTasksOverlay) return
-  }
-  if (!contextActive(command.context)) return
+  if (dispatchIfActive(id)) e.preventDefault()
+}
 
-  e.preventDefault()
-  runCommand(id)
+// A pane owns every key while it has focus, and an editable field owns the
+// next keystroke, so a sequence cannot survive a focus change into either
+// even without an intervening keystroke (a mouse click into the field or
+// pane, or a focus change made programmatically).
+function onWindowFocusIn(e: FocusEvent): void {
+  if (isTerminalTarget(e.target) || isEditableTarget(e.target)) resetSequence()
 }
 
 function isHistoryMouseButton(e: MouseEvent): boolean {
@@ -1262,15 +1205,18 @@ function onGlobalMouseUp(e: MouseEvent): void {
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('focusin', onWindowFocusIn)
   window.addEventListener('mousedown', preventNativeMouseHistory)
   window.addEventListener('mouseup', onGlobalMouseUp)
   window.addEventListener('auxclick', preventNativeMouseHistory)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('focusin', onWindowFocusIn)
   window.removeEventListener('mousedown', preventNativeMouseHistory)
   window.removeEventListener('mouseup', onGlobalMouseUp)
   window.removeEventListener('auxclick', preventNativeMouseHistory)
+  cancelSequenceTimer()
 })
 </script>
 
@@ -1437,6 +1383,7 @@ onUnmounted(() => {
           </div>
           <section v-else-if="activeProfile" class="flex min-w-0 flex-1">
             <FeedList
+              ref="feedListRef"
               :title="title"
               :visible-items="visibleItems"
               :selected-id="selectedId"
@@ -1482,6 +1429,7 @@ onUnmounted(() => {
         </template>
       </div>
       <DevBar v-if="devMode" />
+      <SequenceHint />
     </div>
     <CreateSessionDialog
       v-if="sessionLaunchAction && sessionLaunchOptions"

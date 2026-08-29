@@ -69,6 +69,25 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   from a terminal session's status bar, scoped to that session's repository.
   A poll picks up changes made outside the app, such as from the `hive hc`
   CLI.
+- **The command palette has scope tabs** — All, Go to, Actions, and Shell —
+  so you can narrow it to just navigation or just actions instead of the
+  whole ranked list. `@`, `>`, and `!` still jump straight into a scope as
+  you type.
+- **The command palette opens with recent commands**, device-local usage data
+  that survives restarts and is stored on this device rather than in your
+  settings file. Typed queries match fuzzily — scattered characters like
+  `mkalrd` find "Mark all as read" — with title matches ranked above keyword
+  matches.
+- **Keybindings can be chord sequences**, not just single combos. `g i` /
+  `g c` / `g a` / `g t` / `g s` jump to Inbox, Code, Chats, Tasks, and
+  Settings from anywhere, and a which-key hint pill shows the pressed key and
+  what it can lead to while a sequence is pending.
+- **`?` opens a searchable keyboard-shortcut reference** — its own tab in the
+  command palette. Pressing Enter on any row lands in Settings ▸ Keyboard,
+  pre-filtered to that command.
+- **The macOS standards are wired up**: `⌘,` opens Settings, and `⌘[`/`⌘]`
+  step back and forward through view history, matching the title bar's own
+  buttons.
 
 ## Changed
 
@@ -81,11 +100,16 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   combined row.
 - The New Session form preselects the agent `hive` would actually run, and the
   dialog opens on ⌘N.
-- The command palette no longer lists rows that cannot run where you are
-  standing — feed commands over a terminal, feeds and themes outside the
-  inbox — and ranks a strong title match above an early group.
+- The command palette no longer lists commands that cannot run where you are
+  standing — feed commands over a terminal — and keeps item actions and flow
+  editing hub-only, since the flows canvas is profile-bound.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
+- `/` now focuses whichever search box is on screen — the feed's or the Code
+  view's session filter — as one shared shortcut (`mod+f` rides along) rather
+  than a Code-only binding, so the two can no longer be rebound independently.
+- The Code view's commands group under "Code" in the palette and the keyboard
+  reference, matching the area's name rather than the old "Terminal" label.
 - **The Chats sidebar lists every chat under its workspace**, instead of a
   workspace list filtering a flat list of chats below it. Workspaces fold and
   unfold, and stay that way; ones with a running agent open on their own. It

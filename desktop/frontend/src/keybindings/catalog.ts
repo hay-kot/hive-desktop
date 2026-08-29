@@ -1,13 +1,18 @@
 import { computed, ref, type Component, type ComputedRef } from 'vue'
 import IconArrowDown from '~icons/lucide/arrow-down'
+import IconArrowLeft from '~icons/lucide/arrow-left'
+import IconArrowRight from '~icons/lucide/arrow-right'
 import IconArrowUp from '~icons/lucide/arrow-up'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconBug from '~icons/lucide/bug'
 import IconChevronLeft from '~icons/lucide/chevron-left'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconCode from '~icons/lucide/code'
 import IconCommand from '~icons/lucide/command'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
+import IconInbox from '~icons/lucide/inbox'
+import IconKeyboard from '~icons/lucide/keyboard'
 import IconListTodo from '~icons/lucide/list-todo'
 import IconMailCheck from '~icons/lucide/mail-check'
 import IconMinus from '~icons/lucide/minus'
@@ -16,9 +21,11 @@ import IconPanelRight from '~icons/lucide/panel-right'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
+import IconSettings from '~icons/lucide/settings'
 import IconSquarePlus from '~icons/lucide/square-plus'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
+import type { CommandScope } from '../palette/scopes'
 
 // The single declarative source of truth for *bindable* commands — the stable
 // app actions a user can rebind from Settings ▸ Keybindings and that also seed
@@ -64,6 +71,8 @@ export interface BindableCommand {
   /** Canonical default combos; `[]` = bindable but unbound. */
   defaultCombos: string[]
   context: CommandContext
+  /** Palette scope for the seeded row. Default 'actions'. */
+  scope?: CommandScope
   /** Omit from the command palette (still bindable + listed in settings). */
   paletteHidden?: boolean
   /**
@@ -111,7 +120,7 @@ const windowJumpCommands: BindableCommand[] = Array.from({ length: DIRECT_WINDOW
   return {
     id: terminalWindowCommandID(position),
     title: `Go to window ${position}`,
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'switch', String(position)],
     icon: IconTerminal,
     defaultCombos: [`mod+${position}`],
@@ -144,7 +153,7 @@ export const commandCatalog: BindableCommand[] = [
     id: 'feed.open-in-browser',
     title: 'Open item in browser',
     group: 'Feeds',
-    keywords: ['open', 'browser', 'github', 'link'],
+    keywords: ['open', 'browser', 'github', 'link', 'visit'],
     icon: IconExternalLink,
     defaultCombos: ['o', 'enter'],
     context: 'feed',
@@ -153,7 +162,7 @@ export const commandCatalog: BindableCommand[] = [
     id: 'feed.toggle-unread',
     title: 'Toggle unread filter',
     group: 'Feeds',
-    keywords: ['unread', 'filter'],
+    keywords: ['unread', 'filter', 'seen'],
     icon: IconEye,
     defaultCombos: ['u'],
     context: 'feed',
@@ -167,8 +176,8 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['p'],
     context: 'feed',
   },
-  { id: 'feed.toggle-archive', title: 'Archive / unarchive item', group: 'Feeds', defaultCombos: ['e'], context: 'feed' },
-  { id: 'feed.mark-unread', title: 'Mark unread', group: 'Feeds', defaultCombos: ['shift+u'], context: 'feed' },
+  { id: 'feed.toggle-archive', title: 'Archive / unarchive item', group: 'Feeds', keywords: ['archive', 'done', 'complete', 'dismiss'], defaultCombos: ['e'], context: 'feed' },
+  { id: 'feed.mark-unread', title: 'Mark unread', group: 'Feeds', keywords: ['read', 'seen', 'unseen'], defaultCombos: ['shift+u'], context: 'feed' },
   // Scoped to the selected feed; a no-op in Trash, which carries no unread
   // semantics. The workspace variant stays unbound by default: it clears every
   // feed at once and there is no undo, so it should be asked for by name.
@@ -244,7 +253,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.focus-sidebar',
     title: 'Focus session tree',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'sidebar', 'sessions', 'tree', 'focus', 'left'],
     icon: IconPanelLeft,
     defaultCombos: ['mod+arrowleft'],
@@ -254,7 +263,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.focus-pane',
     title: 'Focus terminal',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'pane', 'focus', 'right'],
     icon: IconPanelRight,
     defaultCombos: ['mod+arrowright'],
@@ -262,15 +271,34 @@ export const commandCatalog: BindableCommand[] = [
   },
   // Bare `/`, the way every list this is modelled on spells it. A focused pane
   // keeps the key — it is a character — so this fires from the tree, which is
-  // where a search for a session starts anyway.
+  // where a search for a session starts anyway. One combo resolves to one
+  // command, so the feed's search box and the session filter share this one,
+  // whose run() dispatches on whichever is on screen; mod+f rides the same
+  // command (xterm's own Cmd+F stays widget-local). paletteHidden: a visible
+  // global row would no-op wherever neither surface is on screen, which the
+  // palette forbids (hide, don't disable) — the per-view named rows below
+  // carry the hint instead.
   {
-    id: 'terminal.focus-filter',
-    title: 'Filter sessions',
-    group: 'Terminal',
-    keywords: ['terminal', 'filter', 'search', 'find', 'session'],
+    id: 'view.focus-search',
+    title: 'Focus search',
+    group: 'General',
+    keywords: ['find', 'filter', 'search', 'slash'],
     icon: IconSearch,
-    defaultCombos: ['/'],
-    context: 'terminal',
+    defaultCombos: ['/', 'mod+f'],
+    context: 'global',
+    paletteHidden: true,
+  },
+  // The ? reference. Bare '?' is dead in editables and panes automatically, so
+  // it fires from list surfaces, which is where the genre binds it.
+  {
+    id: 'palette.keys',
+    title: 'Keyboard shortcuts…',
+    group: 'General',
+    keywords: ['keys', 'shortcuts', 'keymap', 'help', 'cheatsheet'],
+    icon: IconKeyboard,
+    defaultCombos: ['?'],
+    context: 'global',
+    scope: 'goto',
   },
   // The window lifecycle, on the chords a terminal emulator already spells them
   // with: ⌘T, ⌘W, and ⌘⇧] / ⌘⇧[ to walk the list. They escape a focused pane
@@ -283,7 +311,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.new-window',
     title: 'New window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'new', 'create', 'open'],
     icon: IconPlus,
     defaultCombos: ['mod+t'],
@@ -293,7 +321,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.close-window',
     title: 'Close window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'close', 'kill'],
     icon: IconX,
     defaultCombos: ['mod+w'],
@@ -303,7 +331,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.next-window',
     title: 'Next window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'next', 'cycle', 'switch'],
     icon: IconChevronRight,
     defaultCombos: ['mod+}'],
@@ -313,7 +341,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.prev-window',
     title: 'Previous window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'previous', 'cycle', 'switch'],
     icon: IconChevronLeft,
     defaultCombos: ['mod+{'],
@@ -356,6 +384,76 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['mod+shift+b'],
     context: 'global',
   },
+  // Cmd+, is the macOS settings standard; g s is the genre chord.
+  // paletteHidden: the Settings › <section> rows are the named rows.
+  {
+    id: 'settings.open',
+    title: 'Open Settings',
+    group: 'General',
+    keywords: ['settings', 'preferences'],
+    icon: IconSettings,
+    defaultCombos: ['mod+,', 'g s'],
+    context: 'global',
+    paletteHidden: true,
+    scope: 'goto',
+  },
+  // Router history, matching the title-bar buttons. Not escapesPane: a
+  // focused pane keeps the key.
+  {
+    id: 'history.back',
+    title: 'Back',
+    group: 'General',
+    keywords: ['back', 'navigate', 'history'],
+    icon: IconArrowLeft,
+    defaultCombos: ['mod+['],
+    context: 'global',
+    paletteHidden: true,
+  },
+  {
+    id: 'history.forward',
+    title: 'Forward',
+    group: 'General',
+    keywords: ['forward', 'navigate', 'history'],
+    icon: IconArrowRight,
+    defaultCombos: ['mod+]'],
+    context: 'global',
+    paletteHidden: true,
+  },
+  // Palette-hidden like the window jumps: the dynamic "Go to Inbox/Code/Chats"
+  // rows are the named rows and carry these combos as hints.
+  {
+    id: 'view.go-inbox',
+    title: 'Go to Inbox',
+    group: 'View',
+    keywords: ['inbox', 'hub', 'feed', 'mode'],
+    icon: IconInbox,
+    defaultCombos: ['g i'],
+    context: 'global',
+    paletteHidden: true,
+    scope: 'goto',
+  },
+  {
+    id: 'view.go-code',
+    title: 'Go to Code',
+    group: 'View',
+    keywords: ['code', 'terminal', 'sessions', 'mode'],
+    icon: IconCode,
+    defaultCombos: ['g c'],
+    context: 'global',
+    paletteHidden: true,
+    scope: 'goto',
+  },
+  {
+    id: 'view.go-chats',
+    title: 'Go to Chats',
+    group: 'View',
+    keywords: ['chats', 'agents', 'chat', 'mode'],
+    icon: IconMessagesSquare,
+    defaultCombos: ['g a'],
+    context: 'global',
+    paletteHidden: true,
+    scope: 'goto',
+  },
   // Grouped with the mode rows (Go to Inbox/Code/Chats) rather than General:
   // it toggles a view on screen the same way those switch one, and that is
   // where a user opening the palette to find it would look first.
@@ -365,12 +463,13 @@ export const commandCatalog: BindableCommand[] = [
     group: 'View',
     keywords: ['tasks', 'honeycomb', 'hc', 'epics'],
     icon: IconListTodo,
-    defaultCombos: ['mod+shift+t'],
+    defaultCombos: ['mod+shift+t', 'g t'],
     context: 'global',
     // Pierces rather than escapes: Tasks is the overlay most often wanted from
     // inside a session, and a user who rebinds it to an alt chord gets nothing
     // through terminalEscapeCombo.
     piercesPane: true,
+    scope: 'goto',
   },
   {
     id: 'window.hide',
@@ -431,4 +530,12 @@ export function setLauncherCommands(next: BindableCommand[]): void {
  */
 export const commands: ComputedRef<BindableCommand[]> = computed(
   () => [...commandCatalog, ...launcherCommands.value],
+)
+
+/**
+ * Every bindable command by id, built from `commands` (not `commandCatalog`)
+ * so launcher commands resolve too.
+ */
+export const commandById: ComputedRef<Map<string, BindableCommand>> = computed(
+  () => new Map(commands.value.map((command) => [command.id, command])),
 )

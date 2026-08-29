@@ -125,7 +125,11 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   await expect(palette).toBeVisible()
   const input = page.getByTestId('command-palette-input')
   await input.fill('notifications')
-  const notificationsFeed = page.getByTestId('command-palette-command').filter({ hasText: 'Select feed: Notifications inbox' })
+  // The scope-prefix span and the title span are adjacent with no text node
+  // between them (Vue's whitespace-condense drops the newline between the
+  // two <span> tags in the template), so the row's full text has no space
+  // after the ›.
+  const notificationsFeed = page.getByTestId('command-palette-command').filter({ hasText: 'Frontend Triage ›Notifications inbox' })
   await expect(notificationsFeed).toBeVisible()
   await notificationsFeed.click()
   await expect(palette).toBeHidden()
@@ -133,11 +137,88 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
 
   await page.keyboard.press('Meta+k')
   await expect(palette).toBeVisible()
+
+  // The row just run leads Recent on the next open, ahead of its own group.
+  const firstEntry = page.locator('.palette-results > *').first()
+  await expect(firstEntry).toHaveClass(/palette-group-header/)
+  await expect(firstEntry).toHaveText('Recent')
+  // Recent rows carry the same container prefix a typed-query row does, but
+  // as a separate scope span — command-palette-command-title is the title
+  // alone.
+  const recentRow = page.getByTestId('command-palette-command').first()
+  await expect(recentRow.getByTestId('command-palette-command-title')).toHaveText('Notifications inbox')
+  await expect(recentRow.getByTestId('command-palette-command-scope')).toHaveText('Frontend Triage ›')
+
+  // A scattered query still finds a command by hopping across word starts.
+  await input.fill('mkalrd')
+  await expect(page.getByTestId('command-palette-command').filter({ hasText: 'Mark all as read' })).toBeVisible()
+
   await page.keyboard.press('Escape')
   await expect(palette).toBeHidden()
 
   await page.keyboard.press('Control+k')
   await expect(palette).toBeVisible()
+})
+
+test('a sigil enters its scope tab and Backspace/Tab move between them', async ({ page }) => {
+  await page.keyboard.press('Meta+k')
+  const palette = page.getByTestId('command-palette')
+  await expect(palette).toBeVisible()
+  const input = page.getByTestId('command-palette-input')
+  const allTab = page.locator('[data-testid="command-palette-tab"][data-scope="all"]')
+  const gotoTab = page.locator('[data-testid="command-palette-tab"][data-scope="goto"]')
+  const actionsTab = page.locator('[data-testid="command-palette-tab"][data-scope="actions"]')
+
+  // A bare "@" is absorbed: it enters the Go to scope rather than becoming
+  // the first character of the query.
+  await input.fill('@')
+  await expect(gotoTab).toHaveClass(/palette-tab-active/)
+  await expect(input).toHaveValue('')
+
+  // Backspace on the now-empty query pops back to All.
+  await input.press('Backspace')
+  await expect(allTab).toHaveClass(/palette-tab-active/)
+
+  // Tab cycles forward through the visible scopes.
+  await page.keyboard.press('Tab')
+  await expect(gotoTab).toHaveClass(/palette-tab-active/)
+  await page.keyboard.press('Tab')
+  await expect(actionsTab).toHaveClass(/palette-tab-active/)
+
+  await page.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+})
+
+test('g shows the which-key hint pill, and g s lands on Settings', async ({ page }) => {
+  await page.keyboard.press('g')
+  await expect(page.getByTestId('sequence-hint')).toBeVisible()
+
+  await page.keyboard.press('s')
+  await expect(page.getByTestId('sequence-hint')).toHaveCount(0)
+  await expect(page.getByTestId('settings-view')).toBeVisible()
+})
+
+test('? opens the palette on the Keys tab', async ({ page }) => {
+  await page.keyboard.press('?')
+  const palette = page.getByTestId('command-palette')
+  await expect(palette).toBeVisible()
+  await expect(page.locator('[data-testid="command-palette-tab"][data-scope="keys"]')).toHaveClass(/palette-tab-active/)
+
+  await page.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+})
+
+test('a leading slash focuses the feed search box, and a key typed there does not start a sequence', async ({ page }) => {
+  const search = page.getByTestId('feed-search')
+
+  await page.keyboard.press('/')
+  await expect(search).toBeFocused()
+
+  await page.keyboard.press('g')
+  await expect(search).toHaveValue('g')
+  // No sequence started: the hint pill never appears, and the mode stays put.
+  await expect(page.getByTestId('sequence-hint')).toHaveCount(0)
+  await expect(page.getByTestId('feed-item')).toHaveCount(6)
 })
 
 test('navigates between items with j/k and the arrow keys', async ({ page }) => {

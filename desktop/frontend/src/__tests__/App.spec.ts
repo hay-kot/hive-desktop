@@ -1,21 +1,26 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
+import { requestedEditorFilter } from '../keybindings/keymapRows'
 import { useReportDialog } from '../composables/useReportDialog'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
 import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
 import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/usePopupTerminal'
 import { resetLaunchersForTests } from '../composables/useLaunchers'
-import { formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { formatCombo, SEQUENCE_TIMEOUT_MS, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
-import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
-import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
+import { resetTerminalSessionsForTests, useTerminalSessions } from '../composables/useTerminalSessions'
+import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
+import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
+import { resetAgentSessionsAllForTests, useAgentSessionsAll } from '../composables/useAgentSessionsAll'
+import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { resetTasksForTests, useTasks } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
 import TerminalMode from '../components/TerminalMode.vue'
 import { setTerminalTreeHandles, type TerminalTreeHandles } from '../lib/terminalTree'
+import { ListSessions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 
 const mocks = vi.hoisted(() => ({
   // flowsservice
@@ -305,8 +310,13 @@ describe('App', () => {
     resetPopupTerminalForTests()
     resetLaunchersForTests()
     useKeybindings().clearAll()
+    useKeybindings().clearPendingSequence()
+    requestedEditorFilter.value = null
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
+    resetAttachedTerminalWindowsForTests()
+    resetTerminalPinnedChatsForTests()
+    resetAgentSessionsAllForTests()
     resetAgentWorkspacesForTests()
     resetTasksForTests()
     vi.clearAllMocks()
@@ -353,6 +363,13 @@ describe('App', () => {
     mocks.TerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
     mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'no ptyterm on this build.' })
     mocks.AgentsEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
+  })
+
+  // A test that arms the deferred-sequence timer switches to fake timers; this
+  // guarantees the next test always starts on real ones, even if an assertion
+  // above throws before a test's own vi.useRealTimers() runs.
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -617,11 +634,14 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  // The palette is scoped to where the user stands: the hub's objects (feeds,
-  // profiles, flow nodes, themes) and the feed commands drop out of the Code
-  // view, the terminal commands drop out of the hub, and the mode jumps cover
-  // the navigation the hidden rows used to carry.
-  it('filters palette rows by mode: hub objects vanish in Code view, terminal rows on the feed', async () => {
+  // The palette is scoped to where the user stands, but only for what is
+  // actually tied to the hub view: the feed-context catalog command and the
+  // profile-bound flow/action rows drop out of the Code view, while the hub's
+  // own Go-to objects (feeds, Trash, profiles, themes, settings) now reach
+  // across every mode (#306) — their run()s already land in the hub from
+  // anywhere. The terminal commands still drop out of the hub, and the mode
+  // jumps cover the navigation.
+  it('filters palette rows by mode: hub-only actions vanish in Code view, terminal rows on the feed', async () => {
     const { wrapper, router } = await mountAppWithRouter()
     const { results, query } = useCommandPalette()
     query.value = ''
@@ -638,19 +658,630 @@ describe('App', () => {
     await flushPromises()
 
     ids = results.value.map((cmd) => cmd.id)
-    expect(ids).not.toContain('feed:personal/desktop')
-    expect(ids).not.toContain('view:trash')
-    expect(ids).not.toContain('flow:edit')
-    expect(ids).not.toContain('flow:node:src')
+    // Still present: the hub's Go-to objects, reachable from Code now too.
+    expect(ids).toContain('feed:personal/desktop')
+    expect(ids).toContain('view:trash')
+    expect(ids).toContain('profile:personal')
+    expect(ids.filter((id) => id.startsWith('theme:')).length).toBeGreaterThan(0)
+    expect(ids.some((id) => id.startsWith('settings:'))).toBe(true)
+    expect(ids).toContain('mode:hub')
+    // Still absent: the feed-context catalog command and the hub-only actions.
     expect(ids).not.toContain('feed.refresh')
-    expect(ids.filter((id) => id.startsWith('theme:'))).toEqual([])
-    expect(ids.filter((id) => id.startsWith('profile:'))).toEqual([])
+    expect(ids).not.toContain('flow:edit')
+    expect(ids).not.toContain('profile:new')
+    expect(ids.some((id) => id.startsWith('item:action:'))).toBe(false)
+    expect(ids).not.toContain('mode:terminal')
     expect(ids).toContain('terminal.focus-sidebar')
     expect(ids).toContain('session.new')
-    expect(ids).toContain('mode:hub')
-    expect(ids).not.toContain('mode:terminal')
 
     wrapper.unmount()
+  })
+
+  // stepSequence (useKeybindings) decides what a combo means; App.vue only
+  // stores the pending state, arms/cancels the deferred timer, and dispatches
+  // through the same gate an ordinary chord uses. These bind an existing
+  // global command to a synthetic sequence rather than the catalog's real
+  // ones, so the assertions stay isolated from changes to the shipped
+  // defaults.
+  describe('keyboard sequences', () => {
+    it('dispatches the bound command once a two-step sequence completes', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value?.steps).toEqual(['g'])
+      expect(paletteOpen.value).toBe(false)
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      wrapper.unmount()
+    })
+
+    it('swallows an unmatched bare key mid-sequence: default prevented, nothing dispatched', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      const stray = new KeyboardEvent('keydown', { key: 'x', cancelable: true })
+      window.dispatchEvent(stray)
+
+      expect(stray.defaultPrevented).toBe(true)
+      expect(paletteOpen.value).toBe(false)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      wrapper.unmount()
+    })
+
+    it('falls a mod-carrying chord mid-sequence through to its own binding', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z') // any prefix binding, just to get a sequence pending
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      // mod+k is palette.toggle's own default binding, unrelated to 'g z'.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      wrapper.unmount()
+    })
+
+    it('clears the pending sequence on Escape, so finishing it afterward does nothing', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const esc = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+      window.dispatchEvent(esc)
+      expect(esc.defaultPrevented).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+      expect(paletteOpen.value).toBe(false)
+
+      wrapper.unmount()
+    })
+
+    it('clears the pending sequence when focus moves into a terminal pane', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const pane = document.createElement('div')
+      pane.setAttribute('data-terminal-input-scope', '')
+      document.body.append(pane)
+      pane.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+
+      expect(kb.pendingSequence.value).toBeNull()
+
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    // Regression: a mouse click into a text field is a focusin with no
+    // intervening keystroke, so onWindowFocusIn is the only thing that can
+    // catch it. Before the fix it reset only for a terminal target, so a
+    // pending sequence survived the click and hijacked the field's next
+    // keystroke (dispatching it as the sequence's continuation, or
+    // swallowing it as an unmatched key) instead of letting it type.
+    it('clears the pending sequence when focus moves into an editable target, so typing continues normally', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const input = document.createElement('input')
+      document.body.append(input)
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+
+      expect(kb.pendingSequence.value).toBeNull()
+
+      const event = new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+
+      expect(paletteOpen.value).toBe(false)
+      expect(event.defaultPrevented).toBe(false)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      input.remove()
+      wrapper.unmount()
+    })
+
+    // A discarded sequence start must still fall through to the exact
+    // binding on the same combo (Zed's prefix rule: a bound-elsewhere combo
+    // stays fully functional even though it also prefixes something longer).
+    // Regression for a bug where the suppressed start returned outright,
+    // dropping the combo's own binding in an editable field.
+    it('dispatches a combo that is also a sequence prefix in an editable field, starting no sequence', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'mod+e')
+      kb.addBinding('report.open', 'mod+e x')
+      const { open: paletteOpen } = useCommandPalette()
+
+      // A plain input appended straight to the document, like the terminal
+      // pane fixture below — the mounted tree isn't attached to the document,
+      // so a bubbling keydown dispatched on it would never reach the window
+      // listener onGlobalKeydown runs on.
+      const input = document.createElement('input')
+      document.body.append(input)
+
+      const event = new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      input.remove()
+      wrapper.unmount()
+    })
+
+    // End-to-end over the real catalog: the default 'g i' binding reaches
+    // runMap's view.go-inbox entry.
+    it('switches to the Inbox view on the g i sequence', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('feed')
+
+      wrapper.unmount()
+    })
+
+    // Zed's prefix rule: a step that is both a complete binding and a prefix of
+    // another defers rather than firing immediately, so a continuation still
+    // gets its chance. The catalog has no such dual binding today, so this adds
+    // one beside the default 'g i'/'g c'/... prefixes rather than relying on one.
+    it('defers a step that is also a complete binding, firing it on the timeout if nothing continues it', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g')
+      const { open: paletteOpen } = useCommandPalette()
+
+      vi.useFakeTimers()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value?.steps).toEqual(['g'])
+      expect(paletteOpen.value).toBe(false) // deferred, not dispatched yet
+
+      vi.advanceTimersByTime(SEQUENCE_TIMEOUT_MS)
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      wrapper.unmount()
+    })
+
+    it('cancels the deferred timer when a continuation arrives first, so the deferred binding never also fires', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('report.open', 'g') // dual bound+prefix, same as above
+      const report = useReportDialog()
+
+      vi.useFakeTimers()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' })) // completes 'g i' -> view.go-inbox
+      expect(kb.pendingSequence.value).toBeNull()
+      expect(report.open.value).toBe(false)
+
+      vi.advanceTimersByTime(SEQUENCE_TIMEOUT_MS)
+      expect(report.open.value).toBe(false) // the cancelled timer does not also fire
+
+      wrapper.unmount()
+    })
+
+    it('re-applies the overlay check when the deferred timer fires, not the check that held when it was armed', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('view.go-code', 'g')
+      const { openDialog: openReport } = useReportDialog()
+
+      vi.useFakeTimers()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value?.steps).toEqual(['g'])
+
+      // A different overlay opens (a mouse click, say) while the timer is
+      // still pending — nothing about that clears pendingSequence, so the
+      // suppression has to come from the fire-time check instead.
+      openReport()
+      vi.advanceTimersByTime(SEQUENCE_TIMEOUT_MS)
+
+      expect(terminalOnScreen(wrapper)).toBe(false) // view.go-code never ran
+
+      wrapper.unmount()
+    })
+
+    it('does not start a pending sequence from an editable target', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      const input = document.createElement('input')
+      document.body.append(input)
+
+      const event = new KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+
+      expect(kb.pendingSequence.value).toBeNull()
+      expect(event.defaultPrevented).toBe(false) // typing proceeds normally
+
+      input.remove()
+      wrapper.unmount()
+    })
+
+    it('does not start a pending sequence while an overlay is open', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      const { openDialog: openReport, close: closeReport } = useReportDialog()
+
+      openReport()
+      await flushPromises()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).toBeNull()
+
+      closeReport()
+      wrapper.unmount()
+    })
+
+    // Distinct from the focusin case above: a keydown can target a pane that
+    // already has focus, with no intervening focus change to catch.
+    it('clears the pending sequence on any keydown that targets a focused terminal pane', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const pane = focusedPane()
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+      expect(kb.pendingSequence.value).toBeNull()
+
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    // The accepted asymmetry (ADR keybindings-are-chord-sequences-not-a-leader-key):
+    // a sequence cannot start while an overlay owns the screen, so 'g' then 't'
+    // never reaches tasks.toggle once Tasks is already open — only the chord,
+    // which is an ordinary single-combo dispatch, can close it again.
+    it('pins the overlay-toggle asymmetry: g t cannot close Tasks, mod+shift+t can', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull() // still open
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull() // the chord does close it
+
+      wrapper.unmount()
+    })
+
+    // Regression: the pierce block (terminal.focus-sidebar and friends)
+    // dispatches via runCommand before stepSequence ever runs, so it used to
+    // leave an unrelated pending sequence (and its hint pill) stranded.
+    it('clears the pending sequence when a pierced command dispatches over a focused terminal', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      const kb = useKeybindings()
+      const { focusTree } = stubTerminalTree()
+      const pane = focusedPane()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true, bubbles: true, cancelable: true })
+      pane.dispatchEvent(event)
+      await flushPromises()
+
+      expect(focusTree).toHaveBeenCalled() // confirms the pierce path actually fired
+      expect(kb.pendingSequence.value).toBeNull()
+
+      setTerminalTreeHandles(null)
+      pane.remove()
+      wrapper.unmount()
+    })
+  })
+
+  // useAppPaletteRows registers Go-to rows at the App level, off the same
+  // module singletons the sidebar trees read — so they exist independent of
+  // whichever mode happens to be mounted, and running one dispatches straight
+  // through the router rather than through a mode's own local state.
+  describe('global Go-to rows (useAppPaletteRows)', () => {
+    it('runs a session attach row by pushing /terminal/:slug', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      useTerminalSessions().sessions.value = [
+        { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      ]
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'terminal:attach:hive-fix-parser')
+      expect(cmd?.title).toBe('fix the parser')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('terminal')
+      expect(router.currentRoute.value.params.slug).toBe('hive-fix-parser')
+
+      wrapper.unmount()
+    })
+
+    // The projection now survives a trip back to the hub (TerminalMode.spec's
+    // "survives a trip back to the hub"), so a populated projection while the
+    // route is nowhere near /terminal is a state a real attach actually
+    // leaves behind — not a synthetic one, which is what let this row run
+    // into an attach that had never happened. Seeding it directly still
+    // isolates the App-level push from TerminalMode's own attach machinery;
+    // that the push actually selects the window on the pooled client is
+    // TerminalMode.spec's "selects the window a same-slug ?window push
+    // names on the pooled client".
+    it('runs a window row by pushing /terminal/:slug with ?window=, from outside Code entirely', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      setAttachedTerminalWindows({
+        slug: 'hive-fix-parser',
+        name: 'fix the parser',
+        windows: [
+          { windowId: '@1', name: 'agent', active: true },
+          { windowId: '@2', name: 'shell', active: false },
+        ],
+      })
+      expect(terminalOnScreen(wrapper)).toBe(false)
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'terminal:window:@2')
+      expect(cmd?.title).toBe('shell')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('terminal')
+      expect(router.currentRoute.value.params.slug).toBe('hive-fix-parser')
+      expect(router.currentRoute.value.query.window).toBe('@2')
+
+      wrapper.unmount()
+    })
+
+    it('selects a feed row from the Code view and lands on the feed route', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'feed:personal/desktop')
+      expect(cmd).toBeDefined()
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('feed')
+
+      wrapper.unmount()
+    })
+
+    it('runs a settings-section row by pushing application-settings with the section param', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'settings:appearance')
+      expect(cmd?.title).toBe('Appearance')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('application-settings')
+      expect(router.currentRoute.value.params.section).toBe('appearance')
+
+      wrapper.unmount()
+    })
+
+    it('runs a Keys-scope row by requesting the editor filter and routing to Settings › Keyboard', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+
+      const palette = useCommandPalette()
+      palette.query.value = ''
+      palette.scope.value = 'keys'
+      const cmd = palette.results.value.find((candidate) => candidate.id === 'feed.next')
+      expect(cmd?.title).toBe('Next item')
+
+      // requestedEditorFilter is set synchronously, before the router push
+      // (and any settings pane it mounts) has had a chance to consume it.
+      cmd!.run()
+      expect(requestedEditorFilter.value).toBe('Next item')
+
+      await flushPromises()
+      expect(router.currentRoute.value.name).toBe('application-settings')
+      expect(router.currentRoute.value.params.section).toBe('keybindings')
+
+      palette.scope.value = 'all'
+      wrapper.unmount()
+    })
+
+    // KeymapRow carries the catalog's keywords through to the Keys-scope row
+    // now, so a query matching a synonym finds the command even though the
+    // synonym never appears in its title or group.
+    it('matches a Keys-scope row by a keyword synonym rather than only its title', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      const palette = useCommandPalette()
+      palette.scope.value = 'keys'
+      palette.query.value = 'catch up'
+      const cmd = palette.results.value.find((candidate) => candidate.id === 'feed.mark-all-read')
+      expect(cmd?.title).toBe('Mark all as read')
+
+      palette.query.value = ''
+      palette.scope.value = 'all'
+      wrapper.unmount()
+    })
+
+    it('filters the sigil legend to scopes whose tab is visible', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      const palette = useCommandPalette()
+      palette.query.value = ''
+      palette.scope.value = 'keys'
+
+      // No shell escape is registered outside the Code view, so the ! legend
+      // row — whose run would strand the palette in a scope with no tab and
+      // no possible rows — is hidden along with its tab.
+      const legendIds = palette.results.value.filter((cmd) => cmd.group === 'Sigils').map((cmd) => cmd.id)
+      expect(legendIds).toEqual(['keys:sigil:goto', 'keys:sigil:actions', 'keys:sigil:keys'])
+
+      palette.scope.value = 'all'
+      wrapper.unmount()
+    })
+
+    // The stub only seeds recents, so useAgentWorkspaces().workspaces stays
+    // empty — the dir → name join has nothing to match, and the group falls
+    // back to the raw dir key rather than a display name.
+    it('lists a chat row from a useAgentSessionsAll stub and pushes the agents route on run', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      useAgentSessionsAll().recents.value = [{
+        id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
+        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', cols: 0, rows: 0,
+        resumeAttempted: false, notice: '',
+      }]
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
+      expect(cmd?.title).toBe('Chat about the bug')
+      expect(cmd?.group).toBe('my-workspace')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('agents')
+      expect(router.currentRoute.value.params.workspace).toBe('my-workspace')
+      expect(router.currentRoute.value.query.chat).toBe('42')
+
+      wrapper.unmount()
+    })
+
+    // session.workspace is a directory key ("my-workspace"), not the display
+    // name a user picked ("Travel") — this is the #338-adjacent bug the join
+    // in useAppPaletteRows fixes: once useAgentWorkspaces().workspaces knows
+    // the dir, the chat row's group resolves to the workspace's real name.
+    it('groups a chat row under the workspace display name once the workspaces list has a matching dir', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      useAgentWorkspaces().workspaces.value = [
+        { dir: 'my-workspace', name: 'Travel', agent: 'claude', autonomy: '', mcps: [], skills: [], problem: '', notice: '' },
+      ]
+      useAgentSessionsAll().recents.value = [{
+        id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
+        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', cols: 0, rows: 0,
+        resumeAttempted: false, notice: '',
+      }]
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
+      expect(cmd?.title).toBe('Chat about the bug')
+      expect(cmd?.group).toBe('Travel')
+
+      wrapper.unmount()
+    })
+
+    // TerminalMode never mounts on the feed route (it is mount-on-first-visit),
+    // so ListSessions and the Agents probe only fire here through this watch —
+    // proof the reload is the palette's own doing, not a side effect of some
+    // other component being on screen.
+    it('reloads terminal sessions and chat recents when the palette opens', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      vi.mocked(ListSessions).mockClear()
+      mocks.AgentsAvailable.mockClear()
+
+      const palette = useCommandPalette()
+      palette.toggle()
+      await flushPromises()
+
+      expect(ListSessions).toHaveBeenCalled()
+      expect(mocks.AgentsAvailable).toHaveBeenCalled()
+
+      palette.toggle()
+      wrapper.unmount()
+    })
+  })
+
+  // view.focus-search is one command answering `/` on two unrelated surfaces,
+  // so a visible row for it would no-op wherever the other surface is on
+  // screen — these named rows stand in per surface, gated the same way the
+  // surface's own commands are, and both dispatch the same command.
+  describe('view.focus-search named rows', () => {
+    it('offers "Search items…" on the feed, carrying the / hint, and dispatches into the search box', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      const input = wrapper.get('[data-testid="feed-search"]').element as HTMLInputElement
+      const select = vi.spyOn(input, 'select')
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      expect(results.value.some((cmd) => cmd.id === 'view.focus-search:terminal')).toBe(false)
+      const row = results.value.find((cmd) => cmd.id === 'view.focus-search:feed')
+      expect(row?.title).toBe('Search items…')
+      expect(row?.hint).toBe(formatCombo('/'))
+
+      await row!.run()
+      await flushPromises()
+      expect(select).toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('offers "Filter sessions" in Code, carrying the / hint, and dispatches into the session filter', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+      const { focusFilter } = stubTerminalTree()
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      expect(results.value.some((cmd) => cmd.id === 'view.focus-search:feed')).toBe(false)
+      const row = results.value.find((cmd) => cmd.id === 'view.focus-search:terminal')
+      expect(row?.title).toBe('Filter sessions')
+      expect(row?.hint).toBe(formatCombo('/'))
+
+      await row!.run()
+      await flushPromises()
+      expect(focusFilter).toHaveBeenCalled()
+
+      setTerminalTreeHandles(null)
+      wrapper.unmount()
+    })
   })
 
   // A launcher pinned to a directory carries the context it needs in the
@@ -1210,25 +1841,6 @@ describe('App', () => {
     expect(wrapper.find('[data-testid="flows-view"]').exists()).toBe(true)
     const session = useFlowsSession()
     expect(session.flowFocusNodeId.value).toBe('src')
-
-    wrapper.unmount()
-  })
-
-  it('registers a ⌘K "jump to node" command per node in the active flow', async () => {
-    const wrapper = await mountApp()
-    const { results, query } = useCommandPalette()
-    query.value = ''
-
-    const ids = results.value.map((cmd) => cmd.id)
-    expect(ids).toContain('flow:node:src')
-    expect(ids).toContain('flow:node:desktop')
-
-    const nodeCmd = results.value.find((cmd) => cmd.id === 'flow:node:desktop')
-    expect(nodeCmd?.title).toBe('Jump to node: Desktop UI')
-
-    nodeCmd?.run()
-    await flushPromises()
-    expect(useFlowsSession().flowFocusNodeId.value).toBe('desktop')
 
     wrapper.unmount()
   })

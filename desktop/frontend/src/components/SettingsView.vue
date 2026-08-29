@@ -2,20 +2,10 @@
 // Application-wide settings, opened from the persistent profile rail.
 // Only settings backed by real behavior or explicitly marked future
 // integrations belong here.
-import { computed, ref, watch, type Component } from 'vue'
-import IconKeyboard from '~icons/lucide/keyboard'
-import IconPalette from '~icons/lucide/palette'
-import IconPlug from '~icons/lucide/plug'
-import IconPlay from '~icons/lucide/play'
-import IconTerminal from '~icons/lucide/terminal'
-import IconSquareTerminal from '~icons/lucide/square-terminal'
-import IconMessagesSquare from '~icons/lucide/messages-square'
-import IconHardDrive from '~icons/lucide/hard-drive'
-import IconBell from '~icons/lucide/bell'
-import IconInfo from '~icons/lucide/info'
+import { computed, ref, watch } from 'vue'
 import IconSettings from '~icons/lucide/settings'
-import IconSliders from '~icons/lucide/sliders-horizontal'
-import IconZap from '~icons/lucide/zap'
+import IconPlug from '~icons/lucide/plug'
+import IconWebhook from '~icons/lucide/webhook'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
@@ -39,7 +29,6 @@ import SettingsNavItem from './settings/SettingsNavItem.vue'
 import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
-import IconWebhook from '~icons/lucide/webhook'
 import GithubMark from './marks/GithubMark.vue'
 import GrafanaMark from './marks/GrafanaMark.vue'
 import PostHogMark from './marks/PostHogMark.vue'
@@ -48,28 +37,13 @@ import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
 import { applicationSettingsSections, type ApplicationSettingsSection } from '../router'
+import { applicationSettingsSectionMeta } from './settings/sectionMeta'
 
 const props = withDefaults(defineProps<{
   activeCategory: ApplicationSettingsSection
   knownFeedTypes?: string[]
 }>(), { knownFeedTypes: () => [] })
 const emit = defineEmits<{ close: []; 'select-category': [category: ApplicationSettingsSection] }>()
-// Keyed by section id and ordered by router.ts's applicationSettingsSections,
-// so a section added there shows up here (and TypeScript flags the missing
-// entry) instead of being routable but absent from the nav.
-const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: string; icon: Component }> = {
-  general: { label: 'General', title: 'General', icon: IconSliders },
-  appearance: { label: 'Appearance', title: 'Appearance', icon: IconPalette },
-  keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
-  terminal: { label: 'Terminal', title: 'Terminal', icon: IconSquareTerminal },
-  agents: { label: 'Chats', title: 'Chats', icon: IconMessagesSquare },
-  integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
-  actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
-  launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
-  notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
-  system: { label: 'System', title: 'System', icon: IconHardDrive },
-  about: { label: 'About', title: 'About', icon: IconInfo },
-}
 // The nav mirrors the app's own mode switch — Inbox, Code, Chats — bookended
 // by what the whole app answers to and by the install itself, so the rail can
 // be read against the title bar rather than learned. A value one surface uses
@@ -86,7 +60,7 @@ const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection
   { title: 'Chats', ids: ['agents'] },
   { title: 'Advanced', ids: ['system', 'about'] },
 ]
-const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
+const sectionTitle = computed(() => applicationSettingsSectionMeta[props.activeCategory].title)
 
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
@@ -195,8 +169,8 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
           v-for="id in group.ids"
           :key="id"
           :active="props.activeCategory === id"
-          :icon="categoryMeta[id].icon"
-          :label="categoryMeta[id].label"
+          :icon="applicationSettingsSectionMeta[id].icon"
+          :label="applicationSettingsSectionMeta[id].label"
           :testid="`settings-category-${id}`"
           @select="emit('select-category', id)"
         />

@@ -638,7 +638,8 @@ than an extension of the vendored single-slot one.
 User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 `$XDG_CONFIG_HOME/hive/desktop/` so it can be dotfiles-managed. App-local
 state (SQLite: items, triage, offsets, queued commands) lives under the data
-dir. Respect the boundary when adding persistence.
+dir. Palette recents are device-local usage data on the UI-state localStorage
+path, never settings.yaml. Respect the boundary when adding persistence.
 
 The version whose release notes the user has seen
 (`<StateDir>/releasenotes.json`) is the boundary read the other way round: it
@@ -1107,9 +1108,10 @@ rename or a deletion reads it and a session filtered off the screen must not
 read as one that went away; the attached session is not exempt from the filter
 either, and stays on screen while its row is hidden. The tree's keyboard walk
 reads the filtered groups, so an arrow only ever lands on a row that is drawn.
-`terminal.focus-filter` (`/`) is an ordinary catalog command, so a focused pane
-keeps the key — a bare `/` is a character, and the tree is where a search for a
-session starts.
+`view.focus-search` (`/`) is an ordinary global catalog command — one combo,
+so the feed's search box and this filter share it, and its `run()` dispatches
+on whichever is on screen — but a focused pane still keeps the key: a bare `/`
+is a character, and the tree is where a search for a session starts.
 
 **`terminal.select-window-1` … `-9` name a position in that list, not a tmux
 index.** The list is what is on screen and tmux's indices have gaps as soon as a
@@ -1431,6 +1433,10 @@ Three rules govern it, and each is a consequence of that:
   `attachCustomKeyEventHandler` must decline it, or the pane writes it to tmux
   as well. Both sides resolve through the live keymap, so a rebind moves them
   together.
+- **A sequence start answers to the same rule as a bare chord.** It never
+  fires over a focused pane, into an editable target, or under an overlay,
+  and `resolve` stays single-step — it can never match a sequence's first
+  step, so neither pierce nor escape can claim one out from under it (ADR keybindings-are-chord-sequences-not-a-leader-key).
 - **A pane takes focus for the mouse, not for the arrows.** `paneMayAutoFocus`
   gates the automatic `term.focus()` calls — the ones on attach, on reveal, and
   on a window switch — because walking the session tree past a session is not an
@@ -1455,6 +1461,26 @@ Three rules govern it, and each is a consequence of that:
 Do not build a shared interface across the two backends, and do not extend one
 because the other has something: they answer different questions, and the
 overlap in vocabulary is a coincidence of both being terminals.
+
+**The command palette's rules sit beside the keymap doctrine above.**
+`palette/scopes.ts` is the one place a scope's sigil, label and placeholder are declared (ADR palette-scopes-are-filters-over-one-list) —
+adding a scope is an entry there, not a change scattered across
+`useCommands`/`CommandPalette.vue`. A sigil (`@`, `>`, `!`) is grammar, not a
+separate command: `useCommandPalette.setQuery` absorbs it only as the first
+character of an empty query, so mid-edit it is a literal character rather than
+a scope switch. A row that cannot run where you stand is hidden, never shown
+disabled, matching the launcher palette row's own choice (ADR quick-terminal-launchers-are-session-scoped).
+And Go to is global: a row meant to be reachable from anywhere registers at
+the App level (`useAppPaletteRows`) off a module-scoped source
+(`useTerminalSessions`, `useAttachedTerminalWindows`, `useAgentSessionsAll`),
+never inside a lazily-mounted mode component, so it exists before that mode
+has ever mounted. A row's title and group follow one more rule: a command row
+keeps its catalog verb title unchanged, since Settings › Keyboard reads the
+same string, while a dynamic object row (a feed, a chat, a session, a window,
+a settings section) is titled with the object's own name and grouped under
+its real container — rendering draws the nesting (the group header, or a
+`Container ›` prefix once a query narrows past it) rather than the title
+encoding a path or a verb (ADR palette-rows-name-objects-and-rendering-draws-the-path).
 
 ### Agent workspaces
 

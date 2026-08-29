@@ -1,10 +1,17 @@
+<script lang="ts">
+/** How long the recorder waits after a keystroke before committing. */
+export const RECORDER_COMMIT_MS = 1000
+</script>
+
 <script setup lang="ts">
 // Obsidian-style keybindings editor: every bindable command from the catalog,
 // grouped and filterable, each with its current bindings as removable chips, a
-// recorder to add a new combo, and a reset-to-default. Recording captures the
-// next keystroke on the window in the capture phase and suppresses it from the
-// global dispatcher (belt: kb.recording; suspenders: stopPropagation).
-import { computed, onUnmounted, ref } from 'vue'
+// recorder to add a new combo, and a reset-to-default. Recording captures
+// keystrokes on the window in the capture phase, accumulating them into a
+// sequence (Esc discards it; a pause or clicking the capture chip commits it),
+// and suppresses each keystroke from the global dispatcher (belt:
+// kb.recording; suspenders: stopPropagation).
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import IconPlus from '~icons/lucide/plus'
 import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconSearch from '~icons/lucide/search'
@@ -13,33 +20,44 @@ import IconX from '~icons/lucide/x'
 import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import EmptyState from './settings/EmptyState.vue'
-import { commands } from '../keybindings/catalog'
+import { commandById } from '../keybindings/catalog'
 import { comboFromEvent, formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { keymapRows, requestedEditorFilter, type KeymapRow } from '../keybindings/keymapRows'
 
 const kb = useKeybindings()
 const filter = ref('')
 const capturingId = ref<string | null>(null)
 
-const catalogById = computed(() => new Map(commands.value.map((command) => [command.id, command])))
-const titleFor = (id: string) => catalogById.value.get(id)?.title ?? id
+const titleFor = (id: string) => commandById.value.get(id)?.title ?? id
 
-interface Row { id: string; title: string; combos: string[]; overridden: boolean }
-interface Group { group: string; rows: Row[] }
+// The ? scope's requested-filter handshake: a route landing here from a Keys
+// row carries the command to land on. Applied once and cleared so a later,
+// unrelated visit to this view starts unfiltered.
+function applyRequestedFilter(): void {
+  if (requestedEditorFilter.value === null) return
+  filter.value = requestedEditorFilter.value
+  requestedEditorFilter.value = null
+}
+onMounted(applyRequestedFilter)
+// A Keys-row run while already on Settings › Keyboard pushes the same route
+// without remounting (no v-else-if :key), so the handshake needs its own
+// watch — onMounted alone would miss it.
+watch(requestedEditorFilter, applyRequestedFilter)
+
+const rows = keymapRows
+
+interface Group { group: string; rows: KeymapRow[] }
 
 const groups = computed<Group[]>(() => {
   const query = filter.value.trim().toLowerCase()
-  const byGroup = new Map<string, Row[]>()
-  for (const command of commands.value) {
-    const combos = kb.bindings.value[command.id] ?? []
+  const byGroup = new Map<string, KeymapRow[]>()
+  for (const row of rows.value) {
     if (query) {
-      const haystack = [command.title, command.group, ...(command.keywords ?? []), ...combos.map((c) => formatCombo(c))]
-        .join(' ')
-        .toLowerCase()
+      const haystack = [row.title, row.group, ...row.keywords, ...row.formatted].join(' ').toLowerCase()
       if (!haystack.includes(query)) continue
     }
-    const row: Row = { id: command.id, title: command.title, combos, overridden: kb.isOverridden(command.id) }
-    if (!byGroup.has(command.group)) byGroup.set(command.group, [])
-    byGroup.get(command.group)!.push(row)
+    if (!byGroup.has(row.group)) byGroup.set(row.group, [])
+    byGroup.get(row.group)!.push(row)
   }
   return [...byGroup.entries()].map(([group, rows]) => ({ group, rows }))
 })
@@ -52,18 +70,50 @@ function conflictTitles(id: string, combo: string): string[] {
 
 // ── Combo recording ───────────────────────────────────────────────────────────
 
+const pendingSteps = ref<string[]>([])
+
+// One timer at a time: each captured step re-arms it, so it always measures
+// the pause since the *last* keystroke, not the first.
+let commitTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelCommitTimer(): void {
+  if (commitTimer === null) return
+  clearTimeout(commitTimer)
+  commitTimer = null
+}
+
+function armCommitTimer(): void {
+  cancelCommitTimer()
+  commitTimer = setTimeout(commitCapture, RECORDER_COMMIT_MS)
+}
+
 function startCapture(id: string): void {
-  if (capturingId.value) endCapture()
+  if (capturingId.value) commitCapture() // ending capture any other way still saves its progress
   capturingId.value = id
+  pendingSteps.value = []
   kb.recording.value = true
   window.addEventListener('keydown', onCaptureKeydown, true) // capture phase
 }
 
-function endCapture(): void {
-  if (!capturingId.value) return
+function stopCapturing(): void {
+  cancelCommitTimer()
   capturingId.value = null
+  pendingSteps.value = []
   kb.recording.value = false
   window.removeEventListener('keydown', onCaptureKeydown, true)
+}
+
+/** Pause elapsed, chip clicked, or capture ended some other way: save what's pending. */
+function commitCapture(): void {
+  const id = capturingId.value
+  const steps = pendingSteps.value
+  stopCapturing()
+  if (id && steps.length) kb.addBinding(id, steps.join(' '))
+}
+
+/** Esc: discard the pending steps: nothing is bound. */
+function cancelCapture(): void {
+  stopCapturing()
 }
 
 function onCaptureKeydown(e: KeyboardEvent): void {
@@ -72,13 +122,13 @@ function onCaptureKeydown(e: KeyboardEvent): void {
   e.preventDefault()
   e.stopPropagation() // never reaches the global dispatcher or SettingsView's Escape
   if (e.key === 'Escape') {
-    endCapture()
+    cancelCapture()
     return
   }
   const combo = comboFromEvent(e)
   if (!combo) return // lone modifier held — keep waiting for the full combo
-  kb.addBinding(id, combo)
-  endCapture()
+  pendingSteps.value = [...pendingSteps.value, combo]
+  armCommitTimer()
 }
 
 function removeCombo(id: string, combo: string): void {
@@ -86,11 +136,13 @@ function removeCombo(id: string, combo: string): void {
 }
 
 function reset(id: string): void {
-  if (capturingId.value === id) endCapture()
+  // Resetting wipes the row's overrides outright, so a capture in progress on
+  // it is moot: cancel rather than save a binding the reset would erase anyway.
+  if (capturingId.value === id) cancelCapture()
   kb.resetToDefault(id)
 }
 
-onUnmounted(endCapture)
+onUnmounted(commitCapture)
 </script>
 
 <template>
@@ -132,7 +184,7 @@ onUnmounted(endCapture)
 
           <div class="flex flex-wrap items-center justify-end gap-2">
             <span
-              v-for="combo in row.combos"
+              v-for="(combo, i) in row.combos"
               :key="combo"
               class="combo"
               :class="conflictTitles(row.id, combo).length ? 'combo-conflict' : ''"
@@ -140,7 +192,7 @@ onUnmounted(endCapture)
               data-testid="keybinding-combo"
             >
               <IconTriangleAlert v-if="conflictTitles(row.id, combo).length" class="size-3 shrink-0 text-accent" />
-              <kbd class="keycap">{{ formatCombo(combo) }}</kbd>
+              <kbd class="keycap">{{ row.formatted[i] }}</kbd>
               <button
                 type="button"
                 class="combo-remove"
@@ -152,8 +204,16 @@ onUnmounted(endCapture)
 
             <span v-if="!row.combos.length && capturingId !== row.id" class="text-[11px] text-text-4">Blank</span>
 
-            <span v-if="capturingId === row.id" class="capture-chip" data-testid="keybinding-capture">
-              Press a key…&nbsp;<span class="text-text-4">Esc to cancel</span>
+            <span
+              v-if="capturingId === row.id"
+              class="capture-chip"
+              data-testid="keybinding-capture"
+              @click="commitCapture"
+            >
+              <kbd v-for="(step, i) in pendingSteps" :key="i" class="keycap capture-keycap">{{ formatCombo(step) }}</kbd>
+              <span v-if="pendingSteps.length">click or pause to save,&nbsp;</span>
+              <span v-else>Press a key…&nbsp;</span>
+              <span class="text-text-4">Esc to cancel</span>
             </span>
 
             <button
@@ -220,8 +280,10 @@ onUnmounted(endCapture)
 .capture-chip {
   display: inline-flex;
   align-items: center;
-  height: 25px;
-  padding: 0 10px;
+  gap: 5px;
+  min-height: 25px;
+  padding: 2px 10px 2px 6px;
+  cursor: pointer;
   border: 1px dashed var(--color-accent);
   border-radius: 6px;
   background: var(--color-chip);
@@ -229,6 +291,7 @@ onUnmounted(endCapture)
   font-size: 12px;
   color: var(--color-text);
 }
+.capture-keycap { border-color: var(--color-accent); }
 .icon-btn {
   display: inline-flex;
   align-items: center;
