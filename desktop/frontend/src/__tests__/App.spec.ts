@@ -794,6 +794,23 @@ describe('App', () => {
       input.remove()
       wrapper.unmount()
     })
+
+    // The catalog binds 'g i' by default now, so this is the first end-to-end
+    // proof the wired-but-uncataloged runMap entries from the earlier sweep
+    // are actually reachable.
+    it('switches to the Inbox view on the g i sequence', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('feed')
+
+      wrapper.unmount()
+    })
   })
 
   // useAppPaletteRows registers Go-to rows at the App level, off the same
@@ -922,6 +939,52 @@ describe('App', () => {
       expect(mocks.AgentsAvailable).toHaveBeenCalled()
 
       palette.toggle()
+      wrapper.unmount()
+    })
+  })
+
+  // view.focus-search is one command answering `/` on two unrelated surfaces,
+  // so a visible row for it would no-op wherever the other surface is on
+  // screen — these named rows stand in per surface, gated the same way the
+  // surface's own commands are, and both dispatch the same command.
+  describe('view.focus-search named rows', () => {
+    it('offers "Search items…" on the feed, carrying the / hint, and dispatches into the search box', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      const input = wrapper.get('[data-testid="feed-search"]').element as HTMLInputElement
+      const select = vi.spyOn(input, 'select')
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      expect(results.value.some((cmd) => cmd.id === 'view.focus-search:terminal')).toBe(false)
+      const row = results.value.find((cmd) => cmd.id === 'view.focus-search:feed')
+      expect(row?.title).toBe('Search items…')
+      expect(row?.hint).toBe(formatCombo('/'))
+
+      await row!.run()
+      await flushPromises()
+      expect(select).toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('offers "Filter sessions" in Code, carrying the / hint, and dispatches into the session filter', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+      const { focusFilter } = stubTerminalTree()
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      expect(results.value.some((cmd) => cmd.id === 'view.focus-search:feed')).toBe(false)
+      const row = results.value.find((cmd) => cmd.id === 'view.focus-search:terminal')
+      expect(row?.title).toBe('Filter sessions')
+      expect(row?.hint).toBe(formatCombo('/'))
+
+      await row!.run()
+      await flushPromises()
+      expect(focusFilter).toHaveBeenCalled()
+
+      setTerminalTreeHandles(null)
       wrapper.unmount()
     })
   })

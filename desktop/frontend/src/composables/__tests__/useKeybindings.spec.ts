@@ -296,20 +296,22 @@ describe('effective keymap', () => {
   })
 })
 
-// The catalog has no sequence bindings yet (a later task adds them), so these
-// tests seed synthetic ones through setLauncherCommands — the same seam the
-// 'launcher commands' tests below use to extend the catalog at runtime.
+// These tests exercise the pure stepSequence mechanics in isolation, so they
+// seed synthetic commands through setLauncherCommands — the same seam the
+// 'launcher commands' tests below use to extend the catalog at runtime — on a
+// leader ('z') the real catalog does not bind, so its own 'g …' sequences
+// (view.go-inbox and friends) cannot collide with the fixture.
 describe('sequences', () => {
   const BASE_COMMANDS = [
-    { id: 'test.goto-inbox', title: 'Go to Inbox', group: 'Test', defaultCombos: ['g i'], context: 'global' as const },
-    { id: 'test.goto-code', title: 'Go to Code', group: 'Test', defaultCombos: ['g c'], context: 'global' as const },
+    { id: 'test.goto-inbox', title: 'Go to Inbox', group: 'Test', defaultCombos: ['z i'], context: 'global' as const },
+    { id: 'test.goto-code', title: 'Go to Code', group: 'Test', defaultCombos: ['z c'], context: 'global' as const },
     // A three-step binding whose middle step carries the primary modifier, so
     // a matched continuation can be shown extending despite it.
-    { id: 'test.deep', title: 'Deep', group: 'Test', defaultCombos: ['g mod+shift+x y'], context: 'global' as const },
+    { id: 'test.deep', title: 'Deep', group: 'Test', defaultCombos: ['z mod+shift+x y'], context: 'global' as const },
   ]
-  const BARE_G_COMMAND = { id: 'test.bare-g', title: 'Bare g', group: 'Test', defaultCombos: ['g'], context: 'global' as const }
+  const BARE_G_COMMAND = { id: 'test.bare-g', title: 'Bare z', group: 'Test', defaultCombos: ['z'], context: 'global' as const }
 
-  /** withBareG seeds a command bound to plain 'g' alongside the base fixture, for the deferred-command (Zed prefix) cases. */
+  /** withBareG seeds a command bound to plain 'z' alongside the base fixture, for the deferred-command (Zed prefix) cases. */
   async function seedSequenceCommands({ withBareG = false } = {}) {
     const keybindings = await import('../useKeybindings')
     const { setLauncherCommands } = await import('../../keybindings/catalog')
@@ -320,15 +322,15 @@ describe('sequences', () => {
   it('single-step resolve is unchanged: a sequence\'s first step does not resolve', async () => {
     const { useKeybindings } = await seedSequenceCommands()
     const kb = useKeybindings()
-    expect(kb.resolve('g')).toBeNull()
+    expect(kb.resolve('z')).toBeNull()
     expect(kb.resolve('i')).toBeNull()
   })
 
   it('extends a sequence start that prefixes bindings, listing continuations', async () => {
     const { stepSequence } = await seedSequenceCommands()
-    const transition = stepSequence(null, 'g')
+    const transition = stepSequence(null, 'z')
     if (transition.kind !== 'extend') throw new Error(`expected extend, got ${transition.kind}`)
-    expect(transition.pending.steps).toEqual(['g'])
+    expect(transition.pending.steps).toEqual(['z'])
     expect(transition.pending.continuations.sort((a, b) => a.step.localeCompare(b.step))).toEqual([
       { step: 'c', commandId: 'test.goto-code' },
       { step: 'i', commandId: 'test.goto-inbox' },
@@ -339,56 +341,56 @@ describe('sequences', () => {
 
   it('sets deferredCommandId when the pending steps are also a complete binding (Zed\'s prefix rule)', async () => {
     const { stepSequence } = await seedSequenceCommands({ withBareG: true })
-    const transition = stepSequence(null, 'g')
+    const transition = stepSequence(null, 'z')
     if (transition.kind !== 'extend') throw new Error(`expected extend, got ${transition.kind}`)
     expect(transition.deferredCommandId).toBe('test.bare-g')
   })
 
   it('passes a combo with no sequence involvement, unchanged from today', async () => {
     const { stepSequence } = await seedSequenceCommands()
-    expect(stepSequence(null, 'z')).toEqual({ kind: 'pass' })
+    expect(stepSequence(null, 'q')).toEqual({ kind: 'pass' })
   })
 
   it('runs when a pending sequence is completed by the next combo', async () => {
     const { stepSequence } = await seedSequenceCommands()
-    const pending = { steps: ['g'], continuations: [] }
+    const pending = { steps: ['z'], continuations: [] }
     expect(stepSequence(pending, 'i')).toEqual({ kind: 'run', commandId: 'test.goto-inbox' })
   })
 
   it('extends when the next combo matches a continuation, even carrying the primary modifier', async () => {
     const { stepSequence } = await seedSequenceCommands()
-    const pending = { steps: ['g'], continuations: [] }
+    const pending = { steps: ['z'], continuations: [] }
     const transition = stepSequence(pending, 'mod+shift+x')
     if (transition.kind !== 'extend') throw new Error(`expected extend, got ${transition.kind}`)
-    expect(transition.pending.steps).toEqual(['g', 'mod+shift+x'])
+    expect(transition.pending.steps).toEqual(['z', 'mod+shift+x'])
     expect(transition.pending.continuations).toEqual([{ step: 'y', commandId: 'test.deep' }])
     expect(transition.deferredCommandId).toBeNull()
   })
 
   it('swallows an unmatched bare or modifier-less combo while a sequence is pending', async () => {
     const { stepSequence } = await seedSequenceCommands()
-    const pending = { steps: ['g'], continuations: [] }
-    expect(stepSequence(pending, 'z')).toEqual({ kind: 'swallow' })
-    expect(stepSequence(pending, 'shift+z')).toEqual({ kind: 'swallow' })
+    const pending = { steps: ['z'], continuations: [] }
+    expect(stepSequence(pending, 'q')).toEqual({ kind: 'swallow' })
+    expect(stepSequence(pending, 'shift+q')).toEqual({ kind: 'swallow' })
   })
 
   it('passes an unmatched combo carrying the primary modifier, so it reaches normal dispatch', async () => {
     const { stepSequence } = await seedSequenceCommands()
-    const pending = { steps: ['g'], continuations: [] }
-    // mod+k is not a continuation of `g` — normal dispatch resolves it (e.g. to palette.toggle).
+    const pending = { steps: ['z'], continuations: [] }
+    // mod+k is not a continuation of `z` — normal dispatch resolves it (e.g. to palette.toggle).
     expect(stepSequence(pending, 'mod+k')).toEqual({ kind: 'pass' })
   })
 
   it('does not treat a prefix relationship as a conflict, only an exact duplicate binding', async () => {
     const { useKeybindings } = await seedSequenceCommands({ withBareG: true })
     const kb = useKeybindings()
-    // 'g' (test.bare-g) prefixes 'g i' (test.goto-inbox) — functional per the
+    // 'z' (test.bare-g) prefixes 'z i' (test.goto-inbox) — functional per the
     // Zed rule, so excluding each binding's own owner leaves no conflict.
-    expect(kb.conflicts('g', 'test.bare-g')).toEqual([])
-    expect(kb.conflicts('g i', 'test.goto-inbox')).toEqual([])
+    expect(kb.conflicts('z', 'test.bare-g')).toEqual([])
+    expect(kb.conflicts('z i', 'test.goto-inbox')).toEqual([])
 
-    kb.addBinding('feed.refresh', 'g i')
-    expect(kb.conflicts('g i').sort()).toEqual(['feed.refresh', 'test.goto-inbox'])
+    kb.addBinding('feed.refresh', 'z i')
+    expect(kb.conflicts('z i').sort()).toEqual(['feed.refresh', 'test.goto-inbox'])
   })
 
   it('sanitizes a stored sequence override, formalizing the round-trip', async () => {

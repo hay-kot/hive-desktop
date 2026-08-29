@@ -1107,9 +1107,10 @@ rename or a deletion reads it and a session filtered off the screen must not
 read as one that went away; the attached session is not exempt from the filter
 either, and stays on screen while its row is hidden. The tree's keyboard walk
 reads the filtered groups, so an arrow only ever lands on a row that is drawn.
-`terminal.focus-filter` (`/`) is an ordinary catalog command, so a focused pane
-keeps the key — a bare `/` is a character, and the tree is where a search for a
-session starts.
+`view.focus-search` (`/`) is an ordinary global catalog command — one combo,
+so the feed's search box and this filter share it, and its `run()` dispatches
+on whichever is on screen — but a focused pane still keeps the key: a bare `/`
+is a character, and the tree is where a search for a session starts.
 
 **`terminal.select-window-1` … `-9` name a position in that list, not a tmux
 index.** The list is what is on screen and tmux's indices have gaps as soon as a

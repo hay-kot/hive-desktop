@@ -813,7 +813,7 @@ async function toggleMaximise(): Promise<void> {
 
 // ── Command palette ──────────────────────────────────────────────────────────
 
-const { open: paletteOpen, toggle: togglePalette } = useCommandPalette()
+const { open: paletteOpen, toggle: togglePalette, openWithScope } = useCommandPalette()
 const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
 const { current: appError, dismissError } = useErrorDialog()
 
@@ -882,6 +882,11 @@ function openItemSession(slug: string): void {
   void router.push({ name: 'terminal', params: { slug } })
 }
 
+// So view.focus-search can reach the feed's search box the same way
+// TerminalMode.vue's own filter field is reached — through a handle, not a
+// prop, since the command fires from the global keymap rather than a click.
+const feedListRef = ref<InstanceType<typeof FeedList> | null>(null)
+
 // One handler per bindable command id. Both the keydown dispatcher and the
 // command palette run through this map, so each command has a single
 // implementation and the palette can show its live shortcut.
@@ -908,9 +913,14 @@ const runMap: Record<string, () => void | Promise<void>> = {
     void nextTick(focusTerminalTree)
   },
   'terminal.focus-pane': focusTerminalPane,
-  'terminal.focus-filter': () => {
-    terminalSidebarCollapsed.value = false
-    void nextTick(focusTerminalFilter)
+  // One combo, dispatched on whichever surface is on screen — the feed's
+  // search box and the session tree's filter are otherwise unrelated fields.
+  'view.focus-search': () => {
+    if (feedNavActive.value) void nextTick(() => feedListRef.value?.focusSearch())
+    else if (terminalActive.value) {
+      terminalSidebarCollapsed.value = false
+      void nextTick(focusTerminalFilter)
+    }
   },
   'terminal.new-window': newTerminalWindow,
   'terminal.close-window': closeTerminalWindow,
@@ -920,14 +930,14 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'agents.focus-pane': focusAgentsPane,
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
-  // Sequence-only ids; a later task adds their catalog entries and default
-  // bindings, but wiring them now keeps this sweep of runMap self-contained.
   'view.go-inbox': () => setMode('hub'),
   'view.go-code': () => setMode('terminal'),
   'view.go-chats': () => setMode('agents'),
   'settings.open': () => requestOpenSettings('application'),
   'history.back': () => router.back(),
   'history.forward': () => router.forward(),
+  // Degrades to opening the palette until the 'keys' scope lands.
+  'palette.keys': () => openWithScope('keys'),
 }
 
 // Resolves a command id to its implementation. Launchers and the numbered
@@ -1012,6 +1022,7 @@ useAppPaletteRows({
   openNewProfile,
   activeFlowNodes: computed(() => session.activeFlow.value?.nodes ?? []),
   onScreenSessionSlug,
+  terminalActive,
 })
 
 // ── Global input navigation ──────────────────────────────────────────────────
@@ -1375,6 +1386,7 @@ onUnmounted(() => {
           </div>
           <section v-else-if="activeProfile" class="flex min-w-0 flex-1">
             <FeedList
+              ref="feedListRef"
               :title="title"
               :visible-items="visibleItems"
               :selected-id="selectedId"

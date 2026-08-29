@@ -77,6 +77,20 @@ describe('FeedList', () => {
     expect(wrapper.emitted('update:search')).toEqual([['oauth']])
   })
 
+  // view.focus-search reaches this through the exposed handle rather than a
+  // prop, since it fires from the global keymap rather than a click. Selected,
+  // not just focused: a repeat press means "start a new search" far more often
+  // than "edit the old one".
+  it('selects existing search text via the exposed focusSearch handle', () => {
+    const wrapper = mountList({ search: 'oauth' })
+    const input = wrapper.get('[data-testid="feed-search"]').element as HTMLInputElement
+    const select = vi.spyOn(input, 'select')
+
+    ;(wrapper.vm as unknown as { focusSearch: () => void }).focusSearch()
+
+    expect(select).toHaveBeenCalled()
+  })
+
   it('shows a collapsed archived divider and expands it on demand', async () => {
     const wrapper = mountList({ archivedCount: 2 })
     const divider = wrapper.get('[data-testid="archived-divider"]')

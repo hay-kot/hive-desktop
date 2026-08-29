@@ -8,6 +8,7 @@ import IconList from '~icons/lucide/list'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconPalette from '~icons/lucide/palette'
 import IconRss from '~icons/lucide/rss'
+import IconSearch from '~icons/lucide/search'
 import IconShare2 from '~icons/lucide/share-2'
 import IconTerminal from '~icons/lucide/terminal'
 import IconWorkflow from '~icons/lucide/workflow'
@@ -50,6 +51,8 @@ export interface AppPaletteDeps {
   openFlows: (focusNodeId?: string) => void
   requestExitFlows: () => void
   openNewProfile: () => void
+  /** Gates the "Filter sessions" named row, same as terminal.* commands. */
+  terminalActive: Ref<boolean>
   /** The active flow's nodes, for the "jump to node" rows. */
   activeFlowNodes: Ref<{ id: string; name?: string; type: string }[]>
   /** The slug attached on screen, so its own attach row does not offer itself. */
@@ -68,7 +71,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     runCommand, contextActive, mode, setMode, shellLoaded, onboardingActive, hubActive, feedNavActive,
     devToolsEnabled, router, profiles, activeProfile, requestSelectProfile, navigateSidebar, selectedItem,
     actions, invokeAction, flowsActive, openFlows, requestExitFlows, openNewProfile, activeFlowNodes,
-    onScreenSessionSlug,
+    onScreenSessionSlug, terminalActive,
   } = deps
 
   const { combosFor } = useKeybindings()
@@ -109,6 +112,36 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       })
     }
 
+    // view.focus-search is palette-hidden because one command answers `/` in
+    // two unrelated surfaces, and a single row for it would no-op wherever the
+    // other surface is on screen. These named rows stand in per surface,
+    // gated the same way the surface's own commands are, sharing its hint.
+    const focusSearchHint = formatCombo(combosFor('view.focus-search')[0] ?? '')
+    if (feedNavActive.value) {
+      cmds.push({
+        id: 'view.focus-search:feed',
+        title: 'Search items…',
+        group: 'Feeds',
+        scope: 'actions',
+        keywords: ['find', 'filter', 'search'],
+        icon: IconSearch,
+        hint: focusSearchHint,
+        run: () => runCommand('view.focus-search'),
+      })
+    }
+    if (terminalActive.value) {
+      cmds.push({
+        id: 'view.focus-search:terminal',
+        title: 'Filter sessions',
+        group: 'Terminal',
+        scope: 'actions',
+        keywords: ['terminal', 'filter', 'search', 'find', 'session'],
+        icon: IconSearch,
+        hint: focusSearchHint,
+        run: () => runCommand('view.focus-search'),
+      })
+    }
+
     // A row per mode this one is not: with the other modes' objects hidden,
     // these keep a mode change reachable without the title bar.
     if (appReady.value) {
@@ -120,6 +153,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
           scope: 'goto',
           keywords: ['inbox', 'hub', 'feed', 'mode'],
           icon: IconInbox,
+          hint: formatCombo(combosFor('view.go-inbox')[0] ?? ''),
           run: () => setMode('hub'),
         })
       }
@@ -131,6 +165,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
           scope: 'goto',
           keywords: ['code', 'terminal', 'sessions', 'mode'],
           icon: IconCode,
+          hint: formatCombo(combosFor('view.go-code')[0] ?? ''),
           run: () => setMode('terminal'),
         })
       }
@@ -142,6 +177,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
           scope: 'goto',
           keywords: ['chats', 'agents', 'chat', 'mode'],
           icon: IconMessagesSquare,
+          hint: formatCombo(combosFor('view.go-chats')[0] ?? ''),
           run: () => setMode('agents'),
         })
       }

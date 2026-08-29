@@ -90,6 +90,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   inbox — and ranks a strong title match above an early group.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
+- `/` now focuses whichever search box is on screen — the feed's or the Code
+  view's session filter — as one shared shortcut (`mod+f` rides along) rather
+  than a Code-only binding, so the two can no longer be rebound independently.
 - **The Chats sidebar lists every chat under its workspace**, instead of a
   workspace list filtering a flat list of chats below it. Workspaces fold and
   unfold, and stay that way; ones with a running agent open on their own. It
