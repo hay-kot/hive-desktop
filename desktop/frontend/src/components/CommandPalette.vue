@@ -5,13 +5,19 @@ import IconSearch from '~icons/lucide/search'
 import IconZap from '~icons/lucide/zap'
 import AppIcon from './AppIcon.vue'
 import { useCommandPalette, type Command } from '../composables/useCommands'
-import { paletteScopes } from '../palette/scopes'
+import { paletteScopes, type PaletteScopeId } from '../palette/scopes'
 
-const { open, query, scope, results, toggle, run, setQuery } = useCommandPalette()
+const { open, query, scope, visibleScopes, results, toggle, run, setQuery, setScope, cycleScope, popScope } =
+  useCommandPalette()
 
 const placeholder = computed(
   () => paletteScopes.find((s) => s.id === scope.value)?.placeholder ?? 'Search or run a command…',
 )
+
+function selectScope(id: PaletteScopeId): void {
+  setScope(id)
+  inputRef.value?.focus()
+}
 
 // ── Selection tracking ────────────────────────────────────────────────────────
 
@@ -118,6 +124,9 @@ function onKeydown(e: KeyboardEvent): void {
   } else if (e.key === 'ArrowUp') {
     e.preventDefault()
     selectedIndex.value = len ? (selectedIndex.value - 1 + len) % len : 0
+  } else if (e.key === 'Tab') {
+    e.preventDefault()
+    cycleScope(e.shiftKey ? -1 : 1)
   } else if (e.key === 'Enter') {
     // preventDefault so a focused row button doesn't also fire its click.
     e.preventDefault()
@@ -125,6 +134,10 @@ function onKeydown(e: KeyboardEvent): void {
     if (cmd) run(cmd)
   } else if (e.key === 'Escape') {
     toggle()
+  } else if (e.key === 'Backspace') {
+    // A non-empty query means Backspace is editing text, not leaving the
+    // scope — popScope() already returns false for that case.
+    if (popScope()) e.preventDefault()
   }
 }
 </script>
@@ -145,6 +158,25 @@ function onKeydown(e: KeyboardEvent): void {
           aria-modal="true"
           @keydown="onKeydown"
         >
+          <!-- Scope tab strip — underline tabs, JetBrains-style -->
+          <div class="palette-tabs" role="tablist">
+            <button
+              v-for="s in visibleScopes"
+              :key="s.id"
+              type="button"
+              role="tab"
+              class="palette-tab"
+              :class="{ 'palette-tab-active': s.id === scope }"
+              :aria-selected="s.id === scope"
+              data-testid="command-palette-tab"
+              :data-scope="s.id"
+              @click="selectScope(s.id)"
+            >
+              <span v-if="s.sigil" class="palette-tab-sigil">{{ s.sigil }}</span>
+              {{ s.label }}
+            </button>
+          </div>
+
           <!-- Input row -->
           <div class="palette-input-row">
             <IconSearch class="palette-search-icon" />
@@ -201,6 +233,7 @@ function onKeydown(e: KeyboardEvent): void {
           <div class="palette-footer">
             <span><span class="palette-footer-key">↑↓</span> navigate</span>
             <span><span class="palette-footer-key">↵</span> run</span>
+            <span><span class="palette-footer-key">⇥</span> scope</span>
           </div>
         </div>
       </div>
@@ -235,6 +268,46 @@ function onKeydown(e: KeyboardEvent): void {
   border: 1px solid var(--color-strong);
   background: var(--color-pane);
   box-shadow: 0 40px 90px -20px var(--color-backdrop);
+}
+
+/* Scope tab strip */
+.palette-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 10px 14px 0;
+  border-bottom: 1px solid var(--color-row);
+  flex-shrink: 0;
+}
+
+.palette-tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: -1px;
+  padding: 6px 10px 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--color-text-3);
+  cursor: pointer;
+}
+
+.palette-tab:hover {
+  color: var(--color-text-2);
+}
+
+.palette-tab-active,
+.palette-tab-active:hover {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+}
+
+.palette-tab-sigil {
+  font-family: var(--font-mono);
+  color: var(--color-text-4);
 }
 
 /* Input row */

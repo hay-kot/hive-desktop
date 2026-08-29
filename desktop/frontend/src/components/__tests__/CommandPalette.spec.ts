@@ -246,6 +246,70 @@ describe('CommandPalette', () => {
       .toEqual(['Feeds ›', 'Feeds ›'])
   })
 
+  function tabs() {
+    return wrapper!.findAll('[data-testid="command-palette-tab"]')
+  }
+
+  it('renders a tab per visible scope with All active by default', async () => {
+    await openPalette()
+
+    expect(tabs().map((tab) => tab.attributes('data-scope'))).toEqual(['all', 'goto', 'actions', 'shell'])
+    expect(tabs().filter((tab) => tab.classes().includes('palette-tab-active')).map((tab) => tab.attributes('data-scope')))
+      .toEqual(['all'])
+  })
+
+  it('clicking a tab switches scope and refocuses the input', async () => {
+    const palette = useCommandPalette()
+    await openPalette()
+
+    const gotoTab = tabs().find((tab) => tab.attributes('data-scope') === 'goto')!
+    await gotoTab.trigger('click')
+
+    expect(palette.scope.value).toBe('goto')
+    expect(gotoTab.classes()).toContain('palette-tab-active')
+    expect(document.activeElement).toBe(wrapper!.find('[data-testid="command-palette-input"]').element)
+  })
+
+  it('cycles scope forward and backward with Tab and Shift+Tab', async () => {
+    const palette = useCommandPalette()
+    await openPalette()
+    expect(palette.scope.value).toBe('all')
+
+    await panel().trigger('keydown', { key: 'Tab' })
+    expect(palette.scope.value).toBe('goto')
+
+    await panel().trigger('keydown', { key: 'Tab' })
+    expect(palette.scope.value).toBe('actions')
+
+    await panel().trigger('keydown', { key: 'Tab', shiftKey: true })
+    expect(palette.scope.value).toBe('goto')
+  })
+
+  it('pops to All on Backspace with an empty query', async () => {
+    const palette = useCommandPalette()
+    await openPalette()
+    palette.scope.value = 'goto'
+    await flushPromises()
+
+    await panel().trigger('keydown', { key: 'Backspace' })
+
+    expect(palette.scope.value).toBe('all')
+  })
+
+  it('deletes a character on Backspace with a non-empty query, without popping scope', async () => {
+    const palette = useCommandPalette()
+    await openPalette()
+    palette.scope.value = 'goto'
+    await wrapper!.find('[data-testid="command-palette-input"]').setValue('abc')
+
+    const event = new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })
+    panel().element.dispatchEvent(event)
+    await flushPromises()
+
+    expect(palette.scope.value).toBe('goto')
+    expect(event.defaultPrevented).toBe(false)
+  })
+
   it('shows only the shell escape for a !-query and runs it on Enter', async () => {
     const palette = useCommandPalette()
     await openPalette()
