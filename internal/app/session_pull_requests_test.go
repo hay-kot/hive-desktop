@@ -39,8 +39,8 @@ const openPRBody = `{"data":{"r0":{"pullRequests":{"nodes":[{"number":311,"state
 
 func TestSessionPullRequestsAnswersFromCacheUntilRefreshed(t *testing.T) {
 	server, calls := graphQLServer(t, openPRBody)
-	lookup := newSessionPullRequests(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), connectedStore(t))
-	key := dispatch.SessionPullRequestKey{Owner: "acme", Repo: "site", Branch: "feat/bar"}
+	lookup := newSessionPullRequests(newGitHubForge(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), connectedStore(t)))
+	key := dispatch.SessionPullRequestKey{Host: "github.com", Owner: "acme", Repo: "site", Branch: "feat/bar"}
 
 	first, err := lookup.Lookup(t.Context(), key, false)
 	require.NoError(t, err)
@@ -65,10 +65,10 @@ func TestSessionPullRequestsAnswersFromCacheUntilRefreshed(t *testing.T) {
 
 func TestSessionPullRequestsRereadsOnceTheEntryIsStale(t *testing.T) {
 	server, calls := graphQLServer(t, openPRBody)
-	lookup := newSessionPullRequests(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), connectedStore(t))
+	lookup := newSessionPullRequests(newGitHubForge(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), connectedStore(t)))
 	now := time.Now()
 	lookup.now = func() time.Time { return now }
-	key := dispatch.SessionPullRequestKey{Owner: "acme", Repo: "site", Branch: "feat/bar"}
+	key := dispatch.SessionPullRequestKey{Host: "github.com", Owner: "acme", Repo: "site", Branch: "feat/bar"}
 
 	_, err := lookup.Lookup(t.Context(), key, false)
 	require.NoError(t, err)
@@ -85,20 +85,27 @@ func TestSessionPullRequestsRereadsOnceTheEntryIsStale(t *testing.T) {
 func TestSessionPullRequestsKeepsItsEmptyAnswersDistinct(t *testing.T) {
 	server, _ := graphQLServer(t, `{"data":{"r0":{"pullRequests":{"nodes":[]}}}}`)
 	client := ghclient.NewClient(ghclient.WithAPIBase(server.URL))
-	key := dispatch.SessionPullRequestKey{Owner: "acme", Repo: "site", Branch: "feat/bar"}
+	key := dispatch.SessionPullRequestKey{Host: "github.com", Owner: "acme", Repo: "site", Branch: "feat/bar"}
 
-	none, err := newSessionPullRequests(client, connectedStore(t)).Lookup(t.Context(), key, false)
+	none, err := newSessionPullRequests(newGitHubForge(client, connectedStore(t))).Lookup(t.Context(), key, false)
 	require.NoError(t, err)
 	assert.Equal(t, dispatch.PullRequestStatusNone, none.Status)
 
-	disconnected, err := newSessionPullRequests(client, credentials.NewMemoryStore()).Lookup(t.Context(), key, false)
+	disconnected, err := newSessionPullRequests(newGitHubForge(client, credentials.NewMemoryStore())).Lookup(t.Context(), key, false)
 	require.NoError(t, err)
 	assert.Equal(t, dispatch.PullRequestStatusDisconnected, disconnected.Status)
 
-	unsupported, err := newSessionPullRequests(client, connectedStore(t)).Lookup(t.Context(),
+	unsupported, err := newSessionPullRequests(newGitHubForge(client, connectedStore(t))).Lookup(t.Context(),
 		dispatch.SessionPullRequestKey{Branch: "feat/bar"}, false)
 	require.NoError(t, err)
 	assert.Equal(t, dispatch.PullRequestStatusUnsupported, unsupported.Status)
+
+	// A host no forge serves is unsupported too, and never disconnected: a
+	// remote is not evidence that its host is a forge the app can ask.
+	unknownHost, err := newSessionPullRequests(newGitHubForge(client, connectedStore(t))).Lookup(t.Context(),
+		dispatch.SessionPullRequestKey{Host: "git.example.test", Owner: "acme", Repo: "site", Branch: "feat/bar"}, false)
+	require.NoError(t, err)
+	assert.Equal(t, dispatch.PullRequestStatusUnsupported, unknownHost.Status)
 }
 
 // A failed lookup is an error, never a cached "none" — and nothing is cached,
@@ -112,8 +119,8 @@ func TestSessionPullRequestsReportsAFailedLookupAndCachesNothing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	lookup := newSessionPullRequests(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), connectedStore(t))
-	key := dispatch.SessionPullRequestKey{Owner: "acme", Repo: "site", Branch: "feat/bar"}
+	lookup := newSessionPullRequests(newGitHubForge(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), connectedStore(t)))
+	key := dispatch.SessionPullRequestKey{Host: "github.com", Owner: "acme", Repo: "site", Branch: "feat/bar"}
 
 	_, err := lookup.Lookup(t.Context(), key, false)
 	require.Error(t, err)

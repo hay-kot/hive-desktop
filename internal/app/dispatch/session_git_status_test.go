@@ -53,7 +53,7 @@ func activeSession() session.Session {
 	return session.Session{ID: "s1", Path: "/tmp/review-81", Remote: "git@github.com:acme/site.git", State: session.StateActive}
 }
 
-func TestSessionGitStatusReportsTheCheckoutAndItsGitHubCoordinates(t *testing.T) {
+func TestSessionGitStatusReportsTheCheckoutAndItsRemoteCoordinates(t *testing.T) {
 	t.Parallel()
 
 	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, stubGit{
@@ -64,7 +64,7 @@ func TestSessionGitStatusReportsTheCheckoutAndItsGitHubCoordinates(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, SessionGitStatus{
 		Path: "/tmp/review-81", Branch: "feat/bar", Dirty: true, Unpushed: true,
-		Additions: 42, Deletions: 7, Owner: "acme", Repo: "site", Resolved: true,
+		Additions: 42, Deletions: 7, Host: "github.com", Owner: "acme", Repo: "site", Resolved: true,
 	}, got)
 }
 
@@ -115,18 +115,39 @@ func TestSessionGitStatusIsEmptyForASessionWithNoCheckout(t *testing.T) {
 	assert.Equal(t, SessionGitStatus{}, got)
 }
 
-// A non-GitHub remote still gets its git half; only the pull-request key is
-// empty, which is what tells the caller not to ask.
-func TestSessionGitStatusLeavesCoordinatesEmptyForANonGitHubRemote(t *testing.T) {
+// A remote on another forge reports its coordinates like any other. Which
+// forge serves that host is the app layer's question, so answering it here
+// would decide it twice.
+func TestSessionGitStatusReportsCoordinatesForAnyHostedRemote(t *testing.T) {
 	t.Parallel()
 
 	elsewhere := activeSession()
-	elsewhere.Remote = "git@gitea.example.test:acme/site.git"
+	// Cased, because the host is what the forge match and the pull-request
+	// cache are keyed on and a remote may be written any way.
+	elsewhere.Remote = "git@Gitea.Example.Test:acme/site.git"
 	manager := NewHiveSessionManager(oneSessionManagement{session: elsewhere}, nil, stubGit{branch: "feat/bar"}, 0)
 
 	got, err := manager.SessionGitStatus(t.Context(), "s1")
 	require.NoError(t, err)
 	assert.Equal(t, "feat/bar", got.Branch)
+	assert.Equal(t, "gitea.example.test", got.Host)
+	assert.Equal(t, "acme", got.Owner)
+	assert.Equal(t, "site", got.Repo)
+}
+
+// A remote naming no host has no coordinates to read: owner/repo parsing is
+// only the last two path segments, which a local path also has.
+func TestSessionGitStatusLeavesCoordinatesEmptyForAHostlessRemote(t *testing.T) {
+	t.Parallel()
+
+	local := activeSession()
+	local.Remote = "/srv/git/acme/site.git"
+	manager := NewHiveSessionManager(oneSessionManagement{session: local}, nil, stubGit{branch: "feat/bar"}, 0)
+
+	got, err := manager.SessionGitStatus(t.Context(), "s1")
+	require.NoError(t, err)
+	assert.Equal(t, "feat/bar", got.Branch)
+	assert.Empty(t, got.Host)
 	assert.Empty(t, got.Owner)
 	assert.Empty(t, got.Repo)
 }
@@ -173,6 +194,7 @@ func TestSessionGitStatusAgainstARealCheckout(t *testing.T) {
 	// HEAD rather than against a default branch it cannot resolve.
 	assert.Equal(t, 2, got.Additions)
 	assert.Equal(t, 0, got.Deletions)
+	assert.Equal(t, "github.com", got.Host)
 	assert.Equal(t, "acme", got.Owner)
 	assert.Equal(t, "site", got.Repo)
 	// Said out loud rather than reported as "nothing to push", which is the

@@ -60,7 +60,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
 - **An optional status bar above a session** (Settings ▸ Terminal), carrying
   its branch, uncommitted and unpushed state, lines changed, and its pull
   request's review and CI status — plus the open-in-editor and show-in-Finder
-  buttons a chat already had.
+  buttons a chat already had. The pull-request badge reads GitHub and any
+  Gitea or Forgejo instance you have connected, picked from the session's own
+  remote.
 - **A Tasks overlay over hive's `hc` issue tracker** — a tree and detail split
   with filters, text search, keyboard navigation, status changes, and
   delete/prune, reached from a titlebar icon and the command palette, and,

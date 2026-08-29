@@ -628,7 +628,7 @@ async function runStatusBarAction(action: (id: string) => Promise<void>): Promis
 }
 
 // owner/repo is exactly the hc repoKey format; a git read that has not
-// resolved, or resolved onto a non-GitHub remote, has neither. Reported
+// resolved, or resolved onto a remote that names no host, has neither. Reported
 // continuously rather than only on click, so App.vue can scope Tasks to the
 // attached session's repo from any entry point (titlebar, keybinding,
 // palette) and not only a click on this bar's own button.

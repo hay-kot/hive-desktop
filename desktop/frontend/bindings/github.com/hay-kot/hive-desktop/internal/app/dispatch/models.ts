@@ -147,8 +147,10 @@ export interface SessionGitStatus {
     "deletions": number;
 
     /**
-     * Owner and Repo are empty for a remote that is not a GitHub one.
+     * Host, Owner and Repo are the remote's coordinates, and are empty for a
+     * remote that names no host — a local path or a bare clone URL.
      */
+    "host": string;
     "owner": string;
     "repo": string;
     "resolved": boolean;
@@ -222,8 +224,11 @@ export interface SessionPullRequest {
 
 /**
  * SessionPullRequestKey addresses the pull request a session's branch has.
+ * Host is what decides which forge is asked, so a lookup carries it rather
+ * than inferring one from owner and repo, which every forge spells the same.
  */
 export interface SessionPullRequestKey {
+    "host": string;
     "owner": string;
     "repo": string;
     "branch": string;
