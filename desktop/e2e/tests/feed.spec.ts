@@ -142,9 +142,9 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   const firstEntry = page.locator('.palette-results > *').first()
   await expect(firstEntry).toHaveClass(/palette-group-header/)
   await expect(firstEntry).toHaveText('Recent')
-  // Recent rows now carry the same container prefix a typed-query row does,
-  // but as a separate scope span — command-palette-command-title is the
-  // title alone.
+  // Recent rows carry the same container prefix a typed-query row does, but
+  // as a separate scope span — command-palette-command-title is the title
+  // alone.
   const recentRow = page.getByTestId('command-palette-command').first()
   await expect(recentRow.getByTestId('command-palette-command-title')).toHaveText('Notifications inbox')
   await expect(recentRow.getByTestId('command-palette-command-scope')).toHaveText('Frontend Triage ›')

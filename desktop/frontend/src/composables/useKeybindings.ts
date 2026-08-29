@@ -7,10 +7,11 @@ import { commands } from '../keybindings/catalog'
 
 // The frontend keybinding layer. Pure normalization (comboFromEvent /
 // formatCombo) is separate from the effective keymap so both are unit-testable
-// without mounting a component. Only *overrides* are persisted (localStorage
-// key `hive.keybindings`, mirroring useTheme): an id absent from the store
-// falls back to its catalog default, an id mapped to `[]` is explicitly
-// unbound. Bindings target the stable command ids in keybindings/catalog.ts.
+// without mounting a component. Only *overrides* are persisted (to
+// settings.yaml's `keybindings:` section via SettingsService): an id absent
+// from the store falls back to its catalog default, an id mapped to `[]` is
+// explicitly unbound. Bindings target the stable command ids in
+// keybindings/catalog.ts.
 //
 // A binding is one combo or a space-separated sequence of combos (`g i`).
 // `canonicalizeCombo` stays the per-step helper; `canonicalizeBinding` is the

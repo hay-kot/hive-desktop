@@ -57,6 +57,7 @@ surface) gets its palette rows written into `useAppPaletteRows` against a
 module singleton, not into the component that first renders it -- the same
 shape `terminal:attach:*` and `terminal:window:*` already follow.
 
-Adding a scope (Keys, phase 2) is one entry in `palette/scopes.ts` plus a
+Adding a scope -- the `?` Keys scope was added this way -- is one entry in
+`palette/scopes.ts` plus a
 branch in `useCommandPalette`'s `results` switch; the tab strip, cycling, and
 sigil interception are generic over the registry and need no changes.

@@ -2669,8 +2669,8 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    // Window and attach rows moved to App level (useAppPaletteRows), so this
-    // component's own library is now just the attached session's operations.
+    // Window and attach rows register at App level (useAppPaletteRows), so
+    // this component's own library is only the attached session's operations.
     it('lists the attached session\'s operations, under the session\'s own name', async () => {
       const session = fakeSession()
       mocks.useTerminalWindows.mockReturnValue(session)
@@ -2686,7 +2686,7 @@ describe('TerminalMode', () => {
       // Running already — nothing to start.
       expect(byId.has('terminal:session:start')).toBe(false)
 
-      // No window or attach rows — those are App.vue's now (the fake
+      // No window or attach rows — those register at App level (the fake
       // session's tabs are @1/@2, and hive-bump-deps is the other fixture).
       expect(byId.has('terminal:window:@1')).toBe(false)
       expect(byId.has('terminal:window:@2')).toBe(false)
@@ -2744,7 +2744,7 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountAt()
       const results = paletteResults()
 
-      // Attach rows live at App level now, so an unattached mode has nothing
+      // Attach rows live at App level, so an unattached mode has nothing
       // of its own to offer.
       expect(results.value.some((cmd) => cmd.id.startsWith('terminal:'))).toBe(false)
 

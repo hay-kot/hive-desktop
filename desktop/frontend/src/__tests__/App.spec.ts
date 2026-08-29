@@ -838,9 +838,8 @@ describe('App', () => {
       wrapper.unmount()
     })
 
-    // The catalog binds 'g i' by default now, so this is the first end-to-end
-    // proof the wired-but-uncataloged runMap entries from the earlier sweep
-    // are actually reachable.
+    // End-to-end over the real catalog: the default 'g i' binding reaches
+    // runMap's view.go-inbox entry.
     it('switches to the Inbox view on the g i sequence', async () => {
       const { wrapper, router } = await mountAppWithRouter()
       await router.push('/terminal/hive-fix-parser')
