@@ -265,7 +265,7 @@ describe('TerminalMode', () => {
     mocks.EditorSettings.mockResolvedValue({ command: 'zed', title: 'Zed', choices: [] })
     mocks.SessionGitStatus.mockResolvedValue({
       path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
-      additions: 0, deletions: 0, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+      additions: 0, deletions: 0, host: 'github.com', owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
     })
     mocks.SessionPullRequest.mockResolvedValue({ status: 'none' })
   })
@@ -2682,7 +2682,7 @@ describe('TerminalMode', () => {
     it('reports the branch, diff and pull request without renaming the session', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,
-        additions: 42, deletions: 7, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+        additions: 42, deletions: 7, host: 'github.com', owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
       })
       mocks.SessionPullRequest.mockResolvedValue({
         status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
@@ -2702,7 +2702,7 @@ describe('TerminalMode', () => {
       expect(wrapper.get('[data-testid="session-status-pr"]').text()).toContain('#311')
       expect(wrapper.get('[data-testid="session-status-checks"]').text()).toBe('passing')
       // The lookup is keyed by what git resolved, not by anything read twice.
-      expect(mocks.SessionPullRequest).toHaveBeenCalledWith({ owner: 'hay-kot', repo: 'hive', branch: 'feat/parser' }, false)
+      expect(mocks.SessionPullRequest).toHaveBeenCalledWith({ host: 'github.com', owner: 'hay-kot', repo: 'hive', branch: 'feat/parser' }, false)
 
       wrapper.unmount()
     })
@@ -2712,7 +2712,7 @@ describe('TerminalMode', () => {
     it('reports the attached session’s resolved owner/repo as it settles', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
-        additions: 0, deletions: 0, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+        additions: 0, deletions: 0, host: 'github.com', owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
       })
 
       const { wrapper } = await mountWithStatusBar()
@@ -2722,12 +2722,12 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    // A remote that is not a GitHub one resolves owner/repo empty, and a
-    // failed or pending read never carries a stale guess forward.
-    it('reports an empty repo key for a resolved non-GitHub remote', async () => {
+    // A remote naming no host resolves owner/repo empty, and a failed or
+    // pending read never carries a stale guess forward.
+    it('reports an empty repo key for a resolved hostless remote', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'main', dirty: false, unpushed: false,
-        additions: 0, deletions: 0, owner: '', repo: '', resolved: true, error: '',
+        additions: 0, deletions: 0, host: '', owner: '', repo: '', resolved: true, error: '',
       })
 
       const { wrapper } = await mountWithStatusBar()
@@ -2775,7 +2775,7 @@ describe('TerminalMode', () => {
     it('lets only the branch give up width when the row overflows', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,
-        additions: 420, deletions: 37, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+        additions: 420, deletions: 37, host: 'github.com', owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
       })
       mocks.SessionPullRequest.mockResolvedValue({
         status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
@@ -2875,7 +2875,7 @@ describe('TerminalMode', () => {
     it('surfaces a failed git read instead of showing a clean branch it never saw', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
-        additions: 0, deletions: 0, owner: '', repo: '', resolved: true, error: 'git status: exit 128',
+        additions: 0, deletions: 0, host: '', owner: '', repo: '', resolved: true, error: 'git status: exit 128',
       })
 
       const { wrapper } = await mountWithStatusBar()

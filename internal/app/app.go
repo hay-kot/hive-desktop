@@ -387,7 +387,10 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, git: a.sessions, tmux: a.terminals,
 		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
 		recorder: a.activityStore, logger: cfg.Logger,
-		pullRequests:  newSessionPullRequests(gitHubClient, a.credentials),
+		pullRequests: newSessionPullRequests(
+			newGitHubForge(gitHubClient, a.credentials),
+			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
+		),
 		execEnv:       a.execEnv,
 		editorCommand: a.Settings.Editor,
 		defaultAgentEnv: func(ctx context.Context) string {

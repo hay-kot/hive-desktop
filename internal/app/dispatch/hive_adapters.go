@@ -164,7 +164,9 @@ type SessionGitStatus struct {
 	// Additions and Deletions are lines against the default branch, not HEAD.
 	Additions int `json:"additions"`
 	Deletions int `json:"deletions"`
-	// Owner and Repo are empty for a remote that is not a GitHub one.
+	// Host, Owner and Repo are the remote's coordinates, and are empty for a
+	// remote that names no host — a local path or a bare clone URL.
+	Host     string `json:"host"`
 	Owner    string `json:"owner"`
 	Repo     string `json:"repo"`
 	Resolved bool   `json:"resolved"`
@@ -172,7 +174,10 @@ type SessionGitStatus struct {
 }
 
 // SessionPullRequestKey addresses the pull request a session's branch has.
+// Host is what decides which forge is asked, so a lookup carries it rather
+// than inferring one from owner and repo, which every forge spells the same.
 type SessionPullRequestKey struct {
+	Host   string `json:"host"`
 	Owner  string `json:"owner"`
 	Repo   string `json:"repo"`
 	Branch string `json:"branch"`
@@ -494,14 +499,14 @@ func (m *HiveSessionManager) SessionGitStatus(ctx context.Context, id string) (S
 		return SessionGitStatus{Error: "git is unavailable"}, nil
 	}
 
-	owner, repo := gitHubCoordinates(s.Remote)
-	status := SessionGitStatus{Path: s.Path, Owner: owner, Repo: repo}
+	host, owner, repo := remoteCoordinates(s.Remote)
+	status := SessionGitStatus{Path: s.Path, Host: host, Owner: owner, Repo: repo}
 
 	branch, err := m.git.Branch(ctx, s.Path)
 	if err != nil {
 		// Every other read needs the working checkout Branch proves, so its
 		// failure stands for the whole status.
-		return SessionGitStatus{Path: s.Path, Owner: owner, Repo: repo, Error: err.Error()}, nil
+		return SessionGitStatus{Path: s.Path, Host: host, Owner: owner, Repo: repo, Error: err.Error()}, nil
 	}
 	status.Branch = branch
 	status.Resolved = true
@@ -526,15 +531,21 @@ func (m *HiveSessionManager) SessionGitStatus(ctx context.Context, id string) (S
 	return status, nil
 }
 
-// gitHubCoordinates reads owner and repo off a remote, and answers empty for
-// one hosted anywhere but github.com. git.ExtractOwnerRepo is host-agnostic —
-// every forge uses the same path shape — so this check is what keeps a Gitea
-// session from being looked up against GitHub's API.
-func gitHubCoordinates(remote string) (owner, repo string) {
-	if git.ExtractHost(remote) != "github.com" {
-		return "", ""
+// remoteCoordinates reads the host, owner and repo off a remote. Which forge
+// serves that host is not decided here: the app layer asks the connected
+// accounts, and a host none of them serves is what makes a pull-request lookup
+// unsupported.
+//
+// A remote naming no host — a local path — carries no coordinates either, since
+// git.ExtractOwnerRepo is host-agnostic and would read the last two path
+// segments of anything.
+func remoteCoordinates(remote string) (host, owner, repo string) {
+	host = git.ExtractHost(remote)
+	if host == "" {
+		return "", "", ""
 	}
-	return git.ExtractOwnerRepo(remote)
+	owner, repo = git.ExtractOwnerRepo(remote)
+	return host, owner, repo
 }
 
 // SpawnTmuxSession creates the tmux session for a session hive already holds,

@@ -292,24 +292,36 @@ func (c *Client) Notifications(ctx context.Context, limit int) ([]NotificationTh
 // its repository — which is a verdict the caller acts on rather than a failure
 // that should abort a batch of lookups.
 func (c *Client) Issue(ctx context.Context, owner, repo string, number int) (issue Issue, found bool, err error) {
-	path := fmt.Sprintf("/repos/%s/%s/issues/%d", url.PathEscape(owner), url.PathEscape(repo), number)
+	path := fmt.Sprintf("%s/issues/%d", repoPath(owner, repo), number)
+	found, err = c.getOptional(ctx, path, nil, &issue)
+	return issue, found, err
+}
 
-	resp, err := c.api.Get(ctx, apiPrefix+path)
+// getOptional is getJSON for an endpoint whose 404 means "nothing here" rather
+// than a failure: the item was deleted, the token lost access to its
+// repository, or the branch pair names no pull request.
+func (c *Client) getOptional(ctx context.Context, path string, params url.Values, out any) (bool, error) {
+	endpoint := apiPrefix + path
+	if len(params) > 0 {
+		endpoint += "?" + params.Encode()
+	}
+
+	resp, err := c.api.Get(ctx, endpoint)
 	if err != nil {
-		return Issue{}, false, c.errs.Unreachable(err)
+		return false, c.errs.Unreachable(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-only body close
 
 	if resp.StatusCode == http.StatusNotFound {
-		return Issue{}, false, nil
+		return false, nil
 	}
 	if err := c.errs.Status(resp); err != nil {
-		return Issue{}, false, err
+		return false, err
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
-		return Issue{}, false, c.errs.Errorf("decode %s: %w", path, err)
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return false, c.errs.Errorf("decode %s: %w", path, err)
 	}
-	return issue, true, nil
+	return true, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, params url.Values, out any) error {

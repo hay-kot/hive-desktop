@@ -5,10 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
-	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 // sessionPRCacheTTL bounds how stale a session's pull-request badge may be.
@@ -16,13 +13,22 @@ import (
 // is a network round trip against a shared rate limit.
 const sessionPRCacheTTL = 5 * time.Minute
 
+// forge is one hosting service's answer to "what is this branch's pull
+// request". The status bar renders the view, not the forge, so a new one is an
+// implementation here and nothing else.
+type forge interface {
+	// serves reports whether this forge answers for a remote's host. A host no
+	// forge serves is what makes a session's lookup unsupported.
+	serves(host string) bool
+	pullRequest(ctx context.Context, key dispatch.SessionPullRequestKey) (dispatch.SessionPullRequest, error)
+}
+
 // sessionPullRequests answers "what is this branch's pull request" for the
-// session status bar, over the app's own GitHub client rather than the `gh`
-// CLI — which caches an empty result on error and so cannot keep "no pull
-// request" apart from "the lookup failed".
+// session status bar, over the app's own API clients rather than a forge CLI —
+// which caches an empty result on error and so cannot keep "no pull request"
+// apart from "the lookup failed".
 type sessionPullRequests struct {
-	client *ghclient.Client
-	creds  credentials.Store
+	forges []forge
 
 	mu     sync.Mutex
 	cached map[dispatch.SessionPullRequestKey]cachedPullRequest
@@ -35,10 +41,9 @@ type cachedPullRequest struct {
 	readAt time.Time
 }
 
-func newSessionPullRequests(client *ghclient.Client, creds credentials.Store) *sessionPullRequests {
+func newSessionPullRequests(forges ...forge) *sessionPullRequests {
 	return &sessionPullRequests{
-		client: client,
-		creds:  creds,
+		forges: forges,
 		cached: map[dispatch.SessionPullRequestKey]cachedPullRequest{},
 		now:    time.Now,
 	}
@@ -48,9 +53,9 @@ func newSessionPullRequests(client *ghclient.Client, creds credentials.Store) *s
 // entry is fresh. refresh discards the cached entry first, which is what a
 // user clicking the badge asks for.
 func (p *sessionPullRequests) Lookup(ctx context.Context, key dispatch.SessionPullRequestKey, refresh bool) (dispatch.SessionPullRequest, error) {
-	if key.Owner == "" || key.Repo == "" || key.Branch == "" {
-		// Not a GitHub remote, or a branch that did not resolve — neither is a
-		// failure the bar should report as one.
+	if key.Host == "" || key.Owner == "" || key.Repo == "" || key.Branch == "" {
+		// A remote that named no repository, or a branch that did not resolve —
+		// neither is a failure the bar should report as one.
 		return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusUnsupported}, nil
 	}
 
@@ -85,73 +90,10 @@ func (p *sessionPullRequests) fresh(key dispatch.SessionPullRequestKey) (dispatc
 }
 
 func (p *sessionPullRequests) fetch(ctx context.Context, key dispatch.SessionPullRequestKey) (dispatch.SessionPullRequest, error) {
-	if p.client == nil || p.creds == nil {
-		return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusDisconnected}, nil
-	}
-
-	tokens, err := p.tokens()
-	if err != nil {
-		return dispatch.SessionPullRequest{}, Wrap(err, KindInternal, "reading GitHub credentials")
-	}
-	if len(tokens) == 0 {
-		return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusDisconnected}, nil
-	}
-
-	ref := ghclient.BranchRef{Owner: key.Owner, Repo: key.Repo, Branch: key.Branch}
-	// A repository an account cannot see resolves to a null alias, not an
-	// error, so the only way to know another account can see it is to ask.
-	var lastErr error
-	for _, token := range tokens {
-		results, err := p.client.WithTokenCopy(token).PullRequestsByBranch(ctx, []ghclient.BranchRef{ref})
-		if err != nil {
-			lastErr = err
-			continue
+	for _, f := range p.forges {
+		if f.serves(key.Host) {
+			return f.pullRequest(ctx, key)
 		}
-		if len(results) == 0 || !results[0].Found {
-			continue
-		}
-		return viewOfPullRequest(results[0]), nil
 	}
-	if lastErr != nil {
-		return dispatch.SessionPullRequest{}, Wrap(lastErr, KindInternal, "reading the pull request for %s", key.Branch)
-	}
-	return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusNone}, nil
-}
-
-// tokens lists every token that could see the repository. The env override is
-// provider-wide and names no account, so a headless run stores no ref at all;
-// the synthetic ref exists only to give credentials.Resolve something
-// well-formed to answer it with.
-func (p *sessionPullRequests) tokens() ([]string, error) {
-	refs, err := credentials.ListProvider(p.creds, ghsource.Provider)
-	if err != nil {
-		return nil, err
-	}
-	if len(refs) == 0 && credentials.HasEnvOverride(ghsource.Provider) {
-		refs = []credentials.Ref{{Provider: ghsource.Provider, Account: "env"}}
-	}
-	tokens := make([]string, 0, len(refs))
-	for _, ref := range refs {
-		token, err := credentials.Resolve(p.creds, ref)
-		if err != nil || token == "" {
-			continue
-		}
-		tokens = append(tokens, token)
-	}
-	return tokens, nil
-}
-
-func viewOfPullRequest(pr ghclient.PullRequest) dispatch.SessionPullRequest {
-	return dispatch.SessionPullRequest{
-		Status:         dispatch.PullRequestStatusFound,
-		Number:         pr.Number,
-		Title:          pr.Title,
-		State:          pr.State,
-		IsDraft:        pr.IsDraft,
-		URL:            pr.URL,
-		ReviewDecision: pr.ReviewDecision,
-		Checks:         string(pr.Checks),
-		Additions:      pr.Additions,
-		Deletions:      pr.Deletions,
-	}
+	return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusUnsupported}, nil
 }

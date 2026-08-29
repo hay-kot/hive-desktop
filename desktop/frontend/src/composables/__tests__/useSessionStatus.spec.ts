@@ -13,7 +13,7 @@ vi.mock('../useWindowFocus', () => ({ useWindowFocus: () => ({ focused: ref(true
 function gitStatus(branch: string) {
   return {
     path: `/tmp/${branch}`, branch, dirty: false, unpushed: false, additions: 0, deletions: 0,
-    owner: 'acme', repo: 'site', resolved: true, error: '',
+    host: 'github.com', owner: 'acme', repo: 'site', resolved: true, error: '',
   }
 }
 

@@ -58,4 +58,6 @@ subprocesses, and the bar only ever displays one session.
   pinned to the vendored interface, so an upstream change to it breaks this
   build rather than drifting silently.
 - A session on a non-GitHub remote gets its git half and no pull-request
-  lookup at all, rather than a failed one.
+  lookup at all, rather than a failed one. Superseded for Gitea and Forgejo by
+  ADR the-status-bar-routes-a-pull-request-lookup-by-the-remote-s-host, which
+  routes the lookup by the remote's host instead of gating it on `github.com`.

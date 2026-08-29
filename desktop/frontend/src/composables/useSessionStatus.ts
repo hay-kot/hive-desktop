@@ -8,7 +8,7 @@ import { useWindowFocus } from './useWindowFocus'
 
 // Git is four local subprocesses, so it can be polled. The pull request rides
 // along on each poll and is answered from the Go-side cache, so this interval
-// does not set how often GitHub is asked.
+// does not set how often the forge is asked.
 const POLL_INTERVAL_MS = 15_000
 
 /**
@@ -59,7 +59,7 @@ export function useSessionStatus(sessionId: Ref<string>): {
     git.value = status
     lastGit.set(id, status)
 
-    if (!status.resolved || !status.owner || !status.repo || !status.branch) {
+    if (!status.resolved || !status.host || !status.owner || !status.repo || !status.branch) {
       pullRequest.value = null
       pullRequestError.value = ''
       lastPullRequest.delete(id)
@@ -67,7 +67,7 @@ export function useSessionStatus(sessionId: Ref<string>): {
     }
     try {
       const pr = await ReadPullRequest(
-        { owner: status.owner, repo: status.repo, branch: status.branch },
+        { host: status.host, owner: status.owner, repo: status.repo, branch: status.branch },
         options.refreshPullRequest ?? false,
       )
       if (current !== sequence) return
@@ -108,7 +108,7 @@ export function useSessionStatus(sessionId: Ref<string>): {
   // A blurred window's checkout keeps changing — an agent is committing in it —
   // so refocus is both the stalest moment and the one worth spending a request
   // to go behind the PR cache: you were probably just in a browser looking at
-  // it. Focus is user-driven, so this cannot turn into polling GitHub.
+  // it. Focus is user-driven, so this cannot turn into polling the forge.
   watch(focused, (isFocused) => {
     if (isFocused) void refresh({ refreshPullRequest: true })
   })
