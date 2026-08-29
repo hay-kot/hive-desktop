@@ -153,7 +153,7 @@ export const commandCatalog: BindableCommand[] = [
     id: 'feed.open-in-browser',
     title: 'Open item in browser',
     group: 'Feeds',
-    keywords: ['open', 'browser', 'github', 'link'],
+    keywords: ['open', 'browser', 'github', 'link', 'visit'],
     icon: IconExternalLink,
     defaultCombos: ['o', 'enter'],
     context: 'feed',
@@ -162,7 +162,7 @@ export const commandCatalog: BindableCommand[] = [
     id: 'feed.toggle-unread',
     title: 'Toggle unread filter',
     group: 'Feeds',
-    keywords: ['unread', 'filter'],
+    keywords: ['unread', 'filter', 'seen'],
     icon: IconEye,
     defaultCombos: ['u'],
     context: 'feed',
@@ -176,8 +176,8 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['p'],
     context: 'feed',
   },
-  { id: 'feed.toggle-archive', title: 'Archive / unarchive item', group: 'Feeds', defaultCombos: ['e'], context: 'feed' },
-  { id: 'feed.mark-unread', title: 'Mark unread', group: 'Feeds', defaultCombos: ['shift+u'], context: 'feed' },
+  { id: 'feed.toggle-archive', title: 'Archive / unarchive item', group: 'Feeds', keywords: ['archive', 'done', 'complete', 'dismiss'], defaultCombos: ['e'], context: 'feed' },
+  { id: 'feed.mark-unread', title: 'Mark unread', group: 'Feeds', keywords: ['read', 'seen', 'unseen'], defaultCombos: ['shift+u'], context: 'feed' },
   // Scoped to the selected feed; a no-op in Trash, which carries no unread
   // semantics. The workspace variant stays unbound by default: it clears every
   // feed at once and there is no undo, so it should be asked for by name.

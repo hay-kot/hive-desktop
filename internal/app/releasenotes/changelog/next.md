@@ -73,6 +73,11 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   so you can narrow it to just navigation or just actions instead of the
   whole ranked list. `@`, `>`, and `!` still jump straight into a scope as
   you type.
+- **The command palette opens with recent commands**, device-local usage data
+  that survives restarts and is stored on this device rather than in your
+  settings file. Typed queries match fuzzily — scattered characters like
+  `mkalrd` find "Mark all as read" — with title matches ranked above keyword
+  matches.
 - **Keybindings can be chord sequences**, not just single combos. `g i` /
   `g c` / `g a` / `g t` / `g s` jump to Inbox, Code, Chats, Tasks, and
   Settings from anywhere, and a which-key hint pill shows the pressed key and

@@ -638,7 +638,8 @@ than an extension of the vendored single-slot one.
 User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 `$XDG_CONFIG_HOME/hive/desktop/` so it can be dotfiles-managed. App-local
 state (SQLite: items, triage, offsets, queued commands) lives under the data
-dir. Respect the boundary when adding persistence.
+dir. Palette recents are device-local usage data on the UI-state localStorage
+path, never settings.yaml. Respect the boundary when adding persistence.
 
 The version whose release notes the user has seen
 (`<StateDir>/releasenotes.json`) is the boundary read the other way round: it
