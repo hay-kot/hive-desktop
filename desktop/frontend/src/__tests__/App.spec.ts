@@ -1150,6 +1150,23 @@ describe('App', () => {
       wrapper.unmount()
     })
 
+    it('filters the sigil legend to scopes whose tab is visible', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      const palette = useCommandPalette()
+      palette.query.value = ''
+      palette.scope.value = 'keys'
+
+      // No shell escape is registered outside the Code view, so the ! legend
+      // row — whose run would strand the palette in a scope with no tab and
+      // no possible rows — is hidden along with its tab.
+      const legendIds = palette.results.value.filter((cmd) => cmd.group === 'Sigils').map((cmd) => cmd.id)
+      expect(legendIds).toEqual(['keys:sigil:goto', 'keys:sigil:actions', 'keys:sigil:keys'])
+
+      palette.scope.value = 'all'
+      wrapper.unmount()
+    })
+
     // The stub only seeds recents, so useAgentWorkspaces().workspaces stays
     // empty — the dir → name join has nothing to match, and the group falls
     // back to the raw dir key rather than a display name.

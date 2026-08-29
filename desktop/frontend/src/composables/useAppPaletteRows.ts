@@ -389,7 +389,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     return cmds
   }))
 
-  const { open: paletteOpen, setScope } = useCommandPalette()
+  const { open: paletteOpen, setScope, visibleScopes } = useCommandPalette()
 
   // The ? scope: every bindable command (launchers included), rows whose
   // context is live right now promoted ahead of the rest under their own
@@ -417,6 +417,11 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     for (const scope of paletteScopes) {
       const meaning = sigilMeanings[scope.id]
       if (!scope.sigil || !meaning) continue
+      // Only scopes whose tab is currently shown: outside the Code view the
+      // Shell tab is hidden and typing `!` is a literal character, so a
+      // legend row for it would run setScope into a scope with no tab and no
+      // possible rows — a disabled row in disguise.
+      if (!visibleScopes.value.some((visible) => visible.id === scope.id)) continue
       rows.push({
         id: `keys:sigil:${scope.id}`,
         title: meaning,
