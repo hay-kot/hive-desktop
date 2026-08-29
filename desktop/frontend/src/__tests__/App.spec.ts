@@ -1039,7 +1039,16 @@ describe('App', () => {
       wrapper.unmount()
     })
 
-    it('runs a window row by pushing /terminal/:slug with ?window=, from the TerminalMode-written projection', async () => {
+    // The projection now survives a trip back to the hub (TerminalMode.spec's
+    // "survives a trip back to the hub"), so a populated projection while the
+    // route is nowhere near /terminal is a state a real attach actually
+    // leaves behind — not a synthetic one, which is what let this row run
+    // into an attach that had never happened. Seeding it directly still
+    // isolates the App-level push from TerminalMode's own attach machinery;
+    // that the push actually selects the window on the pooled client is
+    // TerminalMode.spec's "selects the window a same-slug ?window push
+    // names on the pooled client".
+    it('runs a window row by pushing /terminal/:slug with ?window=, from outside Code entirely', async () => {
       const { wrapper, router } = await mountAppWithRouter()
       setAttachedTerminalWindows({
         slug: 'hive-fix-parser',
@@ -1049,6 +1058,7 @@ describe('App', () => {
           { windowId: '@2', name: 'shell', active: false },
         ],
       })
+      expect(terminalOnScreen(wrapper)).toBe(false)
 
       const { results, query } = useCommandPalette()
       query.value = ''

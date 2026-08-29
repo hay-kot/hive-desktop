@@ -94,6 +94,13 @@ const { poolSize } = useTerminalPoolSize()
 const pool = shallowReactive(new Map<string, UseTerminalWindows>())
 const lastUsed: string[] = []
 const activeSlug = ref('')
+// What attachedRow (below) and current track is on-screen state: activeSlug,
+// which the route drives and clears on a trip to the hub. The window-row
+// projection (useAttachedTerminalWindows) names the attached session, not the
+// visible one, so it is keyed off this instead — set on every real attach,
+// left alone by the route-driven detach, and cleared only when dropSession
+// lets that session's pool entry go.
+const lastAttachedSlug = ref('')
 const current = computed(() => (activeSlug.value ? pool.get(activeSlug.value) ?? null : null))
 // What the main area shows. It lags the selection during a cold attach: the
 // outgoing session holds the pane until the incoming one has painted — or
@@ -167,6 +174,10 @@ function dropSession(slug: string): void {
   pool.delete(slug)
   const at = lastUsed.indexOf(slug)
   if (at !== -1) lastUsed.splice(at, 1)
+  // This is the pool's one real exit, so it is where the projection's own
+  // attach reference gives up on a session too — never on the route-driven
+  // detach, which leaves the pool (and this) untouched.
+  if (lastAttachedSlug.value === slug) lastAttachedSlug.value = ''
 }
 
 const route = useRoute()
@@ -177,6 +188,15 @@ const router = useRouter()
 // switches); window changes replace (tab flips must not pile up entries).
 const routeSlug = computed(() => (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
 const routeWindow = computed(() => (typeof route.query.window === 'string' ? route.query.window : ''))
+
+// Shared by the attach path (openSession, on a fresh or already-pooled slug)
+// and the same-slug case (the watch below, for a push that only changes
+// ?window): a wanted window is worth a select exactly when it names a tab
+// this session actually has and is not already showing.
+function selectIfWanted(session: UseTerminalWindows, windowId: string): void {
+  if (!windowId || windowId === session.activeWindowId.value) return
+  if (session.tabs.value.some((tab) => tab.windowId === windowId)) void session.select(windowId)
+}
 
 // The resume snapshot: entering bare /terminal re-attaches this instead of
 // landing on the picker. Cleared when the session is closed on purpose or no
@@ -1094,23 +1114,28 @@ useCommands(() => {
 
 // The App-level palette's window rows (useAppPaletteRows) read this
 // projection rather than component state, so they can list a session's tabs
-// before this async component has ever mounted. Kept live regardless of
-// `active` — it names the attached session, not the visible one, so it must
-// survive a trip back to the hub — and cleared only once nothing is attached.
+// before this async component has ever mounted, and so a jump still works
+// after a trip back to the hub — the reason these rows moved to App level in
+// the first place. Keyed off lastAttachedSlug and the pool rather than
+// attachedRow/windowRowsFor, which follow activeSlug and only show a
+// session's live tabs while it is the on-screen one: both go stale the
+// moment the route leaves /terminal, which this must not.
 watch(
-  () => (attachedRow.value ? windowRowsFor(attachedRow.value) : null),
-  (windows) => {
-    const row = attachedRow.value
-    if (!row || !windows) {
-      setAttachedTerminalWindows(null)
-      return
-    }
-    setAttachedTerminalWindows({
+  () => {
+    const live = lastAttachedSlug.value ? pool.get(lastAttachedSlug.value) : undefined
+    const row = live ? attachable.value.find((candidate) => candidate.slug === lastAttachedSlug.value) : undefined
+    if (!live || !row) return null
+    return {
       slug: row.slug,
       name: row.name,
-      windows: windows.map((win) => ({ windowId: win.windowId, name: win.name, active: win.active })),
-    })
+      windows: live.tabs.value.map((tab) => ({
+        windowId: tab.windowId,
+        name: tab.name || tab.windowId,
+        active: tab.windowId === live.activeWindowId.value,
+      })),
+    }
   },
+  (next) => setAttachedTerminalWindows(next),
   { immediate: true },
 )
 onBeforeUnmount(() => setAttachedTerminalWindows(null))
@@ -1386,6 +1411,16 @@ watch([client, routeSlug], ([ready, slug]) => {
   else detachSession()
 }, { immediate: true })
 
+// `?window` is a route input in its own right, not only something read at
+// attach time: a same-slug push that changes only the window (the App-level
+// palette's window rows) moves neither of the pair above, so it needs its own
+// watcher. The mirror watch just below then rewrites the URL to the same
+// value once the resulting active-changed event lands — same value, so it
+// does not loop back into this one.
+watch(routeWindow, (wanted) => {
+  if (current.value) selectIfWanted(current.value, wanted)
+})
+
 // Mirror the attached window into the URL and the resume snapshot. Guarded to
 // the live route so a navigation away cannot claw the history entry back.
 watch([activeSlug, () => current.value?.activeWindowId.value ?? ''], ([slug, windowId]) => {
@@ -1554,23 +1589,23 @@ function openSession(slug: string): void {
   const pooled = pool.get(slug)
   if (pooled && pooled.status.value !== 'ended') {
     touchPool(slug)
-    const wanted = routeWindow.value
-    if (wanted && wanted !== pooled.activeWindowId.value && pooled.tabs.value.some((tab) => tab.windowId === wanted)) {
-      void pooled.select(wanted)
-    }
+    lastAttachedSlug.value = slug
+    selectIfWanted(pooled, routeWindow.value)
     return
   }
   if (pooled) dropSession(slug)
   const opened = useTerminalWindows(slug, client.value)
   pool.set(slug, opened)
   touchPool(slug)
+  // Set after the possible dropSession above, which would otherwise clear it
+  // straight back to '' for this same slug.
+  lastAttachedSlug.value = slug
   // Captured before attach: the mirror watcher rewrites ?window to tmux's
   // active the moment windows land, and the wanted one must survive that.
   const wanted = routeWindow.value
   void opened.start().then(() => {
-    if (pool.get(slug) !== opened || !wanted) return
-    // A window that no longer exists falls through to tmux's own active.
-    if (opened.tabs.value.some((tab) => tab.windowId === wanted)) void opened.select(wanted)
+    if (pool.get(slug) !== opened) return
+    selectIfWanted(opened, wanted)
   })
 }
 

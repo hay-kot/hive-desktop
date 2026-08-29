@@ -5,7 +5,7 @@ import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
 import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
 import { resetTerminalFontForTests } from '../../composables/useTerminalFont'
-import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
+import { resetTerminalSessionsForTests, useTerminalSessions } from '../../composables/useTerminalSessions'
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { setTerminalShowStatusBar } from '../../composables/useTerminalStatusBar'
@@ -926,6 +926,23 @@ describe('TerminalMode', () => {
     await mountAt('/terminal/hive-fix-parser?window=@9')
 
     expect(session.select).not.toHaveBeenCalled()
+  })
+
+  // Finding: the App-level palette's window rows push the same slug with a
+  // new ?window (useAppPaletteRows), which moves neither of the attach
+  // watcher's sources nor the mirror's — so without its own watcher on
+  // routeWindow, this push did nothing.
+  it('selects the window a same-slug ?window push names on the pooled client', async () => {
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { router } = await mountAt('/terminal/hive-fix-parser')
+    await flushPromises()
+    session.select.mockClear()
+
+    await router.push('/terminal/hive-fix-parser?window=@2')
+    await flushPromises()
+
+    expect(session.select).toHaveBeenCalledWith('@2')
   })
 
   it('mirrors the active window into the URL and the resume snapshot', async () => {
@@ -2546,6 +2563,53 @@ describe('TerminalMode', () => {
 
       expect(useAttachedTerminalWindows().attached.value).toBeNull()
       wrapper.unmount()
+    })
+
+    // Finding: this is the whole point of registering the window rows at App
+    // level — a jump has to work from the hub, not only from inside Code. The
+    // route clears activeSlug on the way out, so the projection has to be
+    // keyed off something the trip does not touch: the warm pool entry.
+    it('survives a trip back to the hub', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { router } = await mountAt('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      await router.push({ name: 'feed' })
+      await flushPromises()
+
+      expect(useAttachedTerminalWindows().attached.value).toEqual({
+        slug: 'hive-fix-parser',
+        name: 'fix the parser',
+        windows: [
+          { windowId: '@1', name: 'agent', active: true },
+          { windowId: '@2', name: 'shell', active: false },
+        ],
+      })
+    })
+
+    // The survival above is not "never clears" — it clears once the session
+    // the pool is warming genuinely goes away, whether or not Code is on
+    // screen when that happens.
+    it('clears once the session is actually gone, even away from /terminal', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { router } = await mountAt('/terminal/hive-fix-parser')
+      await flushPromises()
+      await router.push({ name: 'feed' })
+      await flushPromises()
+      expect(useAttachedTerminalWindows().attached.value).not.toBeNull()
+
+      // Deleted (or recycled) elsewhere; the next reload drops it from the
+      // listing, and the same pool cleanup that runs in mode lets it go.
+      mocks.ListSessions.mockResolvedValue([
+        { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
+      ])
+      await useTerminalSessions().reload()
+      await flushPromises()
+
+      expect(session.dispose).toHaveBeenCalled()
+      expect(useAttachedTerminalWindows().attached.value).toBeNull()
     })
   })
 
