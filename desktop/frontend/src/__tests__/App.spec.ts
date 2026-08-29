@@ -1134,6 +1134,23 @@ describe('App', () => {
       wrapper.unmount()
     })
 
+    // KeymapRow carries the catalog's keywords through to the Keys-scope row
+    // now, so a query matching a synonym finds the command even though the
+    // synonym never appears in its title or group.
+    it('matches a Keys-scope row by a keyword synonym rather than only its title', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      const palette = useCommandPalette()
+      palette.scope.value = 'keys'
+      palette.query.value = 'catch up'
+      const cmd = palette.results.value.find((candidate) => candidate.id === 'feed.mark-all-read')
+      expect(cmd?.title).toBe('Mark all as read')
+
+      palette.query.value = ''
+      palette.scope.value = 'all'
+      wrapper.unmount()
+    })
+
     it('lists a chat row from a useAgentSessionsAll stub and pushes the agents route on run', async () => {
       const { wrapper, router } = await mountAppWithRouter()
       useAgentSessionsAll().recents.value = [{

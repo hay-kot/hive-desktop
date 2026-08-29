@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
-import { commands as bindableCommands } from '../keybindings/catalog'
+import { commandById } from '../keybindings/catalog'
 
 const { pendingSequence } = useKeybindings()
-
-const catalogById = computed(() => new Map(bindableCommands.value.map((command) => [command.id, command])))
 
 const steps = computed(() => pendingSequence.value?.steps.map((step) => formatCombo(step)) ?? [])
 
@@ -16,7 +14,7 @@ const continuations = computed(() => {
   const pending = pendingSequence.value
   if (!pending) return []
   return pending.continuations.flatMap((continuation) => {
-    const command = catalogById.value.get(continuation.commandId)
+    const command = commandById.value.get(continuation.commandId)
     if (!command) return []
     return [{ step: continuation.step, label: formatCombo(continuation.step), title: command.title }]
   })

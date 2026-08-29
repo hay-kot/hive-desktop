@@ -161,8 +161,14 @@ watch(open, async (v) => {
   }
 })
 
-// Scroll selected row into view
-watch(selectedIndex, (idx) => {
+// Scroll selected row into view. Gated on `open` — closed, the watch source
+// is a constant -1 that never touches selectedIndex, so the
+// selection/navList/results chain (which recomputes on every session-status
+// poll in the Code view) is never evaluated for a scroll that has no row to
+// land on. Arrows, hover, and the open watch's own reset above all still
+// drive it normally once open.
+watch(() => (open.value ? selectedIndex.value : -1), (idx) => {
+  if (idx < 0) return
   nextTick(() => rowElements.get(idx)?.scrollIntoView({ block: 'nearest' }))
 })
 

@@ -531,3 +531,11 @@ export function setLauncherCommands(next: BindableCommand[]): void {
 export const commands: ComputedRef<BindableCommand[]> = computed(
   () => [...commandCatalog, ...launcherCommands.value],
 )
+
+/**
+ * Every bindable command by id, built from `commands` (not `commandCatalog`)
+ * so launcher commands resolve too.
+ */
+export const commandById: ComputedRef<Map<string, BindableCommand>> = computed(
+  () => new Map(commands.value.map((command) => [command.id, command])),
+)

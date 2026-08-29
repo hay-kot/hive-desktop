@@ -1,8 +1,6 @@
 import { computed, watch, type Ref } from 'vue'
 import type { Router } from 'vue-router'
-import IconCode from '~icons/lucide/code'
 import IconGauge from '~icons/lucide/gauge'
-import IconInbox from '~icons/lucide/inbox'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
 import IconList from '~icons/lucide/list'
 import IconMessagesSquare from '~icons/lucide/messages-square'
@@ -12,8 +10,8 @@ import IconSearch from '~icons/lucide/search'
 import IconShare2 from '~icons/lucide/share-2'
 import IconTerminal from '~icons/lucide/terminal'
 import IconWorkflow from '~icons/lucide/workflow'
-import { commands as bindableCommands, terminalWindowCommandID, type CommandContext } from '../keybindings/catalog'
-import { requestedEditorFilter, useKeymapRows } from '../keybindings/keymapRows'
+import { commandById, commands as bindableCommands, terminalWindowCommandID, type CommandContext } from '../keybindings/catalog'
+import { keymapRows, requestedEditorFilter } from '../keybindings/keymapRows'
 import { paletteScopes, type PaletteScopeId } from '../palette/scopes'
 import { formatCombo, useKeybindings } from './useKeybindings'
 import { useCommands, useCommandPalette, useKeysScope, type Command } from './useCommands'
@@ -47,11 +45,9 @@ export interface AppPaletteDeps {
   /** Whether a catalog command's context fires from where the user is standing. */
   contextActive: (context: CommandContext) => boolean
   mode: Ref<'hub' | 'terminal' | 'agents'>
-  setMode: (next: 'hub' | 'terminal' | 'agents') => void
   shellLoaded: Ref<boolean>
   onboardingActive: Ref<boolean>
   hubActive: Ref<boolean>
-  feedNavActive: Ref<boolean>
   devToolsEnabled: Ref<boolean>
   router: Router
   profiles: Ref<Profile[]>
@@ -65,8 +61,6 @@ export interface AppPaletteDeps {
   openFlows: (focusNodeId?: string) => void
   requestExitFlows: () => void
   openNewProfile: () => void
-  /** Gates the "Filter sessions" named row, same as terminal.* commands. */
-  terminalActive: Ref<boolean>
   /** The active flow's nodes, for the "jump to node" rows. */
   activeFlowNodes: Ref<{ id: string; name?: string; type: string }[]>
   /** The slug attached on screen, so its own attach row does not offer itself. */
@@ -82,13 +76,14 @@ export interface AppPaletteDeps {
  */
 export function useAppPaletteRows(deps: AppPaletteDeps): void {
   const {
-    runCommand, contextActive, mode, setMode, shellLoaded, onboardingActive, hubActive, feedNavActive,
+    runCommand, contextActive, mode, shellLoaded, onboardingActive, hubActive,
     devToolsEnabled, router, profiles, activeProfile, requestSelectProfile, navigateSidebar, selectedItem,
     actions, invokeAction, flowsActive, openFlows, requestExitFlows, openNewProfile, activeFlowNodes,
-    onScreenSessionSlug, terminalActive,
+    onScreenSessionSlug,
   } = deps
 
   const { combosFor } = useKeybindings()
+  const hintFor = (id: string): string => formatCombo(combosFor(id)[0] ?? '')
 
   // The app is usable — past onboarding, the shell resolved — regardless of
   // which mode is on screen. This is the gate the #306 fix widens the hub's
@@ -120,7 +115,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         keywords: command.keywords,
         icon: command.icon,
         scope: command.scope,
-        hint: formatCombo(combosFor(command.id)[0] ?? ''),
+        hint: hintFor(command.id),
         run: () => runCommand(command.id),
       })
     }
@@ -129,8 +124,8 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     // two unrelated surfaces, and a single row for it would no-op wherever the
     // other surface is on screen. These named rows stand in per surface,
     // gated the same way the surface's own commands are, sharing its hint.
-    const focusSearchHint = formatCombo(combosFor('view.focus-search')[0] ?? '')
-    if (feedNavActive.value) {
+    const focusSearchHint = hintFor('view.focus-search')
+    if (contextActive('feed')) {
       cmds.push({
         id: 'view.focus-search:feed',
         title: 'Search items…',
@@ -142,7 +137,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         run: () => runCommand('view.focus-search'),
       })
     }
-    if (terminalActive.value) {
+    if (contextActive('terminal')) {
       cmds.push({
         id: 'view.focus-search:terminal',
         title: 'Filter sessions',
@@ -156,44 +151,27 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     }
 
     // A row per mode this one is not: with the other modes' objects hidden,
-    // these keep a mode change reachable without the title bar.
+    // these keep a mode change reachable without the title bar. Title, icon
+    // and keywords are the paired view.go-* command's — App.vue's runMap is
+    // the one implementation both the keymap and this row dispatch through.
     if (appReady.value) {
-      if (mode.value !== 'hub') {
+      const modeRow = (id: 'mode:hub' | 'mode:terminal' | 'mode:agents', catalogID: string): void => {
+        const catalog = commandById.value.get(catalogID)
+        if (!catalog) return // a stale mode row is worse than a missing one
         cmds.push({
-          id: 'mode:hub',
-          title: 'Go to Inbox',
+          id,
+          title: catalog.title,
           group: 'View',
           scope: 'goto',
-          keywords: ['inbox', 'hub', 'feed', 'mode'],
-          icon: IconInbox,
-          hint: formatCombo(combosFor('view.go-inbox')[0] ?? ''),
-          run: () => setMode('hub'),
+          keywords: catalog.keywords,
+          icon: catalog.icon,
+          hint: hintFor(catalogID),
+          run: () => runCommand(catalogID),
         })
       }
-      if (mode.value !== 'terminal') {
-        cmds.push({
-          id: 'mode:terminal',
-          title: 'Go to Code',
-          group: 'View',
-          scope: 'goto',
-          keywords: ['code', 'terminal', 'sessions', 'mode'],
-          icon: IconCode,
-          hint: formatCombo(combosFor('view.go-code')[0] ?? ''),
-          run: () => setMode('terminal'),
-        })
-      }
-      if (mode.value !== 'agents') {
-        cmds.push({
-          id: 'mode:agents',
-          title: 'Go to Chats',
-          group: 'View',
-          scope: 'goto',
-          keywords: ['chats', 'agents', 'chat', 'mode'],
-          icon: IconMessagesSquare,
-          hint: formatCombo(combosFor('view.go-chats')[0] ?? ''),
-          run: () => setMode('agents'),
-        })
-      }
+      if (mode.value !== 'hub') modeRow('mode:hub', 'view.go-inbox')
+      if (mode.value !== 'terminal') modeRow('mode:terminal', 'view.go-code')
+      if (mode.value !== 'agents') modeRow('mode:agents', 'view.go-chats')
 
       // Profiles, feeds and Trash, and themes reach across every mode (#306):
       // requestSelectProfile, navigateSidebar and setTheme all push a route
@@ -266,7 +244,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       // through invokeAction, so an action that declares inputs opens its form
       // and an interactive launch-session opens the session dialog, exactly as
       // a card click does.
-      if (feedNavActive.value && selectedItem.value) {
+      if (contextActive('feed') && selectedItem.value) {
         const itemGroup = containerLine(selectedItem.value) || 'Item'
         for (const action of actions.value) {
           const meta = actionTypeMeta(action.type)
@@ -369,7 +347,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
           scope: 'goto',
           keywords: ['window', 'tab', 'jump', 'switch'],
           icon: IconTerminal,
-          hint: formatCombo(combosFor(terminalWindowCommandID(index + 1))[0] ?? ''),
+          hint: hintFor(terminalWindowCommandID(index + 1)),
           run: () => void router.push({ name: 'terminal', params: { slug }, query: { window: win.windowId } }),
         })
       })
@@ -397,7 +375,6 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
   // context is live right now promoted ahead of the rest under their own
   // group, and a trailing legend explaining the other sigils. Registered for
   // the app's lifetime, so the tab is effectively always visible.
-  const keymapRows = useKeymapRows()
   useKeysScope(() => {
     const rows: Command[] = keymapRows.value.map((row) => {
       const active = contextActive(row.context)
@@ -407,6 +384,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         group: active ? `${contextLabel(row.context)} · active context` : row.group,
         order: active ? -1 : 0,
         hint: row.formatted.join(' · '),
+        keywords: row.keywords,
         // Every row routes to the pre-filtered editor — there is no disabled
         // state, active context or not.
         run: () => {

@@ -82,5 +82,5 @@ entry -- no new machinery. A command that must open *and* close an overlay
 needs its own chord alongside any sequence, per the accepted asymmetry above;
 a sequence-only binding is not a substitute for one. The recorder
 (`KeybindingSettingsView.vue`) and the `?` Keys scope both read this same
-grammar through `canonicalizeBinding`/`useKeymapRows`, so neither can drift
+grammar through `canonicalizeBinding`/`keymapRows`, so neither can drift
 from what the dispatcher actually resolves.

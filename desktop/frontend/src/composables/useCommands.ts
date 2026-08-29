@@ -250,7 +250,7 @@ const keysScopes = ref<KeysScopeRegistration[]>([])
 /**
  * Claims the Keys scope for the calling effect scope. Kept catalog-agnostic
  * (like useShellEscape) so this module never imports keybindings/catalog;
- * useAppPaletteRows supplies `source` over useKeymapRows().
+ * useAppPaletteRows supplies `source` over keymapRows.
  */
 export function useKeysScope(source: () => Command[]): void {
   const key = Symbol()

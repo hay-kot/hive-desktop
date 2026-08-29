@@ -20,16 +20,15 @@ import IconX from '~icons/lucide/x'
 import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import EmptyState from './settings/EmptyState.vue'
-import { commands } from '../keybindings/catalog'
+import { commandById } from '../keybindings/catalog'
 import { comboFromEvent, formatCombo, useKeybindings } from '../composables/useKeybindings'
-import { requestedEditorFilter, useKeymapRows, type KeymapRow } from '../keybindings/keymapRows'
+import { keymapRows, requestedEditorFilter, type KeymapRow } from '../keybindings/keymapRows'
 
 const kb = useKeybindings()
 const filter = ref('')
 const capturingId = ref<string | null>(null)
 
-const catalogById = computed(() => new Map(commands.value.map((command) => [command.id, command])))
-const titleFor = (id: string) => catalogById.value.get(id)?.title ?? id
+const titleFor = (id: string) => commandById.value.get(id)?.title ?? id
 
 // The ? scope's requested-filter handshake: a route landing here from a Keys
 // row carries the command to land on. Applied once and cleared so a later,
@@ -45,7 +44,7 @@ onMounted(applyRequestedFilter)
 // watch — onMounted alone would miss it.
 watch(requestedEditorFilter, applyRequestedFilter)
 
-const rows = useKeymapRows()
+const rows = keymapRows
 
 interface Group { group: string; rows: KeymapRow[] }
 
@@ -54,8 +53,7 @@ const groups = computed<Group[]>(() => {
   const byGroup = new Map<string, KeymapRow[]>()
   for (const row of rows.value) {
     if (query) {
-      const keywords = catalogById.value.get(row.id)?.keywords ?? []
-      const haystack = [row.title, row.group, ...keywords, ...row.formatted].join(' ').toLowerCase()
+      const haystack = [row.title, row.group, ...row.keywords, ...row.formatted].join(' ').toLowerCase()
       if (!haystack.includes(query)) continue
     }
     if (!byGroup.has(row.group)) byGroup.set(row.group, [])

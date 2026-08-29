@@ -17,26 +17,28 @@ export interface KeymapRow {
   /** Display form per binding (formatCombo), same order as combos. */
   formatted: string[]
   overridden: boolean
+  /** Extra palette match terms, from the catalog. */
+  keywords: string[]
 }
 
+const kb = useKeybindings()
+
 /** Live rows over the catalog and the effective keymap. */
-export function useKeymapRows(): ComputedRef<KeymapRow[]> {
-  const kb = useKeybindings()
-  return computed(() =>
-    commands.value.map((command) => {
-      const combos = kb.combosFor(command.id)
-      return {
-        id: command.id,
-        title: command.title,
-        group: command.group,
-        context: command.context,
-        combos,
-        formatted: combos.map((combo) => formatCombo(combo)),
-        overridden: kb.isOverridden(command.id),
-      }
-    }),
-  )
-}
+export const keymapRows: ComputedRef<KeymapRow[]> = computed(() =>
+  commands.value.map((command) => {
+    const combos = kb.combosFor(command.id)
+    return {
+      id: command.id,
+      title: command.title,
+      group: command.group,
+      context: command.context,
+      combos,
+      formatted: combos.map((combo) => formatCombo(combo)),
+      overridden: kb.isOverridden(command.id),
+      keywords: command.keywords ?? [],
+    }
+  }),
+)
 
 /**
  * One-shot handshake: the `?` scope sets this before routing to Settings ›

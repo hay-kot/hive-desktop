@@ -49,7 +49,7 @@ import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, SEQUENCE_TIMEOUT_MS, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
-import { commands as bindableCommands, commandPiercesPane, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
+import { commandById, commandPiercesPane, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
 import { useAppPaletteRows } from './composables/useAppPaletteRows'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -857,7 +857,7 @@ function togglePopupTerminal(): void {
 // pop-up that appeared only to report that is worse than one that never opened
 // (ADR quick-terminal-launchers-are-session-scoped).
 function toggleLauncher(actionID: string): void {
-  const command = catalogById.value.get(launcherCommandID(actionID))
+  const command = commandById.value.get(launcherCommandID(actionID))
   if (command && !contextActive(command.context)) return
   popupTerminalMounted.value = true
   popupTerminal.toggle({ launcher: actionID, sessionSlug: onScreenSessionSlug.value || undefined })
@@ -958,8 +958,6 @@ function runCommand(id: string): void {
   void runMap[id]?.()
 }
 
-const catalogById = computed(() => new Map(bindableCommands.value.map((command) => [command.id, command])))
-
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
 const feedNavActive = computed(() =>
@@ -1002,11 +1000,9 @@ useAppPaletteRows({
   runCommand,
   contextActive,
   mode,
-  setMode,
   shellLoaded,
   onboardingActive,
   hubActive,
-  feedNavActive,
   devToolsEnabled,
   router,
   profiles,
@@ -1022,7 +1018,6 @@ useAppPaletteRows({
   openNewProfile,
   activeFlowNodes: computed(() => session.activeFlow.value?.nodes ?? []),
   onScreenSessionSlug,
-  terminalActive,
 })
 
 // ── Global input navigation ──────────────────────────────────────────────────
@@ -1050,7 +1045,7 @@ function resetSequence(): void {
 // The gate an ordinary dispatch applies, factored out so the deferred
 // sequence timer's fire runs it too.
 function dispatchIfActive(id: string): boolean {
-  const command = catalogById.value.get(id)
+  const command = commandById.value.get(id)
   if (!command) return false
   if (anyOverlayOpen.value && id !== 'palette.toggle') {
     // tasks.toggle has to reach the dispatcher while its own overlay owns the
@@ -1098,7 +1093,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // terminal the program inside cannot use (ADR quick-terminal-launchers-are-session-scoped).
     const id = kb.resolve(comboFromEvent(e) ?? '')
     const pierces = !!id && (commandPiercesPane(id) || launcherActionID(id) !== null)
-    if (id && pierces && contextActive(catalogById.value.get(id)?.context ?? 'global')) {
+    if (id && pierces && contextActive(commandById.value.get(id)?.context ?? 'global')) {
       resetSequence()
       e.preventDefault()
       runCommand(id)
@@ -1110,7 +1105,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // answers. A bare Ctrl+K stays with the pane; it is readline's
     // kill-to-end-of-line, and Ctrl+T is its transpose.
     const escaped = kb.resolve(terminalEscapeCombo(e) ?? '')
-    const command = escaped ? catalogById.value.get(escaped) : undefined
+    const command = escaped ? commandById.value.get(escaped) : undefined
     if (escaped && command?.escapesPane && contextActive(command.context)) {
       e.preventDefault()
       runCommand(escaped)
