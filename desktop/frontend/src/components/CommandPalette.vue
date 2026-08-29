@@ -355,7 +355,7 @@ function onKeydown(e: KeyboardEvent): void {
 .palette-panel {
   position: relative;
   z-index: 1;
-  width: 660px;
+  width: 720px;
   max-width: calc(100vw - 48px);
   max-height: min(608px, 76vh);
   display: flex;
