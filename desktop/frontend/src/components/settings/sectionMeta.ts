@@ -1,0 +1,33 @@
+import type { Component } from 'vue'
+import IconKeyboard from '~icons/lucide/keyboard'
+import IconPalette from '~icons/lucide/palette'
+import IconPlug from '~icons/lucide/plug'
+import IconPlay from '~icons/lucide/play'
+import IconSquareTerminal from '~icons/lucide/square-terminal'
+import IconMessagesSquare from '~icons/lucide/messages-square'
+import IconHardDrive from '~icons/lucide/hard-drive'
+import IconBell from '~icons/lucide/bell'
+import IconInfo from '~icons/lucide/info'
+import IconSliders from '~icons/lucide/sliders-horizontal'
+import IconZap from '~icons/lucide/zap'
+import type { ApplicationSettingsSection } from '../../router'
+
+// Keyed by section id and ordered by router.ts's applicationSettingsSections,
+// so a section added there shows up here (and TypeScript flags the missing
+// entry) instead of being routable but absent from the UI.
+export const applicationSettingsSectionMeta: Record<
+  ApplicationSettingsSection,
+  { label: string; title: string; icon: Component }
+> = {
+  general: { label: 'General', title: 'General', icon: IconSliders },
+  appearance: { label: 'Appearance', title: 'Appearance', icon: IconPalette },
+  keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
+  terminal: { label: 'Terminal', title: 'Terminal', icon: IconSquareTerminal },
+  agents: { label: 'Chats', title: 'Chats', icon: IconMessagesSquare },
+  integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
+  actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
+  launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
+  notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
+  system: { label: 'System', title: 'System', icon: IconHardDrive },
+  about: { label: 'About', title: 'About', icon: IconInfo },
+}
