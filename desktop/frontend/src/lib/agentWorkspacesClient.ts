@@ -177,10 +177,13 @@ export interface MissingSkillPackage {
   selectedBy: string[]
 }
 
-/** One block on a canvas; kind decides which content field is set. */
+/**
+ * One block on a canvas; kind decides which content field is set. An `html`
+ * block's `body` arrives sanitized by the Go side, never as the agent wrote it.
+ */
 export interface CanvasBlock {
   id: string
-  kind: 'markdown' | 'link' | string
+  kind: 'markdown' | 'html' | 'link' | string
   title: string
   body: string
   url: string

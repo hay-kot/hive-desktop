@@ -11,10 +11,12 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
 - **The Chats area** (experimental): workspaces, tmux-backed chats, and an
   MCP catalogue. A chat can be pinned into the Code view's session tree to
   stay in reach while you work.
-- **Canvases** (experimental): a chat's agent can put markdown and links on
-  named canvases shown beside the conversation, via the `hive-canvas` MCP
-  server. Each canvas is a file in the workspace folder, so it outlives the
-  chat that made it.
+- **Canvases** (experimental): a chat's agent can put markdown, links and
+  laid-out HTML on named canvases shown beside the conversation, via the
+  `hive-canvas` MCP server. HTML blocks are styled by Hive's own class
+  vocabulary, so stat tiles, card grids and callouts follow your theme instead
+  of whatever the model picked. Each canvas is a file in the workspace folder,
+  so it outlives the chat that made it.
 - **Grafana connector** for metrics, alerts, and IRM alert groups, with
   Alertmanager filtering pushed server-side so large instances stay
   responsive.

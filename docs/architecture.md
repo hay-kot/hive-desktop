@@ -1551,8 +1551,8 @@ alongside whatever the user's own global codex config already has, and the UI
 states that rather than leaving an unbounded tool set looking identical to a
 bounded one.
 
-A chat's agent may write **canvases** — named surfaces of markdown and link
-blocks shown in a pane beside the conversation
+A chat's agent may write **canvases** — named surfaces of markdown, html and
+link blocks shown in a pane beside the conversation
 (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 Each is one JSON file at `<workspace>/canvases/<name>.json` in the workspace
 folder, owned by `internal/app/canvas` and served by `CanvasService`: a
@@ -1570,10 +1570,23 @@ visibility is UI intent, not stored state, so `canvas:toggle` carries the
 whole message — like `notification:activated` — and the frontend honors it
 only for the chat in view, never pulling the user away from another. The
 agent learns its own session id from `HIVE_AGENT_SESSION`, injected at
-launch via `tmux new-session -e`. An app-hosted catalogue entry declares its mount as
-`Descriptor.RuntimePath`, joined with the live loopback base when the
+launch via `tmux new-session -e`. An app-hosted catalogue entry declares its
+mount as `Descriptor.RuntimePath`, joined with the live loopback base when the
 catalogue is rendered; a pinning test in `mcpsrv` keeps those paths agreeing
 with the adapter's constants.
+
+An **html block** is the one place agent-authored markup reaches the webview
+(ADR canvas-html-blocks-are-sanitized-in-go-and-styled-by-an-app-owned-class-vocabulary).
+`internal/app/canvas/html.go` declares the element allowlist and the `hv-`
+class vocabulary once; `canvas.SanitizeHTML` builds a deny-by-default
+bluemonday policy from them, `canvas.RejectedHTML` refuses a write that would
+be stripped rather than letting the agent read its source back intact over a
+broken layout, and `styles/canvas-html.css` maps the vocabulary onto the theme
+tokens. The store keeps the agent's source; `GetForWorkspace` and
+`canvas.Markdown` are the only two seams that sanitize, so no consumer holds a
+policy of its own. `renderGithubMarkdown` is untouched — it is shared with
+untrusted GitHub bodies and stays as strict as they require, which is why an
+html block renders under its own `.hv-html` scope instead.
 
 `agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
 or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is

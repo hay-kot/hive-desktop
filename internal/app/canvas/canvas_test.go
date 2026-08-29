@@ -205,6 +205,18 @@ func TestMarkdownRendersTitleBlocksAndLinks(t *testing.T) {
 		"no canvas title means no heading")
 }
 
+// An export leaves the app, so it carries the sanitized markup rather than
+// what the agent wrote — the file is opened elsewhere, by something with no
+// policy of its own.
+func TestMarkdownEmitsSanitizedHTMLBlocks(t *testing.T) {
+	c := Canvas{
+		Blocks: []Block{
+			{ID: "stats", Kind: KindHTML, Title: "Run", Body: `<p class="hv-muted">green</p><script>alert(1)</script>`},
+		},
+	}
+	assert.Equal(t, "## Run\n\n<p class=\"hv-muted\">green</p>\n", Markdown(c))
+}
+
 func TestInvalidWorkspaceRefused(t *testing.T) {
 	s := testStore(t)
 	for _, dir := range []string{"", ".", "..", "a/b", "../escape"} {

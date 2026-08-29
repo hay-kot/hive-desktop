@@ -40,6 +40,7 @@ var ErrAnchorNotFound = errors.New("canvas: anchor block not found")
 const (
 	KindMarkdown = "markdown"
 	KindLink     = "link"
+	KindHTML     = "html"
 )
 
 // canvasesDirName is the app-owned directory inside a workspace folder.
@@ -57,8 +58,10 @@ const maxNameLength = 100
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$`)
 
 // Block is one entry on a canvas. Kind decides which content field is set:
-// markdown carries Body, link carries URL. Timestamps are unix milliseconds,
-// matching AgentWorkspaceSession.
+// markdown and html carry Body, link carries URL. An html block's Body is
+// the agent's source verbatim — SanitizeHTML runs on the way out, never on
+// the way in, so read_canvas shows the agent what it wrote. Timestamps are
+// unix milliseconds, matching AgentWorkspaceSession.
 type Block struct {
 	ID        string `json:"id"`
 	Kind      string `json:"kind"`
@@ -96,8 +99,11 @@ type Meta struct {
 
 // Markdown renders a canvas as one standalone document: the canvas title as
 // a top-level heading, each markdown block's title demoted beneath it, and
-// link blocks as plain markdown links. It is the export shape behind the
-// pane's copy and save actions, so both always agree.
+// link blocks as plain markdown links. An html block is emitted as its
+// sanitized markup, which most markdown viewers render; the hv- class names
+// mean nothing outside the app, so an export keeps the structure and loses
+// the styling. It is the export shape behind the pane's copy and save
+// actions, so both always agree.
 func Markdown(c Canvas) string {
 	var b strings.Builder
 	if c.Title != "" {
@@ -110,6 +116,11 @@ func Markdown(c Canvas) string {
 		switch block.Kind {
 		case KindLink:
 			b.WriteString("[" + block.Title + "](" + block.URL + ")")
+		case KindHTML:
+			if block.Title != "" {
+				b.WriteString("## " + block.Title + "\n\n")
+			}
+			b.WriteString(SanitizeHTML(block.Body))
 		default:
 			if block.Title != "" {
 				b.WriteString("## " + block.Title + "\n\n")
