@@ -2490,6 +2490,7 @@ onBeforeUnmount(() => {
       v-if="confirmOpen && confirmOptions"
       :title="confirmOptions.title"
       :description="confirmOptions.description"
+      :details="confirmOptions.details"
       :confirm-label="confirmOptions.confirmLabel"
       :busy="confirmBusy"
       :error="confirmError"

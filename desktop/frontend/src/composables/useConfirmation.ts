@@ -1,8 +1,18 @@
 import { ref } from 'vue'
 
+/**
+ * One line of the dialog's checklist: `danger` marks work the operation
+ * destroys, `ok` marks a check that came back clean.
+ */
+export type ConfirmationDetail = {
+  tone: 'danger' | 'ok'
+  text: string
+}
+
 export type ConfirmationOptions = {
   title: string
   description: string
+  details?: ConfirmationDetail[]
   confirmLabel?: string
   onConfirm: () => Promise<void> | void
 }

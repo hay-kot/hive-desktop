@@ -97,6 +97,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
 - The flow editor's Deploy button no longer carries a menu. The debug panel
   and the **Copy prompt** shortcut behind it were development affordances;
   every prompt is still in Settings ▸ LLM prompts.
+- Deleting or recycling a session shows its git pre-flight as a checklist:
+  a red mark on uncommitted changes or unpushed commits that would be lost,
+  a green one on a check that came back clean.
 
 ## Fixed
 

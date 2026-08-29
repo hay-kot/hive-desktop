@@ -1245,7 +1245,10 @@ describe('TerminalMode', () => {
     await flushPromises()
 
     const dialog = document.querySelector('[data-testid="session-confirmation"]')
-    expect(dialog?.textContent).toContain('uncommitted changes and unpushed commits')
+    const dangers = dialog?.querySelectorAll('[data-testid="session-confirmation-details"] [data-tone="danger"]')
+    expect(dangers).toHaveLength(2)
+    expect(dialog?.textContent).toContain('Uncommitted changes')
+    expect(dialog?.textContent).toContain('Unpushed commits')
     expect(mocks.DeleteSession).not.toHaveBeenCalled()
 
     document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')!.click()
