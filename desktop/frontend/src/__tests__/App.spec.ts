@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
@@ -9,7 +9,7 @@ import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composab
 import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
 import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/usePopupTerminal'
 import { resetLaunchersForTests } from '../composables/useLaunchers'
-import { formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { formatCombo, SEQUENCE_TIMEOUT_MS, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests, useTerminalSessions } from '../composables/useTerminalSessions'
 import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
@@ -363,6 +363,13 @@ describe('App', () => {
     mocks.TerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
     mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'no ptyterm on this build.' })
     mocks.AgentsEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
+  })
+
+  // A test that arms the deferred-sequence timer switches to fake timers; this
+  // guarantees the next test always starts on real ones, even if an assertion
+  // above throws before a test's own vi.useRealTimers() runs.
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -810,6 +817,139 @@ describe('App', () => {
       await flushPromises()
 
       expect(router.currentRoute.value.name).toBe('feed')
+
+      wrapper.unmount()
+    })
+
+    // Zed's prefix rule: a step that is both a complete binding and a prefix of
+    // another defers rather than firing immediately, so a continuation still
+    // gets its chance. The catalog has no such dual binding today, so this adds
+    // one beside the default 'g i'/'g c'/... prefixes rather than relying on one.
+    it('defers a step that is also a complete binding, firing it on the timeout if nothing continues it', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g')
+      const { open: paletteOpen } = useCommandPalette()
+
+      vi.useFakeTimers()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value?.steps).toEqual(['g'])
+      expect(paletteOpen.value).toBe(false) // deferred, not dispatched yet
+
+      vi.advanceTimersByTime(SEQUENCE_TIMEOUT_MS)
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      wrapper.unmount()
+    })
+
+    it('cancels the deferred timer when a continuation arrives first, so the deferred binding never also fires', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('report.open', 'g') // dual bound+prefix, same as above
+      const report = useReportDialog()
+
+      vi.useFakeTimers()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' })) // completes 'g i' -> view.go-inbox
+      expect(kb.pendingSequence.value).toBeNull()
+      expect(report.open.value).toBe(false)
+
+      vi.advanceTimersByTime(SEQUENCE_TIMEOUT_MS)
+      expect(report.open.value).toBe(false) // the cancelled timer does not also fire
+
+      wrapper.unmount()
+    })
+
+    it('re-applies the overlay check when the deferred timer fires, not the check that held when it was armed', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('view.go-code', 'g')
+      const { openDialog: openReport } = useReportDialog()
+
+      vi.useFakeTimers()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value?.steps).toEqual(['g'])
+
+      // A different overlay opens (a mouse click, say) while the timer is
+      // still pending — nothing about that clears pendingSequence, so the
+      // suppression has to come from the fire-time check instead.
+      openReport()
+      vi.advanceTimersByTime(SEQUENCE_TIMEOUT_MS)
+
+      expect(terminalOnScreen(wrapper)).toBe(false) // view.go-code never ran
+
+      wrapper.unmount()
+    })
+
+    it('does not start a pending sequence from an editable target', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      const input = document.createElement('input')
+      document.body.append(input)
+
+      const event = new KeyboardEvent('keydown', { key: 'g', bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+
+      expect(kb.pendingSequence.value).toBeNull()
+      expect(event.defaultPrevented).toBe(false) // typing proceeds normally
+
+      input.remove()
+      wrapper.unmount()
+    })
+
+    it('does not start a pending sequence while an overlay is open', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      const { openDialog: openReport, close: closeReport } = useReportDialog()
+
+      openReport()
+      await flushPromises()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).toBeNull()
+
+      closeReport()
+      wrapper.unmount()
+    })
+
+    // Distinct from the focusin case above: a keydown can target a pane that
+    // already has focus, with no intervening focus change to catch.
+    it('clears the pending sequence on any keydown that targets a focused terminal pane', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const pane = focusedPane()
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true }))
+      expect(kb.pendingSequence.value).toBeNull()
+
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    // The accepted asymmetry (ADR keybindings-are-chord-sequences-not-a-leader-key):
+    // a sequence cannot start while an overlay owns the screen, so 'g' then 't'
+    // never reaches tasks.toggle once Tasks is already open — only the chord,
+    // which is an ordinary single-combo dispatch, can close it again.
+    it('pins the overlay-toggle asymmetry: g t cannot close Tasks, mod+shift+t can', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 't' }))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull() // still open
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+      await flushPromises()
+      expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull() // the chord does close it
 
       wrapper.unmount()
     })

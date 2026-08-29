@@ -169,6 +169,38 @@ test('a sigil enters its scope tab and Backspace/Tab move between them', async (
   await expect(palette).toBeHidden()
 })
 
+test('g shows the which-key hint pill, and g s lands on Settings', async ({ page }) => {
+  await page.keyboard.press('g')
+  await expect(page.getByTestId('sequence-hint')).toBeVisible()
+
+  await page.keyboard.press('s')
+  await expect(page.getByTestId('sequence-hint')).toHaveCount(0)
+  await expect(page.getByTestId('settings-view')).toBeVisible()
+})
+
+test('? opens the palette on the Keys tab', async ({ page }) => {
+  await page.keyboard.press('?')
+  const palette = page.getByTestId('command-palette')
+  await expect(palette).toBeVisible()
+  await expect(page.locator('[data-testid="command-palette-tab"][data-scope="keys"]')).toHaveClass(/palette-tab-active/)
+
+  await page.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+})
+
+test('a leading slash focuses the feed search box, and a key typed there does not start a sequence', async ({ page }) => {
+  const search = page.getByTestId('feed-search')
+
+  await page.keyboard.press('/')
+  await expect(search).toBeFocused()
+
+  await page.keyboard.press('g')
+  await expect(search).toHaveValue('g')
+  // No sequence started: the hint pill never appears, and the mode stays put.
+  await expect(page.getByTestId('sequence-hint')).toHaveCount(0)
+  await expect(page.getByTestId('feed-item')).toHaveCount(6)
+})
+
 test('navigates between items with j/k and the arrow keys', async ({ page }) => {
   const detail = page.getByTestId('detail-pane')
   await expect(detail).toContainText('batch_spawn: fix detached tmux env & PATH propagation')

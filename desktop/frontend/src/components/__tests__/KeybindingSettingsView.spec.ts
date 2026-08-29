@@ -165,4 +165,43 @@ describe('KeybindingSettingsView', () => {
     const conflictChips = wrapper.findAll('[data-testid="keybinding-combo"].combo-conflict')
     expect(conflictChips.length).toBeGreaterThanOrEqual(2)
   })
+
+  // The Zed rule (ADR keybindings-are-chord-sequences-not-a-leader-key): a
+  // binding that only prefixes another stays fully functional, so recording
+  // one is not a conflict — only an exact duplicate binding is.
+  it('does not flag a recorded sequence whose first step equals an existing single-key binding', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(KeybindingSettingsView)
+    // feed.next binds 'j' by default; window.hide records 'j x', prefixed by it.
+    await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
+    await nextTick()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }))
+    await nextTick()
+    vi.advanceTimersByTime(RECORDER_COMMIT_MS)
+    await nextTick()
+
+    expect(kb.combosFor('window.hide')).toEqual(['j x'])
+    expect(wrapper.findAll('[data-testid="keybinding-combo"].combo-conflict')).toHaveLength(0)
+  })
+
+  it('flags a recorded sequence that exactly duplicates an existing binding', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(KeybindingSettingsView)
+    // view.go-inbox binds 'g i' by default; record the identical sequence onto
+    // a second command.
+    await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+    await nextTick()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }))
+    await nextTick()
+    vi.advanceTimersByTime(RECORDER_COMMIT_MS)
+    await nextTick()
+
+    expect(kb.combosFor('window.hide')).toEqual(['g i'])
+    const conflictChips = wrapper.findAll('[data-testid="keybinding-combo"].combo-conflict')
+    expect(conflictChips.length).toBeGreaterThanOrEqual(2)
+  })
 })

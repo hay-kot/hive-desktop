@@ -181,7 +181,9 @@ http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
   host: 127.0.0.1
   port: 0 # the OS chooses
-keybindings: {} # sparse overrides; omitted commands keep catalog defaults
+keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
+                 # A binding is a single combo ("j") or a space-separated
+                 # sequence of combos pressed in order ("g i").
 paths:
   tmux: "" # absolute path to tmux; empty discovers it (ADR tmux-discovery)
 development:

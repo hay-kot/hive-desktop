@@ -1432,6 +1432,10 @@ Three rules govern it, and each is a consequence of that:
   `attachCustomKeyEventHandler` must decline it, or the pane writes it to tmux
   as well. Both sides resolve through the live keymap, so a rebind moves them
   together.
+- **A sequence start answers to the same rule as a bare chord.** It never
+  fires over a focused pane, into an editable target, or under an overlay,
+  and `resolve` stays single-step — it can never match a sequence's first
+  step, so neither pierce nor escape can claim one out from under it (ADR keybindings-are-chord-sequences-not-a-leader-key).
 - **A pane takes focus for the mouse, not for the arrows.** `paneMayAutoFocus`
   gates the automatic `term.focus()` calls — the ones on attach, on reveal, and
   on a window switch — because walking the session tree past a session is not an

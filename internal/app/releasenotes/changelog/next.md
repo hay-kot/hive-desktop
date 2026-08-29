@@ -73,6 +73,16 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   so you can narrow it to just navigation or just actions instead of the
   whole ranked list. `@`, `>`, and `!` still jump straight into a scope as
   you type.
+- **Keybindings can be chord sequences**, not just single combos. `g i` /
+  `g c` / `g a` / `g t` / `g s` jump to Inbox, Code, Chats, Tasks, and
+  Settings from anywhere, and a which-key hint pill shows the pressed key and
+  what it can lead to while a sequence is pending.
+- **`?` opens a searchable keyboard-shortcut reference** — its own tab in the
+  command palette. Pressing Enter on any row lands in Settings ▸ Keyboard,
+  pre-filtered to that command.
+- **The macOS standards are wired up**: `⌘,` opens Settings, and `⌘[`/`⌘]`
+  step back and forward through view history, matching the title bar's own
+  buttons.
 
 ## Changed
 
