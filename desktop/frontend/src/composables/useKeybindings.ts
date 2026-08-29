@@ -11,6 +11,10 @@ import { commands } from '../keybindings/catalog'
 // key `hive.keybindings`, mirroring useTheme): an id absent from the store
 // falls back to its catalog default, an id mapped to `[]` is explicitly
 // unbound. Bindings target the stable command ids in keybindings/catalog.ts.
+//
+// A binding is one combo or a space-separated sequence of combos (`g i`).
+// `canonicalizeCombo` stays the per-step helper; `canonicalizeBinding` is the
+// entry point everywhere a whole binding string is parsed.
 
 type Overrides = Record<string, string[]>
 
@@ -76,7 +80,8 @@ function shouldRecordShift(base: string): boolean {
 /**
  * Canonicalize a combo string to its single spelling: modifiers collapsed
  * (Meta/Ctrl → `mod`), lowercased, ordered `mod, ctrl, alt, shift`, then the
- * base key. Returns '' for a combo with no base key.
+ * base key. Returns '' for a combo with no base key, or whose key contains
+ * whitespace — that spelling belongs to a sequence, not a single step.
  */
 export function canonicalizeCombo(combo: string): string {
   const parts = combo.split('+').map((p) => p.trim().toLowerCase()).filter(Boolean)
@@ -87,10 +92,61 @@ export function canonicalizeCombo(combo: string): string {
     if (mod) mods.add(mod)
     else key = normalizeKey(part)
   }
-  if (!key) return ''
+  if (!key || /\s/.test(key)) return ''
   const ordered = MODIFIER_ORDER.filter((m) => mods.has(m))
   return [...ordered, key].join('+')
 }
+
+/**
+ * Canonical spelling for a binding: one combo, or space-separated combos
+ * ("g i"). '' when any step is invalid.
+ */
+export function canonicalizeBinding(binding: string): string {
+  const steps = binding.trim().split(/\s+/).filter(Boolean)
+  if (steps.length === 0) return ''
+  const canonSteps: string[] = []
+  for (const step of steps) {
+    const canon = canonicalizeCombo(step)
+    if (!canon) return ''
+    canonSteps.push(canon)
+  }
+  return canonSteps.join(' ')
+}
+
+/** One more step a pending sequence could take, and the command it leads to. */
+export interface SequenceContinuation {
+  step: string
+  commandId: string
+}
+
+/** Steps accepted so far, and what can extend them next — the hint pill's data. */
+export interface PendingSequence {
+  steps: string[]
+  continuations: SequenceContinuation[]
+}
+
+export type SequenceTransition =
+  /** The steps + combo complete a binding: dispatch commandId. */
+  | { kind: 'run'; commandId: string }
+  /**
+   * The combo extends (or starts) a pending sequence. deferredCommandId is
+   * non-null when the accumulated steps are ALSO a full binding (Zed's prefix
+   * rule): the caller arms SEQUENCE_TIMEOUT_MS and dispatches it if no
+   * continuation arrives. The timer decision is made here; the timer itself
+   * belongs to the caller.
+   */
+  | { kind: 'extend'; pending: PendingSequence; deferredCommandId: string | null }
+  /** Pending existed and the combo matched nothing bare: clear + consume. */
+  | { kind: 'swallow' }
+  /**
+   * No sequence involvement: dispatch normally. Also returned when pending
+   * existed but the combo carries the primary modifier (see stepSequence) —
+   * the caller clears pending and proceeds through normal dispatch.
+   */
+  | { kind: 'pass' }
+
+/** Zed's prefix rule: how long a bound-key-that-is-also-a-prefix waits. */
+export const SEQUENCE_TIMEOUT_MS = 1000
 
 /** The base key an event.key names, or null when it is not a bindable key. */
 function keyBase(e: KeyboardEvent): string | null {
@@ -178,11 +234,18 @@ function formatModifier(mod: string, isMac: boolean): string {
   }
 }
 
-/** Human-readable label for a combo — `⌘K` on macOS, `Ctrl+K` elsewhere. */
-export function formatCombo(combo: string, isMac: boolean = detectMac()): string {
-  const canon = canonicalizeCombo(combo)
+/**
+ * Human-readable label for a binding — `⌘K` on macOS, `Ctrl+K` elsewhere. A
+ * sequence renders each step in order, space-joined: `G I`, `⌘K ⌘S`.
+ */
+export function formatCombo(binding: string, isMac: boolean = detectMac()): string {
+  const canon = canonicalizeBinding(binding)
   if (!canon) return ''
-  const parts = canon.split('+')
+  return canon.split(' ').map((step) => formatStep(step, isMac)).join(' ')
+}
+
+function formatStep(combo: string, isMac: boolean): string {
+  const parts = combo.split('+')
   const key = parts[parts.length - 1]
   const mods = parts.slice(0, -1).map((m) => formatModifier(m, isMac))
   const keyLabel = KEY_SYMBOLS[key] ?? (key.length === 1 ? key.toUpperCase() : capitalize(key))
@@ -207,7 +270,7 @@ function sanitizeOverrides(value: unknown): Overrides {
     const clean: string[] = []
     for (const combo of combos) {
       if (typeof combo !== 'string') continue
-      const canon = canonicalizeCombo(combo)
+      const canon = canonicalizeBinding(combo)
       if (canon && !clean.includes(canon)) clean.push(canon)
     }
     out[id] = clean // may be [] to mean "explicitly unbound"
@@ -278,6 +341,15 @@ export function initializeKeybindings(): void {
 // dispatcher checks this so a combo being recorded never also fires a command.
 const recording = ref(false)
 
+// The sequence steps accepted so far, module state (like recording) so the
+// global dispatcher writes it and the hint pill renders it. stepSequence is
+// pure over its arguments and never touches this itself — the caller does.
+const pendingSequence = ref<PendingSequence | null>(null)
+
+function clearPendingSequence(): void {
+  pendingSequence.value = null
+}
+
 const effectiveBindings = computed<Record<string, string[]>>(() => {
   const result: Record<string, string[]> = {}
   for (const command of commands.value) {
@@ -287,40 +359,67 @@ const effectiveBindings = computed<Record<string, string[]>>(() => {
   return result
 })
 
-// combo → command id. Catalog order makes resolution deterministic when two
-// commands share a combo (the conflict is surfaced in the settings UI).
-const reverseMap = computed<Map<string, string>>(() => {
+// binding → command id. Catalog order makes resolution deterministic when two
+// commands share a binding (the conflict is surfaced in the settings UI). A
+// multi-step binding is keyed by its full space-joined string, so this alone
+// cannot match a sequence's first step — that is what keeps `resolve` from
+// firing early on `g` while `g i` is still pending.
+const exactBindings = computed<Map<string, string>>(() => {
   const map = new Map<string, string>()
   for (const command of commands.value) {
-    for (const combo of effectiveBindings.value[command.id]) {
-      if (!map.has(combo)) map.set(combo, command.id)
+    for (const binding of effectiveBindings.value[command.id]) {
+      if (!map.has(binding)) map.set(binding, command.id)
     }
   }
   return map
+})
+
+// canonical prefix (steps taken so far, space-joined) → next step → the first
+// command a binding through that step claims. Lets stepSequence answer "what
+// can extend this pending sequence" without rescanning every command.
+const sequencePrefixes = computed<Map<string, Map<string, string>>>(() => {
+  const index = new Map<string, Map<string, string>>()
+  for (const command of commands.value) {
+    for (const binding of effectiveBindings.value[command.id]) {
+      const steps = binding.split(' ')
+      for (let i = 0; i < steps.length - 1; i++) {
+        const prefix = steps.slice(0, i + 1).join(' ')
+        const nextStep = steps[i + 1]!
+        let continuations = index.get(prefix)
+        if (!continuations) {
+          continuations = new Map()
+          index.set(prefix, continuations)
+        }
+        if (!continuations.has(nextStep)) continuations.set(nextStep, command.id)
+      }
+    }
+  }
+  return index
 })
 
 function combosFor(id: string): string[] {
   return effectiveBindings.value[id] ?? []
 }
 
+/** Resolves a single-step combo only — a sequence's first step never matches. */
 function resolve(combo: string): string | null {
-  return reverseMap.value.get(combo) ?? null
+  return exactBindings.value.get(combo) ?? null
 }
 
 function setCombos(id: string, combos: string[]): void {
   applyOverrides({ ...overrides.value, [id]: combos })
 }
 
-function addBinding(id: string, combo: string): void {
-  const canon = canonicalizeCombo(combo)
+function addBinding(id: string, binding: string): void {
+  const canon = canonicalizeBinding(binding)
   if (!canon || !knownIDs.value.has(id)) return
   const current = combosFor(id)
   if (current.includes(canon)) return
   setCombos(id, [...current, canon])
 }
 
-function removeBinding(id: string, combo: string): void {
-  const canon = canonicalizeCombo(combo)
+function removeBinding(id: string, binding: string): void {
+  const canon = canonicalizeBinding(binding)
   setCombos(id, combosFor(id).filter((c) => c !== canon)) // [] = explicitly unbound
 }
 
@@ -338,9 +437,13 @@ function isOverridden(id: string): boolean {
   return overrides.value[id] !== undefined
 }
 
-/** Command ids (other than excludeId) that also bind `combo`. */
-function conflicts(combo: string, excludeId?: string): string[] {
-  const canon = canonicalizeCombo(combo)
+/**
+ * Command ids (other than excludeId) that also bind `binding`. A binding that
+ * only prefixes another (`g` vs. `g i`) is not a conflict — the Zed rule makes
+ * both functional — so this checks exact-string equality only.
+ */
+function conflicts(binding: string, excludeId?: string): string[] {
+  const canon = canonicalizeBinding(binding)
   if (!canon) return []
   const ids: string[] = []
   for (const command of commands.value) {
@@ -348,6 +451,42 @@ function conflicts(combo: string, excludeId?: string): string[] {
     if (effectiveBindings.value[command.id].includes(canon)) ids.push(command.id)
   }
   return ids
+}
+
+/** True when `combo` carries the platform's primary modifier (Cmd/Ctrl). */
+function hasPrimaryModifier(combo: string): boolean {
+  return combo.split('+').includes('mod')
+}
+
+/**
+ * The pure sequence transition: given the steps accepted so far (null when no
+ * sequence is pending) and the newly typed combo, decides whether to dispatch,
+ * extend the pending sequence, swallow the keystroke, or pass it through to
+ * normal single-combo dispatch. Reads the live keymap (exactBindings /
+ * sequencePrefixes) but never mutates pendingSequence — the caller does.
+ */
+export function stepSequence(pending: PendingSequence | null, combo: string): SequenceTransition {
+  const steps = pending ? [...pending.steps, combo] : [combo]
+  const joined = steps.join(' ')
+
+  const nextSteps = sequencePrefixes.value.get(joined)
+  if (nextSteps && nextSteps.size > 0) {
+    const continuations: SequenceContinuation[] = [...nextSteps].map(([step, commandId]) => ({ step, commandId }))
+    return {
+      kind: 'extend',
+      pending: { steps, continuations },
+      deferredCommandId: exactBindings.value.get(joined) ?? null,
+    }
+  }
+
+  const commandId = exactBindings.value.get(joined)
+  if (commandId) return pending ? { kind: 'run', commandId } : { kind: 'pass' }
+
+  if (!pending) return { kind: 'pass' }
+  // A bound-elsewhere modifier chord (e.g. ⌘K) is a command in its own right
+  // even mid-sequence, so it falls through to normal dispatch rather than
+  // being eaten; only a bare/unmodified miss is swallowed as a typo.
+  return hasPrimaryModifier(combo) ? { kind: 'pass' } : { kind: 'swallow' }
 }
 
 export function useKeybindings() {
@@ -363,5 +502,9 @@ export function useKeybindings() {
     clearAll,
     isOverridden,
     conflicts,
+    stepSequence,
+    /** Module state; the hint pill reads this to know what's pending. */
+    pendingSequence,
+    clearPendingSequence,
   }
 }
