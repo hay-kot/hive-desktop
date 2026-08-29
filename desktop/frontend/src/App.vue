@@ -47,7 +47,7 @@ import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
-import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
+import { comboFromEvent, SEQUENCE_TIMEOUT_MS, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
 import { commands as bindableCommands, commandPiercesPane, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
 import { useAppPaletteRows } from './composables/useAppPaletteRows'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
@@ -920,6 +920,14 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'agents.focus-pane': focusAgentsPane,
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
+  // Sequence-only ids; a later task adds their catalog entries and default
+  // bindings, but wiring them now keeps this sweep of runMap self-contained.
+  'view.go-inbox': () => setMode('hub'),
+  'view.go-code': () => setMode('terminal'),
+  'view.go-chats': () => setMode('agents'),
+  'settings.open': () => requestOpenSettings('application'),
+  'history.back': () => router.back(),
+  'history.forward': () => router.forward(),
 }
 
 // Resolves a command id to its implementation. Launchers and the numbered
@@ -1011,6 +1019,54 @@ useAppPaletteRows({
 // command. Bare (modifier-less) keys are ignored while typing; feed commands
 // only fire on the feed; overlays suppress everything but the palette toggle.
 
+// One timer at a time, for a sequence prefix that is also a complete binding
+// (Zed's prefix rule): a continuation cancels it, and its fire dispatches
+// through the same gate as everything else below rather than trusting the
+// state that was true when it was armed.
+let sequenceTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelSequenceTimer(): void {
+  if (sequenceTimer === null) return
+  clearTimeout(sequenceTimer)
+  sequenceTimer = null
+}
+
+function resetSequence(): void {
+  cancelSequenceTimer()
+  kb.clearPendingSequence()
+}
+
+// The gate an ordinary dispatch applies, factored out so the deferred
+// sequence timer's fire runs it too.
+function dispatchIfActive(id: string): boolean {
+  const command = catalogById.value.get(id)
+  if (!command) return false
+  if (anyOverlayOpen.value && id !== 'palette.toggle') {
+    // tasks.toggle has to reach the dispatcher while its own overlay owns the
+    // screen — that is what lets it close again — but only that overlay: a
+    // different modal (report, new-profile, a confirm stacked inside Tasks
+    // itself) still swallows it like any other command.
+    const closesTasksOverlay = id === 'tasks.toggle' && tasksOpen.value && !otherOverlayOpen.value && openModalCount.value === 0
+    if (!closesTasksOverlay) return false
+  }
+  if (!contextActive(command.context)) return false
+  runCommand(id)
+  return true
+}
+
+function armSequenceTimer(deferredCommandId: string): void {
+  sequenceTimer = setTimeout(() => {
+    sequenceTimer = null
+    kb.clearPendingSequence()
+    dispatchIfActive(deferredCommandId)
+  }, SEQUENCE_TIMEOUT_MS)
+}
+
+// A sequence started before the palette opened — by a chord, or by a mouse
+// click, which never reaches stepSequence at all — has nowhere to go once it
+// does; onGlobalKeydown's own swallow case gives Esc the same treatment.
+watch(paletteOpen, (open) => { if (open) resetSequence() })
+
 function onGlobalKeydown(e: KeyboardEvent): void {
   // The exceptions to the rule below, which hands a focused terminal every key.
   // Both kinds still answer to their own context, and an overlay suppresses
@@ -1051,8 +1107,14 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   }
 
   // A focused terminal owns every key, modifiers included, so tmux prefixes
-  // reach the pane instead of firing a Hive shortcut.
-  if (isTerminalTarget(e.target)) return
+  // reach the pane instead of firing a Hive shortcut. It cannot host a pending
+  // sequence either — the pane would swallow whatever completes it — so
+  // landing here (or the focusin listener below, for a focus change that
+  // isn't a keystroke) always clears one.
+  if (isTerminalTarget(e.target)) {
+    resetSequence()
+    return
+  }
 
   // WebKit can treat an unhandled Backspace as browser Back. Suppress that
   // default outside editors while still allowing components such as the flow
@@ -1062,27 +1124,56 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (kb.recording.value) return // the settings editor is capturing this key
   const combo = comboFromEvent(e)
   if (!combo) return
+
+  const transition = kb.stepSequence(kb.pendingSequence.value, combo)
+  switch (transition.kind) {
+    case 'run':
+      resetSequence()
+      if (dispatchIfActive(transition.commandId)) e.preventDefault()
+      return
+    case 'extend': {
+      // A sequence can only start outside an editable field and outside an
+      // overlay. Continuing one already pending is unaffected: by the time
+      // either is open, whatever got it there has already cleared pending —
+      // a completed run, an ordinary dispatch below, or the palette watch above.
+      //
+      // A discarded start falls through to the dispatch below rather than
+      // returning: the combo may also be a complete binding in its own right
+      // (Zed's prefix rule), and that exact binding still has to fire — a bare
+      // leader then hits the editable bare-key bail and types normally, same
+      // as if it had never been a prefix of anything.
+      const isStart = kb.pendingSequence.value === null
+      if (isStart && (isEditableTarget(e.target) || anyOverlayOpen.value)) break
+      cancelSequenceTimer()
+      kb.pendingSequence.value = transition.pending
+      e.preventDefault()
+      if (transition.deferredCommandId) armSequenceTimer(transition.deferredCommandId)
+      return
+    }
+    case 'swallow':
+      resetSequence()
+      e.preventDefault()
+      return
+    case 'pass':
+      if (kb.pendingSequence.value) resetSequence()
+      break
+  }
+
   const id = kb.resolve(combo)
   if (!id) return
-  const command = catalogById.value.get(id)
-  if (!command) return
 
   const mods = combo.split('+')
   const hasModifier = mods.includes('mod') || mods.includes('ctrl') || mods.includes('alt')
   if (isEditableTarget(e.target) && !hasModifier) return
 
-  if (anyOverlayOpen.value && id !== 'palette.toggle') {
-    // tasks.toggle has to reach the dispatcher while its own overlay owns the
-    // screen — that is what lets it close again — but only that overlay: a
-    // different modal (report, new-profile, a confirm stacked inside Tasks
-    // itself) still swallows it like any other command.
-    const closesTasksOverlay = id === 'tasks.toggle' && tasksOpen.value && !otherOverlayOpen.value && openModalCount.value === 0
-    if (!closesTasksOverlay) return
-  }
-  if (!contextActive(command.context)) return
+  if (dispatchIfActive(id)) e.preventDefault()
+}
 
-  e.preventDefault()
-  runCommand(id)
+// A pane owns every key while it has focus, so a sequence cannot survive a
+// focus change into one even without an intervening keystroke (a mouse click
+// into the pane, or an attach that moves focus programmatically).
+function onWindowFocusIn(e: FocusEvent): void {
+  if (isTerminalTarget(e.target)) resetSequence()
 }
 
 function isHistoryMouseButton(e: MouseEvent): boolean {
@@ -1106,15 +1197,18 @@ function onGlobalMouseUp(e: MouseEvent): void {
 
 onMounted(() => {
   window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('focusin', onWindowFocusIn)
   window.addEventListener('mousedown', preventNativeMouseHistory)
   window.addEventListener('mouseup', onGlobalMouseUp)
   window.addEventListener('auxclick', preventNativeMouseHistory)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('focusin', onWindowFocusIn)
   window.removeEventListener('mousedown', preventNativeMouseHistory)
   window.removeEventListener('mouseup', onGlobalMouseUp)
   window.removeEventListener('auxclick', preventNativeMouseHistory)
+  cancelSequenceTimer()
 })
 </script>
 

@@ -309,6 +309,7 @@ describe('App', () => {
     resetPopupTerminalForTests()
     resetLaunchersForTests()
     useKeybindings().clearAll()
+    useKeybindings().clearPendingSequence()
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
     resetAttachedTerminalWindowsForTests()
@@ -666,6 +667,133 @@ describe('App', () => {
     expect(ids).toContain('session.new')
 
     wrapper.unmount()
+  })
+
+  // stepSequence (useKeybindings) decides what a combo means; App.vue only
+  // stores the pending state, arms/cancels the deferred timer, and dispatches
+  // through the same gate an ordinary chord uses. The catalog has no sequence
+  // bindings yet, so these bind an existing global command to a synthetic one.
+  describe('keyboard sequences', () => {
+    it('dispatches the bound command once a two-step sequence completes', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value?.steps).toEqual(['g'])
+      expect(paletteOpen.value).toBe(false)
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      wrapper.unmount()
+    })
+
+    it('swallows an unmatched bare key mid-sequence: default prevented, nothing dispatched', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      const stray = new KeyboardEvent('keydown', { key: 'x', cancelable: true })
+      window.dispatchEvent(stray)
+
+      expect(stray.defaultPrevented).toBe(true)
+      expect(paletteOpen.value).toBe(false)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      wrapper.unmount()
+    })
+
+    it('falls a mod-carrying chord mid-sequence through to its own binding', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z') // any prefix binding, just to get a sequence pending
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      // mod+k is palette.toggle's own default binding, unrelated to 'g z'.
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))
+
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      wrapper.unmount()
+    })
+
+    it('clears the pending sequence on Escape, so finishing it afterward does nothing', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const esc = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+      window.dispatchEvent(esc)
+      expect(esc.defaultPrevented).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z' }))
+      expect(paletteOpen.value).toBe(false)
+
+      wrapper.unmount()
+    })
+
+    it('clears the pending sequence when focus moves into a terminal pane', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const pane = document.createElement('div')
+      pane.setAttribute('data-terminal-input-scope', '')
+      document.body.append(pane)
+      pane.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+
+      expect(kb.pendingSequence.value).toBeNull()
+
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    // A discarded sequence start must still fall through to the exact
+    // binding on the same combo (Zed's prefix rule: a bound-elsewhere combo
+    // stays fully functional even though it also prefixes something longer).
+    // Regression for a bug where the suppressed start returned outright,
+    // dropping the combo's own binding in an editable field.
+    it('dispatches a combo that is also a sequence prefix in an editable field, starting no sequence', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'mod+e')
+      kb.addBinding('report.open', 'mod+e x')
+      const { open: paletteOpen } = useCommandPalette()
+
+      // A plain input appended straight to the document, like the terminal
+      // pane fixture below — the mounted tree isn't attached to the document,
+      // so a bubbling keydown dispatched on it would never reach the window
+      // listener onGlobalKeydown runs on.
+      const input = document.createElement('input')
+      document.body.append(input)
+
+      const event = new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+
+      expect(paletteOpen.value).toBe(true)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      paletteOpen.value = false
+      input.remove()
+      wrapper.unmount()
+    })
   })
 
   // useAppPaletteRows registers Go-to rows at the App level, off the same
