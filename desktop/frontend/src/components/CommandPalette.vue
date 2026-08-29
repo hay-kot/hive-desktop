@@ -4,7 +4,7 @@ import type { ComponentPublicInstance } from 'vue'
 import IconSearch from '~icons/lucide/search'
 import IconZap from '~icons/lucide/zap'
 import AppIcon from './AppIcon.vue'
-import { useCommandPalette, type Command } from '../composables/useCommands'
+import { fuzzyMatch, useCommandPalette, type Command } from '../composables/useCommands'
 import { usePaletteRecents } from '../composables/usePaletteRecents'
 import { paletteScopes, type PaletteScopeId } from '../palette/scopes'
 
@@ -72,24 +72,40 @@ function setRowRef(el: Element | ComponentPublicInstance | null, index: number):
 
 // ── Display list (section headers + commands interleaved) ──────────────────────
 
-interface TitleParts { pre: string; match: string; post: string }
+interface TitleSegment { text: string; match: boolean }
 interface HeaderEntry { kind: 'header'; group: string }
-interface CmdEntry { kind: 'cmd'; cmd: Command; index: number; parts: TitleParts; scope: string }
+interface CmdEntry { kind: 'cmd'; cmd: Command; index: number; segments: TitleSegment[]; scope: string }
 type DisplayEntry = HeaderEntry | CmdEntry
 
-/** Split a title around the first case-insensitive occurrence of the query. */
-function titleParts(title: string, query: string): TitleParts {
-  if (query) {
-    const idx = title.toLowerCase().indexOf(query.toLowerCase())
-    if (idx >= 0) {
-      return {
-        pre: title.slice(0, idx),
-        match: title.slice(idx, idx + query.length),
-        post: title.slice(idx + query.length),
-      }
+/**
+ * Per-character highlight segments from the same fuzzy matcher that ranks
+ * results, so a scattered match (e.g. "mkalrd" on "Mark all as read")
+ * highlights the letters it actually matched rather than a single run. A row
+ * that matched via keywords/group rather than its title has no title match,
+ * so it renders as one unmatched segment. Re-runs per rendered row per
+ * keystroke — cheap enough that memoizing isn't worth the complexity.
+ */
+function titleSegments(title: string, query: string): TitleSegment[] {
+  const positions = query ? fuzzyMatch(query, title)?.positions : undefined
+  if (!positions || positions.length === 0) return [{ text: title, match: false }]
+
+  const segments: TitleSegment[] = []
+  let cursor = 0
+  let i = 0
+  while (i < positions.length) {
+    if (positions[i] > cursor) segments.push({ text: title.slice(cursor, positions[i]), match: false })
+    let end = positions[i] + 1
+    let j = i + 1
+    while (j < positions.length && positions[j] === end) {
+      end++
+      j++
     }
+    segments.push({ text: title.slice(positions[i], end), match: true })
+    cursor = end
+    i = j
   }
-  return { pre: title, match: '', post: '' }
+  if (cursor < title.length) segments.push({ text: title.slice(cursor), match: false })
+  return segments
 }
 
 const displayList = computed<DisplayEntry[]>(() => {
@@ -100,7 +116,7 @@ const displayList = computed<DisplayEntry[]>(() => {
   // prefix instead.
   if (q) {
     results.value.forEach((cmd, i) => {
-      entries.push({ kind: 'cmd', cmd, index: i, parts: titleParts(cmd.title, q), scope: cmd.group ?? '' })
+      entries.push({ kind: 'cmd', cmd, index: i, segments: titleSegments(cmd.title, q), scope: cmd.group ?? '' })
     })
     return entries
   }
@@ -120,7 +136,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       entries.push({ kind: 'header', group: 'Recent' })
       for (const cmd of recentCommands) {
         recent.add(cmd.id)
-        entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, parts: titleParts(cmd.title, q), scope: '' })
+        entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, segments: titleSegments(cmd.title, q), scope: '' })
       }
     }
   }
@@ -136,7 +152,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       if (group) entries.push({ kind: 'header', group })
       lastGroup = group
     }
-    entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, parts: titleParts(cmd.title, q), scope: '' })
+    entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, segments: titleSegments(cmd.title, q), scope: '' })
   })
   return entries
 })
@@ -245,7 +261,7 @@ function onKeydown(e: KeyboardEvent): void {
                   <component :is="entry.cmd.icon ?? IconZap" v-else />
                 </span>
                 <span v-if="entry.scope" class="palette-scope" data-testid="command-palette-command-scope">{{ entry.scope }} ›</span>
-                <span class="palette-title" data-testid="command-palette-command-title">{{ entry.parts.pre }}<span class="palette-title-match">{{ entry.parts.match }}</span>{{ entry.parts.post }}</span>
+                <span class="palette-title" data-testid="command-palette-command-title"><template v-for="(seg, si) in entry.segments" :key="si"><span v-if="seg.match" class="palette-title-match">{{ seg.text }}</span><template v-else>{{ seg.text }}</template></template></span>
                 <span v-if="entry.cmd.hint" class="palette-hint">{{ entry.cmd.hint }}</span>
                 <span v-if="entry.index === selectedIndex" class="palette-enter-badge" aria-hidden="true">↵</span>
               </button>

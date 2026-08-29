@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, ref, type EffectScope } from 'vue'
 import {
   filterAndScore,
+  fuzzyMatch,
   scoreCommand,
   sortCommands,
   useCommandPalette,
@@ -36,7 +37,7 @@ describe('useCommands', () => {
     resetPaletteRecentsForTests()
   })
 
-  it('scores title, keyword, and group matches', () => {
+  it('scores title, keyword, and group matches, banded so title > keyword > group', () => {
     const cmd = command({
       id: 'open-repo',
       title: 'Open repository',
@@ -45,11 +46,51 @@ describe('useCommands', () => {
     })
 
     expect(scoreCommand('', cmd)).toBe(0)
-    expect(scoreCommand('open', cmd)).toBe(3)
-    expect(scoreCommand('repo', cmd)).toBe(2)
-    expect(scoreCommand('browser', cmd)).toBe(1)
-    expect(scoreCommand('navigation', cmd)).toBe(1)
     expect(scoreCommand('missing', cmd)).toBe(-1)
+
+    const titleScore = scoreCommand('open', cmd) // title prefix
+    const titleSubstringScore = scoreCommand('repo', cmd) // title substring, not a prefix
+    const keywordScore = scoreCommand('browser', cmd) // exact keyword, no title match
+    const groupScore = scoreCommand('navigation', cmd) // exact group, no title/keyword match ('v' isn't in the title)
+
+    expect(titleScore).toBeGreaterThan(keywordScore)
+    expect(titleSubstringScore).toBeGreaterThan(keywordScore)
+    expect(keywordScore).toBeGreaterThan(groupScore)
+    expect(groupScore).toBeGreaterThan(-1)
+  })
+
+  it('fuzzyMatch does a case-insensitive ordered subsequence match, or fails when a character is out of order', () => {
+    expect(fuzzyMatch('brd', 'bread')?.positions).toEqual([0, 1, 4])
+    expect(fuzzyMatch('BRD', 'Bread')?.positions).toEqual([0, 1, 4])
+    expect(fuzzyMatch('xyz', 'bread')).toBeNull()
+    expect(fuzzyMatch('db', 'bread')).toBeNull() // 'd' then 'b' — 'b' only appears before 'd'
+  })
+
+  it('fuzzyMatch ranks a whole-prefix match above a scattered subsequence hit', () => {
+    const prefix = fuzzyMatch('mar', 'Mark all as read')
+    const scattered = fuzzyMatch('mar', 'Send a mail, archive it')
+
+    expect(prefix).not.toBeNull()
+    expect(scattered).not.toBeNull()
+    expect(prefix!.score).toBeGreaterThan(scattered!.score)
+  })
+
+  it('fuzzyMatch rewards a word-start hit over the same letter matched mid-word', () => {
+    const wordStart = fuzzyMatch('mar', 'Send mark') // 'm' starts the second word
+    const midWord = fuzzyMatch('mar', 'Denmark') // 'm' sits mid-word
+
+    expect(wordStart).not.toBeNull()
+    expect(midWord).not.toBeNull()
+    expect(wordStart!.score).toBeGreaterThan(midWord!.score)
+  })
+
+  it('finds a scattered query across word starts end to end via filterAndScore', () => {
+    const results = filterAndScore('mkalrd', [
+      command({ id: 'mark-read', title: 'Mark all as read', group: 'Inbox' }),
+      command({ id: 'unrelated', title: 'Open settings', group: 'App' }),
+    ])
+
+    expect(results.map((cmd) => cmd.id)).toEqual(['mark-read'])
   })
 
   it('sorts commands by group placement, keeping registration order within a group', () => {

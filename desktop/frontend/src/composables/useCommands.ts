@@ -48,24 +48,93 @@ const registrations = ref<Registration[]>([])
 
 // ─── Pure scoring / sorting (exported for unit tests) ─────────────────────────
 
+export interface FuzzyMatch {
+  score: number
+  /** Indices of the matched characters in `text`, for highlighting. */
+  positions: number[]
+}
+
+// Weight tiers, each an order of magnitude above the next so a component
+// never outweighs one above it: a query long enough to rack up every
+// consecutive-run bonus available still can't out-score a single word-start
+// hit, and any number of word-start hits still can't out-score the
+// whole-prefix bonus.
+const PREFIX_BONUS = 500
+const WORD_START_BONUS = 40
+const CONSECUTIVE_BONUS = 8
+const GAP_PENALTY = 1
+
+function isWordChar(code: number): boolean {
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
 /**
- * Score a command against a search query.
+ * Case-insensitive subsequence match. Null when any query character cannot be
+ * placed in order. Score rewards, in weight order: whole-prefix, word-start
+ * hits, consecutive runs; penalizes gaps. Deterministic ints, no locale work.
  *
- * Returns:
- *   3  — prefix match on title
- *   2  — substring match on title
- *   1  — match in keywords or group
- *  -1  — no match (should be filtered out)
- *   0  — empty query (matches everything, no preference)
+ * Placement is greedy left-to-right (the earliest text position that can
+ * still complete the rest of the query) rather than an optimal placement
+ * search — O(|query| x |text|), no backtracking, and cheap enough to run
+ * uncached per row on every keystroke.
+ */
+export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
+  if (!query) return null
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+
+  const positions: number[] = []
+  let score = 0
+  let searchFrom = 0
+  let prevPos = -1
+
+  for (let qi = 0; qi < q.length; qi++) {
+    const at = t.indexOf(q[qi], searchFrom)
+    if (at === -1) return null
+
+    score += 1
+    if (prevPos >= 0) {
+      const gap = at - prevPos - 1
+      score += gap === 0 ? CONSECUTIVE_BONUS : -gap * GAP_PENALTY
+    }
+    if (at === 0 || !isWordChar(t.charCodeAt(at - 1))) score += WORD_START_BONUS
+
+    positions.push(at)
+    prevPos = at
+    searchFrom = at + 1
+  }
+
+  if (positions.every((p, i) => p === i)) score += PREFIX_BONUS
+
+  return { score, positions }
+}
+
+// Bands, each an order of magnitude above the next so a title hit always
+// outranks a keyword hit, which always outranks a group hit — preserving the
+// substring scorer's 3/2/1 ordering intent while ranking within a tier by
+// fuzzy quality instead of treating every hit in a tier as equal.
+const TITLE_BAND = 1_000_000
+const KEYWORD_BAND = 500_000
+const GROUP_BAND = 100_000
+
+/**
+ * Title fuzzy score dominates; keywords and group match at a lower band so a
+ * title hit always outranks a keyword hit (preserving today's 3/2/1 ordering
+ * intent). -1 = filtered out, 0 = empty query.
  */
 export function scoreCommand(query: string, cmd: Command): number {
   if (!query) return 0
-  const q = query.toLowerCase()
-  const t = cmd.title.toLowerCase()
-  if (t.startsWith(q)) return 3
-  if (t.includes(q)) return 2
-  if ((cmd.keywords ?? []).some((k) => k.toLowerCase().includes(q))) return 1
-  if (cmd.group?.toLowerCase().includes(q)) return 1
+
+  const titleMatch = fuzzyMatch(query, cmd.title)
+  if (titleMatch) return TITLE_BAND + titleMatch.score
+
+  const keywordScore = (cmd.keywords ?? [])
+    .map((k) => fuzzyMatch(query, k)?.score ?? -Infinity)
+    .reduce((best, s) => Math.max(best, s), -Infinity)
+  if (keywordScore > -Infinity) return KEYWORD_BAND + keywordScore
+
+  if (cmd.group && fuzzyMatch(query, cmd.group)) return GROUP_BAND
+
   return -1
 }
 

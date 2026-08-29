@@ -223,9 +223,13 @@ describe('CommandPalette', () => {
 
     await wrapper!.find('[data-testid="command-palette-input"]').setValue('open')
 
+    // Two title-prefix hits rank above 'Switch to personal', which the fuzzy
+    // matcher still finds — 'o', 'p', 'e', 'n' appear in that order — as a
+    // weak scattered subsequence hit.
     expect(wrapper!.findAll('.palette-row').map((row) => rowTitle(row))).toEqual([
       'Open desktop feed',
       'Open backend feed',
+      'Switch to personal',
     ])
     expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open desktop feed'])
   })
@@ -235,8 +239,35 @@ describe('CommandPalette', () => {
 
     await wrapper!.find('[data-testid="command-palette-input"]').setValue('open')
 
-    expect(wrapper!.findAll('.palette-title-match').map((node) => node.text())).toEqual(['Open', 'Open'])
+    // The two prefix hits highlight as one run each ('Open'); the scattered
+    // hit on 'Switch to personal' highlights its four matched characters
+    // individually ('o', 'pe', 'n' — 'p' and 'e' land adjacent).
+    expect(wrapper!.findAll('.palette-title-match').map((node) => node.text())).toEqual(['Open', 'Open', 'o', 'pe', 'n'])
     expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open desktop feed'])
+  })
+
+  // Fuzzy matching lets a query scatter across a title, so highlighting must
+  // mark each matched run individually rather than one contiguous span.
+  it('highlights a scattered fuzzy match per matched run, merging adjacent hits', async () => {
+    wrapper!.unmount()
+    wrapper = mount(
+      {
+        components: { CommandPalette },
+        template: '<CommandPalette />',
+        setup() {
+          useCommands([{ id: 'mark-read', title: 'Mark all as read', run: vi.fn() }])
+          return {}
+        },
+      },
+      { attachTo: document.body, global: { stubs: { teleport: true } } },
+    )
+    await openPalette()
+
+    await wrapper!.find('[data-testid="command-palette-input"]').setValue('mkalrd')
+
+    const row = wrapper!.find('.palette-row')
+    expect(rowTitle(row)).toBe('Mark all as read')
+    expect(row.findAll('.palette-title-match').map((node) => node.text())).toEqual(['M', 'k', 'al', 'r', 'd'])
   })
 
   it('replaces headers with a per-row scope prefix while filtering', async () => {
@@ -246,7 +277,7 @@ describe('CommandPalette', () => {
 
     expect(wrapper!.findAll('.palette-group-header')).toHaveLength(0)
     expect(wrapper!.findAll('[data-testid="command-palette-command-scope"]').map((node) => node.text()))
-      .toEqual(['Feeds ›', 'Feeds ›'])
+      .toEqual(['Feeds ›', 'Feeds ›', 'Profiles ›'])
   })
 
   function tabs() {
