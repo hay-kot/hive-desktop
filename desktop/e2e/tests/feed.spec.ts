@@ -133,6 +133,19 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
 
   await page.keyboard.press('Meta+k')
   await expect(palette).toBeVisible()
+
+  // The row just run leads Recent on the next open, ahead of its own group.
+  const firstEntry = page.locator('.palette-results > *').first()
+  await expect(firstEntry).toHaveClass(/palette-group-header/)
+  await expect(firstEntry).toHaveText('Recent')
+  await expect(page.getByTestId('command-palette-command').first().getByTestId('command-palette-command-title')).toHaveText(
+    'Select feed: Notifications inbox',
+  )
+
+  // A scattered query still finds a command by hopping across word starts.
+  await input.fill('mkalrd')
+  await expect(page.getByTestId('command-palette-command').filter({ hasText: 'Mark all as read' })).toBeVisible()
+
   await page.keyboard.press('Escape')
   await expect(palette).toBeHidden()
 
