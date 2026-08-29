@@ -125,7 +125,7 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   await expect(palette).toBeVisible()
   const input = page.getByTestId('command-palette-input')
   await input.fill('notifications')
-  const notificationsFeed = page.getByTestId('command-palette-command').filter({ hasText: 'Select feed: Notifications inbox' })
+  const notificationsFeed = page.getByTestId('command-palette-command').filter({ hasText: 'Frontend Triage › Notifications inbox' })
   await expect(notificationsFeed).toBeVisible()
   await notificationsFeed.click()
   await expect(palette).toBeHidden()
@@ -139,7 +139,7 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   await expect(firstEntry).toHaveClass(/palette-group-header/)
   await expect(firstEntry).toHaveText('Recent')
   await expect(page.getByTestId('command-palette-command').first().getByTestId('command-palette-command-title')).toHaveText(
-    'Select feed: Notifications inbox',
+    'Frontend Triage › Notifications inbox',
   )
 
   // A scattered query still finds a command by hopping across word starts.

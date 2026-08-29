@@ -362,10 +362,10 @@ describe('CommandPalette', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
-  // Scope and query are independent axes: only a query change resets the
-  // selection (watch(query, ...)), so switching tabs must not walk it back to
-  // the top when the selected row is still in the narrower scope's results.
-  it('keeps the selected row across a scope switch when it stays in results', async () => {
+  // A scope switch is a new question, like a query change — even when the
+  // selected row is still present in the narrower scope's results, the
+  // highlight resets to the top rather than following it.
+  it('resets the selection to the first visible row on a scope switch', async () => {
     wrapper!.unmount()
     wrapper = mount(
       {
@@ -384,9 +384,11 @@ describe('CommandPalette', () => {
     )
     await openPalette()
 
-    // All: registration order with no groups, so no headers.
+    // All: registration order with no groups, so no headers. Select the
+    // lower of the two rows that will still be present after the switch.
     await panel().trigger('keydown', { key: 'ArrowDown' })
-    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Act A'])
+    await panel().trigger('keydown', { key: 'ArrowDown' })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Act B'])
 
     const actionsTab = tabs().find((tab) => tab.attributes('data-scope') === 'actions')!
     await actionsTab.trigger('click')

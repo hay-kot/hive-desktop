@@ -202,11 +202,11 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       for (const f of activeProfile.value?.feeds ?? []) {
         cmds.push({
           id: `feed:${f.id}`,
-          title: `Select feed: ${f.name}`,
+          title: `${profileName} › ${f.name}`,
           group: 'Feeds',
           scope: 'goto',
+          keywords: ['feed', 'select'],
           icon: IconRss,
-          hint: profileName,
           run: () => navigateSidebar({ type: 'feed', feedId: f.id }),
         })
       }
@@ -358,9 +358,10 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     for (const session of chatRecents.value) {
       cmds.push({
         id: `chat:${session.id}`,
-        title: `Chat: ${session.name}`,
+        title: `${session.workspace} › ${session.name}`,
         group: 'Chats',
         scope: 'goto',
+        keywords: ['chat'],
         icon: IconMessagesSquare,
         run: () => void router.push({ name: 'agents', params: { workspace: session.workspace }, query: { chat: String(session.id) } }),
       })

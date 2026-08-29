@@ -1162,7 +1162,7 @@ describe('App', () => {
       const { results, query } = useCommandPalette()
       query.value = ''
       const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
-      expect(cmd?.title).toBe('Chat: Chat about the bug')
+      expect(cmd?.title).toBe('my-workspace › Chat about the bug')
 
       await cmd!.run()
       await flushPromises()

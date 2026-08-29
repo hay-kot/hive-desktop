@@ -151,6 +151,17 @@ watch(query, () => {
   rowElements.clear()
 })
 
+// Switching tabs is a new question too: Tab/Shift+Tab, a tab click, a sigil
+// entering a scope, and Backspace popping one all land here through the same
+// `scope` ref, so resetting on it covers all four doors at once. This is
+// deliberately narrower than the query watch above — a rebuild within the
+// same scope (e.g. session statuses polling in the Code view) must not reset
+// the selection, which is what holding it by id rather than index is for.
+watch(scope, () => {
+  selectedID.value = null
+  rowElements.clear()
+})
+
 // Autofocus input when palette opens
 watch(open, async (v) => {
   if (v) {
