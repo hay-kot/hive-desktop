@@ -42,6 +42,22 @@ describe('KeybindingSettingsView', () => {
       .toEqual(['feed.next'])
   })
 
+  // A Keys-row run while already on Settings › Keyboard pushes the same route
+  // without remounting the view (no v-else-if :key), so the handshake must
+  // also apply on a later change to the request, not just on mount.
+  it('applies a requested filter set after mount, then clears it', async () => {
+    const wrapper = mount(KeybindingSettingsView)
+    await nextTick()
+
+    requestedEditorFilter.value = 'Next item'
+    await nextTick()
+
+    expect((wrapper.get('[data-testid="keybinding-filter"]').element as HTMLInputElement).value).toBe('Next item')
+    expect(requestedEditorFilter.value).toBeNull()
+    expect(wrapper.findAll('[data-testid="keybinding-row"]').map((r) => r.attributes('data-command-id')))
+      .toEqual(['feed.next'])
+  })
+
   it('filters the list by title, group, or key', async () => {
     const wrapper = mount(KeybindingSettingsView)
     await wrapper.get('[data-testid="keybinding-filter"]').setValue('refresh')

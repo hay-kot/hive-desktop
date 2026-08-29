@@ -11,7 +11,7 @@ export const RECORDER_COMMIT_MS = 1000
 // sequence (Esc discards it; a pause or clicking the capture chip commits it),
 // and suppresses each keystroke from the global dispatcher (belt:
 // kb.recording; suspenders: stopPropagation).
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import IconPlus from '~icons/lucide/plus'
 import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconSearch from '~icons/lucide/search'
@@ -40,6 +40,10 @@ function applyRequestedFilter(): void {
   requestedEditorFilter.value = null
 }
 onMounted(applyRequestedFilter)
+// A Keys-row run while already on Settings › Keyboard pushes the same route
+// without remounting (no v-else-if :key), so the handshake needs its own
+// watch — onMounted alone would miss it.
+watch(requestedEditorFilter, applyRequestedFilter)
 
 const rows = useKeymapRows()
 
