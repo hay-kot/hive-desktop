@@ -73,6 +73,14 @@ describe('CommandPalette', () => {
     return row.find('.palette-title').text()
   }
 
+  // The container prefix rendered ahead of the title — present on a typed-
+  // query row and, now, a Recent row; absent (empty) on an ordinary grouped
+  // row, which gets its container from the section header above it instead.
+  function rowScope(row: ReturnType<typeof panel>) {
+    const scope = row.find('[data-testid="command-palette-command-scope"]')
+    return scope.exists() ? scope.text() : ''
+  }
+
   function selectedRows() {
     return wrapper!.findAll('.palette-row').filter((row) => row.classes().includes('palette-row-selected'))
   }
@@ -436,6 +444,13 @@ describe('CommandPalette', () => {
       { header: true, text: 'Feeds' },
       { header: false, text: 'Open backend feed' },
     ])
+
+    // A Recent row carries its own container prefix, same as a typed-query
+    // row does — it is the only way to tell where it lives once it is pulled
+    // out from under its own group's header. An ordinary grouped row below
+    // still gets its container from the section header instead.
+    const rows = wrapper!.findAll('.palette-row')
+    expect(rows.map((row) => rowScope(row))).toEqual(['Profiles ›', 'Feeds ›', ''])
   })
 
   it('drops a stale recent id that no longer resolves to a command', async () => {

@@ -94,7 +94,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       entries.push({ kind: 'header', group: 'Recent' })
       for (const cmd of recentCommands) {
         recent.add(cmd.id)
-        entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: '' })
+        entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: cmd.group ?? '' })
       }
     }
   }

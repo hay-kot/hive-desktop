@@ -15,7 +15,7 @@ import { resetTerminalSessionsForTests, useTerminalSessions } from '../composabl
 import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
 import { resetAgentSessionsAllForTests, useAgentSessionsAll } from '../composables/useAgentSessionsAll'
-import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
+import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { resetTasksForTests, useTasks } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
 import TerminalMode from '../components/TerminalMode.vue'
@@ -1030,7 +1030,7 @@ describe('App', () => {
       const { results, query } = useCommandPalette()
       query.value = ''
       const cmd = results.value.find((candidate) => candidate.id === 'terminal:attach:hive-fix-parser')
-      expect(cmd?.title).toBe('Attach session: fix the parser')
+      expect(cmd?.title).toBe('fix the parser')
 
       await cmd!.run()
       await flushPromises()
@@ -1065,7 +1065,7 @@ describe('App', () => {
       const { results, query } = useCommandPalette()
       query.value = ''
       const cmd = results.value.find((candidate) => candidate.id === 'terminal:window:@2')
-      expect(cmd?.title).toBe('Go to window: shell')
+      expect(cmd?.title).toBe('shell')
 
       await cmd!.run()
       await flushPromises()
@@ -1101,7 +1101,7 @@ describe('App', () => {
       const { results, query } = useCommandPalette()
       query.value = ''
       const cmd = results.value.find((candidate) => candidate.id === 'settings:appearance')
-      expect(cmd?.title).toBe('Settings › Appearance')
+      expect(cmd?.title).toBe('Appearance')
 
       await cmd!.run()
       await flushPromises()
@@ -1151,6 +1151,9 @@ describe('App', () => {
       wrapper.unmount()
     })
 
+    // The stub only seeds recents, so useAgentWorkspaces().workspaces stays
+    // empty — the dir → name join has nothing to match, and the group falls
+    // back to the raw dir key rather than a display name.
     it('lists a chat row from a useAgentSessionsAll stub and pushes the agents route on run', async () => {
       const { wrapper, router } = await mountAppWithRouter()
       useAgentSessionsAll().recents.value = [{
@@ -1162,7 +1165,8 @@ describe('App', () => {
       const { results, query } = useCommandPalette()
       query.value = ''
       const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
-      expect(cmd?.title).toBe('my-workspace › Chat about the bug')
+      expect(cmd?.title).toBe('Chat about the bug')
+      expect(cmd?.group).toBe('my-workspace')
 
       await cmd!.run()
       await flushPromises()
@@ -1170,6 +1174,30 @@ describe('App', () => {
       expect(router.currentRoute.value.name).toBe('agents')
       expect(router.currentRoute.value.params.workspace).toBe('my-workspace')
       expect(router.currentRoute.value.query.chat).toBe('42')
+
+      wrapper.unmount()
+    })
+
+    // session.workspace is a directory key ("my-workspace"), not the display
+    // name a user picked ("Travel") — this is the #338-adjacent bug the join
+    // in useAppPaletteRows fixes: once useAgentWorkspaces().workspaces knows
+    // the dir, the chat row's group resolves to the workspace's real name.
+    it('groups a chat row under the workspace display name once the workspaces list has a matching dir', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      useAgentWorkspaces().workspaces.value = [
+        { dir: 'my-workspace', name: 'Travel', agent: 'claude', autonomy: '', mcps: [], skills: [], problem: '', notice: '' },
+      ]
+      useAgentSessionsAll().recents.value = [{
+        id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
+        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', cols: 0, rows: 0,
+        resumeAttempted: false, notice: '',
+      }]
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
+      expect(cmd?.title).toBe('Chat about the bug')
+      expect(cmd?.group).toBe('Travel')
 
       wrapper.unmount()
     })
@@ -1812,7 +1840,7 @@ describe('App', () => {
     expect(ids).toContain('flow:node:desktop')
 
     const nodeCmd = results.value.find((cmd) => cmd.id === 'flow:node:desktop')
-    expect(nodeCmd?.title).toBe('Jump to node: Desktop UI')
+    expect(nodeCmd?.title).toBe('Desktop UI')
 
     nodeCmd?.run()
     await flushPromises()

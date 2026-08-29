@@ -19,6 +19,7 @@ import { setTheme, themeLabels, themes } from './useTheme'
 import { terminalSessionGroups, useTerminalSessions } from './useTerminalSessions'
 import { useTerminalPinnedChats } from './useTerminalPinnedChats'
 import { useAgentSessionsAll } from './useAgentSessionsAll'
+import { useAgentWorkspaces } from './useAgentWorkspaces'
 import { useAttachedTerminalWindows } from './useAttachedTerminalWindows'
 import { applicationSettingsSections } from '../router'
 import { applicationSettingsSectionMeta } from '../components/settings/sectionMeta'
@@ -100,8 +101,16 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
   const terminalGroups = computed(() => terminalSessionGroups(activeTerminalSessions.value, terminalScratchRow.value, pinnedChatRows.value))
 
   // Chat rows read the same recents listing the Code view's pinned-chats
-  // section and the Agents area's own sidebar do.
+  // section and the Agents area's own sidebar do. session.workspace is the
+  // workspace's directory key, not its display name, so the group label needs
+  // the same dir → name join AgentsSidebar's own tree does.
   const { recents: chatRecents, reloadRecents } = useAgentSessionsAll()
+  const { workspaces: agentWorkspaces, reloadWorkspaces } = useAgentWorkspaces()
+  const workspaceNameByDir = computed(() => {
+    const map = new Map<string, string>()
+    for (const w of agentWorkspaces.value) map.set(w.dir, w.name)
+    return map
+  })
 
   useCommands(computed(() => {
     const cmds: Command[] = []
@@ -179,31 +188,38 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       for (const p of profiles.value) {
         cmds.push({
           id: `profile:${p.id}`,
-          title: `Switch to profile: ${p.name}`,
+          title: p.name,
           group: 'Profiles',
           scope: 'goto',
+          keywords: ['profile', 'switch', 'workspace'],
           icon: IconLayoutGrid,
           run: () => requestSelectProfile(p.id),
         })
       }
 
-      const profileName = activeProfile.value?.name
+      // Trash and the feed rows below sit under the active profile's own
+      // name, so they carry its group's order (-1) rather than the default —
+      // sorting them together as one block, roughly where the old flat
+      // 'Feeds' group sat, ahead of Flow/Profiles/Settings/Theme/View.
+      const feedGroup = activeProfile.value?.name ?? 'Feeds'
 
       cmds.push({
         id: 'view:trash',
-        title: 'Open Trash',
-        group: 'Feeds',
+        title: 'Trash',
+        group: feedGroup,
+        order: -1,
         scope: 'goto',
+        keywords: ['trash', 'open'],
         icon: IconList,
-        hint: profileName,
         run: () => navigateSidebar({ type: 'trash' }),
       })
 
       for (const f of activeProfile.value?.feeds ?? []) {
         cmds.push({
           id: `feed:${f.id}`,
-          title: `${profileName} › ${f.name}`,
-          group: 'Feeds',
+          title: f.name,
+          group: feedGroup,
+          order: -1,
           scope: 'goto',
           keywords: ['feed', 'select'],
           icon: IconRss,
@@ -229,9 +245,10 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         const meta = applicationSettingsSectionMeta[section]
         cmds.push({
           id: `settings:${section}`,
-          title: `Settings › ${meta.label}`,
+          title: meta.label,
           group: 'Settings',
           scope: 'goto',
+          keywords: ['settings'],
           icon: meta.icon,
           run: () => void router.push({ name: 'application-settings', params: { section } }),
         })
@@ -289,7 +306,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       for (const node of activeFlowNodes.value) {
         cmds.push({
           id: `flow:node:${node.id}`,
-          title: `Jump to node: ${node.name || node.type}`,
+          title: node.name || node.type,
           group: 'Flow',
           scope: 'goto',
           keywords: ['flows', 'node', 'canvas', 'reveal'],
@@ -322,12 +339,11 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         if (row.slug === onScreenSessionSlug.value) continue
         cmds.push({
           id: `terminal:attach:${row.slug}`,
-          title: `Attach session: ${row.name}`,
+          title: row.name,
           group: group.name,
           scope: 'goto',
           keywords: [row.slug, group.name, 'session', 'attach', 'switch', 'open'],
           icon: IconTerminal,
-          hint: group.name,
           run: () => void router.push({ name: 'terminal', params: { slug: row.slug } }),
         })
       }
@@ -342,7 +358,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       windows.forEach((win, index) => {
         cmds.push({
           id: `terminal:window:${win.windowId}`,
-          title: `Go to window: ${win.name}`,
+          title: win.name,
           group: name,
           scope: 'goto',
           keywords: ['window', 'tab', 'jump', 'switch'],
@@ -354,12 +370,15 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     }
 
     // Chat rows — every recent session across every workspace; empty and
-    // absent wherever the Agents area itself is unavailable.
+    // absent wherever the Agents area itself is unavailable. Grouped by
+    // workspace, at the order the old flat 'Chats' group held (ahead of the
+    // profile's Feeds/Trash group and everything below it).
     for (const session of chatRecents.value) {
       cmds.push({
         id: `chat:${session.id}`,
-        title: `${session.workspace} › ${session.name}`,
-        group: 'Chats',
+        title: session.name,
+        group: workspaceNameByDir.value.get(session.workspace) || session.workspace,
+        order: -2,
         scope: 'goto',
         keywords: ['chat'],
         icon: IconMessagesSquare,
@@ -412,13 +431,16 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     return rows
   })
 
-  // Session and chat rows are read from module singletons the sidebar trees
-  // keep warm elsewhere; a palette open is the moment they are about to be
-  // shown, so that is when staleness is worth paying to fix. Both reloads keep
-  // last-good rows on failure.
+  // Session, chat, and workspace rows are read from module singletons the
+  // sidebar trees keep warm elsewhere; a palette open is the moment they are
+  // about to be shown, so that is when staleness is worth paying to fix. All
+  // three reloads keep last-good rows on failure. Workspaces in particular can
+  // still be empty here on a fresh launch — the Agents area may never have
+  // mounted — which is what the chat rows' dir → name join needs populated.
   watch(paletteOpen, (open) => {
     if (!open) return
     void reloadTerminalSessions()
     void reloadRecents()
+    void reloadWorkspaces()
   })
 }

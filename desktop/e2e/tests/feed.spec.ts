@@ -125,7 +125,11 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   await expect(palette).toBeVisible()
   const input = page.getByTestId('command-palette-input')
   await input.fill('notifications')
-  const notificationsFeed = page.getByTestId('command-palette-command').filter({ hasText: 'Frontend Triage › Notifications inbox' })
+  // The scope-prefix span and the title span are adjacent with no text node
+  // between them (Vue's whitespace-condense drops the newline between the
+  // two <span> tags in the template), so the row's full text has no space
+  // after the ›.
+  const notificationsFeed = page.getByTestId('command-palette-command').filter({ hasText: 'Frontend Triage ›Notifications inbox' })
   await expect(notificationsFeed).toBeVisible()
   await notificationsFeed.click()
   await expect(palette).toBeHidden()
@@ -138,9 +142,12 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   const firstEntry = page.locator('.palette-results > *').first()
   await expect(firstEntry).toHaveClass(/palette-group-header/)
   await expect(firstEntry).toHaveText('Recent')
-  await expect(page.getByTestId('command-palette-command').first().getByTestId('command-palette-command-title')).toHaveText(
-    'Frontend Triage › Notifications inbox',
-  )
+  // Recent rows now carry the same container prefix a typed-query row does,
+  // but as a separate scope span — command-palette-command-title is the
+  // title alone.
+  const recentRow = page.getByTestId('command-palette-command').first()
+  await expect(recentRow.getByTestId('command-palette-command-title')).toHaveText('Notifications inbox')
+  await expect(recentRow.getByTestId('command-palette-command-scope')).toHaveText('Frontend Triage ›')
 
   // A scattered query still finds a command by hopping across word starts.
   await input.fill('mkalrd')

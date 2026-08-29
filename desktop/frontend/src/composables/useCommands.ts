@@ -7,9 +7,13 @@ import { usePaletteRecents } from './usePaletteRecents'
 
 export interface Command {
   id: string
-  /** Palette row text, e.g. "Switch to profile: Desktop" */
+  /**
+   * Palette row text. A command row keeps its verb ("Mark all as read"); an
+   * object row is titled after the object itself ("Desktop", not "Switch to
+   * profile: Desktop") — its container is `group`, not a hand-built prefix.
+   */
   title: string
-  /** Section header, e.g. "Profiles", "Feeds", "Window" */
+  /** Section header, e.g. "Profiles", "Settings" — an object row's own container. */
   group?: string
   /**
    * Group placement: lower sorts earlier, default 0, ties broken by group
