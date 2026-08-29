@@ -120,6 +120,28 @@ describe('CommandPalette', () => {
     expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Switch to personal'])
   })
 
+  it('ignores a mousemove that did not actually move the pointer', async () => {
+    await openPalette()
+    const rows = wrapper!.findAll('.palette-row')
+
+    // The first event after open only anchors where the pointer rests.
+    await rows[2]!.trigger('mousemove', { clientX: 40, clientY: 80 })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open desktop feed'])
+
+    await panel().trigger('keydown', { key: 'ArrowDown' })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open backend feed'])
+
+    // Same coordinates — WebKit's fake mousemove after a keyboard scroll:
+    // the row under the cursor changed because the list moved, not the
+    // mouse, so the arrow-key selection stays put.
+    await rows[2]!.trigger('mousemove', { clientX: 40, clientY: 80 })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open backend feed'])
+
+    // A pointer that really moved takes the selection.
+    await rows[2]!.trigger('mousemove', { clientX: 41, clientY: 82 })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Switch to personal'])
+  })
+
   it('runs the selected command on Enter, closes the palette, and clears the query', async () => {
     const palette = useCommandPalette()
     await openPalette()

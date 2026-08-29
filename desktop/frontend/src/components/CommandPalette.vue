@@ -167,6 +167,7 @@ watch(open, async (v) => {
   if (v) {
     selectedID.value = null
     rowElements.clear()
+    pointerAt = null
     await nextTick()
     inputRef.value?.focus()
   }
@@ -186,6 +187,19 @@ watch(() => (open.value ? selectedIndex.value : -1), (idx) => {
 function setRowRef(el: Element | ComponentPublicInstance | null, index: number): void {
   if (el instanceof HTMLElement) rowElements.set(index, el)
   else rowElements.delete(index)
+}
+
+// WebKit refires a synthetic mousemove at the resting pointer after a
+// keyboard-driven scroll shifts the rows beneath it; honoring that event
+// would hand the arrow-key selection to whichever row slid under the cursor.
+// Only a pointer that actually changed position selects — the first event
+// after open just records where the pointer rests.
+let pointerAt: { x: number; y: number } | null = null
+function onRowPointerMove(e: MouseEvent, index: number): void {
+  if (pointerAt && pointerAt.x === e.clientX && pointerAt.y === e.clientY) return
+  const moved = pointerAt !== null
+  pointerAt = { x: e.clientX, y: e.clientY }
+  if (moved) selectedIndex.value = index
 }
 
 // setQuery's sigil interception can be a no-op state write (e.g. typing the
@@ -290,7 +304,7 @@ function onKeydown(e: KeyboardEvent): void {
                 data-testid="command-palette-command"
                 :class="{ 'palette-row-selected': entry.index === selectedIndex }"
                 @click="run(entry.cmd)"
-                @mousemove="selectedIndex = entry.index"
+                @mousemove="onRowPointerMove($event, entry.index)"
               >
                 <span class="palette-chip" aria-hidden="true">
                   <AppIcon
