@@ -17,7 +17,8 @@ export interface Command {
   group?: string
   /**
    * Group placement: lower sorts earlier, default 0, ties broken by group
-   * name. Every row in a group must carry the same value, or the group splits.
+   * name. The group sorts as early as its earliest row asks, so registrars in
+   * different files need not agree on the value and a group never splits.
    */
   order?: number
   /** Extra match terms */
@@ -158,22 +159,40 @@ export function scoreCommand(query: string, cmd: Command): number {
   return -1
 }
 
-function compareGroupPlacement(a: Command, b: Command): number {
-  const delta = (a.order ?? 0) - (b.order ?? 0)
-  if (delta) return delta
+// A group's placement is the minimum `order` across all its rows, derived
+// over the whole input rather than read per row — one group is often
+// registered from more than one file (App-level window rows and
+// TerminalMode's session ops share the attached session's name), and a
+// per-row comparison would split the group whenever the registrars disagree.
+function groupPlacement(cmds: Command[]): Map<string, number> {
+  const placement = new Map<string, number>()
+  for (const cmd of cmds) {
+    const group = cmd.group ?? ''
+    const order = cmd.order ?? 0
+    const known = placement.get(group)
+    if (known === undefined || order < known) placement.set(group, order)
+  }
+  return placement
+}
+
+function compareGroupPlacement(placement: Map<string, number>, a: Command, b: Command): number {
   const ga = a.group ?? ''
   const gb = b.group ?? ''
+  const delta = (placement.get(ga) ?? 0) - (placement.get(gb) ?? 0)
+  if (delta) return delta
   return ga < gb ? -1 : ga > gb ? 1 : 0
 }
 
 /**
- * Sort commands by group placement (order asc, then group name asc). The sort
- * is stable, so rows keep their registration order within a group — which is
- * how positional lists (a session's windows, the sidebar's feeds) stay in
- * their own order rather than alphabetical.
+ * Sort commands by group placement (each group at the earliest `order` any of
+ * its rows asks, then group name asc). The sort is stable, so rows keep their
+ * registration order within a group — which is how positional lists (a
+ * session's windows, the sidebar's feeds) stay in their own order rather than
+ * alphabetical.
  */
 export function sortCommands(cmds: Command[]): Command[] {
-  return [...cmds].sort(compareGroupPlacement)
+  const placement = groupPlacement(cmds)
+  return [...cmds].sort((a, b) => compareGroupPlacement(placement, a, b))
 }
 
 /**
@@ -186,11 +205,12 @@ export function sortCommands(cmds: Command[]): Command[] {
 export function filterAndScore(query: string, cmds: Command[]): Command[] {
   if (!query) return sortCommands(cmds)
 
+  const placement = groupPlacement(cmds)
   const scored = cmds
     .map((cmd) => ({ cmd, score: scoreCommand(query, cmd) }))
     .filter(({ score }) => score >= 0)
 
-  scored.sort((a, b) => b.score - a.score || compareGroupPlacement(a.cmd, b.cmd))
+  scored.sort((a, b) => b.score - a.score || compareGroupPlacement(placement, a.cmd, b.cmd))
 
   return scored.map((s) => s.cmd)
 }

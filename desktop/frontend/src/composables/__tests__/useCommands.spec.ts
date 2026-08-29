@@ -123,6 +123,19 @@ describe('useCommands', () => {
     ])
   })
 
+  it('keeps a group contiguous when its registrars disagree on order', () => {
+    // The attached session's group is written from two files: TerminalMode's
+    // ops rows carry an order, the App-level window rows do not. The group
+    // sorts as early as its earliest row asks, header rendered once.
+    const sorted = sortCommands([
+      command({ id: 'feed-desktop', title: 'Desktop feed', group: 'Feeds' }),
+      command({ id: 'session-kill', title: 'Kill session', group: 'hive-fix-parser', order: -3 }),
+      command({ id: 'window-one', title: 'editor', group: 'hive-fix-parser' }),
+    ])
+
+    expect(sorted.map((cmd) => cmd.id)).toEqual(['session-kill', 'window-one', 'feed-desktop'])
+  })
+
   it('ranks a stronger match above an earlier group', () => {
     const results = filterAndScore('profile', [
       command({ id: 'profile-prefix', title: 'Profile settings', group: 'Profiles' }),
