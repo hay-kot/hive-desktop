@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, toValue, watch } from 'vue'
 import type { Component, ComputedRef, MaybeRefOrGetter, Ref } from 'vue'
 import { scopeForSigil, type CommandScope, type PaletteScopeId, type PaletteScopeSpec, paletteScopes } from '../palette/scopes'
+import { usePaletteRecents } from './usePaletteRecents'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -219,6 +220,8 @@ export function useCommandPalette(): {
   popScope(): boolean
   run(cmd: Command): void | Promise<void>
 } {
+  const { recordRun } = usePaletteRecents()
+
   const results = computed<Command[]>(() => {
     const query = _query.value
     const allCommands = () => registrations.value.flatMap((r) => toValue(r.source))
@@ -294,8 +297,12 @@ export function useCommandPalette(): {
 
   function run(cmd: Command): void | Promise<void> {
     // A sigil-legend row switches scope itself; closing around that would undo
-    // the very navigation the row exists to offer.
+    // the very navigation the row exists to offer. It is chrome, not a
+    // repeatable entry, so it is never recorded either.
     if (cmd.keepOpen) return cmd.run()
+    // Shell lines aren't repeatable entries and Keys rows are reference, so
+    // only All/Go to/Actions rows earn a place in Recent.
+    if (_scope.value === 'all' || _scope.value === 'goto' || _scope.value === 'actions') recordRun(cmd.id)
     _open.value = false
     _query.value = ''
     _scope.value = 'all'

@@ -5,10 +5,12 @@ import IconSearch from '~icons/lucide/search'
 import IconZap from '~icons/lucide/zap'
 import AppIcon from './AppIcon.vue'
 import { useCommandPalette, type Command } from '../composables/useCommands'
+import { usePaletteRecents } from '../composables/usePaletteRecents'
 import { paletteScopes, type PaletteScopeId } from '../palette/scopes'
 
 const { open, query, scope, visibleScopes, results, toggle, run, setQuery, setScope, cycleScope, popScope } =
   useCommandPalette()
+const { recentIds } = usePaletteRecents()
 
 const placeholder = computed(
   () => paletteScopes.find((s) => s.id === scope.value)?.placeholder ?? 'Search or run a command…',
@@ -102,14 +104,39 @@ const displayList = computed<DisplayEntry[]>(() => {
     })
     return entries
   }
+
+  const indexByID = new Map(results.value.map((cmd, i) => [cmd.id, i]))
+
+  // Recent is device usage history, so it only makes sense against the
+  // unfiltered All scope — a scoped tab is already a narrower question than
+  // "what did I run recently". Stale ids (a deleted feed, a gone session) are
+  // dropped rather than shown as dead rows.
+  const recent = new Set<string>()
+  if (scope.value === 'all') {
+    const recentCommands = recentIds.value
+      .map((id) => results.value.find((cmd) => cmd.id === id))
+      .filter((cmd): cmd is Command => !!cmd)
+    if (recentCommands.length) {
+      entries.push({ kind: 'header', group: 'Recent' })
+      for (const cmd of recentCommands) {
+        recent.add(cmd.id)
+        entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, parts: titleParts(cmd.title, q), scope: '' })
+      }
+    }
+  }
+
   let lastGroup: string | undefined = undefined
-  results.value.forEach((cmd, i) => {
+  results.value.forEach((cmd) => {
+    // Shown above under Recent already — selection is held by id, so a
+    // second row for it would snap the selection to whichever occurrence
+    // comes first.
+    if (recent.has(cmd.id)) return
     const group = cmd.group ?? ''
     if (group !== lastGroup) {
       if (group) entries.push({ kind: 'header', group })
       lastGroup = group
     }
-    entries.push({ kind: 'cmd', cmd, index: i, parts: titleParts(cmd.title, q), scope: '' })
+    entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, parts: titleParts(cmd.title, q), scope: '' })
   })
   return entries
 })

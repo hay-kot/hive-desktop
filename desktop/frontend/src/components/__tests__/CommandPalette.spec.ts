@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import CommandPalette from '../CommandPalette.vue'
 import { useCommandPalette, useCommands, useShellEscape, type Command } from '../../composables/useCommands'
+import { resetPaletteRecentsForTests, usePaletteRecents } from '../../composables/usePaletteRecents'
 
 const runBackend = vi.fn()
 const runDesktop = vi.fn()
@@ -45,6 +46,7 @@ describe('CommandPalette', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    resetPaletteRecentsForTests()
     wrapper = mountPalette()
   })
 
@@ -58,6 +60,7 @@ describe('CommandPalette', () => {
     palette.open.value = false
     palette.query.value = ''
     palette.scope.value = 'all'
+    resetPaletteRecentsForTests()
   })
 
   function panel() {
@@ -359,5 +362,64 @@ describe('CommandPalette', () => {
     expect(runShell).toHaveBeenCalledWith('make build')
     expect(runBackend).not.toHaveBeenCalled()
     expect(palette.open.value).toBe(false)
+  })
+
+  // ── Recent section ────────────────────────────────────────────────────────
+
+  function displayEntries() {
+    return wrapper!.findAll('.palette-results > *').map((node) => ({
+      header: node.classes().includes('palette-group-header'),
+      text: node.classes().includes('palette-group-header') ? node.text() : rowTitle(node),
+    }))
+  }
+
+  it('shows Recent first on an empty All query, most recent first, omitted from their group below', async () => {
+    usePaletteRecents().recordRun('feed-desktop')
+    usePaletteRecents().recordRun('profile-personal')
+    await openPalette()
+
+    expect(displayEntries()).toEqual([
+      { header: true, text: 'Recent' },
+      { header: false, text: 'Switch to personal' },
+      { header: false, text: 'Open desktop feed' },
+      { header: true, text: 'Feeds' },
+      { header: false, text: 'Open backend feed' },
+    ])
+  })
+
+  it('drops a stale recent id that no longer resolves to a command', async () => {
+    usePaletteRecents().recordRun('feed-does-not-exist')
+    usePaletteRecents().recordRun('feed-desktop')
+    await openPalette()
+
+    expect(displayEntries()).toEqual([
+      { header: true, text: 'Recent' },
+      { header: false, text: 'Open desktop feed' },
+      { header: true, text: 'Feeds' },
+      { header: false, text: 'Open backend feed' },
+      { header: true, text: 'Profiles' },
+      { header: false, text: 'Switch to personal' },
+    ])
+  })
+
+  it('hides the Recent section once the query is non-empty', async () => {
+    usePaletteRecents().recordRun('feed-desktop')
+    await openPalette()
+
+    await wrapper!.find('[data-testid="command-palette-input"]').setValue('open')
+
+    expect(displayEntries().map((entry) => entry.text)).not.toContain('Recent')
+  })
+
+  it('hides the Recent section outside the All scope', async () => {
+    const palette = useCommandPalette()
+    usePaletteRecents().recordRun('feed-desktop')
+    await openPalette()
+
+    const actionsTab = tabs().find((tab) => tab.attributes('data-scope') === 'actions')!
+    await actionsTab.trigger('click')
+
+    expect(palette.scope.value).toBe('actions')
+    expect(displayEntries().map((entry) => entry.text)).not.toContain('Recent')
   })
 })

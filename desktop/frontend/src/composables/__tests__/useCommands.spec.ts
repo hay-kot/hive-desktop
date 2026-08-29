@@ -10,6 +10,7 @@ import {
   useShellEscape,
   type Command,
 } from '../useCommands'
+import { resetPaletteRecentsForTests, usePaletteRecents } from '../usePaletteRecents'
 
 function command(overrides: Partial<Command> & Pick<Command, 'id' | 'title'>): Command {
   return {
@@ -32,6 +33,7 @@ describe('useCommands', () => {
     palette.open.value = false
     palette.query.value = ''
     palette.scope.value = 'all'
+    resetPaletteRecentsForTests()
   })
 
   it('scores title, keyword, and group matches', () => {
@@ -325,5 +327,63 @@ describe('useCommands', () => {
     available.value = false
     expect(palette.scope.value).toBe('all')
     expect(palette.query.value).toBe('ls')
+  })
+
+  // ── Recent recording ───────────────────────────────────────────────────────
+
+  it('records a run made from the All scope', () => {
+    const palette = useCommandPalette()
+    scope.run(() => useCommands([command({ id: 'do-thing', title: 'Do thing' })]))
+    palette.open.value = true
+
+    palette.run(palette.results.value[0])
+
+    expect(usePaletteRecents().recentIds.value).toEqual(['do-thing'])
+  })
+
+  it('records a run made from the Go to and Actions scopes, most recent first', () => {
+    const palette = useCommandPalette()
+    scope.run(() => useCommands([
+      command({ id: 'goto-a', title: 'Goto A', scope: 'goto' }),
+      command({ id: 'act-a', title: 'Actions A' }),
+    ]))
+
+    palette.scope.value = 'goto'
+    palette.run(palette.results.value[0])
+    palette.scope.value = 'actions'
+    palette.run(palette.results.value[0])
+
+    expect(usePaletteRecents().recentIds.value).toEqual(['act-a', 'goto-a'])
+  })
+
+  it('does not record a Shell escape run — it is a line, not a repeatable entry', () => {
+    const palette = useCommandPalette()
+    scope.run(() => useShellEscape((line) => [command({ id: 'shell:run', title: `Run: ${line}` })]))
+    palette.setQuery('!ls')
+
+    palette.run(palette.results.value[0])
+
+    expect(usePaletteRecents().recentIds.value).toEqual([])
+  })
+
+  it('does not record a Keys row run — it is reference, not something to repeat', () => {
+    const palette = useCommandPalette()
+    scope.run(() => useKeysScope(() => [command({ id: 'keys:feed.next', title: 'Next item' })]))
+    palette.setQuery('?next')
+
+    palette.run(palette.results.value[0])
+
+    expect(usePaletteRecents().recentIds.value).toEqual([])
+  })
+
+  it('does not record a keepOpen row run — sigil-legend rows are navigation chrome', () => {
+    const palette = useCommandPalette()
+    scope.run(() => useCommands([command({ id: 'legend:goto', title: 'Jump to a place', keepOpen: true })]))
+    palette.open.value = true
+    palette.query.value = 'jump'
+
+    palette.run(palette.results.value[0])
+
+    expect(usePaletteRecents().recentIds.value).toEqual([])
   })
 })
