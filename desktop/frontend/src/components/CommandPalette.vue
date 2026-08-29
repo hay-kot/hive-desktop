@@ -5,8 +5,13 @@ import IconSearch from '~icons/lucide/search'
 import IconZap from '~icons/lucide/zap'
 import AppIcon from './AppIcon.vue'
 import { useCommandPalette, type Command } from '../composables/useCommands'
+import { paletteScopes } from '../palette/scopes'
 
-const { open, query, results, toggle, run } = useCommandPalette()
+const { open, query, scope, results, toggle, run, setQuery } = useCommandPalette()
+
+const placeholder = computed(
+  () => paletteScopes.find((s) => s.id === scope.value)?.placeholder ?? 'Search or run a command…',
+)
 
 // ── Selection tracking ────────────────────────────────────────────────────────
 
@@ -145,13 +150,14 @@ function onKeydown(e: KeyboardEvent): void {
             <IconSearch class="palette-search-icon" />
             <input
               ref="inputRef"
-              v-model="query"
+              :value="query"
               type="text"
-              placeholder="Search or run a command…"
+              :placeholder="placeholder"
               class="palette-input"
               data-testid="command-palette-input"
               autocomplete="off"
               spellcheck="false"
+              @input="setQuery(($event.target as HTMLInputElement).value)"
             />
             <kbd class="palette-kbd">esc</kbd>
           </div>

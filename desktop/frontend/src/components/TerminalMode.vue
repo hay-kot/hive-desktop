@@ -1125,7 +1125,7 @@ useShellEscape((line) => {
     hint: `new window in ${attached.name}`,
     run: () => void current.value?.newWindow(line),
   }]
-})
+}, () => props.active)
 
 onMounted(() => setTerminalTreeHandles({
   focusTree: focusTreeCursor,

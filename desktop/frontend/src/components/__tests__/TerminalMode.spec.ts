@@ -2523,6 +2523,7 @@ describe('TerminalMode', () => {
     function paletteResults() {
       const palette = useCommandPalette()
       palette.query.value = ''
+      palette.scope.value = 'all'
       return palette.results
     }
 
@@ -2535,7 +2536,8 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountAt('/terminal/hive-fix-parser')
       const palette = useCommandPalette()
 
-      palette.query.value = '!npm test'
+      palette.setQuery('!npm test')
+      expect(palette.scope.value).toBe('shell')
       expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['shell:run'])
       expect(palette.results.value[0].title).toBe('Run: npm test')
       expect(palette.results.value[0].hint).toBe('new window in fix the parser')
@@ -2544,10 +2546,12 @@ describe('TerminalMode', () => {
       expect(session.newWindow).toHaveBeenCalledWith('npm test')
 
       // A bare ! has nothing to run.
-      palette.query.value = '!'
+      palette.setQuery('')
+      palette.setQuery('!')
       expect(palette.results.value).toEqual([])
 
       palette.query.value = ''
+      palette.scope.value = 'all'
       wrapper.unmount()
     })
 
@@ -2557,10 +2561,11 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountAvailable()
       const palette = useCommandPalette()
 
-      palette.query.value = '!npm test'
+      palette.setQuery('!npm test')
       expect(palette.results.value).toEqual([])
 
       palette.query.value = ''
+      palette.scope.value = 'all'
       wrapper.unmount()
     })
 

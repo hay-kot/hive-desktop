@@ -57,6 +57,7 @@ describe('CommandPalette', () => {
     const palette = useCommandPalette()
     palette.open.value = false
     palette.query.value = ''
+    palette.scope.value = 'all'
   })
 
   function panel() {

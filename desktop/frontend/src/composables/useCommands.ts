@@ -1,5 +1,6 @@
-import { computed, onScopeDispose, ref, toValue } from 'vue'
+import { computed, onScopeDispose, ref, toValue, watch } from 'vue'
 import type { Component, ComputedRef, MaybeRefOrGetter, Ref } from 'vue'
+import { scopeForSigil, type CommandScope, type PaletteScopeId, type PaletteScopeSpec, paletteScopes } from '../palette/scopes'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,10 @@ export interface Command {
   iconColor?: string
   /** Right-aligned mono hint, e.g. a shortcut or context label */
   hint?: string
+  /** Palette scope: 'goto' rows browse, 'actions' rows act. Default 'actions'. */
+  scope?: CommandScope
+  /** Phase 2: running the row keeps the palette open (sigil-legend rows). */
+  keepOpen?: boolean
   run: () => void | Promise<void>
 }
 
@@ -123,21 +128,24 @@ export function useCommands(commands: MaybeRefOrGetter<Command[]>): void {
 interface ShellEscapeRegistration {
   key: symbol
   source: (line: string) => Command[]
+  available: () => boolean
 }
 
 const shellEscapes = ref<ShellEscapeRegistration[]>([])
 
 /**
- * Claims `!`-prefixed queries for the lifetime of the calling effect scope.
- * While the query starts with `!` the palette stops fuzzy-matching and shows
- * only what the handlers return for the rest of the line — the line is a
- * command to run, not a search, so fuzzy rows would be coincidental and Enter
- * must never land on one. Return [] where the escape cannot run (wrong view);
- * an empty line is never offered.
+ * Claims the Shell scope for the lifetime of the calling effect scope.
+ * `available` drives the Shell tab's visibility (default: always shown) so it
+ * can hide outside the view it applies to; `source` still returns [] where a
+ * given line cannot run (e.g. no attached session) — an empty line is never
+ * offered either.
  */
-export function useShellEscape(source: (line: string) => Command[]): void {
+export function useShellEscape(
+  source: (line: string) => Command[],
+  available: () => boolean = () => true,
+): void {
   const key = Symbol()
-  shellEscapes.value = [...shellEscapes.value, { key, source }]
+  shellEscapes.value = [...shellEscapes.value, { key, source, available }]
 
   onScopeDispose(() => {
     shellEscapes.value = shellEscapes.value.filter((r) => r.key !== key)
@@ -148,6 +156,22 @@ export function useShellEscape(source: (line: string) => Command[]): void {
 
 const _open = ref(false)
 const _query = ref('')
+const _scope = ref<PaletteScopeId>('all')
+
+/** Registry entries whose tab is currently shown (Shell only where available). */
+const visibleScopes = computed<PaletteScopeSpec[]>(() =>
+  paletteScopes.filter((s) => s.id !== 'shell' || shellEscapes.value.some((r) => r.available())),
+)
+
+// A tab that goes away (e.g. Shell on a view switch) must not strand the
+// palette on a scope with no way back to it via the tab strip.
+watch(
+  visibleScopes,
+  (visible) => {
+    if (_open.value && !visible.some((s) => s.id === _scope.value)) _scope.value = 'all'
+  },
+  { flush: 'sync' },
+)
 
 /**
  * Returns palette state shared across all callers.
@@ -157,31 +181,107 @@ const _query = ref('')
 export function useCommandPalette(): {
   open: Ref<boolean>
   query: Ref<string>
+  scope: Ref<PaletteScopeId>
+  visibleScopes: ComputedRef<PaletteScopeSpec[]>
   results: ComputedRef<Command[]>
   toggle(): void
+  openWithScope(scope: PaletteScopeId): void
+  setQuery(next: string): void
+  setScope(scope: PaletteScopeId): void
+  cycleScope(delta: 1 | -1): void
+  popScope(): boolean
   run(cmd: Command): void | Promise<void>
 } {
   const results = computed<Command[]>(() => {
     const query = _query.value
-    if (query.startsWith('!')) {
-      const line = query.slice(1).trim()
-      if (!line) return []
-      return shellEscapes.value.flatMap((r) => r.source(line))
+    const allCommands = () => registrations.value.flatMap((r) => toValue(r.source))
+
+    switch (_scope.value) {
+      case 'shell': {
+        const line = query.trim()
+        if (!line) return []
+        return shellEscapes.value.flatMap((r) => r.source(line))
+      }
+      case 'goto':
+      case 'actions': {
+        const wanted = _scope.value
+        return filterAndScore(query, allCommands().filter((cmd) => (cmd.scope ?? 'actions') === wanted))
+      }
+      default:
+        return filterAndScore(query, allCommands())
     }
-    const all = registrations.value.flatMap((r) => toValue(r.source))
-    return filterAndScore(query, all)
   })
 
   function toggle(): void {
     _open.value = !_open.value
-    if (!_open.value) _query.value = ''
+    if (!_open.value) {
+      _query.value = ''
+      _scope.value = 'all'
+    }
+  }
+
+  function openWithScope(scope: PaletteScopeId): void {
+    _open.value = true
+    _scope.value = scope
+    _query.value = ''
+  }
+
+  /**
+   * The input's write path. Performs sigil interception: an empty query
+   * followed by a visible scope's sigil enters that scope and absorbs the
+   * sigil, leaving the rest of `next` as the query — so a paste of "@foo"
+   * lands in the goto scope with query "foo". A non-empty prior query means
+   * the sigil is mid-edit, not an entry point, so it is left as literal text.
+   */
+  function setQuery(next: string): void {
+    if (!_query.value && next) {
+      const entered = scopeForSigil(next[0])
+      if (entered && visibleScopes.value.some((s) => s.id === entered)) {
+        _scope.value = entered
+        _query.value = next.slice(1)
+        return
+      }
+    }
+    _query.value = next
+  }
+
+  function setScope(scope: PaletteScopeId): void {
+    _scope.value = scope
+  }
+
+  function cycleScope(delta: 1 | -1): void {
+    const visible = visibleScopes.value
+    if (visible.length === 0) return
+    const at = visible.findIndex((s) => s.id === _scope.value)
+    const from = at >= 0 ? at : 0
+    _scope.value = visible[(from + delta + visible.length) % visible.length].id
+  }
+
+  function popScope(): boolean {
+    if (_query.value || _scope.value === 'all') return false
+    _scope.value = 'all'
+    return true
   }
 
   function run(cmd: Command): void | Promise<void> {
     _open.value = false
     _query.value = ''
+    _scope.value = 'all'
     return cmd.run()
   }
 
-  return { open: _open, query: _query, results, toggle, run }
+  return {
+    open: _open,
+    query: _query,
+    scope: _scope,
+    visibleScopes,
+    results,
+    toggle,
+    openWithScope,
+    setQuery,
+    setScope,
+    cycleScope,
+    popScope,
+    run,
+  }
 }

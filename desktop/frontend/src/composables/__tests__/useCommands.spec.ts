@@ -30,6 +30,7 @@ describe('useCommands', () => {
     const palette = useCommandPalette()
     palette.open.value = false
     palette.query.value = ''
+    palette.scope.value = 'all'
   })
 
   it('scores title, keyword, and group matches', () => {
@@ -136,8 +137,9 @@ describe('useCommands', () => {
       useShellEscape((line) => [command({ id: 'shell:run', title: `Run: ${line}` })])
     })
 
-    palette.query.value = '!git status'
+    palette.setQuery('!git status')
 
+    expect(palette.scope.value).toBe('shell')
     expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['shell:run'])
     expect(palette.results.value[0].title).toBe('Run: git status')
   })
@@ -151,13 +153,15 @@ describe('useCommands', () => {
       return []
     }))
 
-    palette.query.value = '!'
+    palette.setQuery('!')
+    expect(palette.scope.value).toBe('shell')
     expect(palette.results.value).toEqual([])
-    palette.query.value = '!   '
+
+    palette.setQuery('   ')
     expect(palette.results.value).toEqual([])
     expect(lines).toEqual([])
 
-    palette.query.value = '!ls'
+    palette.setQuery('ls')
     expect(palette.results.value).toEqual([])
     expect(lines).toEqual(['ls'])
   })
@@ -166,7 +170,7 @@ describe('useCommands', () => {
     const palette = useCommandPalette()
 
     scope.run(() => useShellEscape((line) => [command({ id: 'shell:run', title: line })]))
-    palette.query.value = '!ls'
+    palette.setQuery('!ls')
     expect(palette.results.value).toHaveLength(1)
 
     scope.stop()
