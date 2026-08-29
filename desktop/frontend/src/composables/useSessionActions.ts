@@ -13,7 +13,7 @@ import type {
   SessionSummary,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { appErrorMessage } from '../lib/appError'
-import { useConfirmation } from './useConfirmation'
+import { useConfirmation, type ConfirmationDetail } from './useConfirmation'
 import { useToasts } from './useToasts'
 
 export interface SessionActionOptions {
@@ -30,23 +30,31 @@ function message(error: unknown, fallback: string): string {
 }
 
 /**
- * Names the work a destructive operation would discard. Hazard 2 of #144: a
+ * Names what a destructive operation does to this session. Hazard 2 of #144: a
  * generic "are you sure" hides the only thing worth confirming, which is what
- * this session in particular is holding.
+ * this session in particular is holding; that part is riskDetails.
  */
 export function riskDescription(name: string, operation: 'delete' | 'recycle', risk: SessionRiskView): string {
-  const consequence = operation === 'delete'
+  return operation === 'delete'
     ? `Deleting ${name} removes its directory and kills its terminal session.`
     : risk.recycleDeletes
       ? `Recycling ${name} deletes it — it is a git worktree, so there is no clone of its own to reset.`
       : `Recycling ${name} resets its clone to a clean checkout of the default branch.`
+}
 
-  let held = 'Git reports no uncommitted changes and no unpushed commits.'
-  if (risk.uncommittedChanges && risk.unpushedCommits) held = 'It has uncommitted changes and unpushed commits, and both are lost.'
-  else if (risk.uncommittedChanges) held = 'It has uncommitted changes, and they are lost.'
-  else if (risk.unpushedCommits) held = 'It has unpushed commits, and they are lost.'
-
-  return `${consequence} ${held}`
+/**
+ * The git pre-flight as a checklist, one line per check, so unsaved work reads
+ * as a red mark rather than a clause buried in a sentence.
+ */
+export function riskDetails(risk: SessionRiskView): ConfirmationDetail[] {
+  return [
+    risk.uncommittedChanges
+      ? { tone: 'danger', text: 'Uncommitted changes will be lost.' }
+      : { tone: 'ok', text: 'No uncommitted changes.' },
+    risk.unpushedCommits
+      ? { tone: 'danger', text: 'Unpushed commits will be lost.' }
+      : { tone: 'ok', text: 'No unpushed commits.' },
+  ]
 }
 
 /**
@@ -119,6 +127,7 @@ export function useSessionActions(options: SessionActionOptions = {}) {
     confirmation.request({
       title: operation === 'delete' ? 'Delete this session?' : 'Recycle this session?',
       description: riskDescription(session.name, operation, risk),
+      details: riskDetails(risk),
       confirmLabel: operation === 'delete' ? 'Delete' : 'Recycle',
       onConfirm: async () => {
         await (operation === 'delete' ? DeleteSession(session.id) : RecycleSession(session.id))

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { riskDescription, useSessionActions } from '../useSessionActions'
+import { riskDescription, riskDetails, useSessionActions } from '../useSessionActions'
 import { resetToastsForTests, useToasts } from '../useToasts'
 import type { SessionSummary } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
@@ -25,21 +25,8 @@ beforeEach(() => {
 })
 
 describe('riskDescription', () => {
-  it('names uncommitted changes and unpushed commits together', () => {
-    const text = riskDescription('review 81', 'delete', { uncommittedChanges: true, unpushedCommits: true, recycleDeletes: false })
-    expect(text).toContain('Deleting review 81')
-    expect(text).toContain('uncommitted changes and unpushed commits')
-  })
-
-  it('names each risk on its own', () => {
-    expect(riskDescription('s', 'delete', { uncommittedChanges: true, unpushedCommits: false, recycleDeletes: false }))
-      .toContain('It has uncommitted changes')
-    expect(riskDescription('s', 'delete', { uncommittedChanges: false, unpushedCommits: true, recycleDeletes: false }))
-      .toContain('It has unpushed commits')
-  })
-
-  it('says so when git reports nothing at risk', () => {
-    expect(riskDescription('s', 'delete', noRisk)).toContain('no uncommitted changes and no unpushed commits')
+  it('names the delete consequence', () => {
+    expect(riskDescription('review 81', 'delete', noRisk)).toContain('Deleting review 81')
   })
 
   it('warns that recycling a worktree session deletes it', () => {
@@ -53,6 +40,27 @@ describe('riskDescription', () => {
   })
 })
 
+describe('riskDetails', () => {
+  it('marks held work as danger lines', () => {
+    const details = riskDetails({ uncommittedChanges: true, unpushedCommits: true, recycleDeletes: false })
+    expect(details).toEqual([
+      { tone: 'danger', text: expect.stringContaining('Uncommitted changes') },
+      { tone: 'danger', text: expect.stringContaining('Unpushed commits') },
+    ])
+  })
+
+  it('keeps a clean check on the list as an ok line rather than dropping it', () => {
+    expect(riskDetails(noRisk).map(d => d.tone)).toEqual(['ok', 'ok'])
+  })
+
+  it('mixes tones when only one check holds work', () => {
+    expect(riskDetails({ uncommittedChanges: true, unpushedCommits: false, recycleDeletes: false }).map(d => d.tone))
+      .toEqual(['danger', 'ok'])
+    expect(riskDetails({ uncommittedChanges: false, unpushedCommits: true, recycleDeletes: false }).map(d => d.tone))
+      .toEqual(['ok', 'danger'])
+  })
+})
+
 describe('useSessionActions destructive operations', () => {
   it('confirms against the specific risk before deleting', async () => {
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: true, unpushedCommits: false, recycleDeletes: false })
@@ -62,7 +70,9 @@ describe('useSessionActions destructive operations', () => {
 
     expect(mocks.SessionRisk).toHaveBeenCalledWith('s1')
     expect(actions.confirmation.open.value).toBe(true)
-    expect(actions.confirmation.options.value?.description).toContain('uncommitted changes')
+    expect(actions.confirmation.options.value?.details).toContainEqual(
+      { tone: 'danger', text: expect.stringContaining('Uncommitted changes') },
+    )
     expect(mocks.DeleteSession).not.toHaveBeenCalled()
 
     await actions.confirmation.confirm()
