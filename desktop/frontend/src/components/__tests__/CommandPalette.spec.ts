@@ -14,7 +14,7 @@ const runShell = vi.fn()
 // Feeds → desktop, backend; Profiles → personal.
 const commands: Command[] = [
   { id: 'profile-personal', title: 'Switch to personal', group: 'Profiles', run: runPersonal },
-  { id: 'feed-desktop', title: 'Open desktop feed', group: 'Feeds', run: runDesktop },
+  { id: 'feed-desktop', title: 'Open desktop feed', group: 'Feeds', kind: 'feed', run: runDesktop },
   { id: 'feed-backend', title: 'Open backend feed', group: 'Feeds', run: runBackend },
 ]
 
@@ -101,6 +101,16 @@ describe('CommandPalette', () => {
       { header: true, text: 'Profiles' },
       { header: false, text: 'Switch to personal' },
     ])
+  })
+
+  it('renders the kind word only on rows that declare one', async () => {
+    await openPalette()
+
+    const kinds = wrapper!.findAll('.palette-row').map((row) => {
+      const kind = row.find('[data-testid="command-palette-command-kind"]')
+      return kind.exists() ? kind.text() : ''
+    })
+    expect(kinds).toEqual(['feed', '', ''])
   })
 
   it('moves the selection with ArrowDown/ArrowUp and wraps at both ends', async () => {

@@ -58,7 +58,10 @@ The verb a title used to carry is not lost, it moves to `keywords`
 ('attach', 'switch', 'feed', 'chat', ...), so searching "switch acme" or
 "attach repo" still ranks the row. `hint` stays reserved for the shortcut
 combo (`hintFor`) or a numbered jump chord -- never a container, which is
-`group`'s job alone.
+`group`'s job alone. An object row also carries `kind` -- a muted type word
+('window', 'feed') drawn at the right edge -- because the All view interleaves
+bare-named objects with verb rows and a name alone does not say what Enter
+does. `kind` names the object's type, never its container.
 
 Group order still has to survive groups becoming dynamic strings: chats carry
 `order: -2` and each active profile's feeds/Trash carry `order: -1` so the

@@ -316,6 +316,7 @@ function onKeydown(e: KeyboardEvent): void {
                 </span>
                 <span v-if="entry.groupPrefix" class="palette-scope" data-testid="command-palette-command-scope">{{ entry.groupPrefix }} ›</span>
                 <span class="palette-title" data-testid="command-palette-command-title"><template v-for="(seg, si) in entry.segments" :key="si"><span v-if="seg.match" class="palette-title-match">{{ seg.text }}</span><template v-else>{{ seg.text }}</template></template></span>
+                <span v-if="entry.cmd.kind" class="palette-kind" data-testid="command-palette-command-kind">{{ entry.cmd.kind }}</span>
                 <span v-if="entry.cmd.hint" class="palette-hint">{{ entry.cmd.hint }}</span>
                 <span v-if="entry.index === selectedIndex" class="palette-enter-badge" aria-hidden="true">↵</span>
               </button>
@@ -538,6 +539,14 @@ function onKeydown(e: KeyboardEvent): void {
 .palette-title-match {
   color: var(--color-accent);
   font-weight: 600;
+}
+
+/* Muted object-type word — what Enter lands on. Not mono: it is a word,
+   where the hint beside it is a key. */
+.palette-kind {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-3);
 }
 
 /* Right-aligned hint */

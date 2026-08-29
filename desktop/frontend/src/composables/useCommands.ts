@@ -35,6 +35,11 @@ export interface Command {
   iconColor?: string
   /** Right-aligned mono hint, e.g. a shortcut or context label */
   hint?: string
+  /**
+   * Muted type word at the row's right edge — what Enter lands on ('window',
+   * 'feed', 'chat'). Object rows only; a verb row's title already says.
+   */
+  kind?: string
   /** Palette scope: 'goto' rows browse, 'actions' rows act. Default 'actions'. */
   scope?: CommandScope
   /** Running the row keeps the palette open (sigil-legend rows). */
