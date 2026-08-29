@@ -66,6 +66,20 @@ describe('useCommands', () => {
     expect(fuzzyMatch('db', 'bread')).toBeNull() // 'd' then 'b' — 'b' only appears before 'd'
   })
 
+  // İ.toLowerCase() is "i̇" — two code units — so lowercasing the whole string
+  // would shift every position after it out of step with the original title's
+  // indices (which is what titleSegments slices from). Comparing character by
+  // character and leaving a length-changing character as-is keeps positions
+  // aligned to the original string.
+  it('fuzzyMatch keeps positions aligned to the original string across a length-changing lowercase mapping', () => {
+    const title = 'İstanbul office'
+    const match = fuzzyMatch('office', title)
+
+    expect(match).not.toBeNull()
+    expect(match!.positions).toEqual([9, 10, 11, 12, 13, 14])
+    expect(title.slice(match!.positions[0], match!.positions[0] + 6)).toBe('office')
+  })
+
   it('fuzzyMatch ranks a whole-prefix match above a scattered subsequence hit', () => {
     const prefix = fuzzyMatch('mar', 'Mark all as read')
     const scattered = fuzzyMatch('mar', 'Send a mail, archive it')
@@ -261,6 +275,18 @@ describe('useCommands', () => {
 
     expect(palette.scope.value).toBe('all')
     expect(palette.query.value).toBe('a@b')
+  })
+
+  // The sigil only enters a scope that's actually reachable via the tab strip
+  // — with no shell escape registered, Shell isn't offered, so "!" must not
+  // silently switch scope out from under an unrelated "!ls" query.
+  it('leaves a sigil as literal text when its scope is not visible', () => {
+    const palette = useCommandPalette()
+
+    palette.setQuery('!ls')
+
+    expect(palette.scope.value).toBe('all')
+    expect(palette.query.value).toBe('!ls')
   })
 
   it('hides the Shell tab until an escape claims it as available', () => {

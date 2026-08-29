@@ -21,56 +21,11 @@ function selectScope(id: PaletteScopeId): void {
   inputRef.value?.focus()
 }
 
-// ── Selection tracking ────────────────────────────────────────────────────────
-
-// The selection is a command, not a position. `results` is rebuilt whenever
-// anything it reads changes — and in the Code view that includes session
-// statuses, which poll — so a selection held as an index and reset on every
-// rebuild walks back to the top under the user's own arrow keys. Holding the
-// id instead means a rebuild that still contains the row leaves it selected,
-// and one that does not falls back to the top.
-const selectedID = ref<string | null>(null)
-const inputRef = ref<HTMLInputElement | null>(null)
-const rowElements = new Map<number, HTMLElement>()
-
-const selectedIndex = computed<number>({
-  get() {
-    const at = results.value.findIndex((cmd) => cmd.id === selectedID.value)
-    return at >= 0 ? at : 0
-  },
-  set(index: number) {
-    selectedID.value = results.value[index]?.id ?? null
-  },
-})
-
-// Typing is a new question, so it answers with the best match rather than
-// keeping whatever was highlighted for the last one.
-watch(query, () => {
-  selectedID.value = null
-  rowElements.clear()
-})
-
-// Autofocus input when palette opens
-watch(open, async (v) => {
-  if (v) {
-    selectedID.value = null
-    rowElements.clear()
-    await nextTick()
-    inputRef.value?.focus()
-  }
-})
-
-// Scroll selected row into view
-watch(selectedIndex, (idx) => {
-  nextTick(() => rowElements.get(idx)?.scrollIntoView({ block: 'nearest' }))
-})
-
-function setRowRef(el: Element | ComponentPublicInstance | null, index: number): void {
-  if (el instanceof HTMLElement) rowElements.set(index, el)
-  else rowElements.delete(index)
-}
-
 // ── Display list (section headers + commands interleaved) ──────────────────────
+//
+// Declared before selection tracking below: selectedIndex's getter reads
+// navList, and the watch(selectedIndex, ...) registered there evaluates that
+// getter immediately at setup — navList must already be initialized by then.
 
 interface TitleSegment { text: string; match: boolean }
 interface HeaderEntry { kind: 'header'; group: string }
@@ -108,20 +63,23 @@ function titleSegments(title: string, query: string): TitleSegment[] {
   return segments
 }
 
+// `index` on each CmdEntry is its position in DISPLAY order (this list, cmd
+// entries only) — not its position in `results` — since Recent reorders rows
+// relative to their group. navList below derives from this without reading
+// selection, so assigning index here can't cycle back through selectedIndex.
 const displayList = computed<DisplayEntry[]>(() => {
   const q = query.value.trim()
   const entries: DisplayEntry[] = []
+  let navIndex = 0
   // Ranked results interleave groups, so section headers would mislabel the
   // rows under them; while filtering, each row carries its group as a scope
   // prefix instead.
   if (q) {
-    results.value.forEach((cmd, i) => {
-      entries.push({ kind: 'cmd', cmd, index: i, segments: titleSegments(cmd.title, q), scope: cmd.group ?? '' })
+    results.value.forEach((cmd) => {
+      entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: cmd.group ?? '' })
     })
     return entries
   }
-
-  const indexByID = new Map(results.value.map((cmd, i) => [cmd.id, i]))
 
   // Recent is device usage history, so it only makes sense against the
   // unfiltered All scope — a scoped tab is already a narrower question than
@@ -136,7 +94,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       entries.push({ kind: 'header', group: 'Recent' })
       for (const cmd of recentCommands) {
         recent.add(cmd.id)
-        entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, segments: titleSegments(cmd.title, q), scope: '' })
+        entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: '' })
       }
     }
   }
@@ -152,15 +110,80 @@ const displayList = computed<DisplayEntry[]>(() => {
       if (group) entries.push({ kind: 'header', group })
       lastGroup = group
     }
-    entries.push({ kind: 'cmd', cmd, index: indexByID.get(cmd.id)!, segments: titleSegments(cmd.title, q), scope: '' })
+    entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: '' })
   })
   return entries
 })
 
+// Keyboard/mouse navigation and Enter all walk this — display order — rather
+// than `results` order, so the highlighted row always matches the visually
+// top row and arrows move visually downward across the Recent/group boundary.
+const navList = computed<Command[]>(() =>
+  displayList.value.flatMap((entry) => (entry.kind === 'cmd' ? [entry.cmd] : [])),
+)
+
+// ── Selection tracking ────────────────────────────────────────────────────────
+
+// The selection is a command, not a position. `results` (and so `navList`) is
+// rebuilt whenever anything it reads changes — and in the Code view that
+// includes session statuses, which poll — so a selection held as an index and
+// reset on every rebuild walks back to the top under the user's own arrow
+// keys. Holding the id instead means a rebuild that still contains the row
+// leaves it selected, and one that does not falls back to the top.
+const selectedID = ref<string | null>(null)
+const inputRef = ref<HTMLInputElement | null>(null)
+const rowElements = new Map<number, HTMLElement>()
+
+const selectedIndex = computed<number>({
+  get() {
+    const at = navList.value.findIndex((cmd) => cmd.id === selectedID.value)
+    return at >= 0 ? at : 0
+  },
+  set(index: number) {
+    selectedID.value = navList.value[index]?.id ?? null
+  },
+})
+
+// Typing is a new question, so it answers with the best match rather than
+// keeping whatever was highlighted for the last one.
+watch(query, () => {
+  selectedID.value = null
+  rowElements.clear()
+})
+
+// Autofocus input when palette opens
+watch(open, async (v) => {
+  if (v) {
+    selectedID.value = null
+    rowElements.clear()
+    await nextTick()
+    inputRef.value?.focus()
+  }
+})
+
+// Scroll selected row into view
+watch(selectedIndex, (idx) => {
+  nextTick(() => rowElements.get(idx)?.scrollIntoView({ block: 'nearest' }))
+})
+
+function setRowRef(el: Element | ComponentPublicInstance | null, index: number): void {
+  if (el instanceof HTMLElement) rowElements.set(index, el)
+  else rowElements.delete(index)
+}
+
+// setQuery's sigil interception can be a no-op state write (e.g. typing the
+// active scope's own sigil again) — no reactive change, so Vue never
+// re-renders the input to match `query`. Force it back in sync by hand.
+function onInput(e: Event): void {
+  const el = e.target as HTMLInputElement
+  setQuery(el.value)
+  if (el.value !== query.value) el.value = query.value
+}
+
 // ── Keyboard navigation ───────────────────────────────────────────────────────
 
 function onKeydown(e: KeyboardEvent): void {
-  const len = results.value.length
+  const len = navList.value.length
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     selectedIndex.value = len ? (selectedIndex.value + 1) % len : 0
@@ -173,7 +196,7 @@ function onKeydown(e: KeyboardEvent): void {
   } else if (e.key === 'Enter') {
     // preventDefault so a focused row button doesn't also fire its click.
     e.preventDefault()
-    const cmd = results.value[selectedIndex.value]
+    const cmd = navList.value[selectedIndex.value]
     if (cmd) run(cmd)
   } else if (e.key === 'Escape') {
     toggle()
@@ -232,7 +255,7 @@ function onKeydown(e: KeyboardEvent): void {
               data-testid="command-palette-input"
               autocomplete="off"
               spellcheck="false"
-              @input="setQuery(($event.target as HTMLInputElement).value)"
+              @input="onInput"
             />
             <kbd class="palette-kbd">esc</kbd>
           </div>

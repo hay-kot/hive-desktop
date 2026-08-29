@@ -64,6 +64,20 @@ describe('usePaletteRecents', () => {
     expect(reimported().recentIds.value).toEqual([])
   })
 
+  it('truncates a hand-edited array longer than RECENT_LIMIT on read', async () => {
+    // Importing just for RECENT_LIMIT still evaluates the module (and its
+    // localStorage read), so reset before setting up the real fixture.
+    const { RECENT_LIMIT } = await import('../usePaletteRecents')
+    vi.resetModules()
+
+    const overLong = Array.from({ length: RECENT_LIMIT + 5 }, (_, i) => `cmd-${i}`)
+    localStorage.setItem(storageKey, JSON.stringify(overLong))
+
+    const { usePaletteRecents } = await import('../usePaletteRecents')
+
+    expect(usePaletteRecents().recentIds.value).toEqual(overLong.slice(0, RECENT_LIMIT))
+  })
+
   it('degrades to an empty list when the storage accessor throws, without raising', async () => {
     const getItem = vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
       throw new Error('storage unavailable')

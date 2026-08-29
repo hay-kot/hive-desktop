@@ -304,6 +304,24 @@ describe('CommandPalette', () => {
     expect(document.activeElement).toBe(wrapper!.find('[data-testid="command-palette-input"]').element)
   })
 
+  // setQuery's sigil interception is a no-op when the sigil enters the scope
+  // that's already active (e.g. typing "@" again while on Go to): no reactive
+  // change, so nothing would re-render the input back to the empty query
+  // without the component forcing it.
+  it('resyncs the input to the query when typing the active scope\'s own sigil on an empty query', async () => {
+    const palette = useCommandPalette()
+    await openPalette()
+    await tabs().find((tab) => tab.attributes('data-scope') === 'goto')!.trigger('click')
+    expect(palette.query.value).toBe('')
+
+    const input = wrapper!.find('[data-testid="command-palette-input"]')
+    await input.setValue('@')
+
+    expect(palette.scope.value).toBe('goto')
+    expect(palette.query.value).toBe('')
+    expect((input.element as HTMLInputElement).value).toBe('')
+  })
+
   it('cycles scope forward and backward with Tab and Shift+Tab', async () => {
     const palette = useCommandPalette()
     await openPalette()
@@ -452,5 +470,44 @@ describe('CommandPalette', () => {
 
     expect(palette.scope.value).toBe('actions')
     expect(displayEntries().map((entry) => entry.text)).not.toContain('Recent')
+  })
+
+  // Navigation walks DISPLAY order (Recent hoisted to the top), not `results`
+  // order — otherwise opening highlights a mid-list row, arrows zig-zag, and
+  // Enter-on-open runs a row the user never saw highlighted.
+  it('highlights the top visible row on open, even though it sorts mid-list in results', async () => {
+    usePaletteRecents().recordRun('feed-desktop')
+    usePaletteRecents().recordRun('profile-personal')
+    await openPalette()
+
+    expect(displayEntries()[0]).toEqual({ header: true, text: 'Recent' })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Switch to personal'])
+  })
+
+  it('walks ArrowDown downward in display order, across the Recent/group boundary', async () => {
+    usePaletteRecents().recordRun('feed-desktop')
+    usePaletteRecents().recordRun('profile-personal')
+    await openPalette()
+
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Switch to personal'])
+
+    await panel().trigger('keydown', { key: 'ArrowDown' })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open desktop feed'])
+
+    // Crosses from Recent into the Feeds group below it.
+    await panel().trigger('keydown', { key: 'ArrowDown' })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Open backend feed'])
+  })
+
+  it('runs the top Recent row on Enter-on-open', async () => {
+    usePaletteRecents().recordRun('feed-desktop')
+    usePaletteRecents().recordRun('profile-personal')
+    await openPalette()
+
+    await panel().trigger('keydown', { key: 'Enter' })
+
+    expect(runPersonal).toHaveBeenCalledTimes(1)
+    expect(runDesktop).not.toHaveBeenCalled()
+    expect(runBackend).not.toHaveBeenCalled()
   })
 })

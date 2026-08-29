@@ -69,6 +69,22 @@ function isWordChar(code: number): boolean {
 }
 
 /**
+ * Lowercases character-by-character rather than the whole string, keeping a
+ * character whose lowercase form isn't length 1 (e.g. İ → i̇) as-is instead.
+ * A length-changing mapping would shift every position after it out of step
+ * with the original string's indices, which `fuzzyMatch`'s positions and
+ * `titleSegments`'s slicing both key off of.
+ */
+function toComparable(s: string): string {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    const lower = s[i].toLowerCase()
+    out += lower.length === 1 ? lower : s[i]
+  }
+  return out
+}
+
+/**
  * Case-insensitive subsequence match. Null when any query character cannot be
  * placed in order. Score rewards, in weight order: whole-prefix, word-start
  * hits, consecutive runs; penalizes gaps. Deterministic ints, no locale work.
@@ -80,8 +96,8 @@ function isWordChar(code: number): boolean {
  */
 export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
   if (!query) return null
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
+  const q = toComparable(query)
+  const t = toComparable(text)
 
   const positions: number[] = []
   let score = 0

@@ -17,7 +17,9 @@ const recentsSerializer = {
   read: (raw: string): string[] => {
     try {
       const parsed: unknown = JSON.parse(raw)
-      return Array.isArray(parsed) && parsed.every((entry) => typeof entry === 'string') ? parsed : []
+      return Array.isArray(parsed) && parsed.every((entry) => typeof entry === 'string')
+        ? parsed.slice(0, RECENT_LIMIT)
+        : []
     } catch {
       return []
     }
