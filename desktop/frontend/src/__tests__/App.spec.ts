@@ -774,6 +774,38 @@ describe('App', () => {
       wrapper.unmount()
     })
 
+    // Regression: a mouse click into a text field is a focusin with no
+    // intervening keystroke, so onWindowFocusIn is the only thing that can
+    // catch it. Before the fix it reset only for a terminal target, so a
+    // pending sequence survived the click and hijacked the field's next
+    // keystroke (dispatching it as the sequence's continuation, or
+    // swallowing it as an unmatched key) instead of letting it type.
+    it('clears the pending sequence when focus moves into an editable target, so typing continues normally', async () => {
+      const wrapper = await mountApp()
+      const kb = useKeybindings()
+      kb.addBinding('palette.toggle', 'g z')
+      const { open: paletteOpen } = useCommandPalette()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const input = document.createElement('input')
+      document.body.append(input)
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }))
+
+      expect(kb.pendingSequence.value).toBeNull()
+
+      const event = new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true })
+      input.dispatchEvent(event)
+
+      expect(paletteOpen.value).toBe(false)
+      expect(event.defaultPrevented).toBe(false)
+      expect(kb.pendingSequence.value).toBeNull()
+
+      input.remove()
+      wrapper.unmount()
+    })
+
     // A discarded sequence start must still fall through to the exact
     // binding on the same combo (Zed's prefix rule: a bound-elsewhere combo
     // stays fully functional even though it also prefixes something longer).
@@ -951,6 +983,33 @@ describe('App', () => {
       await flushPromises()
       expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull() // the chord does close it
 
+      wrapper.unmount()
+    })
+
+    // Regression: the pierce block (terminal.focus-sidebar and friends)
+    // dispatches via runCommand before stepSequence ever runs, so it used to
+    // leave an unrelated pending sequence (and its hint pill) stranded.
+    it('clears the pending sequence when a pierced command dispatches over a focused terminal', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      const kb = useKeybindings()
+      const { focusTree } = stubTerminalTree()
+      const pane = focusedPane()
+
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+      expect(kb.pendingSequence.value).not.toBeNull()
+
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true, bubbles: true, cancelable: true })
+      pane.dispatchEvent(event)
+      await flushPromises()
+
+      expect(focusTree).toHaveBeenCalled() // confirms the pierce path actually fired
+      expect(kb.pendingSequence.value).toBeNull()
+
+      setTerminalTreeHandles(null)
+      pane.remove()
       wrapper.unmount()
     })
   })

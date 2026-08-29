@@ -58,7 +58,9 @@ unaffected by that same check, because by the time either is open, whatever
 got it there already cleared pending. A focused terminal pane owns every key,
 so a sequence neither starts nor survives there: a keydown targeting the pane
 and a `focusin` into one both clear it outright, with no hint pill ever
-showing. `resolve(combo)` stays single-step-only -- it cannot match a
+showing -- the same `focusin` listener clears pending on a focus change into
+an editable target too, since a mouse click there is not a keystroke
+`stepSequence` ever sees. `resolve(combo)` stays single-step-only -- it cannot match a
 sequence's first step -- so the pierce/escape checks in
 `useTerminalWindows.ts` (which resolve through the live keymap to decide what
 reaches a focused pane) can never claim a sequence's leader as one of their

@@ -1100,6 +1100,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     const id = kb.resolve(comboFromEvent(e) ?? '')
     const pierces = !!id && (commandPiercesPane(id) || launcherActionID(id) !== null)
     if (id && pierces && contextActive(catalogById.value.get(id)?.context ?? 'global')) {
+      resetSequence()
       e.preventDefault()
       runCommand(id)
       return
@@ -1147,7 +1148,8 @@ function onGlobalKeydown(e: KeyboardEvent): void {
       // A sequence can only start outside an editable field and outside an
       // overlay. Continuing one already pending is unaffected: by the time
       // either is open, whatever got it there has already cleared pending —
-      // a completed run, an ordinary dispatch below, or the palette watch above.
+      // a completed run, an ordinary dispatch below, the palette watch above,
+      // or a focus change into the field (onWindowFocusIn).
       //
       // A discarded start falls through to the dispatch below rather than
       // returning: the combo may also be a complete binding in its own right
@@ -1181,11 +1183,12 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (dispatchIfActive(id)) e.preventDefault()
 }
 
-// A pane owns every key while it has focus, so a sequence cannot survive a
-// focus change into one even without an intervening keystroke (a mouse click
-// into the pane, or an attach that moves focus programmatically).
+// A pane owns every key while it has focus, and an editable field owns the
+// next keystroke, so a sequence cannot survive a focus change into either
+// even without an intervening keystroke (a mouse click into the field or
+// pane, or a focus change made programmatically).
 function onWindowFocusIn(e: FocusEvent): void {
-  if (isTerminalTarget(e.target)) resetSequence()
+  if (isTerminalTarget(e.target) || isEditableTarget(e.target)) resetSequence()
 }
 
 function isHistoryMouseButton(e: MouseEvent): boolean {
