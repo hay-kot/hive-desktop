@@ -423,7 +423,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
-	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
+	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Terminals, a.Sessions, a.actionStore)
 	a.Canvas = newCanvasService(canvas.NewStore(cfg.Paths.AgentWorkspacesDir), a.Store,
 		func(session int64) {
 			a.Events.Publish(a.ctx, events.CanvasUpdated{Session: session})

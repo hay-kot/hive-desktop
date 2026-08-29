@@ -1,6 +1,6 @@
 # Quick terminal launchers are session-scoped
 
-- **Status:** proposed
+- **Status:** proposed; the directory a launcher resolves is amended by [ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is](2026-08-29-a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is.md) — it is the terminal's active pane rather than the session's checkout, which is what makes a launcher work on the scratch terminal and on a pinned chat
 - **Date:** 2026-08-05
 
 ## Context

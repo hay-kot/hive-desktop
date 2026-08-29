@@ -69,14 +69,14 @@ onMounted(async () => {
       <TextField ref="idRef" v-model="launcher.id" label="ID" :disabled="!isNew" testid="launcher-id" />
       <TextField ref="labelRef" v-model="launcher.label" label="Label" testid="launcher-label" />
       <TextField v-model="launcher.command" label="Command" monospace testid="launcher-command" />
-      <TextField v-model="launcher.cwd" label="Working directory (optional)" placeholder="the session you are looking at" testid="launcher-cwd" />
+      <TextField v-model="launcher.cwd" label="Working directory (optional)" placeholder="the terminal you are looking at" testid="launcher-cwd" />
       <SelectField label="Icon" :model-value="launcher.icon ?? ''" :options="iconOptions" testid="launcher-icon" @update:model-value="launcher.icon = $event" />
 
       <p class="text-[11.5px] leading-relaxed text-text-3">
         Runs through a login shell, so your PATH and aliases resolve it. Leave the
-        working directory empty to open in the checkout of the session you are
-        looking at — it is then offered only while a session is open. Set one to
-        reach it from anywhere.
+        working directory empty to open where the terminal you are looking at is,
+        wherever its prompt has been taken — it is then offered only while a
+        terminal is open. Set one to reach it from anywhere.
       </p>
       <p class="text-[11.5px] leading-relaxed text-text-3" data-testid="launcher-shortcut">
         <template v-if="shortcut()">Bound to <kbd class="rounded border border-card px-1 py-0.5 font-mono">{{ shortcut() }}</kbd> — rebind it in Settings ▸ Keyboard.</template>

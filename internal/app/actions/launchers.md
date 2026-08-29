@@ -1,6 +1,6 @@
 A **launcher** opens the pop-up terminal straight into a program instead of a
-bare shell: `lazygit` in the checkout of the session you are looking at, `btop`,
-a test watcher. Something you want on screen for as long as you are using it,
+bare shell: `lazygit` where the terminal you are looking at is, `btop`, a test
+watcher. Something you want on screen for as long as you are using it,
 and gone afterwards.
 
 Launchers are the `launchers:` list in this same file, beside `actions:`. They
@@ -29,11 +29,13 @@ launchers:
 - `label` (required) — the name shown in the command palette.
 - `command` (required) — the command line the terminal opens into.
 - `cwd` — pin the launcher to one directory (a leading `~` is expanded). Omit it
-  to follow the session you are looking at, which is what makes `lazygit` open
-  on that session's checkout. A launcher with no `cwd` is **session-scoped**: it
-  is offered only while a terminal session is open, and it is not in the command
-  palette or dispatched from its shortcut anywhere else. Pin a `cwd` for a
-  launcher you want to reach from anywhere.
+  to follow the terminal you are looking at, which is what makes `lazygit` open
+  on the repository at its prompt — a `cd` into another checkout takes the
+  launcher with it. Any terminal answers, including the ones under **Terminals**
+  and a pinned chat, so a launcher is not limited to a session. A launcher with
+  no `cwd` is **session-scoped**: it is offered only while a terminal is open,
+  and it is not in the command palette or dispatched from its shortcut anywhere
+  else. Pin a `cwd` for a launcher you want to reach from anywhere.
 - `icon` — the palette glyph: `terminal` (the default), `git-branch`,
   `git-compare`, `folder`, `file-text`, `search`, `database`, `gauge`,
   `activity`, `flask-conical`, `hammer`, `container`, `cloud`, `bug`, `zap`,

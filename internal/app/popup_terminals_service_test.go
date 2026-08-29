@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,10 +20,29 @@ func newPopupHarness(t *testing.T, manager *fakeSessionManager) *PopupTerminalsS
 
 func newPopupHarnessWithCatalog(t *testing.T, manager *fakeSessionManager, catalog *actions.ActionStore) *PopupTerminalsService {
 	t.Helper()
+	return newPopupHarnessIn(t, manager, catalog, &fakeTerminalDirs{})
+}
+
+func newPopupHarnessIn(t *testing.T, manager *fakeSessionManager, catalog *actions.ActionStore, terminals terminalWorkingDirectory) *PopupTerminalsService {
+	t.Helper()
 	sessions := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 	pty := ptyterm.NewManager(ptyterm.ManagerOptions{Shell: []string{"/bin/sh"}})
 	t.Cleanup(func() { _ = pty.Stop(t.Context()) })
-	return newPopupTerminalsService(pty, sessions, catalog)
+	return newPopupTerminalsService(pty, terminals, sessions, catalog)
+}
+
+// fakeTerminalDirs stands in for tmux: a slug it is holding answers with the
+// directory that terminal's pane is in, and one it is not holding is a terminal
+// that is not running.
+type fakeTerminalDirs struct {
+	dirs map[string]string
+}
+
+func (f *fakeTerminalDirs) WorkingDirectory(_ context.Context, slug string) (string, error) {
+	if dir, ok := f.dirs[slug]; ok {
+		return dir, nil
+	}
+	return "", Errorf(KindNotFound, "session %q is not running", slug)
 }
 
 // popupCatalog writes an actions.yml and returns a store over it, so the
@@ -37,8 +57,9 @@ func popupCatalog(t *testing.T, yaml string) *actions.ActionStore {
 	return store
 }
 
-// Where a terminal opens is the session domain's answer, not this service's:
-// the checkout is what makes a terminal for a session mean anything.
+// A slug whose terminal is not running still resolves: the session's checkout
+// is where the pop-up opens, which is what keeps a launch working from a row
+// whose tmux session has not been started yet.
 func TestPopupTerminalsService_OpensInTheSessionCheckout(t *testing.T) {
 	manager, detail := activeSession()
 	checkout := t.TempDir()
@@ -113,9 +134,43 @@ launchers:
     command: $EDITOR .
 `
 
-// A launcher without a cwd follows the session, which is what makes one
-// shortcut mean "lazygit here" wherever you are.
-func TestPopupTerminalsService_LauncherFollowsTheSessionCheckout(t *testing.T) {
+// A launcher without a cwd opens where its terminal is, which is what makes one
+// shortcut mean "lazygit here" wherever you are (ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
+func TestPopupTerminalsService_LauncherOpensWhereTheTerminalIs(t *testing.T) {
+	manager, detail := activeSession()
+	checkout := t.TempDir()
+	elsewhere := t.TempDir()
+	manager.details["s1"] = dispatch.SessionDetail{
+		ID: detail.ID, Name: detail.Name, Slug: detail.Slug, Repo: detail.Repo, State: detail.State, Path: checkout,
+	}
+	terminals := &fakeTerminalDirs{dirs: map[string]string{"review-81": elsewhere}}
+	svc := newPopupHarnessIn(t, manager, popupCatalog(t, launcherCatalogYAML), terminals)
+
+	term, err := svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", SessionSlug: "review-81"})
+	require.NoError(t, err)
+	require.Equal(t, elsewhere, term.Dir, "the pane the user is looking at, not the checkout it started in")
+	require.Equal(t, "lazygit", term.Command)
+}
+
+// The scratch terminal and a pinned chat are tmux sessions with no hive record,
+// and a launcher works on them for the same reason it follows a cd: the
+// directory comes from tmux, which knows all three the same way.
+func TestPopupTerminalsService_LauncherOpensOnATerminalHiveKnowsNothingAbout(t *testing.T) {
+	manager, _ := activeSession()
+	dir := t.TempDir()
+	terminals := &fakeTerminalDirs{dirs: map[string]string{ScratchSlug: dir}}
+	svc := newPopupHarnessIn(t, manager, popupCatalog(t, launcherCatalogYAML), terminals)
+
+	term, err := svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", SessionSlug: ScratchSlug})
+	require.NoError(t, err)
+	require.Equal(t, dir, term.Dir)
+	require.Equal(t, "lazygit", term.Command)
+}
+
+// A terminal that is not running has no pane to read, and a hive session still
+// has its checkout — so a launcher fired at a stopped session opens there
+// rather than refusing.
+func TestPopupTerminalsService_LauncherFallsBackToTheCheckout(t *testing.T) {
 	manager, detail := activeSession()
 	checkout := t.TempDir()
 	manager.details["s1"] = dispatch.SessionDetail{
@@ -126,13 +181,12 @@ func TestPopupTerminalsService_LauncherFollowsTheSessionCheckout(t *testing.T) {
 	term, err := svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", SessionSlug: "review-81"})
 	require.NoError(t, err)
 	require.Equal(t, checkout, term.Dir)
-	require.Equal(t, "lazygit", term.Command)
 }
 
 // The launch a session-scoped launcher cannot serve, refused here rather than
 // opened in the home directory: `lazygit` with no repository under it starts
 // fine and fails immediately, which is the whole bug (ADR quick-terminal-launchers-are-session-scoped).
-func TestPopupTerminalsService_LauncherWithoutASessionIsRefused(t *testing.T) {
+func TestPopupTerminalsService_LauncherWithoutATerminalIsRefused(t *testing.T) {
 	manager, detail := activeSession()
 	manager.details["s1"] = dispatch.SessionDetail{
 		ID: detail.ID, Name: detail.Name, Slug: detail.Slug, Repo: detail.Repo, State: detail.State, Path: t.TempDir(),
@@ -147,8 +201,8 @@ func TestPopupTerminalsService_LauncherWithoutASessionIsRefused(t *testing.T) {
 	_, err = svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", Dir: t.TempDir()})
 	require.Equal(t, KindInvalid, KindOf(err))
 
-	// A slug that named a session once is not a session now, and the answer is
-	// that it is gone rather than a terminal somewhere else.
+	// A slug that names neither a running terminal nor a session is gone, and
+	// the answer is that rather than a terminal somewhere else.
 	_, err = svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", SessionSlug: "deleted-yesterday"})
 	require.Equal(t, KindNotFound, KindOf(err))
 
@@ -188,7 +242,7 @@ func TestPopupTerminalsService_ListsLaunchersInCatalogOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []PopupLauncher{
 		// A configured cwd is the difference between the two, so it is what the
-		// menu is told: one needs a session, the other carries its own directory.
+		// menu is told: one needs a terminal, the other carries its own directory.
 		{ID: "lazygit", Label: "lazygit", Icon: "git-branch", RequiresSession: true},
 		{ID: "dotfiles", Label: "Edit dotfiles"},
 	}, launchers, "the launchers list, in file order; the actions beside it are not launchers")

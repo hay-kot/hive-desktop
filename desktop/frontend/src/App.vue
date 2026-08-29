@@ -839,8 +839,8 @@ const kb = useKeybindings()
 const onScreenSessionSlug = computed(() =>
   (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
 
-// The pop-up terminal opens in the checkout of whichever session is on screen,
-// and in the user's home when none is (ADR ephemeral-popup-terminals). The panel is mounted on first
+// The pop-up terminal opens where the terminal on screen is, and in the user's
+// home when none is (ADR ephemeral-popup-terminals). The panel is mounted on first
 // use and stays mounted: hiding it is a view change, not the end of the shell.
 const popupTerminal = usePopupTerminal()
 const popupTerminalMounted = ref(false)
@@ -851,11 +851,11 @@ function togglePopupTerminal(): void {
 }
 
 // A launcher is the pop-up opened straight into a program, and unless it pins
-// itself to a directory it opens in the session on screen — which is what makes
-// one chord mean "lazygit here". Outside a session there is nothing for it to
-// open in, so the launch is not attempted: the core refuses it anyway, and a
-// pop-up that appeared only to report that is worse than one that never opened
-// (ADR quick-terminal-launchers-are-session-scoped).
+// itself to a directory it opens where the terminal on screen is — which is what
+// makes one chord mean "lazygit here". Outside terminal mode there is nothing
+// for it to open in, so the launch is not attempted: the core refuses it anyway,
+// and a pop-up that appeared only to report that is worse than one that never
+// opened (ADR quick-terminal-launchers-are-session-scoped).
 function toggleLauncher(actionID: string): void {
   const command = commandById.value.get(launcherCommandID(actionID))
   if (command && !contextActive(command.context)) return
@@ -969,8 +969,8 @@ function contextActive(context: CommandContext): boolean {
     case 'feed': return feedNavActive.value
     case 'terminal': return terminalActive.value
     // Terminal mode with nothing attached is the session picker, and a command
-    // that runs in a session's checkout has no more to work with there than it
-    // does on the feed.
+    // that runs where a terminal is has no more to work with there than it does
+    // on the feed. Any attached slug qualifies, hive session or not.
     case 'terminal-session': return terminalActive.value && !!onScreenSessionSlug.value
     case 'agents': return agentsActive.value
     case 'global': return true
@@ -1086,8 +1086,8 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // inside the window being left.
     //
     // A launcher pierces for the pop-up's reason without being in the static
-    // catalog, and answers to the context it carries there: one that opens in a
-    // session's checkout is not dispatched outside a session, so its chord
+    // catalog, and answers to the context it carries there: one that opens where
+    // its terminal is is not dispatched with no terminal attached, so its chord
     // falls through to whatever else would have taken it rather than opening a
     // terminal the program inside cannot use (ADR quick-terminal-launchers-are-session-scoped).
     const id = kb.resolve(comboFromEvent(e) ?? '')
