@@ -1474,7 +1474,13 @@ And Go to is global: a row meant to be reachable from anywhere registers at
 the App level (`useAppPaletteRows`) off a module-scoped source
 (`useTerminalSessions`, `useAttachedTerminalWindows`, `useAgentSessionsAll`),
 never inside a lazily-mounted mode component, so it exists before that mode
-has ever mounted.
+has ever mounted. A row's title and group follow one more rule: a command row
+keeps its catalog verb title unchanged, since Settings › Keyboard reads the
+same string, while a dynamic object row (a feed, a chat, a session, a window,
+a settings section) is titled with the object's own name and grouped under
+its real container — rendering draws the nesting (the group header, or a
+`Container ›` prefix once a query narrows past it) rather than the title
+encoding a path or a verb (ADR palette-rows-name-objects-and-rendering-draws-the-path).
 
 ### Agent workspaces
 
