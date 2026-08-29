@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
-import KeybindingSettingsView from '../KeybindingSettingsView.vue'
+import KeybindingSettingsView, { RECORDER_COMMIT_MS } from '../KeybindingSettingsView.vue'
 import { useKeybindings } from '../../composables/useKeybindings'
 import { requestedEditorFilter } from '../../keybindings/keymapRows'
 
@@ -11,6 +11,10 @@ beforeEach(() => {
   kb.clearAll()
   kb.recording.value = false
   requestedEditorFilter.value = null
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 function row(wrapper: ReturnType<typeof mount>, id: string) {
@@ -47,12 +51,18 @@ describe('KeybindingSettingsView', () => {
     expect(rows[0].attributes('data-command-id')).toBe('feed.refresh')
   })
 
-  it('records a new binding from the next keystroke', async () => {
+  it('records a single chord as before, once the pause elapses (regression)', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(KeybindingSettingsView)
     await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
     expect(kb.recording.value).toBe(true)
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'h' }))
+    await nextTick()
+    expect(kb.combosFor('window.hide')).toEqual([]) // pending, not yet committed
+    expect(kb.recording.value).toBe(true)
+
+    vi.advanceTimersByTime(RECORDER_COMMIT_MS)
     await nextTick()
 
     expect(kb.combosFor('window.hide')).toEqual(['h'])
@@ -60,9 +70,48 @@ describe('KeybindingSettingsView', () => {
     expect(row(wrapper, 'window.hide').text()).toContain('H')
   })
 
-  it('cancels recording on Escape without binding anything', async () => {
+  it('captures a two-step sequence and commits it as one binding on the pause', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(KeybindingSettingsView)
     await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+    await nextTick()
+    expect(kb.combosFor('window.hide')).toEqual([]) // first step pending
+    expect(row(wrapper, 'window.hide').get('[data-testid="keybinding-capture"]').text()).toContain('G')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }))
+    await nextTick()
+    expect(kb.combosFor('window.hide')).toEqual([]) // second step still pending
+
+    vi.advanceTimersByTime(RECORDER_COMMIT_MS)
+    await nextTick()
+
+    expect(kb.combosFor('window.hide')).toEqual(['g x'])
+    expect(kb.recording.value).toBe(false)
+  })
+
+  it('clicking the capture chip commits immediately, without waiting for the pause', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(KeybindingSettingsView)
+    await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+    await nextTick()
+
+    await row(wrapper, 'window.hide').get('[data-testid="keybinding-capture"]').trigger('click')
+
+    expect(kb.combosFor('window.hide')).toEqual(['g'])
+    expect(kb.recording.value).toBe(false)
+  })
+
+  it('cancels recording on Escape mid-sequence without binding anything', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(KeybindingSettingsView)
+    await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
+    await nextTick()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await nextTick()
@@ -73,6 +122,7 @@ describe('KeybindingSettingsView', () => {
   })
 
   it('ignores a lone modifier and keeps waiting for the full combo', async () => {
+    vi.useFakeTimers()
     const wrapper = mount(KeybindingSettingsView)
     await row(wrapper, 'window.hide').get('[data-testid="keybinding-add"]').trigger('click')
 
@@ -82,6 +132,9 @@ describe('KeybindingSettingsView', () => {
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', metaKey: true }))
     await nextTick()
+    vi.advanceTimersByTime(RECORDER_COMMIT_MS)
+    await nextTick()
+
     expect(kb.combosFor('window.hide')).toEqual(['mod+p'])
     expect(kb.recording.value).toBe(false)
   })

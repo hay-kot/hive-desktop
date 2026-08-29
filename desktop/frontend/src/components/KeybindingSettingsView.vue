@@ -1,9 +1,16 @@
+<script lang="ts">
+/** How long the recorder waits after a keystroke before committing. */
+export const RECORDER_COMMIT_MS = 1000
+</script>
+
 <script setup lang="ts">
 // Obsidian-style keybindings editor: every bindable command from the catalog,
 // grouped and filterable, each with its current bindings as removable chips, a
-// recorder to add a new combo, and a reset-to-default. Recording captures the
-// next keystroke on the window in the capture phase and suppresses it from the
-// global dispatcher (belt: kb.recording; suspenders: stopPropagation).
+// recorder to add a new combo, and a reset-to-default. Recording captures
+// keystrokes on the window in the capture phase, accumulating them into a
+// sequence (Esc discards it; a pause or clicking the capture chip commits it),
+// and suppresses each keystroke from the global dispatcher (belt:
+// kb.recording; suspenders: stopPropagation).
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import IconPlus from '~icons/lucide/plus'
 import IconRotateCcw from '~icons/lucide/rotate-ccw'
@@ -14,7 +21,7 @@ import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import EmptyState from './settings/EmptyState.vue'
 import { commands } from '../keybindings/catalog'
-import { comboFromEvent, useKeybindings } from '../composables/useKeybindings'
+import { comboFromEvent, formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { requestedEditorFilter, useKeymapRows, type KeymapRow } from '../keybindings/keymapRows'
 
 const kb = useKeybindings()
@@ -61,18 +68,50 @@ function conflictTitles(id: string, combo: string): string[] {
 
 // ── Combo recording ───────────────────────────────────────────────────────────
 
+const pendingSteps = ref<string[]>([])
+
+// One timer at a time: each captured step re-arms it, so it always measures
+// the pause since the *last* keystroke, not the first.
+let commitTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelCommitTimer(): void {
+  if (commitTimer === null) return
+  clearTimeout(commitTimer)
+  commitTimer = null
+}
+
+function armCommitTimer(): void {
+  cancelCommitTimer()
+  commitTimer = setTimeout(commitCapture, RECORDER_COMMIT_MS)
+}
+
 function startCapture(id: string): void {
-  if (capturingId.value) endCapture()
+  if (capturingId.value) commitCapture() // ending capture any other way still saves its progress
   capturingId.value = id
+  pendingSteps.value = []
   kb.recording.value = true
   window.addEventListener('keydown', onCaptureKeydown, true) // capture phase
 }
 
-function endCapture(): void {
-  if (!capturingId.value) return
+function stopCapturing(): void {
+  cancelCommitTimer()
   capturingId.value = null
+  pendingSteps.value = []
   kb.recording.value = false
   window.removeEventListener('keydown', onCaptureKeydown, true)
+}
+
+/** Pause elapsed, chip clicked, or capture ended some other way: save what's pending. */
+function commitCapture(): void {
+  const id = capturingId.value
+  const steps = pendingSteps.value
+  stopCapturing()
+  if (id && steps.length) kb.addBinding(id, steps.join(' '))
+}
+
+/** Esc: discard the pending steps: nothing is bound. */
+function cancelCapture(): void {
+  stopCapturing()
 }
 
 function onCaptureKeydown(e: KeyboardEvent): void {
@@ -81,13 +120,13 @@ function onCaptureKeydown(e: KeyboardEvent): void {
   e.preventDefault()
   e.stopPropagation() // never reaches the global dispatcher or SettingsView's Escape
   if (e.key === 'Escape') {
-    endCapture()
+    cancelCapture()
     return
   }
   const combo = comboFromEvent(e)
   if (!combo) return // lone modifier held — keep waiting for the full combo
-  kb.addBinding(id, combo)
-  endCapture()
+  pendingSteps.value = [...pendingSteps.value, combo]
+  armCommitTimer()
 }
 
 function removeCombo(id: string, combo: string): void {
@@ -95,11 +134,13 @@ function removeCombo(id: string, combo: string): void {
 }
 
 function reset(id: string): void {
-  if (capturingId.value === id) endCapture()
+  // Resetting wipes the row's overrides outright, so a capture in progress on
+  // it is moot: cancel rather than save a binding the reset would erase anyway.
+  if (capturingId.value === id) cancelCapture()
   kb.resetToDefault(id)
 }
 
-onUnmounted(endCapture)
+onUnmounted(commitCapture)
 </script>
 
 <template>
@@ -161,8 +202,16 @@ onUnmounted(endCapture)
 
             <span v-if="!row.combos.length && capturingId !== row.id" class="text-[11px] text-text-4">Blank</span>
 
-            <span v-if="capturingId === row.id" class="capture-chip" data-testid="keybinding-capture">
-              Press a key…&nbsp;<span class="text-text-4">Esc to cancel</span>
+            <span
+              v-if="capturingId === row.id"
+              class="capture-chip"
+              data-testid="keybinding-capture"
+              @click="commitCapture"
+            >
+              <kbd v-for="(step, i) in pendingSteps" :key="i" class="keycap capture-keycap">{{ formatCombo(step) }}</kbd>
+              <span v-if="pendingSteps.length">click or pause to save,&nbsp;</span>
+              <span v-else>Press a key…&nbsp;</span>
+              <span class="text-text-4">Esc to cancel</span>
             </span>
 
             <button
@@ -229,8 +278,10 @@ onUnmounted(endCapture)
 .capture-chip {
   display: inline-flex;
   align-items: center;
-  height: 25px;
-  padding: 0 10px;
+  gap: 5px;
+  min-height: 25px;
+  padding: 2px 10px 2px 6px;
+  cursor: pointer;
   border: 1px dashed var(--color-accent);
   border-radius: 6px;
   background: var(--color-chip);
@@ -238,6 +289,7 @@ onUnmounted(endCapture)
   font-size: 12px;
   color: var(--color-text);
 }
+.capture-keycap { border-color: var(--color-accent); }
 .icon-btn {
   display: inline-flex;
   align-items: center;
