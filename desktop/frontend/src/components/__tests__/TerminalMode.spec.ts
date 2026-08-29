@@ -11,6 +11,7 @@ import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows
 import { setTerminalShowStatusBar } from '../../composables/useTerminalStatusBar'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { resetTerminalPinnedChatsForTests, useTerminalPinnedChats } from '../../composables/useTerminalPinnedChats'
+import { resetAttachedTerminalWindowsForTests } from '../../composables/useAttachedTerminalWindows'
 import { useCommandPalette } from '../../composables/useCommands'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
@@ -228,6 +229,7 @@ describe('TerminalMode', () => {
     resetAgentWorkspacesForTests()
     resetAgentSessionsAllForTests()
     resetTerminalPinnedChatsForTests()
+    resetAttachedTerminalWindowsForTests()
     // The bar's setting is a module singleton, so a test that turns it on would
     // otherwise leave it on for the rest of the file.
     setTerminalShowStatusBar(false)
@@ -2515,9 +2517,10 @@ describe('TerminalMode', () => {
   })
 
   // ── Command palette library ────────────────────────────────────────────────
-  // The mode's objects, offered where the hub's palette offers its feeds: the
-  // attached session's windows and operations under the session's own name,
-  // and an attach row for every other session.
+  // The attached session's own operations, under the session's own name.
+  // Window and attach rows are App-level now (useAppPaletteRows): they name
+  // objects a fresh launch must list before this async component has ever
+  // mounted.
 
   describe('command palette library', () => {
     function paletteResults() {
@@ -2569,35 +2572,28 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    it('lists the attached session: its windows in strip order, then its operations', async () => {
+    // Window and attach rows moved to App level (useAppPaletteRows), so this
+    // component's own library is now just the attached session's operations.
+    it('lists the attached session\'s operations, under the session\'s own name', async () => {
       const session = fakeSession()
       mocks.useTerminalWindows.mockReturnValue(session)
-      const { wrapper, router } = await mountAt('/terminal/hive-fix-parser')
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
       const results = paletteResults()
-
-      const windows = results.value.filter((cmd) => cmd.id.startsWith('terminal:window:'))
-      expect(windows.map((cmd) => cmd.title)).toEqual(['Go to window: agent', 'Go to window: shell'])
-      expect(windows[0].group).toBe('fix the parser')
 
       const byId = new Map(results.value.map((cmd) => [cmd.id, cmd]))
       for (const id of ['terminal:session:kill', 'terminal:session:detail', 'terminal:session:rename', 'terminal:session:recycle', 'terminal:session:delete']) {
         expect(byId.has(id), id).toBe(true)
         expect(byId.get(id)?.group).toBe('fix the parser')
+        expect(byId.get(id)?.scope).toBe('actions')
       }
       // Running already — nothing to start.
       expect(byId.has('terminal:session:start')).toBe(false)
 
-      // Every other attachable session, never the attached one.
-      expect(byId.has('terminal:attach:hive-bump-deps')).toBe(true)
-      expect(byId.has('terminal:attach:Scratch')).toBe(true)
-      expect(byId.has('terminal:attach:hive-fix-parser')).toBe(false)
-
-      byId.get('terminal:window:@2')!.run()
-      expect(session.select).toHaveBeenCalledWith('@2')
-
-      byId.get('terminal:attach:hive-bump-deps')!.run()
-      await flushPromises()
-      expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+      // No window or attach rows — those are App.vue's now (the fake
+      // session's tabs are @1/@2, and hive-bump-deps is the other fixture).
+      expect(byId.has('terminal:window:@1')).toBe(false)
+      expect(byId.has('terminal:window:@2')).toBe(false)
+      expect(byId.has('terminal:attach:hive-bump-deps')).toBe(false)
 
       wrapper.unmount()
     })
@@ -2647,14 +2643,24 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    it('offers only attach rows with nothing attached, and withdraws everything off-screen', async () => {
+    it('contributes nothing with no session attached', async () => {
       const { wrapper } = await mountAt()
       const results = paletteResults()
 
-      const ids = results.value.map((cmd) => cmd.id)
-      expect(ids).toContain('terminal:attach:hive-fix-parser')
-      expect(ids).toContain('terminal:attach:hive-bump-deps')
-      expect(ids.some((id) => id.startsWith('terminal:session:') || id.startsWith('terminal:window:'))).toBe(false)
+      // Attach rows live at App level now, so an unattached mode has nothing
+      // of its own to offer.
+      expect(results.value.some((cmd) => cmd.id.startsWith('terminal:'))).toBe(false)
+
+      wrapper.unmount()
+    })
+
+    it('withdraws its palette rows entirely off-screen', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+      const results = paletteResults()
+
+      expect(results.value.some((cmd) => cmd.id.startsWith('terminal:session:'))).toBe(true)
 
       // Mounted but hidden behind another mode: the library must not follow.
       await wrapper.setProps({ active: false })

@@ -19,6 +19,7 @@ import IconSearch from '~icons/lucide/search'
 import IconSquarePlus from '~icons/lucide/square-plus'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
+import type { CommandScope } from '../palette/scopes'
 
 // The single declarative source of truth for *bindable* commands — the stable
 // app actions a user can rebind from Settings ▸ Keybindings and that also seed
@@ -64,6 +65,8 @@ export interface BindableCommand {
   /** Canonical default combos; `[]` = bindable but unbound. */
   defaultCombos: string[]
   context: CommandContext
+  /** Palette scope for the seeded row. Default 'actions'. */
+  scope?: CommandScope
   /** Omit from the command palette (still bindable + listed in settings). */
   paletteHidden?: boolean
   /**
@@ -371,6 +374,7 @@ export const commandCatalog: BindableCommand[] = [
     // inside a session, and a user who rebinds it to an alt chord gets nothing
     // through terminalEscapeCombo.
     piercesPane: true,
+    scope: 'goto',
   },
   {
     id: 'window.hide',

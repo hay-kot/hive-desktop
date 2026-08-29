@@ -11,6 +11,9 @@ import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
+import { resetAttachedTerminalWindowsForTests } from '../composables/useAttachedTerminalWindows'
+import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
+import { resetAgentSessionsAllForTests } from '../composables/useAgentSessionsAll'
 import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
 import { resetTasksForTests, useTasks } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
@@ -307,6 +310,9 @@ describe('App', () => {
     useKeybindings().clearAll()
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
+    resetAttachedTerminalWindowsForTests()
+    resetTerminalPinnedChatsForTests()
+    resetAgentSessionsAllForTests()
     resetAgentWorkspacesForTests()
     resetTasksForTests()
     vi.clearAllMocks()
@@ -617,11 +623,14 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  // The palette is scoped to where the user stands: the hub's objects (feeds,
-  // profiles, flow nodes, themes) and the feed commands drop out of the Code
-  // view, the terminal commands drop out of the hub, and the mode jumps cover
-  // the navigation the hidden rows used to carry.
-  it('filters palette rows by mode: hub objects vanish in Code view, terminal rows on the feed', async () => {
+  // The palette is scoped to where the user stands, but only for what is
+  // actually tied to the hub view: the feed-context catalog command and the
+  // profile-bound flow/action rows drop out of the Code view, while the hub's
+  // own Go-to objects (feeds, Trash, profiles, themes, settings) now reach
+  // across every mode (#306) — their run()s already land in the hub from
+  // anywhere. The terminal commands still drop out of the hub, and the mode
+  // jumps cover the navigation.
+  it('filters palette rows by mode: hub-only actions vanish in Code view, terminal rows on the feed', async () => {
     const { wrapper, router } = await mountAppWithRouter()
     const { results, query } = useCommandPalette()
     query.value = ''
@@ -638,17 +647,22 @@ describe('App', () => {
     await flushPromises()
 
     ids = results.value.map((cmd) => cmd.id)
-    expect(ids).not.toContain('feed:personal/desktop')
-    expect(ids).not.toContain('view:trash')
+    // Still present: the hub's Go-to objects, reachable from Code now too.
+    expect(ids).toContain('feed:personal/desktop')
+    expect(ids).toContain('view:trash')
+    expect(ids).toContain('profile:personal')
+    expect(ids.filter((id) => id.startsWith('theme:')).length).toBeGreaterThan(0)
+    expect(ids.some((id) => id.startsWith('settings:'))).toBe(true)
+    expect(ids).toContain('mode:hub')
+    // Still absent: the feed-context catalog command and the hub-only actions.
+    expect(ids).not.toContain('feed.refresh')
     expect(ids).not.toContain('flow:edit')
     expect(ids).not.toContain('flow:node:src')
-    expect(ids).not.toContain('feed.refresh')
-    expect(ids.filter((id) => id.startsWith('theme:'))).toEqual([])
-    expect(ids.filter((id) => id.startsWith('profile:'))).toEqual([])
+    expect(ids).not.toContain('profile:new')
+    expect(ids.some((id) => id.startsWith('item:action:'))).toBe(false)
+    expect(ids).not.toContain('mode:terminal')
     expect(ids).toContain('terminal.focus-sidebar')
     expect(ids).toContain('session.new')
-    expect(ids).toContain('mode:hub')
-    expect(ids).not.toContain('mode:terminal')
 
     wrapper.unmount()
   })

@@ -49,6 +49,7 @@ import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { sessionRepository, terminalSessionGroups, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalPinnedChats } from '../composables/useTerminalPinnedChats'
 import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
+import { setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
@@ -66,7 +67,6 @@ import { createTerminalClient, getTerminalEndpoint, type WindowForeground, type 
 import { appErrorMessage } from '../lib/appError'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
-import { terminalWindowCommandID } from '../keybindings/catalog'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import { OpenSessionInEditor, RevealSession } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
@@ -947,12 +947,14 @@ function relativeWindow(delta: number): TerminalWindowTab | undefined {
   return tabs[(at + delta + tabs.length) % tabs.length]
 }
 
-// The Code view's palette library: the attached session's windows and
-// operations under the session's own name, then every other session as an
-// attach row — the mode's objects, the way the hub's palette lists its feeds.
-// Registered here because everything it acts on lives in this component, and
-// gated on `active` inside the getter: the mode is mounted once and only
-// hidden, so scope disposal never fires on a trip to the hub.
+// The Code view's palette library: the attached session's own operations,
+// under the session's own name. Window and attach rows are registered at App
+// level instead (useAppPaletteRows), since a fresh launch has to be able to
+// list a session or its windows before this async component has ever
+// mounted — a row registered here cannot be global. What is left here acts on
+// state that lives in this component, and is gated on `active` inside the
+// getter: the mode is mounted once and only hidden, so scope disposal never
+// fires on a trip to the hub.
 useCommands(() => {
   if (!props.active) return []
   const cmds: Command[] = []
@@ -960,19 +962,6 @@ useCommands(() => {
   const attached = attachedRow.value
   if (attached) {
     const group = attached.name
-    windowRowsFor(attached).forEach((win, index) => {
-      cmds.push({
-        id: `terminal:window:${win.windowId}`,
-        title: `Go to window: ${win.name}`,
-        group,
-        order: -3,
-        keywords: ['window', 'tab', 'jump', 'switch'],
-        icon: IconTerminal,
-        hint: formatCombo(combosFor(terminalWindowCommandID(index + 1))[0] ?? ''),
-        run: () => openTreeWindow(attached, win),
-      })
-    })
-
     const hive = isHiveSession(attached)
     if ((hive && attached.state === 'active') || isScratch(attached)) {
       if (!rowRunning(attached)) {
@@ -981,6 +970,7 @@ useCommands(() => {
           title: isScratch(attached) ? 'Start terminal' : 'Start session',
           group,
           order: -3,
+          scope: 'actions',
           keywords: ['session', 'run', 'launch'],
           icon: IconPlay,
           run: () => void startSession(attached.slug),
@@ -991,6 +981,7 @@ useCommands(() => {
         title: 'Kill terminal…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session', 'stop'],
         icon: IconSquare,
         run: () => requestKill(attached),
@@ -1002,6 +993,7 @@ useCommands(() => {
         title: 'Session details…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session', 'info'],
         icon: IconInfo,
         run: () => void openSessionDetail(attached),
@@ -1010,6 +1002,7 @@ useCommands(() => {
         title: 'Rename session…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session'],
         icon: IconPencil,
         run: () => requestRename(attached),
@@ -1020,6 +1013,7 @@ useCommands(() => {
           title: 'Recycle session…',
           group,
           order: -3,
+          scope: 'actions',
           keywords: ['session', 'reset'],
           icon: IconRecycle,
           run: () => void requestRecycle(attached),
@@ -1030,6 +1024,7 @@ useCommands(() => {
         title: 'Delete session…',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['session', 'remove'],
         icon: IconTrash,
         run: () => void requestDelete(attached),
@@ -1041,6 +1036,7 @@ useCommands(() => {
           title: entry.label,
           group,
           order: -3,
+          scope: 'actions',
           keywords: ['session', 'action'],
           iconName: entry.iconName,
           iconColor: entry.iconColor,
@@ -1060,6 +1056,7 @@ useCommands(() => {
             title: entry.label,
             group,
             order: -3,
+            scope: 'actions',
             keywords: ['window', 'action', activeWindow.name],
             iconName: entry.iconName,
             iconColor: entry.iconColor,
@@ -1075,6 +1072,7 @@ useCommands(() => {
         title: 'Open in Chats',
         group,
         order: -3,
+        scope: 'goto',
         keywords: ['chat', 'chats', 'agents'],
         icon: IconMessagesSquare,
         run: () => openChatInAgents(attached),
@@ -1083,6 +1081,7 @@ useCommands(() => {
         title: 'Unpin from Code',
         group,
         order: -3,
+        scope: 'actions',
         keywords: ['chat', 'pin'],
         icon: IconPinOff,
         run: () => unpinSlug(attached.slug),
@@ -1090,24 +1089,31 @@ useCommands(() => {
     }
   }
 
-  for (const group of sessionGroups.value) {
-    for (const row of group.sessions) {
-      if (row.slug === activeSlug.value) continue
-      cmds.push({
-        id: `terminal:attach:${row.slug}`,
-        title: `Attach session: ${row.name}`,
-        group: 'Sessions',
-        order: -2,
-        keywords: [row.slug, group.name, 'session', 'attach', 'switch', 'open'],
-        icon: IconTerminal,
-        hint: group.name,
-        run: () => selectSessionRow(row),
-      })
-    }
-  }
-
   return cmds
 })
+
+// The App-level palette's window rows (useAppPaletteRows) read this
+// projection rather than component state, so they can list a session's tabs
+// before this async component has ever mounted. Kept live regardless of
+// `active` — it names the attached session, not the visible one, so it must
+// survive a trip back to the hub — and cleared only once nothing is attached.
+watch(
+  () => (attachedRow.value ? windowRowsFor(attachedRow.value) : null),
+  (windows) => {
+    const row = attachedRow.value
+    if (!row || !windows) {
+      setAttachedTerminalWindows(null)
+      return
+    }
+    setAttachedTerminalWindows({
+      slug: row.slug,
+      name: row.name,
+      windows: windows.map((win) => ({ windowId: win.windowId, name: win.name, active: win.active })),
+    })
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => setAttachedTerminalWindows(null))
 
 // `!` in the palette opens a window on the attached session running the rest of
 // the line — a shell in that checkout, in the strip beside the others, which
