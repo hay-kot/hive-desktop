@@ -23,3 +23,10 @@ shorter than they are. No "Summary" or "Changes" heading, no bullet per file,
 no test-passing claim for tests you did not run. Link the issue on its own last
 line: Closes #123
 -->
+
+<!--
+If an LLM writes this pull request title, body, or any commit message on the
+branch, use ASD-STE100 Simplified Technical English. Use active voice,
+approved-vocabulary words, sentences of 20 words or fewer, and no gerunds.
+See CONTRIBUTING.md > Writing style.
+-->
