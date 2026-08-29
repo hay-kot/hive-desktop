@@ -937,7 +937,6 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'settings.open': () => requestOpenSettings('application'),
   'history.back': () => router.back(),
   'history.forward': () => router.forward(),
-  // Degrades to opening the palette until the 'keys' scope lands.
   'palette.keys': () => openWithScope('keys'),
 }
 

@@ -2,7 +2,7 @@
 // dispatch, no self-registration. useCommands.ts owns dispatch; components own
 // the tab strip.
 
-/** Which tab the palette is on. 'keys' ships in phase 2. */
+/** Which tab the palette is on. */
 export type PaletteScopeId = 'all' | 'goto' | 'actions' | 'shell' | 'keys'
 
 /** The scopes a Command row can belong to. Rows default to 'actions'. */

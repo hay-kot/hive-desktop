@@ -309,17 +309,17 @@ describe('sequences', () => {
     // a matched continuation can be shown extending despite it.
     { id: 'test.deep', title: 'Deep', group: 'Test', defaultCombos: ['z mod+shift+x y'], context: 'global' as const },
   ]
-  const BARE_G_COMMAND = { id: 'test.bare-g', title: 'Bare z', group: 'Test', defaultCombos: ['z'], context: 'global' as const }
+  const BARE_LEADER_COMMAND = { id: 'test.bare-leader', title: 'Bare leader', group: 'Test', defaultCombos: ['z'], context: 'global' as const }
 
-  /** withBareG seeds a command bound to plain 'z' alongside the base fixture, for the deferred-command (Zed prefix) cases. */
-  async function seedSequenceCommands({ withBareG = false } = {}) {
+  /** withBareLeader seeds a command bound to plain 'z' alongside the base fixture, for the deferred-command (Zed prefix) cases. */
+  async function seedSequenceCommands({ withBareLeader = false } = {}) {
     const keybindings = await import('../useKeybindings')
     const { setLauncherCommands } = await import('../../keybindings/catalog')
-    setLauncherCommands(withBareG ? [...BASE_COMMANDS, BARE_G_COMMAND] : BASE_COMMANDS)
+    setLauncherCommands(withBareLeader ? [...BASE_COMMANDS, BARE_LEADER_COMMAND] : BASE_COMMANDS)
     return keybindings
   }
 
-  it('single-step resolve is unchanged: a sequence\'s first step does not resolve', async () => {
+  it('does not resolve a sequence\'s first step on its own', async () => {
     const { useKeybindings } = await seedSequenceCommands()
     const kb = useKeybindings()
     expect(kb.resolve('z')).toBeNull()
@@ -340,13 +340,13 @@ describe('sequences', () => {
   })
 
   it('sets deferredCommandId when the pending steps are also a complete binding (Zed\'s prefix rule)', async () => {
-    const { stepSequence } = await seedSequenceCommands({ withBareG: true })
+    const { stepSequence } = await seedSequenceCommands({ withBareLeader: true })
     const transition = stepSequence(null, 'z')
     if (transition.kind !== 'extend') throw new Error(`expected extend, got ${transition.kind}`)
-    expect(transition.deferredCommandId).toBe('test.bare-g')
+    expect(transition.deferredCommandId).toBe('test.bare-leader')
   })
 
-  it('passes a combo with no sequence involvement, unchanged from today', async () => {
+  it('passes a combo with no sequence involvement', async () => {
     const { stepSequence } = await seedSequenceCommands()
     expect(stepSequence(null, 'q')).toEqual({ kind: 'pass' })
   })
@@ -382,11 +382,11 @@ describe('sequences', () => {
   })
 
   it('does not treat a prefix relationship as a conflict, only an exact duplicate binding', async () => {
-    const { useKeybindings } = await seedSequenceCommands({ withBareG: true })
+    const { useKeybindings } = await seedSequenceCommands({ withBareLeader: true })
     const kb = useKeybindings()
-    // 'z' (test.bare-g) prefixes 'z i' (test.goto-inbox) — functional per the
+    // 'z' (test.bare-leader) prefixes 'z i' (test.goto-inbox) — functional per the
     // Zed rule, so excluding each binding's own owner leaves no conflict.
-    expect(kb.conflicts('z', 'test.bare-g')).toEqual([])
+    expect(kb.conflicts('z', 'test.bare-leader')).toEqual([])
     expect(kb.conflicts('z i', 'test.goto-inbox')).toEqual([])
 
     kb.addBinding('feed.refresh', 'z i')

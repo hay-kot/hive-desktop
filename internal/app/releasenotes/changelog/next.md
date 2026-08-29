@@ -100,9 +100,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   combined row.
 - The New Session form preselects the agent `hive` would actually run, and the
   dialog opens on ⌘N.
-- The command palette no longer lists rows that cannot run where you are
-  standing — feed commands over a terminal, feeds and themes outside the
-  inbox — and ranks a strong title match above an early group.
+- The command palette no longer lists commands that cannot run where you are
+  standing — feed commands over a terminal — and keeps item actions and flow
+  editing hub-only, since the flows canvas is profile-bound.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
 - `/` now focuses whichever search box is on screen — the feed's or the Code

@@ -92,8 +92,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
 
   // The app is usable — past onboarding, the shell resolved — regardless of
   // which mode is on screen. This is the gate the #306 fix widens the hub's
-  // own Go-to rows to, in place of the narrower "on the hub" gate they used to
-  // carry: their run()s already land in the hub from anywhere.
+  // own Go-to rows to: their run()s already land in the hub from anywhere.
   const appReady = computed(() => shellLoaded.value && !onboardingActive.value)
 
   // Session and window rows read the same module singletons the sidebar tree
@@ -306,7 +305,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         run: () => { flowsActive.value ? requestExitFlows() : openFlows() },
       })
 
-      // Jump to any node in the active flow by name (8d) — opens the canvas
+      // Jump to any node in the active flow by name — opens the canvas
       // focused/centered on that node, same as "Reveal in flow" from the
       // sidebar.
       for (const node of activeFlowNodes.value) {

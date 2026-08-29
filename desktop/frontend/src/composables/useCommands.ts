@@ -32,7 +32,7 @@ export interface Command {
   hint?: string
   /** Palette scope: 'goto' rows browse, 'actions' rows act. Default 'actions'. */
   scope?: CommandScope
-  /** Phase 2: running the row keeps the palette open (sigil-legend rows). */
+  /** Running the row keeps the palette open (sigil-legend rows). */
   keepOpen?: boolean
   run: () => void | Promise<void>
 }
@@ -126,17 +126,17 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch | null {
 }
 
 // Bands, each an order of magnitude above the next so a title hit always
-// outranks a keyword hit, which always outranks a group hit — preserving the
-// substring scorer's 3/2/1 ordering intent while ranking within a tier by
-// fuzzy quality instead of treating every hit in a tier as equal.
+// outranks a keyword hit, which always outranks a group hit, while ranking
+// within a tier by fuzzy quality instead of treating every hit in a tier as
+// equal.
 const TITLE_BAND = 1_000_000
 const KEYWORD_BAND = 500_000
 const GROUP_BAND = 100_000
 
 /**
  * Title fuzzy score dominates; keywords and group match at a lower band so a
- * title hit always outranks a keyword hit (preserving today's 3/2/1 ordering
- * intent). -1 = filtered out, 0 = empty query.
+ * title always outranks a keyword, which always outranks a group. -1 =
+ * filtered out, 0 = empty query.
  */
 export function scoreCommand(query: string, cmd: Command): number {
   if (!query) return 0

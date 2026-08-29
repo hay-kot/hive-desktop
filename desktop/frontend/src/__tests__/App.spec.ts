@@ -680,8 +680,10 @@ describe('App', () => {
 
   // stepSequence (useKeybindings) decides what a combo means; App.vue only
   // stores the pending state, arms/cancels the deferred timer, and dispatches
-  // through the same gate an ordinary chord uses. The catalog has no sequence
-  // bindings yet, so these bind an existing global command to a synthetic one.
+  // through the same gate an ordinary chord uses. These bind an existing
+  // global command to a synthetic sequence rather than the catalog's real
+  // ones, so the assertions stay isolated from changes to the shipped
+  // defaults.
   describe('keyboard sequences', () => {
     it('dispatches the bound command once a two-step sequence completes', async () => {
       const wrapper = await mountApp()

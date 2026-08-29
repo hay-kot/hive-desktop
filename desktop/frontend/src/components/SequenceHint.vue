@@ -9,8 +9,9 @@ const catalogById = computed(() => new Map(bindableCommands.value.map((command) 
 
 const steps = computed(() => pendingSequence.value?.steps.map((step) => formatCombo(step)) ?? [])
 
-// A continuation can name a command an override no longer binds anything to
-// (a stale settings.yaml entry) — skip it rather than showing a blank title.
+// A continuation can name a command a launcher reload removed after the
+// pending sequence snapshotted its continuations — skip it rather than
+// showing a blank title.
 const continuations = computed(() => {
   const pending = pendingSequence.value
   if (!pending) return []

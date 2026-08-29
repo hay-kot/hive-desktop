@@ -385,7 +385,7 @@ export const commandCatalog: BindableCommand[] = [
     context: 'global',
   },
   // Cmd+, is the macOS settings standard; g s is the genre chord.
-  // paletteHidden: phase 1's "Settings › <section>" rows are the named rows.
+  // paletteHidden: the Settings › <section> rows are the named rows.
   {
     id: 'settings.open',
     title: 'Open Settings',
