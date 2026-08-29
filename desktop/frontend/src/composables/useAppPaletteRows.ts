@@ -7,7 +7,6 @@ import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconPalette from '~icons/lucide/palette'
 import IconRss from '~icons/lucide/rss'
 import IconSearch from '~icons/lucide/search'
-import IconShare2 from '~icons/lucide/share-2'
 import IconTerminal from '~icons/lucide/terminal'
 import IconWorkflow from '~icons/lucide/workflow'
 import { commandById, commands as bindableCommands, terminalWindowCommandID, type CommandContext } from '../keybindings/catalog'
@@ -65,8 +64,6 @@ export interface AppPaletteDeps {
   openFlows: (focusNodeId?: string) => void
   requestExitFlows: () => void
   openNewProfile: () => void
-  /** The active flow's nodes, for the "jump to node" rows. */
-  activeFlowNodes: Ref<{ id: string; name?: string; type: string }[]>
   /** The slug attached on screen, so its own attach row does not offer itself. */
   onScreenSessionSlug: Ref<string>
 }
@@ -74,15 +71,14 @@ export interface AppPaletteDeps {
 /**
  * Registers every App-level palette row source for the app's lifetime:
  * catalog commands, mode switches, and the hub's own objects (profiles, feeds,
- * flow nodes, themes), plus the Go-to rows for sessions, windows, settings
- * sections, and chats that are global rather than tied to a lazily mounted
- * mode.
+ * themes), plus the Go-to rows for sessions, windows, settings sections, and
+ * chats that are global rather than tied to a lazily mounted mode.
  */
 export function useAppPaletteRows(deps: AppPaletteDeps): void {
   const {
     runCommand, contextActive, mode, shellLoaded, onboardingActive, hubActive,
     devToolsEnabled, router, profiles, activeProfile, requestSelectProfile, navigateSidebar, selectedItem,
-    actions, invokeAction, flowsActive, openFlows, requestExitFlows, openNewProfile, activeFlowNodes,
+    actions, invokeAction, flowsActive, openFlows, requestExitFlows, openNewProfile,
     onScreenSessionSlug,
   } = deps
 
@@ -303,20 +299,6 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         run: () => { flowsActive.value ? requestExitFlows() : openFlows() },
       })
 
-      // Jump to any node in the active flow by name — opens the canvas
-      // focused/centered on that node, same as "Reveal in flow" from the
-      // sidebar.
-      for (const node of activeFlowNodes.value) {
-        cmds.push({
-          id: `flow:node:${node.id}`,
-          title: node.name || node.type,
-          group: 'Flow',
-          scope: 'goto',
-          keywords: ['flows', 'node', 'canvas', 'reveal'],
-          icon: IconShare2,
-          run: () => openFlows(node.id),
-        })
-      }
     }
 
     // The palette is the only way in outside a Vite build, where the dev strip

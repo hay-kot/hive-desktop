@@ -1016,7 +1016,6 @@ useAppPaletteRows({
   openFlows,
   requestExitFlows,
   openNewProfile,
-  activeFlowNodes: computed(() => session.activeFlow.value?.nodes ?? []),
   onScreenSessionSlug,
 })
 

@@ -668,7 +668,6 @@ describe('App', () => {
     // Still absent: the feed-context catalog command and the hub-only actions.
     expect(ids).not.toContain('feed.refresh')
     expect(ids).not.toContain('flow:edit')
-    expect(ids).not.toContain('flow:node:src')
     expect(ids).not.toContain('profile:new')
     expect(ids.some((id) => id.startsWith('item:action:'))).toBe(false)
     expect(ids).not.toContain('mode:terminal')
@@ -1842,25 +1841,6 @@ describe('App', () => {
     expect(wrapper.find('[data-testid="flows-view"]').exists()).toBe(true)
     const session = useFlowsSession()
     expect(session.flowFocusNodeId.value).toBe('src')
-
-    wrapper.unmount()
-  })
-
-  it('registers a ⌘K "jump to node" command per node in the active flow', async () => {
-    const wrapper = await mountApp()
-    const { results, query } = useCommandPalette()
-    query.value = ''
-
-    const ids = results.value.map((cmd) => cmd.id)
-    expect(ids).toContain('flow:node:src')
-    expect(ids).toContain('flow:node:desktop')
-
-    const nodeCmd = results.value.find((cmd) => cmd.id === 'flow:node:desktop')
-    expect(nodeCmd?.title).toBe('Desktop UI')
-
-    nodeCmd?.run()
-    await flushPromises()
-    expect(useFlowsSession().flowFocusNodeId.value).toBe('desktop')
 
     wrapper.unmount()
   })

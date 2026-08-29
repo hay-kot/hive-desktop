@@ -34,12 +34,12 @@ Which shape a row takes depends on what it is:
   alone in a list of shortcuts, not just as a palette row -- shortening it to
   an object noun there would break the editor it also has to serve.
 - A **dynamic object row** -- a feed, Trash, a chat, a session, a window, a
-  profile, a settings section, a flow node -- sets `title` to the object's own
+  profile, a settings section -- sets `title` to the object's own
   name and `group` to its real container: the active profile's name for
   feeds/Trash, the workspace's display name for chats (`workspaceNameByDir`,
   falling back to the dir only when no workspace matched), the repo for
   session attach rows, the attached session's name for window rows, and the
-  fixed `Settings`/`Profiles`/`Flow` labels for the rest. No verb prefix, no
+  fixed `Settings`/`Profiles` labels for the rest. No verb prefix, no
   hand-built `A › B` string in the title.
 
 Nesting is drawn once, by the palette's own rendering, never by a title.
