@@ -26,6 +26,7 @@ import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
 import OnboardingScreen from './components/OnboardingScreen.vue'
 import ToastStack from './components/ToastStack.vue'
+import SequenceHint from './components/SequenceHint.vue'
 import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useNotificationSettings } from './composables/useNotificationSettings'
 import { useActivity } from './composables/useActivity'
@@ -1432,6 +1433,7 @@ onUnmounted(() => {
         </template>
       </div>
       <DevBar v-if="devMode" />
+      <SequenceHint />
     </div>
     <CreateSessionDialog
       v-if="sessionLaunchAction && sessionLaunchOptions"
