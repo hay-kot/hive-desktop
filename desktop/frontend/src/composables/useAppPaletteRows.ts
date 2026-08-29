@@ -37,6 +37,9 @@ const sigilMeanings: Partial<Record<PaletteScopeId, string>> = {
 }
 
 function contextLabel(context: CommandContext): string {
+  // The terminal contexts belong to the area the product names Code.
+  if (context === 'terminal') return 'Code'
+  if (context === 'terminal-session') return 'Code session'
   return context.split('-').map((word) => word[0]!.toUpperCase() + word.slice(1)).join(' ')
 }
 
@@ -150,7 +153,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
       cmds.push({
         id: 'view.focus-search:terminal',
         title: 'Filter sessions',
-        group: 'Terminal',
+        group: 'Code',
         scope: 'actions',
         keywords: ['terminal', 'filter', 'search', 'find', 'session'],
         icon: IconSearch,

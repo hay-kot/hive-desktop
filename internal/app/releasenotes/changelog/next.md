@@ -108,6 +108,8 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
 - `/` now focuses whichever search box is on screen — the feed's or the Code
   view's session filter — as one shared shortcut (`mod+f` rides along) rather
   than a Code-only binding, so the two can no longer be rebound independently.
+- The Code view's commands group under "Code" in the palette and the keyboard
+  reference, matching the area's name rather than the old "Terminal" label.
 - **The Chats sidebar lists every chat under its workspace**, instead of a
   workspace list filtering a flat list of chats below it. Workspaces fold and
   unfold, and stay that way; ones with a running agent open on their own. It

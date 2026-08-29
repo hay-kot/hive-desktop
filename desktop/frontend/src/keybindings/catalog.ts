@@ -120,7 +120,7 @@ const windowJumpCommands: BindableCommand[] = Array.from({ length: DIRECT_WINDOW
   return {
     id: terminalWindowCommandID(position),
     title: `Go to window ${position}`,
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'switch', String(position)],
     icon: IconTerminal,
     defaultCombos: [`mod+${position}`],
@@ -253,7 +253,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.focus-sidebar',
     title: 'Focus session tree',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'sidebar', 'sessions', 'tree', 'focus', 'left'],
     icon: IconPanelLeft,
     defaultCombos: ['mod+arrowleft'],
@@ -263,7 +263,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.focus-pane',
     title: 'Focus terminal',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'pane', 'focus', 'right'],
     icon: IconPanelRight,
     defaultCombos: ['mod+arrowright'],
@@ -311,7 +311,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.new-window',
     title: 'New window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'new', 'create', 'open'],
     icon: IconPlus,
     defaultCombos: ['mod+t'],
@@ -321,7 +321,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.close-window',
     title: 'Close window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'close', 'kill'],
     icon: IconX,
     defaultCombos: ['mod+w'],
@@ -331,7 +331,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.next-window',
     title: 'Next window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'next', 'cycle', 'switch'],
     icon: IconChevronRight,
     defaultCombos: ['mod+}'],
@@ -341,7 +341,7 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'terminal.prev-window',
     title: 'Previous window',
-    group: 'Terminal',
+    group: 'Code',
     keywords: ['terminal', 'window', 'tab', 'previous', 'cycle', 'switch'],
     icon: IconChevronLeft,
     defaultCombos: ['mod+{'],
