@@ -240,8 +240,13 @@ func TestCanvasToolErrors(t *testing.T) {
 	text = callErr(t, session, "put_block", map[string]any{"session": id, "canvas": "Bad Name", "id": "a", "kind": "markdown", "body": "x"})
 	assert.Contains(t, text, "invalid")
 
-	text = callErr(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "html", "body": "x"})
+	text = callErr(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "diagram", "body": "x"})
 	assert.Contains(t, text, "invalid")
+
+	text = callErr(t, session, "put_block", map[string]any{
+		"session": id, "canvas": "plan", "id": "a", "kind": "html", "body": `<div class="hv-card" onclick="x()">x</div>`,
+	})
+	assert.Contains(t, text, "invalid", "an html block is refused rather than silently stripped")
 
 	text = callErr(t, session, "put_block", map[string]any{
 		"session": id, "canvas": "plan", "id": "a", "kind": "link", "title": "x", "url": "javascript:alert(1)",

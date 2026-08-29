@@ -71,6 +71,30 @@ describe('AgentCanvasPane', () => {
     expect(body.find('h1').text()).toBe('Plan')
   })
 
+  // An html block's body is sanitized on the Go read path, so the pane renders
+  // it as markup under its own class scope — never through the markdown
+  // renderer, which is shared with untrusted GitHub bodies and would escape it.
+  it('renders an html block as live markup under the hv-html scope', async () => {
+    const wrapper = await mountPane(fakeCanvasClient([
+      block({ id: 'stats', kind: 'html', title: 'Run', body: '<div class="hv-card hv-stat"><span class="hv-stat-value">42</span></div>' }),
+    ]))
+
+    const rendered = wrapper.get('[data-testid="agent-canvas-block-stats"] .hv-html')
+    expect(rendered.find('.hv-stat-value').text()).toBe('42')
+    expect(rendered.classes()).not.toContain('markdown-body')
+    expect(wrapper.get('[data-testid="agent-canvas-block-stats"] h2').text()).toBe('Run')
+  })
+
+  it('intercepts links in an html block the same way as in markdown', async () => {
+    const wrapper = await mountPane(fakeCanvasClient([
+      block({ id: 'card', kind: 'html', body: '<p><a href="https://example.com/pr/1">the PR</a></p>' }),
+    ]))
+
+    await wrapper.get('[data-testid="agent-canvas-block-card"] a').trigger('click')
+
+    expect(wrapper.emitted('open-url')).toEqual([['https://example.com/pr/1']])
+  })
+
   it('intercepts markdown links and emits open-url instead of navigating', async () => {
     const wrapper = await mountPane(fakeCanvasClient([
       block({ id: 'doc', body: '[the PR](https://example.com/pr/1)' }),

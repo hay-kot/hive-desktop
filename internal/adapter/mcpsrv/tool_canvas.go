@@ -21,8 +21,10 @@ func (ctrl *CanvasController) register(srv *mcp.Server) {
 			"keeping its position, while a new id appends at the end — stable ids are how you revise a status line " +
 			"instead of stacking copies; before places or moves a block ahead of an existing one instead. kind is " +
 			"markdown (body required, title optional; rendered as GitHub-flavored markdown with raw HTML escaped, not " +
-			"rendered) or link (title and url required; http, https or mailto only). Answers with the canvas metadata " +
-			"and the stored block; read_canvas returns the full surface. The pane does not open by itself: a write while " +
+			"rendered), html (body required; semantic markup laid out with the app's hv- classes — read the hive-canvas " +
+			"docs first, since an unknown tag, class or attribute is refused rather than dropped) or link (title and url " +
+			"required; http, https or mailto only). Answers with the canvas metadata and the stored block; read_canvas " +
+			"returns the full surface. The pane does not open by itself: a write while " +
 			"it is closed lights an unseen dot on the chat's toggle — use open_canvas when the result deserves the " +
 			"user's attention now. Writing a first layout of several blocks? put_blocks does it in one call.",
 	}, ctrl.PutBlock)
@@ -64,8 +66,9 @@ func (ctrl *CanvasController) register(srv *mcp.Server) {
 		Name:  "read_canvas",
 		Title: "Read a canvas",
 		Description: "Read one canvas exactly as the user sees it: every block in order, with your ids, kinds and " +
-			"content. A name nothing was written under is not_found — use list_canvases to see what exists. Use this to " +
-			"re-orient after a long conversation instead of assuming what you last wrote.",
+			"content — an html block comes back as the markup you wrote, before the app sanitizes it for display. A name " +
+			"nothing was written under is not_found — use list_canvases to see what exists. Use this to re-orient after " +
+			"a long conversation instead of assuming what you last wrote.",
 	}, ctrl.ReadCanvas)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -109,17 +112,17 @@ type putBlockInput struct {
 	CanvasTitle string `json:"canvasTitle,omitempty" jsonschema:"Display title for the whole canvas, shown in the pane's picker. Set it on the canvas's first write; a later non-empty value renames, empty leaves the stored title unchanged."`
 	Before      string `json:"before,omitempty"      jsonschema:"An existing block id to place this block ahead of — inserting a new id there, or moving a reused one (its createdAt survives the move). Omit to keep a reused id's position or append a new one."`
 	ID          string `json:"id"                    jsonschema:"Your name for the block. Reusing an id updates that block in place; a new id appends."`
-	Kind        string `json:"kind"                  jsonschema:"markdown or link."`
-	Title       string `json:"title,omitempty"       jsonschema:"Heading shown above a markdown body (optional); the visible text of a link (required)."`
-	Body        string `json:"body,omitempty"        jsonschema:"The markdown source of a markdown block."`
+	Kind        string `json:"kind"                  jsonschema:"markdown, html or link."`
+	Title       string `json:"title,omitempty"       jsonschema:"Heading shown above a markdown or html body (optional); the visible text of a link (required)."`
+	Body        string `json:"body,omitempty"        jsonschema:"The markdown source of a markdown block, or the markup of an html block."`
 	URL         string `json:"url,omitempty"         jsonschema:"The target of a link block; http, https or mailto only."`
 }
 
 type batchBlockInput struct {
 	ID    string `json:"id"              jsonschema:"Your name for the block. Reusing an id updates that block in place; a new id appends."`
-	Kind  string `json:"kind"            jsonschema:"markdown or link."`
-	Title string `json:"title,omitempty" jsonschema:"Heading shown above a markdown body (optional); the visible text of a link (required)."`
-	Body  string `json:"body,omitempty"  jsonschema:"The markdown source of a markdown block."`
+	Kind  string `json:"kind"            jsonschema:"markdown, html or link."`
+	Title string `json:"title,omitempty" jsonschema:"Heading shown above a markdown or html body (optional); the visible text of a link (required)."`
+	Body  string `json:"body,omitempty"  jsonschema:"The markdown source of a markdown block, or the markup of an html block."`
 	URL   string `json:"url,omitempty"   jsonschema:"The target of a link block; http, https or mailto only."`
 }
 
@@ -138,9 +141,9 @@ type removeBlockInput struct {
 
 type canvasBlock struct {
 	ID        string `json:"id"              jsonschema:"The agent-chosen id put_block was called with."`
-	Kind      string `json:"kind"            jsonschema:"markdown or link."`
+	Kind      string `json:"kind"            jsonschema:"markdown, html or link."`
 	Title     string `json:"title,omitempty"`
-	Body      string `json:"body,omitempty"  jsonschema:"The markdown source of a markdown block."`
+	Body      string `json:"body,omitempty"  jsonschema:"The markdown source of a markdown block, or an html block's markup as you wrote it."`
 	URL       string `json:"url,omitempty"   jsonschema:"The target of a link block."`
 	CreatedAt int64  `json:"createdAt"       jsonschema:"Unix milliseconds when the block first appeared."`
 	UpdatedAt int64  `json:"updatedAt"`

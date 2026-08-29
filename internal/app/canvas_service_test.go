@@ -91,16 +91,24 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 	ctx := t.Context()
 
 	cases := map[string]canvas.Block{
-		"empty id":              {ID: "  ", Kind: canvas.KindMarkdown, Body: "x"},
-		"id too long":           {ID: strings.Repeat("a", 201), Kind: canvas.KindMarkdown, Body: "x"},
-		"unknown kind":          {ID: "a", Kind: "html", Body: "x"},
-		"markdown without body": {ID: "a", Kind: canvas.KindMarkdown},
-		"markdown with url":     {ID: "a", Kind: canvas.KindMarkdown, Body: "x", URL: "https://example.com"},
-		"oversized body":        {ID: "a", Kind: canvas.KindMarkdown, Body: strings.Repeat("x", maxCanvasBodyBytes+1)},
-		"link without title":    {ID: "a", Kind: canvas.KindLink, URL: "https://example.com"},
-		"link without url":      {ID: "a", Kind: canvas.KindLink, Title: "t"},
-		"link with body":        {ID: "a", Kind: canvas.KindLink, Title: "t", URL: "https://example.com", Body: "x"},
-		"javascript url":        {ID: "a", Kind: canvas.KindLink, Title: "t", URL: "javascript:alert(1)"},
+		"empty id":                {ID: "  ", Kind: canvas.KindMarkdown, Body: "x"},
+		"id too long":             {ID: strings.Repeat("a", 201), Kind: canvas.KindMarkdown, Body: "x"},
+		"unknown kind":            {ID: "a", Kind: "diagram", Body: "x"},
+		"markdown without body":   {ID: "a", Kind: canvas.KindMarkdown},
+		"markdown with url":       {ID: "a", Kind: canvas.KindMarkdown, Body: "x", URL: "https://example.com"},
+		"oversized body":          {ID: "a", Kind: canvas.KindMarkdown, Body: strings.Repeat("x", maxCanvasBodyBytes+1)},
+		"html without body":       {ID: "a", Kind: canvas.KindHTML},
+		"html with url":           {ID: "a", Kind: canvas.KindHTML, Body: "<p>x</p>", URL: "https://example.com"},
+		"html with a script":      {ID: "a", Kind: canvas.KindHTML, Body: "<p>x</p><script>alert(1)</script>"},
+		"html with a handler":     {ID: "a", Kind: canvas.KindHTML, Body: `<div onclick="x()">x</div>`},
+		"html with inline css":    {ID: "a", Kind: canvas.KindHTML, Body: `<div style="color:red">x</div>`},
+		"html with an image":      {ID: "a", Kind: canvas.KindHTML, Body: `<img src="https://x.example/a.png">`},
+		"html with a stray class": {ID: "a", Kind: canvas.KindHTML, Body: `<div class="hv-card mystery">x</div>`},
+		"html with a bad link":    {ID: "a", Kind: canvas.KindHTML, Body: `<a href="javascript:alert(1)">x</a>`},
+		"link without title":      {ID: "a", Kind: canvas.KindLink, URL: "https://example.com"},
+		"link without url":        {ID: "a", Kind: canvas.KindLink, Title: "t"},
+		"link with body":          {ID: "a", Kind: canvas.KindLink, Title: "t", URL: "https://example.com", Body: "x"},
+		"javascript url":          {ID: "a", Kind: canvas.KindLink, Title: "t", URL: "javascript:alert(1)"},
 	}
 	for name, block := range cases {
 		_, err := svc.PutBlock(ctx, 1, "plan", "", "", block)
@@ -113,6 +121,48 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 	assert.Equal(t, KindInvalid, KindOf(err), "an oversized canvas title is refused")
 
 	assert.Empty(t, signals.updates, "a refused write never notifies")
+}
+
+// A silently stripped tag or class is the one failure an agent cannot see,
+// so the error names it and the vocabulary it should have used instead.
+func TestCanvasHTMLBlockRejectionNamesTheOffender(t *testing.T) {
+	svc, _ := testCanvasService(t)
+	ctx := t.Context()
+
+	_, err := svc.PutBlock(ctx, 1, "plan", "", "", canvas.Block{
+		ID: "a", Kind: canvas.KindHTML, Body: `<div class="grid-cols-2">x</div>`,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"grid-cols-2"`)
+	assert.Contains(t, err.Error(), "hv-card", "the message carries the vocabulary the agent should have used")
+
+	_, err = svc.PutBlock(ctx, 1, "plan", "", "", canvas.Block{
+		ID: "a", Kind: canvas.KindHTML,
+		Body: `<div class="hv-grid hv-cols-2"><span class="hv-badge hv-warn">2 flaky</span></div>`,
+	})
+	assert.NoError(t, err, "the vocabulary itself is accepted")
+}
+
+// The pane's read is the seam between stored agent source and the app's own
+// webview; the agent's read-back is not, so the two disagree by design.
+func TestCanvasHTMLIsSanitizedOnTheWayOutNotIn(t *testing.T) {
+	svc, _ := testCanvasService(t)
+	ctx := t.Context()
+
+	// Written straight to the store: validateBlock would have refused this,
+	// which is exactly why the read path cannot rely on it.
+	_, err := svc.store.Upsert("ws", "plan", 1, "", "", canvas.Block{
+		ID: "a", Kind: canvas.KindHTML, Body: `<p class="hv-muted">ok</p><script>alert(1)</script>`,
+	})
+	require.NoError(t, err)
+
+	shown, err := svc.GetForWorkspace(ctx, "ws", "plan")
+	require.NoError(t, err)
+	assert.Equal(t, `<p class="hv-muted">ok</p>`, shown.Blocks[0].Body)
+
+	stored, err := svc.Get(ctx, 1, "plan")
+	require.NoError(t, err)
+	assert.Contains(t, stored.Blocks[0].Body, "<script>", "read_canvas shows the agent what it wrote")
 }
 
 func TestCanvasPutBlocks(t *testing.T) {

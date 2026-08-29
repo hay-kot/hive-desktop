@@ -12,8 +12,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// maxCanvasBodyBytes caps one markdown block's body so a single tool call
-// cannot make the pane unrenderable.
+// maxCanvasBodyBytes caps one markdown or html block's body so a single tool
+// call cannot make the pane unrenderable.
 const maxCanvasBodyBytes = 256 * 1024
 
 const (
@@ -200,6 +200,10 @@ func (s *CanvasService) List(ctx context.Context, session int64) ([]canvas.Meta,
 // GetForWorkspace is the pane's read: workspace-addressed, and a name
 // nothing was written under answers an empty canvas rather than an error, so
 // the pane never flashes a failure for a canvas that was deleted under it.
+// html blocks leave here sanitized — this is the one seam between stored
+// agent source and the app's own webview, so the frontend never has to hold
+// a policy of its own
+// (ADR canvas-html-blocks-are-sanitized-in-go-and-styled-by-an-app-owned-class-vocabulary).
 func (s *CanvasService) GetForWorkspace(_ context.Context, dir, name string) (canvas.Canvas, error) {
 	c, ok, err := s.store.Load(dir, name)
 	if err != nil {
@@ -207,6 +211,11 @@ func (s *CanvasService) GetForWorkspace(_ context.Context, dir, name string) (ca
 	}
 	if !ok {
 		return canvas.Canvas{Workspace: dir, Name: name, Blocks: []canvas.Block{}}, nil
+	}
+	for i, b := range c.Blocks {
+		if b.Kind == canvas.KindHTML {
+			c.Blocks[i].Body = canvas.SanitizeHTML(b.Body)
+		}
 	}
 	return c, nil
 }
@@ -311,6 +320,24 @@ func validateBlock(b *canvas.Block) error {
 		if b.URL != "" {
 			return Errorf(KindInvalid, "a markdown block carries no url; use a link block")
 		}
+	case canvas.KindHTML:
+		if b.Body == "" {
+			return Errorf(KindInvalid, "an html block needs a body")
+		}
+		if len(b.Body) > maxCanvasBodyBytes {
+			return Errorf(KindInvalid, "block body is too large (%d bytes max)", maxCanvasBodyBytes)
+		}
+		if b.URL != "" {
+			return Errorf(KindInvalid, "an html block carries no url; use a link block")
+		}
+		// The sanitizer drops what it does not know, and a silent drop is
+		// the one failure an agent cannot see: refuse the write and name the
+		// offender instead of rendering a layout it believes is intact.
+		if rejected := canvas.RejectedHTML(b.Body); rejected != "" {
+			return Errorf(KindInvalid,
+				"an html block cannot use %s; it accepts the tags in the hive-canvas docs, http, https or mailto links, and these classes: %s",
+				rejected, strings.Join(canvas.HTMLClasses(), ", "))
+		}
 	case canvas.KindLink:
 		if b.Title == "" {
 			return Errorf(KindInvalid, "a link block needs a title")
@@ -322,7 +349,7 @@ func validateBlock(b *canvas.Block) error {
 			return err
 		}
 	default:
-		return Errorf(KindInvalid, "unknown block kind %q; use %q or %q", b.Kind, canvas.KindMarkdown, canvas.KindLink)
+		return Errorf(KindInvalid, "unknown block kind %q; use %q, %q or %q", b.Kind, canvas.KindMarkdown, canvas.KindHTML, canvas.KindLink)
 	}
 	return nil
 }

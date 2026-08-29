@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// A workspace's canvases: agent-written markdown and link blocks, read-only
-// in the webview — writes arrive only through the hive-canvas MCP tools, so
-// this pane re-reads on canvas:updated rather than ever mutating
+// A workspace's canvases: agent-written markdown, html and link blocks,
+// read-only in the webview — writes arrive only through the hive-canvas MCP
+// tools, so this pane re-reads on canvas:updated rather than ever mutating
 // (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { Dialogs } from '@wailsio/runtime'
@@ -132,10 +132,13 @@ function pick(name: string): void {
 // signal's payload can be coalesced away, and both reads are cheap.
 useWailsEvent('canvas:updated', () => wake())
 
-// GFM from an agent is untrusted by default: renderGithubMarkdown escapes raw
-// HTML and drops unsafe link schemes, so the result is safe for v-html.
+// Both body kinds are safe for v-html, by two different routes. Markdown goes
+// through renderGithubMarkdown, which escapes raw HTML and drops unsafe link
+// schemes. An html block already arrived sanitized: canvas.SanitizeHTML runs on
+// the Go read path, so there is exactly one policy and the pane holds none of
+// it (ADR canvas-html-blocks-are-sanitized-in-go-and-styled-by-an-app-owned-class-vocabulary).
 function renderBody(block: CanvasBlock): string {
-  return renderGithubMarkdown(block.body)
+  return block.kind === 'html' ? block.body : renderGithubMarkdown(block.body)
 }
 
 // Links must open in the user's real browser rather than navigate the webview
@@ -268,9 +271,14 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
           class="canvas-block"
           :data-testid="'agent-canvas-block-' + block.id"
         >
-          <template v-if="block.kind === 'markdown'">
+          <template v-if="block.kind === 'markdown' || block.kind === 'html'">
             <h2 v-if="block.title" class="mb-2 text-[13.5px] font-semibold text-text">{{ block.title }}</h2>
-            <div class="markdown-body text-[13.5px] leading-[1.65] text-text-2" @click="onBodyClick" v-html="renderBody(block)" />
+            <div
+              class="text-[13.5px] leading-[1.65] text-text-2"
+              :class="block.kind === 'html' ? 'hv-html' : 'markdown-body'"
+              @click="onBodyClick"
+              v-html="renderBody(block)"
+            />
           </template>
           <button
             v-else-if="block.kind === 'link'"
