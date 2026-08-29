@@ -69,6 +69,10 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   from a terminal session's status bar, scoped to that session's repository.
   A poll picks up changes made outside the app, such as from the `hive hc`
   CLI.
+- **The command palette has scope tabs** — All, Go to, Actions, and Shell —
+  so you can narrow it to just navigation or just actions instead of the
+  whole ranked list. `@`, `>`, and `!` still jump straight into a scope as
+  you type.
 
 ## Changed
 

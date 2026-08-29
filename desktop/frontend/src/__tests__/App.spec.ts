@@ -10,15 +10,16 @@ import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/use
 import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
-import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
-import { resetAttachedTerminalWindowsForTests } from '../composables/useAttachedTerminalWindows'
+import { resetTerminalSessionsForTests, useTerminalSessions } from '../composables/useTerminalSessions'
+import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
-import { resetAgentSessionsAllForTests } from '../composables/useAgentSessionsAll'
+import { resetAgentSessionsAllForTests, useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
 import { resetTasksForTests, useTasks } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
 import TerminalMode from '../components/TerminalMode.vue'
 import { setTerminalTreeHandles, type TerminalTreeHandles } from '../lib/terminalTree'
+import { ListSessions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 
 const mocks = vi.hoisted(() => ({
   // flowsservice
@@ -665,6 +666,136 @@ describe('App', () => {
     expect(ids).toContain('session.new')
 
     wrapper.unmount()
+  })
+
+  // useAppPaletteRows registers Go-to rows at the App level, off the same
+  // module singletons the sidebar trees read — so they exist independent of
+  // whichever mode happens to be mounted, and running one dispatches straight
+  // through the router rather than through a mode's own local state.
+  describe('global Go-to rows (useAppPaletteRows)', () => {
+    it('runs a session attach row by pushing /terminal/:slug', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      useTerminalSessions().sessions.value = [
+        { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      ]
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'terminal:attach:hive-fix-parser')
+      expect(cmd?.title).toBe('Attach session: fix the parser')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('terminal')
+      expect(router.currentRoute.value.params.slug).toBe('hive-fix-parser')
+
+      wrapper.unmount()
+    })
+
+    it('runs a window row by pushing /terminal/:slug with ?window=, from the TerminalMode-written projection', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      setAttachedTerminalWindows({
+        slug: 'hive-fix-parser',
+        name: 'fix the parser',
+        windows: [
+          { windowId: '@1', name: 'agent', active: true },
+          { windowId: '@2', name: 'shell', active: false },
+        ],
+      })
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'terminal:window:@2')
+      expect(cmd?.title).toBe('Go to window: shell')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('terminal')
+      expect(router.currentRoute.value.params.slug).toBe('hive-fix-parser')
+      expect(router.currentRoute.value.query.window).toBe('@2')
+
+      wrapper.unmount()
+    })
+
+    it('selects a feed row from the Code view and lands on the feed route', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'feed:personal/desktop')
+      expect(cmd).toBeDefined()
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('feed')
+
+      wrapper.unmount()
+    })
+
+    it('runs a settings-section row by pushing application-settings with the section param', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'settings:appearance')
+      expect(cmd?.title).toBe('Settings › Appearance')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('application-settings')
+      expect(router.currentRoute.value.params.section).toBe('appearance')
+
+      wrapper.unmount()
+    })
+
+    it('lists a chat row from a useAgentSessionsAll stub and pushes the agents route on run', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      useAgentSessionsAll().recents.value = [{
+        id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
+        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', cols: 0, rows: 0,
+        resumeAttempted: false, notice: '',
+      }]
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
+      expect(cmd?.title).toBe('Chat: Chat about the bug')
+
+      await cmd!.run()
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('agents')
+      expect(router.currentRoute.value.params.workspace).toBe('my-workspace')
+      expect(router.currentRoute.value.query.chat).toBe('42')
+
+      wrapper.unmount()
+    })
+
+    // TerminalMode never mounts on the feed route (it is mount-on-first-visit),
+    // so ListSessions and the Agents probe only fire here through this watch —
+    // proof the reload is the palette's own doing, not a side effect of some
+    // other component being on screen.
+    it('reloads terminal sessions and chat recents when the palette opens', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      vi.mocked(ListSessions).mockClear()
+      mocks.AgentsAvailable.mockClear()
+
+      const palette = useCommandPalette()
+      palette.toggle()
+      await flushPromises()
+
+      expect(ListSessions).toHaveBeenCalled()
+      expect(mocks.AgentsAvailable).toHaveBeenCalled()
+
+      palette.toggle()
+      wrapper.unmount()
+    })
   })
 
   // A launcher pinned to a directory carries the context it needs in the

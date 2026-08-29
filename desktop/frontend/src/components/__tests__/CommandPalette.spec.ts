@@ -310,6 +310,39 @@ describe('CommandPalette', () => {
     expect(event.defaultPrevented).toBe(false)
   })
 
+  // Scope and query are independent axes: only a query change resets the
+  // selection (watch(query, ...)), so switching tabs must not walk it back to
+  // the top when the selected row is still in the narrower scope's results.
+  it('keeps the selected row across a scope switch when it stays in results', async () => {
+    wrapper!.unmount()
+    wrapper = mount(
+      {
+        components: { CommandPalette },
+        template: '<CommandPalette />',
+        setup() {
+          useCommands([
+            { id: 'goto-a', title: 'Goto A', scope: 'goto', run: vi.fn() },
+            { id: 'act-a', title: 'Act A', run: vi.fn() },
+            { id: 'act-b', title: 'Act B', run: vi.fn() },
+          ])
+          return {}
+        },
+      },
+      { attachTo: document.body, global: { stubs: { teleport: true } } },
+    )
+    await openPalette()
+
+    // All: registration order with no groups, so no headers.
+    await panel().trigger('keydown', { key: 'ArrowDown' })
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Act A'])
+
+    const actionsTab = tabs().find((tab) => tab.attributes('data-scope') === 'actions')!
+    await actionsTab.trigger('click')
+
+    expect(wrapper!.findAll('.palette-row').map((row) => rowTitle(row))).toEqual(['Act A', 'Act B'])
+    expect(selectedRows().map((row) => rowTitle(row))).toEqual(['Act A'])
+  })
+
   it('shows only the shell escape for a !-query and runs it on Enter', async () => {
     const palette = useCommandPalette()
     await openPalette()

@@ -11,7 +11,7 @@ import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows
 import { setTerminalShowStatusBar } from '../../composables/useTerminalStatusBar'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { resetTerminalPinnedChatsForTests, useTerminalPinnedChats } from '../../composables/useTerminalPinnedChats'
-import { resetAttachedTerminalWindowsForTests } from '../../composables/useAttachedTerminalWindows'
+import { resetAttachedTerminalWindowsForTests, useAttachedTerminalWindows } from '../../composables/useAttachedTerminalWindows'
 import { useCommandPalette } from '../../composables/useCommands'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
@@ -2512,6 +2512,39 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountAvailable()
 
       expect(wrapper.find('[data-testid="terminal-tree-hints"]').exists()).toBe(true)
+      wrapper.unmount()
+    })
+  })
+
+  // ── Attached-windows projection ──────────────────────────────────────────────
+  // useAppPaletteRows reads useAttachedTerminalWindows rather than this
+  // component's own state, so a window row exists before TerminalMode has ever
+  // mounted — this is the write side of that seam.
+
+  describe('attached windows projection', () => {
+    it('writes the attached session and its windows when a session attaches, and clears it on unmount', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+
+      const { attached } = useAttachedTerminalWindows()
+      expect(attached.value).toEqual({
+        slug: 'hive-fix-parser',
+        name: 'fix the parser',
+        windows: [
+          { windowId: '@1', name: 'agent', active: true },
+          { windowId: '@2', name: 'shell', active: false },
+        ],
+      })
+
+      wrapper.unmount()
+      expect(attached.value).toBeNull()
+    })
+
+    it('writes nothing while no session is attached', async () => {
+      const { wrapper } = await mountAt()
+
+      expect(useAttachedTerminalWindows().attached.value).toBeNull()
       wrapper.unmount()
     })
   })

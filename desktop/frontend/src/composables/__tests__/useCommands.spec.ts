@@ -177,4 +177,104 @@ describe('useCommands', () => {
 
     expect(palette.results.value).toEqual([])
   })
+
+  // ── Scopes ─────────────────────────────────────────────────────────────────
+
+  it('filters results to the active scope, defaulting an unmarked row to actions', () => {
+    const palette = useCommandPalette()
+
+    scope.run(() => useCommands([
+      command({ id: 'goto-a', title: 'Goto A', scope: 'goto' }),
+      command({ id: 'act-a', title: 'Actions A' }),
+    ]))
+
+    palette.scope.value = 'goto'
+    expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['goto-a'])
+
+    palette.scope.value = 'actions'
+    expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['act-a'])
+  })
+
+  it('intercepts a leading sigil on an empty query, entering that scope with it stripped', () => {
+    const palette = useCommandPalette()
+
+    // A paste of "@foo" lands in the goto scope with query "foo".
+    palette.setQuery('@foo')
+    expect(palette.scope.value).toBe('goto')
+    expect(palette.query.value).toBe('foo')
+
+    palette.setQuery('')
+    palette.setQuery('>run')
+    expect(palette.scope.value).toBe('actions')
+    expect(palette.query.value).toBe('run')
+  })
+
+  it('leaves a sigil as literal text once the query is already non-empty', () => {
+    const palette = useCommandPalette()
+
+    palette.setQuery('a')
+    palette.setQuery('a@b')
+
+    expect(palette.scope.value).toBe('all')
+    expect(palette.query.value).toBe('a@b')
+  })
+
+  it('hides the Shell tab until an escape claims it as available', () => {
+    const palette = useCommandPalette()
+
+    expect(palette.visibleScopes.value.map((s) => s.id)).toEqual(['all', 'goto', 'actions'])
+
+    scope.run(() => useShellEscape(() => []))
+    expect(palette.visibleScopes.value.map((s) => s.id)).toEqual(['all', 'goto', 'actions', 'shell'])
+
+    scope.stop()
+    expect(palette.visibleScopes.value.map((s) => s.id)).toEqual(['all', 'goto', 'actions'])
+  })
+
+  it('cycles forward and backward through only the visible scopes, wrapping at both ends', () => {
+    const palette = useCommandPalette()
+
+    // No shell escape registered, so Shell is not offered.
+    expect(palette.scope.value).toBe('all')
+    palette.cycleScope(1)
+    expect(palette.scope.value).toBe('goto')
+    palette.cycleScope(1)
+    expect(palette.scope.value).toBe('actions')
+    palette.cycleScope(1)
+    expect(palette.scope.value).toBe('all')
+
+    palette.cycleScope(-1)
+    expect(palette.scope.value).toBe('actions')
+  })
+
+  it('pops to All only on an empty query, and never when already on All', () => {
+    const palette = useCommandPalette()
+
+    palette.scope.value = 'goto'
+    palette.query.value = 'repo'
+    expect(palette.popScope()).toBe(false)
+    expect(palette.scope.value).toBe('goto')
+
+    palette.query.value = ''
+    expect(palette.popScope()).toBe(true)
+    expect(palette.scope.value).toBe('all')
+
+    expect(palette.popScope()).toBe(false)
+  })
+
+  it('snaps the active scope back to All when it disappears from visibleScopes, keeping the query', () => {
+    const palette = useCommandPalette()
+    const available = ref(true)
+
+    scope.run(() => useShellEscape((line) => [command({ id: 'shell:run', title: line })], () => available.value))
+
+    palette.open.value = true
+    palette.setQuery('!ls')
+    expect(palette.scope.value).toBe('shell')
+    expect(palette.query.value).toBe('ls')
+
+    available.value = false
+    expect(palette.scope.value).toBe('all')
+    expect(palette.query.value).toBe('ls')
+  })
 })

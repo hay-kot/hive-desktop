@@ -140,6 +140,35 @@ test('opens, filters, runs, and dismisses the command palette', async ({ page })
   await expect(palette).toBeVisible()
 })
 
+test('a sigil enters its scope tab and Backspace/Tab move between them', async ({ page }) => {
+  await page.keyboard.press('Meta+k')
+  const palette = page.getByTestId('command-palette')
+  await expect(palette).toBeVisible()
+  const input = page.getByTestId('command-palette-input')
+  const allTab = page.locator('[data-testid="command-palette-tab"][data-scope="all"]')
+  const gotoTab = page.locator('[data-testid="command-palette-tab"][data-scope="goto"]')
+  const actionsTab = page.locator('[data-testid="command-palette-tab"][data-scope="actions"]')
+
+  // A bare "@" is absorbed: it enters the Go to scope rather than becoming
+  // the first character of the query.
+  await input.fill('@')
+  await expect(gotoTab).toHaveClass(/palette-tab-active/)
+  await expect(input).toHaveValue('')
+
+  // Backspace on the now-empty query pops back to All.
+  await input.press('Backspace')
+  await expect(allTab).toHaveClass(/palette-tab-active/)
+
+  // Tab cycles forward through the visible scopes.
+  await page.keyboard.press('Tab')
+  await expect(gotoTab).toHaveClass(/palette-tab-active/)
+  await page.keyboard.press('Tab')
+  await expect(actionsTab).toHaveClass(/palette-tab-active/)
+
+  await page.keyboard.press('Escape')
+  await expect(palette).toBeHidden()
+})
+
 test('navigates between items with j/k and the arrow keys', async ({ page }) => {
   const detail = page.getByTestId('detail-pane')
   await expect(detail).toContainText('batch_spawn: fix detached tmux env & PATH propagation')

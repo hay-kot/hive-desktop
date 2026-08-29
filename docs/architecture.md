@@ -1456,6 +1456,20 @@ Do not build a shared interface across the two backends, and do not extend one
 because the other has something: they answer different questions, and the
 overlap in vocabulary is a coincidence of both being terminals.
 
+**The command palette's rules sit beside the keymap doctrine above.**
+`palette/scopes.ts` is the one place a scope's sigil, label and placeholder are declared (ADR palette-scopes-are-filters-over-one-list) —
+adding a scope is an entry there, not a change scattered across
+`useCommands`/`CommandPalette.vue`. A sigil (`@`, `>`, `!`) is grammar, not a
+separate command: `useCommandPalette.setQuery` absorbs it only as the first
+character of an empty query, so mid-edit it is a literal character rather than
+a scope switch. A row that cannot run where you stand is hidden, never shown
+disabled, matching the launcher palette row's own choice (ADR quick-terminal-launchers-are-session-scoped).
+And Go to is global: a row meant to be reachable from anywhere registers at
+the App level (`useAppPaletteRows`) off a module-scoped source
+(`useTerminalSessions`, `useAttachedTerminalWindows`, `useAgentSessionsAll`),
+never inside a lazily-mounted mode component, so it exists before that mode
+has ever mounted.
+
 ### Agent workspaces
 
 `internal/app/agentws` owns the on-disk agent-workspace root
