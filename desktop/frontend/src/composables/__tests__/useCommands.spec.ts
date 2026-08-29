@@ -6,6 +6,7 @@ import {
   sortCommands,
   useCommandPalette,
   useCommands,
+  useKeysScope,
   useShellEscape,
   type Command,
 } from '../useCommands'
@@ -260,6 +261,54 @@ describe('useCommands', () => {
     expect(palette.scope.value).toBe('all')
 
     expect(palette.popScope()).toBe(false)
+  })
+
+  it('hides the Keys tab until a provider registers, and routes ?-queries to it', () => {
+    const palette = useCommandPalette()
+
+    expect(palette.visibleScopes.value.map((s) => s.id)).not.toContain('keys')
+
+    scope.run(() => useKeysScope(() => [command({ id: 'keys:feed.next', title: 'Next item' })]))
+    expect(palette.visibleScopes.value.map((s) => s.id)).toContain('keys')
+
+    palette.setQuery('?next')
+    expect(palette.scope.value).toBe('keys')
+    expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['keys:feed.next'])
+
+    scope.stop()
+    expect(palette.visibleScopes.value.map((s) => s.id)).not.toContain('keys')
+  })
+
+  it('keeps the palette open and the query untouched when a command carries keepOpen', () => {
+    const palette = useCommandPalette()
+    const handler = vi.fn()
+
+    scope.run(() => useCommands([command({ id: 'legend:goto', title: 'Jump to a place', keepOpen: true, run: handler })]))
+    palette.open.value = true
+    palette.query.value = 'jump'
+
+    palette.run(palette.results.value[0])
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(palette.open.value).toBe(true)
+    expect(palette.query.value).toBe('jump')
+  })
+
+  // A sigil-legend row's own run() sets the new scope; keepOpen must not let
+  // run() reset that scope back to All right after.
+  it('lets a keepOpen row switch scope without the palette closing or resetting it', () => {
+    const palette = useCommandPalette()
+
+    scope.run(() => useCommands([
+      command({ id: 'legend:actions', title: 'Run a command', keepOpen: true, run: () => { palette.setScope('actions') } }),
+    ]))
+    palette.open.value = true
+    palette.query.value = 'run'
+
+    palette.run(palette.results.value[0])
+
+    expect(palette.open.value).toBe(true)
+    expect(palette.scope.value).toBe('actions')
   })
 
   it('snaps the active scope back to All when it disappears from visibleScopes, keeping the query', () => {

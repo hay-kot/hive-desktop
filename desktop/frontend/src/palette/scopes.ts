@@ -24,6 +24,7 @@ export const paletteScopes: readonly PaletteScopeSpec[] = [
   { id: 'goto', label: 'Go to', sigil: '@', placeholder: 'Go to…' },
   { id: 'actions', label: 'Actions', sigil: '>', placeholder: 'Run a command…' },
   { id: 'shell', label: 'Shell', sigil: '!', placeholder: 'Run in a new window…' },
+  { id: 'keys', label: 'Keys', sigil: '?', placeholder: 'Search shortcuts…' },
 ]
 
 /** The scope a sigil character enters, or null for a plain character. */

@@ -3,12 +3,14 @@ import { nextTick } from 'vue'
 import { mount } from '@vue/test-utils'
 import KeybindingSettingsView from '../KeybindingSettingsView.vue'
 import { useKeybindings } from '../../composables/useKeybindings'
+import { requestedEditorFilter } from '../../keybindings/keymapRows'
 
 const kb = useKeybindings()
 
 beforeEach(() => {
   kb.clearAll()
   kb.recording.value = false
+  requestedEditorFilter.value = null
 })
 
 function row(wrapper: ReturnType<typeof mount>, id: string) {
@@ -22,6 +24,18 @@ describe('KeybindingSettingsView', () => {
     const chips = next.findAll('[data-testid="keybinding-combo"]').map((c) => c.text())
     expect(chips.some((t) => t.includes('J'))).toBe(true)
     expect(chips.some((t) => t.includes('↓'))).toBe(true)
+  })
+
+  it('applies a requested filter from the ? scope handshake on mount, then clears it', async () => {
+    requestedEditorFilter.value = 'Next item'
+
+    const wrapper = mount(KeybindingSettingsView)
+    await nextTick()
+
+    expect((wrapper.get('[data-testid="keybinding-filter"]').element as HTMLInputElement).value).toBe('Next item')
+    expect(requestedEditorFilter.value).toBeNull()
+    expect(wrapper.findAll('[data-testid="keybinding-row"]').map((r) => r.attributes('data-command-id')))
+      .toEqual(['feed.next'])
   })
 
   it('filters the list by title, group, or key', async () => {

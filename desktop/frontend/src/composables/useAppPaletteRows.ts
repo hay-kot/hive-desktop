@@ -13,8 +13,10 @@ import IconShare2 from '~icons/lucide/share-2'
 import IconTerminal from '~icons/lucide/terminal'
 import IconWorkflow from '~icons/lucide/workflow'
 import { commands as bindableCommands, terminalWindowCommandID, type CommandContext } from '../keybindings/catalog'
+import { requestedEditorFilter, useKeymapRows } from '../keybindings/keymapRows'
+import { paletteScopes, type PaletteScopeId } from '../palette/scopes'
 import { formatCombo, useKeybindings } from './useKeybindings'
-import { useCommands, useCommandPalette, type Command } from './useCommands'
+import { useCommands, useCommandPalette, useKeysScope, type Command } from './useCommands'
 import { setTheme, themeLabels, themes } from './useTheme'
 import { terminalSessionGroups, useTerminalSessions } from './useTerminalSessions'
 import { useTerminalPinnedChats } from './useTerminalPinnedChats'
@@ -26,6 +28,18 @@ import { actionTypeMeta } from '../lib/actionPresentation'
 import { containerLine } from '../lib/itemPresentation'
 import type { ActionView } from '../types/action'
 import type { InboxItem, Profile, SidebarSelection } from '../types/feed'
+
+// What each sigil is for, shown as the Keys scope's trailing legend row.
+const sigilMeanings: Partial<Record<PaletteScopeId, string>> = {
+  goto: 'Jump to a place, session, or setting',
+  actions: 'Run a command',
+  shell: 'Run a line in a new terminal window',
+  keys: 'Search and rebind shortcuts',
+}
+
+function contextLabel(context: CommandContext): string {
+  return context.split('-').map((word) => word[0]!.toUpperCase() + word.slice(1)).join(' ')
+}
 
 export interface AppPaletteDeps {
   /** Resolves a catalog command id to its implementation (App.vue's runMap). */
@@ -378,11 +392,52 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     return cmds
   }))
 
+  const { open: paletteOpen, setScope } = useCommandPalette()
+
+  // The ? scope: every bindable command (launchers included), rows whose
+  // context is live right now promoted ahead of the rest under their own
+  // group, and a trailing legend explaining the other sigils. Registered for
+  // the app's lifetime, so the tab is effectively always visible.
+  const keymapRows = useKeymapRows()
+  useKeysScope(() => {
+    const rows: Command[] = keymapRows.value.map((row) => {
+      const active = contextActive(row.context)
+      return {
+        id: row.id,
+        title: row.title,
+        group: active ? `${contextLabel(row.context)} · active context` : row.group,
+        order: active ? -1 : 0,
+        hint: row.formatted.join(' · '),
+        // Every row routes to the pre-filtered editor — there is no disabled
+        // state, active context or not.
+        run: () => {
+          requestedEditorFilter.value = row.title
+          void router.push({ name: 'application-settings', params: { section: 'keybindings' } })
+        },
+      }
+    })
+
+    for (const scope of paletteScopes) {
+      const meaning = sigilMeanings[scope.id]
+      if (!scope.sigil || !meaning) continue
+      rows.push({
+        id: `keys:sigil:${scope.id}`,
+        title: meaning,
+        group: 'Sigils',
+        order: 1,
+        hint: scope.sigil,
+        keepOpen: true,
+        run: () => setScope(scope.id),
+      })
+    }
+
+    return rows
+  })
+
   // Session and chat rows are read from module singletons the sidebar trees
   // keep warm elsewhere; a palette open is the moment they are about to be
   // shown, so that is when staleness is worth paying to fix. Both reloads keep
   // last-good rows on failure.
-  const { open: paletteOpen } = useCommandPalette()
   watch(paletteOpen, (open) => {
     if (!open) return
     void reloadTerminalSessions()

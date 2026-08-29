@@ -152,15 +152,42 @@ export function useShellEscape(
   })
 }
 
+// ─── Keys scope (`?` queries) ───────────────────────────────────────────────
+
+interface KeysScopeRegistration {
+  key: symbol
+  source: () => Command[]
+}
+
+const keysScopes = ref<KeysScopeRegistration[]>([])
+
+/**
+ * Claims the Keys scope for the calling effect scope. Kept catalog-agnostic
+ * (like useShellEscape) so this module never imports keybindings/catalog;
+ * useAppPaletteRows supplies `source` over useKeymapRows().
+ */
+export function useKeysScope(source: () => Command[]): void {
+  const key = Symbol()
+  keysScopes.value = [...keysScopes.value, { key, source }]
+
+  onScopeDispose(() => {
+    keysScopes.value = keysScopes.value.filter((r) => r.key !== key)
+  })
+}
+
 // ─── Palette state (module singleton) ─────────────────────────────────────────
 
 const _open = ref(false)
 const _query = ref('')
 const _scope = ref<PaletteScopeId>('all')
 
-/** Registry entries whose tab is currently shown (Shell only where available). */
+/** Registry entries whose tab is currently shown (Shell/Keys only where available). */
 const visibleScopes = computed<PaletteScopeSpec[]>(() =>
-  paletteScopes.filter((s) => s.id !== 'shell' || shellEscapes.value.some((r) => r.available())),
+  paletteScopes.filter((s) => {
+    if (s.id === 'shell') return shellEscapes.value.some((r) => r.available())
+    if (s.id === 'keys') return keysScopes.value.length > 0
+    return true
+  }),
 )
 
 // A tab that goes away (e.g. Shell on a view switch) must not strand the
@@ -202,6 +229,8 @@ export function useCommandPalette(): {
         if (!line) return []
         return shellEscapes.value.flatMap((r) => r.source(line))
       }
+      case 'keys':
+        return filterAndScore(query, keysScopes.value.flatMap((r) => r.source()))
       case 'goto':
       case 'actions': {
         const wanted = _scope.value
@@ -264,6 +293,9 @@ export function useCommandPalette(): {
   }
 
   function run(cmd: Command): void | Promise<void> {
+    // A sigil-legend row switches scope itself; closing around that would undo
+    // the very navigation the row exists to offer.
+    if (cmd.keepOpen) return cmd.run()
     _open.value = false
     _query.value = ''
     _scope.value = 'all'

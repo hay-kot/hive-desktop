@@ -4,7 +4,7 @@
 // recorder to add a new combo, and a reset-to-default. Recording captures the
 // next keystroke on the window in the capture phase and suppresses it from the
 // global dispatcher (belt: kb.recording; suspenders: stopPropagation).
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import IconPlus from '~icons/lucide/plus'
 import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconSearch from '~icons/lucide/search'
@@ -14,7 +14,8 @@ import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import EmptyState from './settings/EmptyState.vue'
 import { commands } from '../keybindings/catalog'
-import { comboFromEvent, formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { comboFromEvent, useKeybindings } from '../composables/useKeybindings'
+import { requestedEditorFilter, useKeymapRows, type KeymapRow } from '../keybindings/keymapRows'
 
 const kb = useKeybindings()
 const filter = ref('')
@@ -23,23 +24,31 @@ const capturingId = ref<string | null>(null)
 const catalogById = computed(() => new Map(commands.value.map((command) => [command.id, command])))
 const titleFor = (id: string) => catalogById.value.get(id)?.title ?? id
 
-interface Row { id: string; title: string; combos: string[]; overridden: boolean }
-interface Group { group: string; rows: Row[] }
+// The ? scope's requested-filter handshake: a route landing here from a Keys
+// row carries the command to land on. Applied once and cleared so a later,
+// unrelated visit to this view starts unfiltered.
+function applyRequestedFilter(): void {
+  if (requestedEditorFilter.value === null) return
+  filter.value = requestedEditorFilter.value
+  requestedEditorFilter.value = null
+}
+onMounted(applyRequestedFilter)
+
+const rows = useKeymapRows()
+
+interface Group { group: string; rows: KeymapRow[] }
 
 const groups = computed<Group[]>(() => {
   const query = filter.value.trim().toLowerCase()
-  const byGroup = new Map<string, Row[]>()
-  for (const command of commands.value) {
-    const combos = kb.bindings.value[command.id] ?? []
+  const byGroup = new Map<string, KeymapRow[]>()
+  for (const row of rows.value) {
     if (query) {
-      const haystack = [command.title, command.group, ...(command.keywords ?? []), ...combos.map((c) => formatCombo(c))]
-        .join(' ')
-        .toLowerCase()
+      const keywords = catalogById.value.get(row.id)?.keywords ?? []
+      const haystack = [row.title, row.group, ...keywords, ...row.formatted].join(' ').toLowerCase()
       if (!haystack.includes(query)) continue
     }
-    const row: Row = { id: command.id, title: command.title, combos, overridden: kb.isOverridden(command.id) }
-    if (!byGroup.has(command.group)) byGroup.set(command.group, [])
-    byGroup.get(command.group)!.push(row)
+    if (!byGroup.has(row.group)) byGroup.set(row.group, [])
+    byGroup.get(row.group)!.push(row)
   }
   return [...byGroup.entries()].map(([group, rows]) => ({ group, rows }))
 })
@@ -132,7 +141,7 @@ onUnmounted(endCapture)
 
           <div class="flex flex-wrap items-center justify-end gap-2">
             <span
-              v-for="combo in row.combos"
+              v-for="(combo, i) in row.combos"
               :key="combo"
               class="combo"
               :class="conflictTitles(row.id, combo).length ? 'combo-conflict' : ''"
@@ -140,7 +149,7 @@ onUnmounted(endCapture)
               data-testid="keybinding-combo"
             >
               <IconTriangleAlert v-if="conflictTitles(row.id, combo).length" class="size-3 shrink-0 text-accent" />
-              <kbd class="keycap">{{ formatCombo(combo) }}</kbd>
+              <kbd class="keycap">{{ row.formatted[i] }}</kbd>
               <button
                 type="button"
                 class="combo-remove"

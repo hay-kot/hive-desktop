@@ -3,6 +3,7 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
+import { requestedEditorFilter } from '../keybindings/keymapRows'
 import { useReportDialog } from '../composables/useReportDialog'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
 import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
@@ -310,6 +311,7 @@ describe('App', () => {
     resetLaunchersForTests()
     useKeybindings().clearAll()
     useKeybindings().clearPendingSequence()
+    requestedEditorFilter.value = null
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
     resetAttachedTerminalWindowsForTests()
@@ -896,6 +898,28 @@ describe('App', () => {
       expect(router.currentRoute.value.name).toBe('application-settings')
       expect(router.currentRoute.value.params.section).toBe('appearance')
 
+      wrapper.unmount()
+    })
+
+    it('runs a Keys-scope row by requesting the editor filter and routing to Settings › Keyboard', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+
+      const palette = useCommandPalette()
+      palette.query.value = ''
+      palette.scope.value = 'keys'
+      const cmd = palette.results.value.find((candidate) => candidate.id === 'feed.next')
+      expect(cmd?.title).toBe('Next item')
+
+      // requestedEditorFilter is set synchronously, before the router push
+      // (and any settings pane it mounts) has had a chance to consume it.
+      cmd!.run()
+      expect(requestedEditorFilter.value).toBe('Next item')
+
+      await flushPromises()
+      expect(router.currentRoute.value.name).toBe('application-settings')
+      expect(router.currentRoute.value.params.section).toBe('keybindings')
+
+      palette.scope.value = 'all'
       wrapper.unmount()
     })
 
