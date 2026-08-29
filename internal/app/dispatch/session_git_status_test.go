@@ -122,7 +122,9 @@ func TestSessionGitStatusReportsCoordinatesForAnyHostedRemote(t *testing.T) {
 	t.Parallel()
 
 	elsewhere := activeSession()
-	elsewhere.Remote = "git@gitea.example.test:acme/site.git"
+	// Cased, because the host is what the forge match and the pull-request
+	// cache are keyed on and a remote may be written any way.
+	elsewhere.Remote = "git@Gitea.Example.Test:acme/site.git"
 	manager := NewHiveSessionManager(oneSessionManagement{session: elsewhere}, nil, stubGit{branch: "feat/bar"}, 0)
 
 	got, err := manager.SessionGitStatus(t.Context(), "s1")

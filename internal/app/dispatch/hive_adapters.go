@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
@@ -540,7 +541,9 @@ func (m *HiveSessionManager) SessionGitStatus(ctx context.Context, id string) (S
 // git.ExtractOwnerRepo is host-agnostic and would read the last two path
 // segments of anything.
 func remoteCoordinates(remote string) (host, owner, repo string) {
-	host = git.ExtractHost(remote)
+	// Lowered here so the forge match and the pull-request cache key are both
+	// canonical: a remote may be written with any casing in its host.
+	host = strings.ToLower(git.ExtractHost(remote))
 	if host == "" {
 		return "", "", ""
 	}
