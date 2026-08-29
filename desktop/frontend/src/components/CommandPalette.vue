@@ -29,7 +29,7 @@ function selectScope(id: PaletteScopeId): void {
 
 interface TitleSegment { text: string; match: boolean }
 interface HeaderEntry { kind: 'header'; group: string }
-interface CmdEntry { kind: 'cmd'; cmd: Command; index: number; segments: TitleSegment[]; scope: string }
+interface CmdEntry { kind: 'cmd'; cmd: Command; index: number; segments: TitleSegment[]; groupPrefix: string }
 type DisplayEntry = HeaderEntry | CmdEntry
 
 /**
@@ -72,11 +72,11 @@ const displayList = computed<DisplayEntry[]>(() => {
   const entries: DisplayEntry[] = []
   let navIndex = 0
   // Ranked results interleave groups, so section headers would mislabel the
-  // rows under them; while filtering, each row carries its group as a scope
+  // rows under them; while filtering, each row carries its group as an inline
   // prefix instead.
   if (q) {
     results.value.forEach((cmd) => {
-      entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: cmd.group ?? '' })
+      entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), groupPrefix: cmd.group ?? '' })
     })
     return entries
   }
@@ -94,7 +94,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       entries.push({ kind: 'header', group: 'Recent' })
       for (const cmd of recentCommands) {
         recent.add(cmd.id)
-        entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: cmd.group ?? '' })
+        entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), groupPrefix: cmd.group ?? '' })
       }
     }
   }
@@ -110,7 +110,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       if (group) entries.push({ kind: 'header', group })
       lastGroup = group
     }
-    entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), scope: '' })
+    entries.push({ kind: 'cmd', cmd, index: navIndex++, segments: titleSegments(cmd.title, q), groupPrefix: '' })
   })
   return entries
 })
@@ -300,7 +300,7 @@ function onKeydown(e: KeyboardEvent): void {
                   />
                   <component :is="entry.cmd.icon ?? IconZap" v-else />
                 </span>
-                <span v-if="entry.scope" class="palette-scope" data-testid="command-palette-command-scope">{{ entry.scope }} ›</span>
+                <span v-if="entry.groupPrefix" class="palette-scope" data-testid="command-palette-command-scope">{{ entry.groupPrefix }} ›</span>
                 <span class="palette-title" data-testid="command-palette-command-title"><template v-for="(seg, si) in entry.segments" :key="si"><span v-if="seg.match" class="palette-title-match">{{ seg.text }}</span><template v-else>{{ seg.text }}</template></template></span>
                 <span v-if="entry.cmd.hint" class="palette-hint">{{ entry.cmd.hint }}</span>
                 <span v-if="entry.index === selectedIndex" class="palette-enter-badge" aria-hidden="true">↵</span>

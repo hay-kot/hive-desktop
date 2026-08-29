@@ -18,8 +18,8 @@ showed a path instead of the name a user picked in Settings.
 The typed-query view already flattened groups into a per-row `Group ›` prefix
 (`CommandPalette.vue`'s `displayList`, reading `cmd.group`), so a hand-built
 title path was not needed there. Recent was the one place context actually
-disappeared: its rows rendered `scope: ''` regardless of `cmd.group`, so a
-recent feed or chat showed only its bare name -- and that loss is what
+disappeared: its rows rendered an empty container prefix regardless of
+`cmd.group`, so a recent feed or chat showed only its bare name -- and that loss is what
 originally pushed a hand-built path into the title instead of fixing Recent's
 own prefix.
 
@@ -44,9 +44,10 @@ Which shape a row takes depends on what it is:
 
 Nesting is drawn once, by the palette's own rendering, never by a title.
 `CommandPalette.vue` already had two places that show a row's context -- the
-group header on an empty query, and the per-row `{{ scope }} ›` prefix once a
-query narrows `results` past their headers -- plus Recent, which reorders rows
-out from under their group but still renders through the same `scope` field.
+group header on an empty query, and the per-row `{{ groupPrefix }} ›` prefix
+once a query narrows `results` past their headers -- plus Recent, which
+reorders rows out from under their group but still renders through the same
+`groupPrefix` field.
 Keeping the container in `group` and letting these three read it is one
 mechanism with one separator; if a title also carried a hand-built path, a
 typed query would show it twice (`Container › acme/repo › main`) with no way
