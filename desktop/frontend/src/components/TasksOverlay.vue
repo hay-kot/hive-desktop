@@ -12,6 +12,7 @@
 // close it.
 import { ref } from 'vue'
 import TasksView from './TasksView.vue'
+import { useAutofocus } from '../composables/useAutofocus'
 import { useFocusTrap } from '../composables/useFocusTrap'
 import { useReturnFocus } from '../composables/useReturnFocus'
 
@@ -25,6 +26,11 @@ function close(): void {
 
 const { onKeydown: trapFocus } = useFocusTrap(panel)
 useReturnFocus()
+// Opened over a terminal, focus is still on the pane's textarea, and
+// TasksView's j/k walk defers to any editable target, so the keys would keep
+// typing into the shell. The panel takes focus itself rather than the search
+// box, which is editable too and would swallow the walk the same way.
+useAutofocus(panel)
 </script>
 
 <template>
@@ -41,6 +47,7 @@ useReturnFocus()
         aria-label="Tasks"
         aria-modal="true"
         data-testid="tasks-overlay"
+        tabindex="-1"
         @keydown="trapFocus"
       >
         <TasksView @close="close" />
