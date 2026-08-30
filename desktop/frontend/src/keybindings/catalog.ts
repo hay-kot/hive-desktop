@@ -54,8 +54,11 @@ import type { CommandScope } from '../palette/scopes'
 // feed's `j`/`k` for the same combo. Those keys stay handlers on the widget
 // that owns focus.
 // `terminal-session` is the only context nothing in the static catalog below
-// claims: it belongs to a launcher that opens in a session's checkout, which is
-// a command whose whole meaning is the session it runs in (ADR quick-terminal-launchers-are-session-scoped).
+// claims: it belongs to a launcher that opens where its terminal is, which is a
+// command whose whole meaning is the terminal it runs in (ADR
+// quick-terminal-launchers-are-session-scoped, ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
+// Any slug the Code view attaches counts, including the scratch terminal and a
+// pinned chat — what the launcher needs is a pane, not a hive record.
 export type CommandContext = 'global' | 'feed' | 'terminal' | 'terminal-session' | 'agents'
 
 export interface BindableCommand {

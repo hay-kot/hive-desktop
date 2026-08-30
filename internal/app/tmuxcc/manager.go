@@ -306,10 +306,11 @@ func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
 // and returns its id. An attached client has its own NewWindow; this is for the
 // row a user pressed + on before anything attached to it.
 //
-// The directory is spelled out as the session's own, because tmux resolves an
-// unset start-directory against the *client* running the command — and a
-// one-shot command client is this process, so the window would open in the
-// app's working directory rather than where the session lives.
+// The directory is spelled out because tmux resolves an unset start-directory
+// against the *client* running the command — and a one-shot command client is
+// this process, so the window would open in the app's working directory. It is
+// the active pane's rather than the session's for the reason CurrentPath
+// explains.
 func (m *Manager) NewWindow(ctx context.Context, slug string) (string, error) {
 	exists, err := m.HasSession(ctx, slug)
 	if err != nil {
@@ -318,12 +319,38 @@ func (m *Manager) NewWindow(ctx context.Context, slug string) (string, error) {
 	if !exists {
 		return "", fmt.Errorf("%w: %s is not running", ErrNotAttached, slug)
 	}
-	lines, err := m.oneShot(ctx, "new-window", "-t", slug, "-c", "#{session_path}", "-P", "-F", "#{window_id}")
+	lines, err := m.oneShot(ctx, "new-window", "-t", slug, "-c", currentPathFormat, "-P", "-F", "#{window_id}")
 	if err != nil {
 		return "", fmt.Errorf("tmuxcc: new window in %s: %w", slug, err)
 	}
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
 		return "", fmt.Errorf("tmuxcc: new-window returned no window id")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
+// CurrentPath answers where a session's active pane is: the directory a prompt
+// in it would print, which follows a cd where the session's own start directory
+// does not. It is what "here" means for anything opened from a terminal on
+// screen — a new window, or a launcher with no directory of its own.
+//
+// It is a one-shot whether or not this app holds a control client, because the
+// answer is tmux's session state and asking over the control stream would cost
+// a round trip to reach the same pane.
+func (m *Manager) CurrentPath(ctx context.Context, slug string) (string, error) {
+	exists, err := m.HasSession(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("%w: %s is not running", ErrNotAttached, slug)
+	}
+	lines, err := m.oneShot(ctx, "display-message", "-p", "-t", slug, currentPathFormat)
+	if err != nil {
+		return "", fmt.Errorf("tmuxcc: current path of %s: %w", slug, err)
+	}
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", fmt.Errorf("tmuxcc: display-message returned no path for %s", slug)
 	}
 	return strings.TrimSpace(lines[0]), nil
 }

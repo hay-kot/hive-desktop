@@ -218,8 +218,9 @@ func (s *TerminalsService) SelectWindow(ctx context.Context, slug, windowID stri
 //
 // Attaching is not a precondition. A session's windows are its own, and the row
 // offering a new one is offering it for the session rather than for what happens
-// to be on screen — so a slug with no control client is served by a one-shot in
-// the session's own directory, and the attach that follows lists what it made.
+// to be on screen — so a slug with no control client is served by a one-shot,
+// and the attach that follows lists what it made. Either way the window opens
+// where the session's active pane is, not where the session was started.
 func (s *TerminalsService) NewWindow(ctx context.Context, slug string) (string, error) {
 	client, ok := s.manager.Client(slug)
 	if !ok {
@@ -234,6 +235,26 @@ func (s *TerminalsService) NewWindow(ctx context.Context, slug string) (string, 
 		return "", terminalError(err, "creating a window in session %q", slug)
 	}
 	return id, nil
+}
+
+// WorkingDirectory is where a session's terminal currently is — the directory
+// its active pane would print, not the one the session was started in. It is
+// the core's answer to "here" for a caller that has a slug and needs a path:
+// a launcher with no cwd of its own, and anything else opened against the
+// terminal on screen.
+//
+// It is answered from tmux rather than from the session record on purpose. A
+// slug in this view is not always a hive session — the scratch terminal and a
+// pinned chat are tmux sessions with no checkout behind them — and a pane that
+// has been cd'd somewhere else is where its user is, whichever kind it is. A
+// slug tmux is not running is KindNotFound, which leaves the caller to decide
+// what a terminal that is not up should fall back to.
+func (s *TerminalsService) WorkingDirectory(ctx context.Context, slug string) (string, error) {
+	dir, err := s.manager.CurrentPath(ctx, slug)
+	if err != nil {
+		return "", terminalError(err, "reading the working directory of session %q", slug)
+	}
+	return dir, nil
 }
 
 func (s *TerminalsService) CloseWindow(ctx context.Context, slug, windowID string) error {

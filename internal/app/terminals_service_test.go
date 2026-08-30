@@ -277,7 +277,7 @@ func TestTerminalsAttachAndSweepAnAgentChatSlugHiveKnowsNothingAbout(t *testing.
 // The + on a row is offered for the session, not for what is on screen, so it
 // has to work before anything has attached — which is what a first click on the
 // pinned terminal is.
-func TestTerminalsNewWindowWithoutAnAttachOpensInTheSessionDirectory(t *testing.T) {
+func TestTerminalsNewWindowWithoutAnAttachOpensWhereTheSessionIs(t *testing.T) {
 	tmux := privateTmux(t)
 	home := t.TempDir()
 	terminals := newTestTerminalsIn(t, &spawningStarter{tmux: tmux}, func() (string, error) { return home, nil })
@@ -294,6 +294,73 @@ func TestTerminalsNewWindowWithoutAnAttachOpensInTheSessionDirectory(t *testing.
 	windows, err := terminals.ListAllWindows(t.Context(), []string{ScratchSlug})
 	require.NoError(t, err)
 	assert.Len(t, windows[ScratchSlug], 2)
+}
+
+// A new tab opens where the terminal it was asked for is, which is what makes
+// it different from where the session was started: the scratch terminal starts
+// in the user's home and its tabs are wherever their panes have gone since.
+//
+// The pane is moved with tmux's own -c rather than by typing `cd` into a shell.
+// What is under test is which pane the directory is read from, not whether a
+// prompt followed a keystroke, and a test that waits for a shell is a test that
+// is flaky for reasons of its own.
+func TestTerminalsNewWindowFollowsTheActivePane(t *testing.T) {
+	tmux := privateTmux(t)
+	home := t.TempDir()
+	elsewhere := t.TempDir()
+	terminals := newTestTerminalsIn(t, &spawningStarter{tmux: tmux}, func() (string, error) { return home, nil })
+
+	_, err := terminals.Start(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	require.NoError(t, tmux("new-window", "-t", ScratchSlug, "-c", elsewhere, "-n", "elsewhere", "sh"))
+
+	// Unattached, through the one-shot: tmux resolves the slug to the session's
+	// current window, which is the one it just made.
+	id, err := terminals.NewWindow(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.Equal(t, realpath(t, elsewhere), realpath(t, tmuxFields(t, "display-message", "-p", "-t", id, "#{pane_current_path}")))
+
+	// Attached, over the control stream: the same answer, read from the client's
+	// own current window rather than from a target it was handed.
+	_, err = terminals.Attach(t.Context(), ScratchSlug, 120, 40)
+	require.NoError(t, err)
+	attached, err := terminals.NewWindow(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.Equal(t, realpath(t, elsewhere), realpath(t, tmuxFields(t, "display-message", "-p", "-t", attached, "#{pane_current_path}")))
+}
+
+// WorkingDirectory is what a launcher with no cwd opens in, and the whole point
+// of asking tmux rather than hive is that the scratch terminal has no hive
+// record to ask about.
+func TestTerminalsWorkingDirectoryIsTheActivePanes(t *testing.T) {
+	tmux := privateTmux(t)
+	home := t.TempDir()
+	elsewhere := t.TempDir()
+	terminals := newTestTerminalsIn(t, &spawningStarter{tmux: tmux}, func() (string, error) { return home, nil })
+
+	_, err := terminals.Start(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+
+	dir, err := terminals.WorkingDirectory(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.Equal(t, realpath(t, home), realpath(t, dir))
+
+	require.NoError(t, tmux("new-window", "-t", ScratchSlug, "-c", elsewhere, "-n", "elsewhere", "sh"))
+	dir, err = terminals.WorkingDirectory(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.Equal(t, realpath(t, elsewhere), realpath(t, dir))
+}
+
+// A terminal that is not running has no pane to read. It is KindNotFound rather
+// than a directory of last resort, because what to fall back to belongs to the
+// caller: a hive session still has its checkout, and a scratch terminal has
+// nothing.
+func TestTerminalsWorkingDirectoryInASessionThatIsNotRunning(t *testing.T) {
+	privateTmux(t)
+	terminals := newTestTerminals(t, &spawningStarter{})
+
+	_, err := terminals.WorkingDirectory(t.Context(), "hive-gone")
+	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
 func TestTerminalsNewWindowInASessionThatIsNotRunning(t *testing.T) {

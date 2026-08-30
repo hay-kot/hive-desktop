@@ -18,18 +18,29 @@ type terminalDirectory interface {
 	SessionDirectory(ctx context.Context, slug string) (string, error)
 }
 
+// terminalWorkingDirectory answers where the terminal a slug names currently
+// is. It belongs to the terminal domain: the answer is tmux's, and it is the
+// one thing that holds for every slug this view attaches — a hive session, the
+// scratch terminal, a pinned chat.
+type terminalWorkingDirectory interface {
+	WorkingDirectory(ctx context.Context, slug string) (string, error)
+}
+
 // OpenPopupTerminal is one launch. The directory is resolved in order —
-// Launcher's own cwd, SessionSlug's checkout, then Dir, then the user's home —
-// so a caller with a session in hand does not have to know where it lives, and
-// one with neither still gets a shell somewhere sensible rather than wherever
-// the app happened to be started from. The home fallback is the bare shell's
-// alone: a launcher that takes its directory from the session is refused
-// without one (ADR quick-terminal-launchers-are-session-scoped).
+// Launcher's own cwd, where SessionSlug's terminal currently is, then Dir, then
+// the user's home — so a caller with a terminal in hand does not have to know
+// where it lives, and one with neither still gets a shell somewhere sensible
+// rather than wherever the app happened to be started from. The home fallback
+// is the bare shell's alone: a launcher that takes its directory from the
+// terminal is refused without one (ADR quick-terminal-launchers-are-session-scoped, ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
 type OpenPopupTerminal struct {
 	// Launcher is a configured launcher's id, and supplies the command line and
 	// optionally the directory. The caller sends the id rather than the command
 	// so what a launcher runs is the catalog's answer and not the client's.
-	Launcher    string
+	Launcher string
+	// SessionSlug is a tmux session name, not a hive session id. Any slug the
+	// Code view attaches answers here, which is what lets a launcher open on
+	// the scratch terminal or a pinned chat as readily as on a checkout.
 	SessionSlug string
 	Dir         string
 	Command     string
@@ -43,9 +54,9 @@ type PopupLauncher struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Icon  string `json:"icon"`
-	// RequiresSession reports that this launcher opens in a session's checkout,
-	// so a surface offering it outside one is offering a launch the core will
-	// refuse (ADR quick-terminal-launchers-are-session-scoped).
+	// RequiresSession reports that this launcher opens wherever the terminal on
+	// screen is, so a surface offering it with no terminal attached is offering
+	// a launch the core will refuse (ADR quick-terminal-launchers-are-session-scoped).
 	RequiresSession bool `json:"requiresSession"`
 }
 
@@ -55,12 +66,13 @@ type PopupLauncher struct {
 // — what it is reached over is the adapter's (ADR terminal-transport).
 type PopupTerminalsService struct {
 	manager   *ptyterm.Manager
+	terminals terminalWorkingDirectory
 	directory terminalDirectory
 	catalog   *actions.ActionStore
 }
 
-func newPopupTerminalsService(manager *ptyterm.Manager, directory terminalDirectory, catalog *actions.ActionStore) *PopupTerminalsService {
-	return &PopupTerminalsService{manager: manager, directory: directory, catalog: catalog}
+func newPopupTerminalsService(manager *ptyterm.Manager, terminals terminalWorkingDirectory, directory terminalDirectory, catalog *actions.ActionStore) *PopupTerminalsService {
+	return &PopupTerminalsService{manager: manager, terminals: terminals, directory: directory, catalog: catalog}
 }
 
 // Available reports build and platform support. There is no external program to
@@ -105,12 +117,13 @@ func (s *PopupTerminalsService) Open(ctx context.Context, req OpenPopupTerminal)
 
 // applyLauncher folds a named launcher into the launch spec it stands for — a
 // launcher is that spec with config in front of it and nothing more (ADR launchers-are-their-own-list-in-actions-yml).
-// A configured cwd wins over the session's checkout, which is what pins a
-// launcher to one directory; without one the launcher is session-scoped and a
-// launch with no session to resolve is refused rather than opened somewhere
-// else (ADR quick-terminal-launchers-are-session-scoped). The caller's own Dir is dropped in that case: a
-// session-scoped launcher takes its directory from the session, and honouring a
-// path beside the slug would be a second way to answer the same question.
+// A configured cwd wins over the terminal's own directory, which is what pins a
+// launcher to one place; without one the launcher is session-scoped and a launch
+// with no terminal to resolve is refused rather than opened somewhere else (ADR
+// quick-terminal-launchers-are-session-scoped). The caller's own Dir is dropped
+// in that case: a session-scoped launcher takes its directory from the terminal,
+// and honouring a path beside the slug would be a second way to answer the same
+// question.
 func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupTerminal, error) {
 	id := strings.TrimSpace(req.Launcher)
 	if id == "" {
@@ -133,7 +146,7 @@ func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupT
 		return req, nil
 	}
 	if strings.TrimSpace(req.SessionSlug) == "" {
-		return req, Errorf(KindInvalid, "%q opens in a session's checkout, so it needs a session to open in", id)
+		return req, Errorf(KindInvalid, "%q opens where a terminal is, so it needs a terminal to open in", id)
 	}
 	req.Dir = ""
 	return req, nil
@@ -176,10 +189,7 @@ func (s *PopupTerminalsService) Resize(_ context.Context, id string, cols, rows 
 
 func (s *PopupTerminalsService) resolveDir(ctx context.Context, req OpenPopupTerminal) (string, error) {
 	if slug := strings.TrimSpace(req.SessionSlug); slug != "" {
-		if s.directory == nil {
-			return "", Errorf(KindUnavailable, "reading sessions is unavailable")
-		}
-		return s.directory.SessionDirectory(ctx, slug)
+		return s.terminalDir(ctx, slug)
 	}
 	if dir := strings.TrimSpace(req.Dir); dir != "" {
 		return expandHome(dir)
@@ -189,6 +199,30 @@ func (s *PopupTerminalsService) resolveDir(ctx context.Context, req OpenPopupTer
 		return "", Wrap(err, KindInternal, "finding a directory to open a terminal in")
 	}
 	return home, nil
+}
+
+// terminalDir is where a launch that named a terminal opens: the directory that
+// terminal's active pane is in, so "here" is the prompt the user is looking at
+// rather than wherever the session was started (ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
+//
+// A slug tmux is not running has no pane to read, and then the hive session's
+// checkout is the answer — which is what keeps a launcher working on a session
+// whose terminal is stopped, and what leaves a stopped terminal with no record
+// behind it reporting that there is no session by that name.
+func (s *PopupTerminalsService) terminalDir(ctx context.Context, slug string) (string, error) {
+	if s.terminals != nil {
+		dir, err := s.terminals.WorkingDirectory(ctx, slug)
+		if err == nil {
+			return dir, nil
+		}
+		if KindOf(err) != KindNotFound {
+			return "", err
+		}
+	}
+	if s.directory == nil {
+		return "", Errorf(KindUnavailable, "reading sessions is unavailable")
+	}
+	return s.directory.SessionDirectory(ctx, slug)
 }
 
 // expandHome resolves a leading `~`, which nothing else does: chdir takes a

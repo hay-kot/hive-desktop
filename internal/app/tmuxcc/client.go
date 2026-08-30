@@ -45,6 +45,11 @@ const (
 	// The pane's cursor as an emulator addresses it: 0-based row, then column.
 	cursorFormat = "#{cursor_y} #{cursor_x}"
 
+	// Where a target's active pane is. tmux expands it against the target of the
+	// command it is given to, so it reads the pane on screen from an attached
+	// client and the session's current one from a one-shot.
+	currentPathFormat = "#{pane_current_path}"
+
 	// historyLines bounds the scrollback a first paint replays. It is tmux's own
 	// default history-limit, so on an unconfigured tmux it is the whole history
 	// rather than a bound anyone runs into, and it costs a few hundred KB per
@@ -345,8 +350,12 @@ func (c *Client) SelectWindow(ctx context.Context, windowID string) error {
 
 // NewWindow creates a window and returns its id. The tab set itself is driven
 // by the %window-add notification that follows.
+//
+// It opens where the active pane is rather than where the session was started,
+// which is what a new tab means in a terminal emulator: the window the user is
+// looking at is the one they are asking for another of.
 func (c *Client) NewWindow(ctx context.Context) (string, error) {
-	lines, err := c.gw.Send(ctx, `new-window -P -F "#{window_id}"`)
+	lines, err := c.gw.Send(ctx, `new-window -c "`+currentPathFormat+`" -P -F "#{window_id}"`)
 	if err != nil {
 		return "", err
 	}

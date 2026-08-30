@@ -1,6 +1,6 @@
 # Ephemeral pop-up terminals this process owns, beside the tmux ones it does not
 
-- **Status:** proposed; point 2 amended by [ADR ptyterm-terminals-are-caller-addressed](2026-08-03-ptyterm-terminals-are-caller-addressed.md) — a caller may now supply the terminal's id rather than always receiving a minted one; [ADR agent-workspace-sessions-are-tmux-sessions](2026-08-03-agent-workspace-sessions-are-tmux-sessions.md) moved agent workspace sessions off this backend onto tmux, so "the pop-up" below is now the only caller
+- **Status:** proposed; point 2 amended by [ADR ptyterm-terminals-are-caller-addressed](2026-08-03-ptyterm-terminals-are-caller-addressed.md) — a caller may now supply the terminal's id rather than always receiving a minted one; [ADR agent-workspace-sessions-are-tmux-sessions](2026-08-03-agent-workspace-sessions-are-tmux-sessions.md) moved agent workspace sessions off this backend onto tmux, so "the pop-up" below is now the only caller; point 3's directory order is amended by [ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is](2026-08-29-a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is.md) — a slug resolves to its terminal's active pane
 - **Date:** 2026-07-30
 
 ## Context

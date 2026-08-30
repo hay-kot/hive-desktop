@@ -55,7 +55,7 @@ function requestDelete(launcher: Launcher): void {
   <SettingsPage testid="launchers-settings">
     <SettingsHeading
       title="Quick terminals"
-      description="Open the pop-up terminal straight into a program — lazygit in the session you are looking at, a test watcher, btop. Each one gets a command in the palette and can take a shortcut of its own."
+      description="Open the pop-up terminal straight into a program — lazygit where the terminal you are looking at is, a test watcher, btop. Each one gets a command in the palette and can take a shortcut of its own."
     >
       <template #actions>
         <BaseButton size="sm" data-testid="launcher-create" @click="createNew">

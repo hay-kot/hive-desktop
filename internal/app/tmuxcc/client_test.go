@@ -621,6 +621,9 @@ func TestWindowCommands(t *testing.T) {
 	id, err := client.NewWindow(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "@9", id)
+	// A new tab opens where the pane in front of the user is, not where the
+	// session was started — tmux expands the format against this client.
+	require.Contains(t, f.sentCommands(), `new-window -c "#{pane_current_path}" -P -F "#{window_id}"`)
 
 	require.NoError(t, client.RenameWindow(ctx, "@1", "my logs"))
 	require.Contains(t, f.sentCommands(), `rename-window -t @1 'my logs'`)

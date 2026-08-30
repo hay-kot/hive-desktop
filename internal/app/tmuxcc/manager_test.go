@@ -539,6 +539,7 @@ type fakeTmuxCommands struct {
 	absent   bool
 	failure  error
 	windows  []string
+	lines    []string
 }
 
 func (f *fakeTmuxCommands) run(_ context.Context, binary string, env []string, args ...string) ([]string, error) {
@@ -552,6 +553,8 @@ func (f *fakeTmuxCommands) run(_ context.Context, binary string, env []string, a
 		return nil, f.failure
 	case len(args) > 0 && args[0] == "list-windows", len(args) > 0 && args[0] == "new-window":
 		return f.windows, f.failure
+	case len(args) > 0 && args[0] == "display-message":
+		return f.lines, f.failure
 	}
 	return nil, nil
 }
@@ -717,15 +720,45 @@ func TestManagerNewWindowWithoutAClient(t *testing.T) {
 	cmds := &fakeTmuxCommands{windows: []string{"@7"}}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
-	// The directory is spelled out as the session's own: tmux resolves an unset
-	// start-directory against the client running the command, and a one-shot
-	// command client is this process.
+	// The directory is spelled out: tmux resolves an unset start-directory
+	// against the client running the command, and a one-shot command client is
+	// this process. It is the active pane's, so a window made from the sidebar
+	// lands where the session's own tabs would.
 	_, err := m.NewWindow(t.Context(), "hive-demo")
 	require.NoError(t, err)
 	require.Equal(t, [][]string{
 		{"has-session", "-t", "hive-demo"},
-		{"new-window", "-t", "hive-demo", "-c", "#{session_path}", "-P", "-F", "#{window_id}"},
+		{"new-window", "-t", "hive-demo", "-c", "#{pane_current_path}", "-P", "-F", "#{window_id}"},
 	}, cmds.calls)
+}
+
+func TestManagerCurrentPathReadsTheActivePane(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{lines: []string{"/work/checkout"}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	dir, err := m.CurrentPath(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.Equal(t, "/work/checkout", dir)
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "hive-demo"},
+		{"display-message", "-p", "-t", "hive-demo", "#{pane_current_path}"},
+	}, cmds.calls)
+}
+
+// A session that is not running has no pane to read, and the caller decides
+// what to do about that — so it is the same sentinel every other slug-keyed
+// one-shot answers with rather than an empty path.
+func TestManagerCurrentPathInASessionThatIsNotRunning(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{absent: true}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	_, err := m.CurrentPath(t.Context(), "hive-demo")
+	require.ErrorIs(t, err, ErrNotAttached)
+	require.Len(t, cmds.calls, 1, "nothing is asked of a session that is not there")
 }
 
 func TestManagerNewWindowInASessionThatIsNotRunning(t *testing.T) {

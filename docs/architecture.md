@@ -1096,11 +1096,20 @@ this sidebar, not a fact about the chat — which is also why
 `repo`) instead of a `pinned` flag that had been standing for two different
 things.
 
-**Adding a window does not require an attach.** A slug with no control client
-gets one from a one-shot, whose `-c` is spelled `#{session_path}`: tmux resolves
-an unset start-directory against the client running the command, and a one-shot
-command client is this process, so the window would otherwise open in the app's
-working directory rather than the session's.
+**A new window opens where the session's active pane is**, not where the session
+was started — `#{pane_current_path}`, which is what a `cd` moves and a tab in
+any terminal emulator follows (ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is). It is spelled out on both paths because
+adding a window does not require an attach: a slug with no control client gets
+one from a one-shot, and tmux resolves an unset start-directory against the
+client running the command — a one-shot command client is this process, so the
+window would otherwise open in the app's working directory.
+
+`TerminalsService.WorkingDirectory` is the same answer for a caller that has a
+slug and needs a path, and it is read from tmux rather than from hive's session
+record on purpose: the scratch terminal and a pinned chat have no record, and a
+pane that has been `cd`'d somewhere is where its user is whichever kind of slug
+it is. Its one caller today is a launcher with no `cwd` — see [Pop-up
+terminals](#pop-up-terminals).
 
 **The sidebar filter narrows what the tree draws and nothing else.** The
 attachable set still carries every session, because the watcher that follows a
@@ -1353,16 +1362,26 @@ Three rules govern it, and each is a consequence of that:
   sessions have their own, separate cap now — a count of live `agentws-*` tmux
   sessions (ADR agent-workspace-sessions-are-tmux-sessions) — since they are no longer this manager's terminals.
 - **A launch is a directory and a shell command line.** The directory resolves
-  launcher cwd → session checkout → explicit path → home; the command runs
+  launcher cwd → the slug's terminal → explicit path → home; the command runs
   through a login shell so the user's own aliases resolve it, over `execenv`'s
   resolved environment as the floor rather than instead of it (ADR subprocess-environment, ADR
   0068), and empty means an interactive shell. A named launcher is that spec
   with config in front of it — add the config, not another launch path.
   **The home fallback is the bare shell's alone.** A launcher with no configured
   `cwd` is session-scoped: the core refuses it without a slug (`KindInvalid`),
-  drops any `Dir` sent beside one, and answers a slug whose session is gone with
-  `KindNotFound` rather than opening somewhere else (ADR quick-terminal-launchers-are-session-scoped). That is in
+  drops any `Dir` sent beside one, and answers a slug that names neither a live
+  terminal nor a session with `KindNotFound` rather than opening somewhere else
+  (ADR quick-terminal-launchers-are-session-scoped). That is in
   `PopupTerminalsService`, so an HTTP API caller is bound by it too.
+
+  **A slug resolves to its terminal's active pane, and to the session's checkout
+  only when tmux is not running it** (ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is). `TerminalsService.WorkingDirectory` is the
+  first question and `SessionsService.SessionDirectory` the fallback, which is
+  what puts every row in the Code view's tree in reach: the scratch terminal and
+  a pinned chat have no hive record to ask about, and a pane that has been
+  `cd`'d somewhere is where its user is on any of them. The fallback lives here
+  rather than in the terminal domain because it is this service that needs
+  somewhere to open.
 - **A launcher is an entry in actions.yml's `launchers:` list, opened by id**
   (ADR launchers-are-their-own-list-in-actions-yml). It is deliberately *not* an action: every surface in the `targets`
   vocabulary dispatches and a pop-up does not, so it shares the file — one

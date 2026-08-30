@@ -603,11 +603,35 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // The scratch terminal is a tmux session with no hive record behind it, and a
+  // launcher reaches it on the same route param every other row uses — what a
+  // cwd-less launcher needs is a pane to read, not a checkout (ADR
+  // a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
+  it('opens a session-scoped launcher on the scratch terminal', async () => {
+    mocks.PopupLaunchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: 'git-branch', requiresSession: true }])
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/Scratch')
+    await flushPromises()
+
+    const { results, query } = useCommandPalette()
+    query.value = ''
+    expect(results.value.map((cmd) => cmd.id)).toContain('launcher.lazygit')
+
+    useKeybindings().addBinding('launcher.lazygit', 'alt+g')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', altKey: true }))
+
+    const popup = usePopupTerminal()
+    expect(popup.visible.value).toBe(true)
+    expect(popup.request.value).toEqual({ launcher: 'lazygit', sessionSlug: 'Scratch' })
+
+    wrapper.unmount()
+  })
+
   // The bug this is here for: `lazygit` opened from the feed used to start in
-  // the home directory and present a failed TUI. A launcher that runs in a
-  // session's checkout is not offered where there is no session, and its chord
-  // is not dispatched there either (ADR quick-terminal-launchers-are-session-scoped).
-  it('withholds a session-scoped launcher outside a session, from the palette and from its chord', async () => {
+  // the home directory and present a failed TUI. A launcher that runs where a
+  // terminal is is not offered where there is no terminal, and its chord is not
+  // dispatched there either (ADR quick-terminal-launchers-are-session-scoped).
+  it('withholds a session-scoped launcher with no terminal attached, from the palette and from its chord', async () => {
     mocks.PopupLaunchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: 'git-branch', requiresSession: true }])
     const { wrapper, router } = await mountAppWithRouter()
     useKeybindings().addBinding('launcher.lazygit', 'alt+g')

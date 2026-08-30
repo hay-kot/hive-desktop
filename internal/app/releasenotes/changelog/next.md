@@ -105,6 +105,13 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   editing hub-only, since the flows canvas is profile-bound.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
+- A quick terminal launcher opens where the terminal you are looking at is,
+  rather than in that session's checkout. `lazygit` follows a `cd` into another
+  repository, and it works on the plain terminals under **Terminals** and on a
+  pinned chat, not just on a session.
+- A new terminal tab opens in the current tab's directory instead of the one
+  the session started in — so `⌘T` after a `cd` lands where you were, and the
+  scratch terminal's tabs no longer all open in your home directory.
 - `/` now focuses whichever search box is on screen — the feed's or the Code
   view's session filter — as one shared shortcut (`mod+f` rides along) rather
   than a Code-only binding, so the two can no longer be rebound independently.
