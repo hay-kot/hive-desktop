@@ -80,6 +80,25 @@ describe('TasksOverlay', () => {
     wrapper.unmount()
   })
 
+  // The regression: opened over a terminal, the pane's textarea kept focus, so
+  // TasksView's j/k walk read every key as typing into an editable target and
+  // the letters went to the shell instead.
+  it('takes focus off the editable element it opened over, and hands it back on close', async () => {
+    const textarea = document.createElement('textarea')
+    document.body.append(textarea)
+    textarea.focus()
+
+    const wrapper = mount(TasksOverlay)
+    await flushPromises()
+    expect(document.activeElement).toBe(el('tasks-overlay'))
+
+    wrapper.unmount()
+    await flushPromises()
+    expect(document.activeElement).toBe(textarea)
+
+    textarea.remove()
+  })
+
   it('emits close on Escape via the single handler TasksView already owns', async () => {
     const wrapper = mount(TasksOverlay)
     await flushPromises()
