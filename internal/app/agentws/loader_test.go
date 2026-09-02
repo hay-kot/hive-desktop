@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 )
 
 // TestConfigRoundTrip proves parse -> validate -> serialise for both files
@@ -98,6 +99,58 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 	w, err := LoadWorkspace(path)
 	require.NoError(t, err)
 	assert.Equal(t, "homeassistant", w.Dir)
+}
+
+// TestLoadWorkspaceStampsTheDirOntoEverySchedule: a Spec leaves the workspace
+// on its own to reach the scheduler, so the directory it came from has to
+// travel with it.
+func TestLoadWorkspaceStampsTheDirOntoEverySchedule(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "product")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	manifest := `version: 3
+name: Product
+agent: claude
+autonomy: ask
+schedules:
+  - id: weekly-summary
+    name: Weekly product summary
+    cron: "0 9 * * 5"
+    prompt: |
+      Summarize product activity since {{ if .LastRun }}{{ date "2006-01-02" .LastRun }}{{ else }}last week{{ end }}.
+    on_missed: skip
+  - id: daily
+    cron: "@daily"
+    prompt: Standup.
+    disabled: true
+`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(manifest), 0o600))
+
+	w, err := LoadWorkspace(filepath.Join(dir, manifestFileName))
+	require.NoError(t, err)
+	require.Len(t, w.Schedules, 2)
+	for _, spec := range w.Schedules {
+		assert.Equal(t, "product", spec.Workspace)
+	}
+	assert.Equal(t, "Weekly product summary", w.Schedules[0].Name)
+	assert.Equal(t, schedule.OnMissedSkip, w.Schedules[0].OnMissed)
+	assert.Empty(t, w.Schedules[1].Name)
+	assert.True(t, w.Schedules[1].Disabled)
+}
+
+func TestLoadWorkspaceRejectsABrokenSchedule(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, "product")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	manifest := "version: 3\nname: Product\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: \"nope\"\n    prompt: go\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(manifest), 0o600))
+
+	_, err := LoadWorkspace(filepath.Join(dir, manifestFileName))
+	require.Error(t, err)
 }
 
 // TestAutonomyDefaultsToAsk asserts hc-ou4o02zx §4: a manifest that omits

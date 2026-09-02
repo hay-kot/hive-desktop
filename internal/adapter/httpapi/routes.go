@@ -235,6 +235,37 @@ func (ctrl *Controller) agentOperations() []Op {
 			Request: agentCanvasExportRequest{}, Response: agentCanvasExportResponse{}, Handler: ctrl.AgentCanvasExport,
 			Errors: agentErrors("no such canvas"),
 		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules", Summary: "List a workspace's scheduled chats in manifest order, each joined with the state the manifest does not carry: nextRunAt is when its cron fires next (null when it is disabled or the expression does not parse), and lastRun is its newest run whatever the outcome, so a failing schedule says so where it is listed.",
+			Request: agentSchedulesRequest{}, Response: agentSchedulesResponse{}, Handler: ctrl.AgentSchedules,
+			Errors: agentErrors("no such workspace, or its manifest is invalid"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/save", Summary: "Upsert one schedules: entry in a workspace manifest, matched by id. Comments, key order and keys the editor does not own survive the write, and disabled/onMissed are dropped from the file at their defaults. The id shape, the cron expression and the prompt template are all validated before anything is written.",
+			Request: agentScheduleSaveRequest{}, Response: agentScheduleResponse{}, Handler: ctrl.AgentScheduleSave,
+			Errors: agentErrors("no such workspace"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/delete", Summary: "Remove one schedule from its manifest and drop the cursor that tracked how far it had been evaluated. The run history stays: it is the record of what the schedule did.",
+			Request: agentScheduleIDRequest{}, Response: agentScheduleDeleteResponse{}, Handler: ctrl.AgentScheduleDelete,
+			Errors: agentErrors("no such workspace"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/run", Summary: "Fire one schedule now, outside its timetable, and return the run it recorded. The cursor is untouched, so the next real occurrence still happens. A run whose previous chat is still open, or whose prompt or launch failed, answers 200 with that outcome on the run rather than an error.",
+			Request: agentScheduleIDRequest{}, Response: agentScheduleRunResponse{}, Handler: ctrl.AgentScheduleRun,
+			Errors: agentErrors("no schedule of that id in that workspace",
+				ErrResp{Status: 503, When: "tmux is unavailable, so whether the previous run's chat is still open cannot be answered"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/runs", Summary: "List run history, newest first. An empty id spans every schedule in the workspace; a limit of 0 takes the default. History outlives the manifest entry it came from, so a workspace whose manifest is broken still answers.",
+			Request: agentScheduleRunsRequest{}, Response: agentScheduleRunsResponse{}, Handler: ctrl.AgentScheduleRuns,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/preview", Summary: "Dry-run an unsaved edit: the next occurrences the cron produces, and the prompt rendered against sample data. A cron or template that does not parse comes back in cronError/promptError rather than as a failed call, so the editor can show it beside the field being typed in.",
+			Request: agentSchedulePreviewRequest{}, Response: agentSchedulePreviewResponse{}, Handler: ctrl.AgentSchedulePreview,
+			Errors: agentErrors(""),
+		},
 	}
 }
 

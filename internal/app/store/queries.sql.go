@@ -531,6 +531,29 @@ func (q *Queries) DeleteOrphanedSourceHeads(ctx context.Context) error {
 	return err
 }
 
+const deleteScheduleCursor = `-- name: DeleteScheduleCursor :exec
+DELETE FROM schedule_cursor WHERE workspace = ? AND schedule_id = ?
+`
+
+type DeleteScheduleCursorParams struct {
+	Workspace  string `json:"workspace"`
+	ScheduleID string `json:"schedule_id"`
+}
+
+func (q *Queries) DeleteScheduleCursor(ctx context.Context, arg DeleteScheduleCursorParams) error {
+	_, err := q.db.ExecContext(ctx, deleteScheduleCursor, arg.Workspace, arg.ScheduleID)
+	return err
+}
+
+const deleteScheduleRunsByWorkspace = `-- name: DeleteScheduleRunsByWorkspace :exec
+DELETE FROM schedule_run WHERE workspace = ?
+`
+
+func (q *Queries) DeleteScheduleRunsByWorkspace(ctx context.Context, workspace string) error {
+	_, err := q.db.ExecContext(ctx, deleteScheduleRunsByWorkspace, workspace)
+	return err
+}
+
 const deleteSnapshotsOverLimitPerTopic = `-- name: DeleteSnapshotsOverLimitPerTopic :exec
 DELETE FROM event_log AS target
 WHERE target.snapshot = 1
@@ -899,6 +922,51 @@ func (q *Queries) GetOutputCommand(ctx context.Context, id int64) (OutputCommand
 	return i, err
 }
 
+const getScheduleCursor = `-- name: GetScheduleCursor :one
+SELECT workspace, schedule_id, evaluated_through, cron FROM schedule_cursor WHERE workspace = ? AND schedule_id = ?
+`
+
+type GetScheduleCursorParams struct {
+	Workspace  string `json:"workspace"`
+	ScheduleID string `json:"schedule_id"`
+}
+
+func (q *Queries) GetScheduleCursor(ctx context.Context, arg GetScheduleCursorParams) (ScheduleCursor, error) {
+	row := q.db.QueryRowContext(ctx, getScheduleCursor, arg.Workspace, arg.ScheduleID)
+	var i ScheduleCursor
+	err := row.Scan(
+		&i.Workspace,
+		&i.ScheduleID,
+		&i.EvaluatedThrough,
+		&i.Cron,
+	)
+	return i, err
+}
+
+const getScheduleRun = `-- name: GetScheduleRun :one
+SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run WHERE id = ?
+`
+
+func (q *Queries) GetScheduleRun(ctx context.Context, id int64) (ScheduleRun, error) {
+	row := q.db.QueryRowContext(ctx, getScheduleRun, id)
+	var i ScheduleRun
+	err := row.Scan(
+		&i.ID,
+		&i.Workspace,
+		&i.ScheduleID,
+		&i.ScheduleName,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.Reason,
+		&i.Missed,
+		&i.Status,
+		&i.SessionID,
+		&i.Prompt,
+		&i.Error,
+	)
+	return i, err
+}
+
 const getSourceHeadPayload = `-- name: GetSourceHeadPayload :one
 SELECT payload FROM source_head
 WHERE topic = ? AND key = ?
@@ -1186,6 +1254,95 @@ func (q *Queries) InsertNodeRun(ctx context.Context, arg InsertNodeRunParams) er
 		arg.DurMs,
 	)
 	return err
+}
+
+const insertScheduleRun = `-- name: InsertScheduleRun :one
+INSERT INTO schedule_run (
+    workspace, schedule_id, schedule_name, scheduled_for, started_at,
+    reason, missed, status, session_id, prompt, error
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error
+`
+
+type InsertScheduleRunParams struct {
+	Workspace    string        `json:"workspace"`
+	ScheduleID   string        `json:"schedule_id"`
+	ScheduleName string        `json:"schedule_name"`
+	ScheduledFor int64         `json:"scheduled_for"`
+	StartedAt    int64         `json:"started_at"`
+	Reason       string        `json:"reason"`
+	Missed       int64         `json:"missed"`
+	Status       string        `json:"status"`
+	SessionID    sql.NullInt64 `json:"session_id"`
+	Prompt       string        `json:"prompt"`
+	Error        string        `json:"error"`
+}
+
+func (q *Queries) InsertScheduleRun(ctx context.Context, arg InsertScheduleRunParams) (ScheduleRun, error) {
+	row := q.db.QueryRowContext(ctx, insertScheduleRun,
+		arg.Workspace,
+		arg.ScheduleID,
+		arg.ScheduleName,
+		arg.ScheduledFor,
+		arg.StartedAt,
+		arg.Reason,
+		arg.Missed,
+		arg.Status,
+		arg.SessionID,
+		arg.Prompt,
+		arg.Error,
+	)
+	var i ScheduleRun
+	err := row.Scan(
+		&i.ID,
+		&i.Workspace,
+		&i.ScheduleID,
+		&i.ScheduleName,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.Reason,
+		&i.Missed,
+		&i.Status,
+		&i.SessionID,
+		&i.Prompt,
+		&i.Error,
+	)
+	return i, err
+}
+
+const lastLaunchedScheduleRun = `-- name: LastLaunchedScheduleRun :one
+SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run
+WHERE workspace = ? AND schedule_id = ? AND status = 'launched'
+ORDER BY started_at DESC, id DESC
+LIMIT 1
+`
+
+type LastLaunchedScheduleRunParams struct {
+	Workspace  string `json:"workspace"`
+	ScheduleID string `json:"schedule_id"`
+}
+
+// The most recent run that actually started a chat, skipping over failed and
+// skipped attempts. The scheduler checks this before deciding whether the
+// previous run's chat is still live.
+func (q *Queries) LastLaunchedScheduleRun(ctx context.Context, arg LastLaunchedScheduleRunParams) (ScheduleRun, error) {
+	row := q.db.QueryRowContext(ctx, lastLaunchedScheduleRun, arg.Workspace, arg.ScheduleID)
+	var i ScheduleRun
+	err := row.Scan(
+		&i.ID,
+		&i.Workspace,
+		&i.ScheduleID,
+		&i.ScheduleName,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.Reason,
+		&i.Missed,
+		&i.Status,
+		&i.SessionID,
+		&i.Prompt,
+		&i.Error,
+	)
+	return i, err
 }
 
 const linkItemSession = `-- name: LinkItemSession :exec
@@ -1999,6 +2156,137 @@ func (q *Queries) ListRunnableOutputCommandsAfter(ctx context.Context, arg ListR
 	return items, nil
 }
 
+const listScheduleCursors = `-- name: ListScheduleCursors :many
+SELECT workspace, schedule_id, evaluated_through, cron FROM schedule_cursor
+`
+
+func (q *Queries) ListScheduleCursors(ctx context.Context) ([]ScheduleCursor, error) {
+	rows, err := q.db.QueryContext(ctx, listScheduleCursors)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScheduleCursor{}
+	for rows.Next() {
+		var i ScheduleCursor
+		if err := rows.Scan(
+			&i.Workspace,
+			&i.ScheduleID,
+			&i.EvaluatedThrough,
+			&i.Cron,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScheduleRuns = `-- name: ListScheduleRuns :many
+SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run
+WHERE workspace = ?
+ORDER BY started_at DESC, id DESC
+LIMIT ?
+`
+
+type ListScheduleRunsParams struct {
+	Workspace string `json:"workspace"`
+	Limit     int64  `json:"limit"`
+}
+
+// One workspace's runs across every schedule, newest first.
+func (q *Queries) ListScheduleRuns(ctx context.Context, arg ListScheduleRunsParams) ([]ScheduleRun, error) {
+	rows, err := q.db.QueryContext(ctx, listScheduleRuns, arg.Workspace, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScheduleRun{}
+	for rows.Next() {
+		var i ScheduleRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Workspace,
+			&i.ScheduleID,
+			&i.ScheduleName,
+			&i.ScheduledFor,
+			&i.StartedAt,
+			&i.Reason,
+			&i.Missed,
+			&i.Status,
+			&i.SessionID,
+			&i.Prompt,
+			&i.Error,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScheduleRunsForSchedule = `-- name: ListScheduleRunsForSchedule :many
+SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run
+WHERE workspace = ? AND schedule_id = ?
+ORDER BY started_at DESC, id DESC
+LIMIT ?
+`
+
+type ListScheduleRunsForScheduleParams struct {
+	Workspace  string `json:"workspace"`
+	ScheduleID string `json:"schedule_id"`
+	Limit      int64  `json:"limit"`
+}
+
+// One schedule's runs, newest first.
+func (q *Queries) ListScheduleRunsForSchedule(ctx context.Context, arg ListScheduleRunsForScheduleParams) ([]ScheduleRun, error) {
+	rows, err := q.db.QueryContext(ctx, listScheduleRunsForSchedule, arg.Workspace, arg.ScheduleID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScheduleRun{}
+	for rows.Next() {
+		var i ScheduleRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Workspace,
+			&i.ScheduleID,
+			&i.ScheduleName,
+			&i.ScheduledFor,
+			&i.StartedAt,
+			&i.Reason,
+			&i.Missed,
+			&i.Status,
+			&i.SessionID,
+			&i.Prompt,
+			&i.Error,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listUnarchivedInboxItemsByProfile = `-- name: ListUnarchivedInboxItemsByProfile :many
 SELECT id, profile_id, source_kind, source_scope, external_id, title, url, payload, revision, unread, archived_at, archived_actor, archived_reason, lifecycle, source_state, first_seen_at, last_event_at, ignored_at FROM inbox_item WHERE profile_id = ? AND archived_at IS NULL
 `
@@ -2231,6 +2519,31 @@ WHERE rowid IN (
 // limit is exact even when a fast batch stamps equal ended_at values.
 func (q *Queries) PruneNodeRuns(ctx context.Context, offset int64) error {
 	_, err := q.db.ExecContext(ctx, pruneNodeRuns, offset)
+	return err
+}
+
+const pruneScheduleRuns = `-- name: PruneScheduleRuns :exec
+DELETE FROM schedule_run AS target
+WHERE target.workspace = ?1 AND target.schedule_id = ?2
+  AND target.id NOT IN (
+      SELECT kept.id FROM schedule_run AS kept
+      WHERE kept.workspace = ?1 AND kept.schedule_id = ?2
+      ORDER BY kept.started_at DESC, kept.id DESC
+      LIMIT ?3
+  )
+`
+
+type PruneScheduleRunsParams struct {
+	Workspace  string `json:"workspace"`
+	ScheduleID string `json:"schedule_id"`
+	Keep       int64  `json:"keep"`
+}
+
+// Retain only the newest `keep` rows for one (workspace, schedule_id), the
+// per-schedule counterpart to PruneNodeRuns' global bound. id breaks ties on
+// equal started_at.
+func (q *Queries) PruneScheduleRuns(ctx context.Context, arg PruneScheduleRunsParams) error {
+	_, err := q.db.ExecContext(ctx, pruneScheduleRuns, arg.Workspace, arg.ScheduleID, arg.Keep)
 	return err
 }
 
@@ -2834,6 +3147,30 @@ func (q *Queries) UpsertNodeKV(ctx context.Context, arg UpsertNodeKVParams) erro
 		arg.Value,
 		arg.ExpiresAt,
 		arg.UpdatedAt,
+	)
+	return err
+}
+
+const upsertScheduleCursor = `-- name: UpsertScheduleCursor :exec
+INSERT INTO schedule_cursor (workspace, schedule_id, evaluated_through, cron)
+VALUES (?, ?, ?, ?)
+ON CONFLICT (workspace, schedule_id) DO UPDATE SET
+    evaluated_through = excluded.evaluated_through, cron = excluded.cron
+`
+
+type UpsertScheduleCursorParams struct {
+	Workspace        string `json:"workspace"`
+	ScheduleID       string `json:"schedule_id"`
+	EvaluatedThrough int64  `json:"evaluated_through"`
+	Cron             string `json:"cron"`
+}
+
+func (q *Queries) UpsertScheduleCursor(ctx context.Context, arg UpsertScheduleCursorParams) error {
+	_, err := q.db.ExecContext(ctx, upsertScheduleCursor,
+		arg.Workspace,
+		arg.ScheduleID,
+		arg.EvaluatedThrough,
+		arg.Cron,
 	)
 	return err
 }

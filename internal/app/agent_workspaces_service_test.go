@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
+	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
 
 // newTestAgentWorkspacesService builds a service over root with a real
@@ -346,6 +348,40 @@ func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 	assert.Empty(t, started.TerminalID, "a dead terminal must not be reported as live")
 	assert.NotEmpty(t, started.Notice)
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "tmux already ended the session when its command exited")
+}
+
+// TestDetachedLaunchThatNeverStartedLeavesNoRecord: the session row is written
+// before tmux is asked for anything, so a launch that fails there leaves a
+// record for a chat that does not exist. A user-driven launch keeps it -- the
+// error is on screen and the row is what they retry from -- but a schedule
+// firing every minute against a reached cap or a tmux that is down would add
+// one dead row a minute to the sidebar, with nobody watching.
+func TestDetachedLaunchThatNeverStartedLeavesNoRecord(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	// tmux refuses a session name it already holds, which is how a launch is
+	// made to fail after its record exists. Both ids are taken because the
+	// second launch may reuse the first's rowid once its record is gone.
+	for _, id := range []int64{1, 2} {
+		blocker := exec.CommandContext(t.Context(), "tmux", "new-session", "-d", "-s", sessionName(id))
+		blocker.Env = tmuxtest.ScrubbedEnv()
+		require.NoError(t, blocker.Run())
+	}
+
+	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "scheduled", Detached: true})
+	require.Error(t, err)
+	records, err := svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.Empty(t, records, "a scheduled launch that never started must not leave a row the sidebar lists")
+
+	_, err = svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "by hand", Cols: 80, Rows: 24})
+	require.Error(t, err)
+	records, err = svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.Len(t, records, 1, "a launch the user made keeps its record to retry from")
 }
 
 func TestLaunchRefusesAnUnknownAgent(t *testing.T) {

@@ -185,6 +185,11 @@ type SessionView struct {
 	ResumeAttempted bool `json:"resumeAttempted"`
 	// Notice carries a fresh-launch, unbounded-MCP or missing-MCP explanation.
 	Notice string `json:"notice"`
+	// ExitedEarly reports that the launched command was already gone by the
+	// time the launch returned. A caller with no pane to show Notice on -- the
+	// scheduler -- reads this rather than the prose, so the reason it treats a
+	// launch as failed does not depend on the wording of a notice.
+	ExitedEarly bool `json:"exitedEarly"`
 }
 
 // SessionActivityItem is one live session's detected activity, keyed by
@@ -202,6 +207,21 @@ type StartSession struct {
 	Name      string
 	Cols      int
 	Rows      int
+	// Prompt is the agent's first message, handed to the CLI at launch. Empty
+	// produces exactly the interactive launch line.
+	Prompt string
+	// Detached skips the control-client attach, so the session has no
+	// TerminalID or WindowID. A scheduled launch has no pane to render into
+	// and no size to negotiate; the UI never sets this.
+	Detached bool
+}
+
+// StartScheduledSession is one schedule's launch. It has no cols/rows because
+// it is always detached.
+type StartScheduledSession struct {
+	Workspace string
+	Name      string
+	Prompt    string
 }
 
 // OpenResult is what opening a workspace reports back to the UI.
@@ -383,7 +403,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 
 	workspaceDir := filepath.Join(s.store.Root(), req.Workspace)
 	agentSessionID := uuid.NewString()
-	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), agentSessionID, false)
+	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), agentSessionID, false, req.Prompt)
 	if err != nil {
 		return SessionView{}, agentLaunchError(err, ws.Agent)
 	}
@@ -397,7 +417,35 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 		return SessionView{}, Wrap(err, KindInternal, "creating session %q", req.Name)
 	}
 
-	return s.launchTerminal(ctx, rec, workspaceDir, line, req.Cols, req.Rows, true, "")
+	return s.launchTerminal(ctx, rec, terminalLaunch{
+		dir: workspaceDir, line: line, cols: req.Cols, rows: req.Rows,
+		resumeAttempted: true, detached: req.Detached,
+	})
+}
+
+// StartScheduledSession launches a chat the scheduler asked for. Open comes
+// first because the UI's own launch path always opens the workspace before
+// starting a session: without it a scheduled run would drive an agent whose
+// .mcp.json and skills were never regenerated for the manifest as it stands
+// now.
+func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req StartScheduledSession) (SessionView, error) {
+	if _, err := s.Open(ctx, req.Workspace); err != nil {
+		return SessionView{}, err
+	}
+	return s.StartSession(ctx, StartSession{
+		Workspace: req.Workspace, Name: req.Name, Prompt: req.Prompt, Detached: true,
+	})
+}
+
+// SessionLive reports whether a session's tmux session still exists. The
+// scheduler asks before launching: a schedule whose previous chat is still
+// open should not start a second one.
+func (s *AgentWorkspacesService) SessionLive(ctx context.Context, id int64) (bool, error) {
+	alive, err := s.terminals.HasSession(ctx, sessionName(id))
+	if err != nil {
+		return false, terminalError(err, "checking session %d", id)
+	}
+	return alive, nil
 }
 
 // ResumeSession reattaches a session's live tmux session if it still has one
@@ -471,7 +519,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 
 	workspaceDir := filepath.Join(s.store.Root(), rec.Workspace)
-	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), sessionID, resumeAttempted)
+	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), sessionID, resumeAttempted, "")
 	if err != nil {
 		return SessionView{}, agentLaunchError(err, ws.Agent)
 	}
@@ -483,7 +531,10 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		rec.AgentSessionID = sessionID
 	}
 
-	return s.launchTerminal(ctx, rec, workspaceDir, line, cols, rows, resumeAttempted, resumeNotice)
+	return s.launchTerminal(ctx, rec, terminalLaunch{
+		dir: workspaceDir, line: line, cols: cols, rows: rows,
+		resumeAttempted: resumeAttempted, resumeNotice: resumeNotice,
+	})
 }
 
 // CloseSession ends a session's live tmux session and reports whether there
@@ -569,6 +620,25 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	}
 	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
+	}
+	// The workspace's schedule state is app-local like its session records, so
+	// it goes with them. The cursors especially: one left behind would let a
+	// workspace rebuilt under the same directory name back-fire every
+	// occurrence its predecessor's schedule missed.
+	if err := s.db.DeleteScheduleRuns(ctx, dir); err != nil {
+		return Wrap(err, KindInternal, "deleting schedule runs for workspace %q", dir)
+	}
+	cursors, err := s.db.ListScheduleCursors(ctx)
+	if err != nil {
+		return Wrap(err, KindInternal, "listing schedule cursors")
+	}
+	for _, cursor := range cursors {
+		if cursor.Workspace != dir {
+			continue
+		}
+		if err := s.db.DeleteScheduleCursor(ctx, dir, cursor.ScheduleID); err != nil {
+			return Wrap(err, KindInternal, "deleting the cursor for schedule %q", cursor.ScheduleID)
+		}
 	}
 	if err := s.store.Reload(); err != nil {
 		return Wrap(err, KindInternal, "reloading workspaces")
@@ -973,20 +1043,35 @@ func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, co
 	return terminalError(client.Resize(ctx, cols, rows), "resizing session %q", rec.Name)
 }
 
+// terminalLaunch is one launch's inputs: what the caller resolved that the
+// session record does not carry.
+type terminalLaunch struct {
+	dir  string
+	line string
+	cols int
+	rows int
+	// resumeNotice is the caller's own words for a resume that could not
+	// happen, empty when there is nothing to announce.
+	resumeAttempted bool
+	resumeNotice    string
+	// detached leaves the session running with no control client, so the view
+	// carries no TerminalID or WindowID for a UI to open.
+	detached bool
+}
+
 // launchTerminal creates rec's tmux session fresh and attaches to it, gives it
 // earlyExitWindow to report that it already died, and assembles the notice
-// the UI shows — resumeNotice is the caller's own words for a resume that
-// could not happen, empty when there is nothing to announce. Both
-// StartSession and ResumeSession's relaunch branch always want a fresh
-// session here — ResumeSession's still-alive branch attaches directly
-// instead, without going through this method.
-func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
+// the UI shows. Both StartSession and ResumeSession's relaunch branch always
+// want a fresh session here — ResumeSession's still-alive branch attaches
+// directly instead, without going through this method.
+func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, opts terminalLaunch) (SessionView, error) {
 	count, err := s.liveSessionCount(ctx)
 	if err != nil {
-		return SessionView{}, terminalError(err, "counting live agent sessions")
+		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "counting live agent sessions"))
 	}
 	if count >= maxConcurrentAgentSessions {
-		return SessionView{}, Errorf(KindConflict, "too many agent sessions are running (%d max); close one first", maxConcurrentAgentSessions)
+		return SessionView{}, s.discardDetached(ctx, rec, opts,
+			Errorf(KindConflict, "too many agent sessions are running (%d max); close one first", maxConcurrentAgentSessions))
 	}
 
 	name := sessionName(rec.ID)
@@ -995,10 +1080,10 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	// guessing (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 	env := []string{
 		fmt.Sprintf("HIVE_AGENT_SESSION=%d", rec.ID),
-		"HIVE_AGENT_WORKSPACE=" + dir,
+		"HIVE_AGENT_WORKSPACE=" + opts.dir,
 	}
-	if err := s.terminals.NewSession(ctx, name, dir, line, env); err != nil {
-		return SessionView{}, terminalError(err, "launching session %q", rec.Name)
+	if err := s.terminals.NewSession(ctx, name, opts.dir, opts.line, env); err != nil {
+		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "launching session %q", rec.Name))
 	}
 
 	if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
@@ -1007,31 +1092,48 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 
 	view := SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, Slug: name, ResumeAttempted: resumeAttempted,
+		LastOpenedAt: rec.LastOpenedAt, Slug: name, ResumeAttempted: opts.resumeAttempted,
 	}
 
 	if s.awaitEarlyExit(ctx, name) {
+		view.ExitedEarly = true
 		view.Notice = "the session exited immediately; check that the agent CLI is installed and on PATH"
 		return view, nil
 	}
 
-	window, err := s.attach(ctx, name, cols, rows)
-	if err != nil {
-		return SessionView{}, err
+	if !opts.detached {
+		window, err := s.attach(ctx, name, opts.cols, opts.rows)
+		if err != nil {
+			return SessionView{}, err
+		}
+		view.TerminalID = name
+		view.WindowID = window.ID
+		view.Cols, view.Rows = window.Width, window.Height
 	}
-	view.TerminalID = name
-	view.WindowID = window.ID
-	view.Cols, view.Rows = window.Width, window.Height
 
 	var notices []string
-	if resumeNotice != "" {
-		notices = append(notices, resumeNotice)
+	if opts.resumeNotice != "" {
+		notices = append(notices, opts.resumeNotice)
 	}
 	if notice := mcpNotice(rec.Agent); notice != "" {
 		notices = append(notices, notice)
 	}
 	view.Notice = strings.Join(notices, "; ")
 	return view, nil
+}
+
+// discardDetached drops the session record of a detached launch that never
+// reached a live tmux session, and returns cause unchanged. A UI launch keeps
+// its record: the user is looking at the error and the row they can retry from.
+// A scheduled one has neither, so a schedule firing every minute against a
+// reached cap or a tmux that is down would otherwise add a dead row a minute
+// to the sidebar. Failing to delete is not worth losing the launch error over.
+func (s *AgentWorkspacesService) discardDetached(ctx context.Context, rec store.AgentWorkspaceSession, opts terminalLaunch, cause error) error {
+	if !opts.detached {
+		return cause
+	}
+	_ = s.db.DeleteAgentWorkspaceSession(ctx, rec.ID)
+	return cause
 }
 
 // attach opens the control client for name and returns its active window —

@@ -5,6 +5,7 @@ import AgentsMode from '../AgentsMode.vue'
 import AgentsSidebar from '../AgentsSidebar.vue'
 import NewChatDialog from '../NewChatDialog.vue'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
+import { resetAgentSchedulesForTests } from '../../composables/useAgentSchedules'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { createAppRouter } from '../../router'
 import { tooltipFor } from '../../test-utils/tooltip'
@@ -154,6 +155,12 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     revealSharedSkills: vi.fn().mockResolvedValue(undefined),
     canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', name: 'plan', title: '', session: 7, createdAt: 0, updatedAt: 0, blocks: [] }),
     canvases: vi.fn().mockResolvedValue([]),
+    schedules: vi.fn().mockResolvedValue([]),
+    scheduleRuns: vi.fn().mockResolvedValue([]),
+    saveSchedule: vi.fn(),
+    deleteSchedule: vi.fn().mockResolvedValue(undefined),
+    runSchedule: vi.fn(),
+    previewSchedule: vi.fn().mockResolvedValue({ next: [], prompt: '', cronError: '', promptError: '' }),
   }
 }
 
@@ -187,6 +194,7 @@ async function mountWithOpenChat(client = fakeClient()) {
 describe('AgentsMode', () => {
   beforeEach(() => {
     resetAgentWorkspacesForTests()
+    resetAgentSchedulesForTests()
     resetAgentSessionsAllForTests()
     xterm.FakeTerminal.instances = []
     wailsEvents.handlers = []
@@ -349,6 +357,92 @@ describe('AgentsMode', () => {
     expect(router.currentRoute.value.query.chat).toBeUndefined()
   })
 
+  // A route naming another chat is a request to switch, whatever the pane is
+  // holding: the live pane is torn down and the named chat attached.
+  it('switches the live pane to another routed chat when that one is live', async () => {
+    const client = fakeClient()
+    const other = { ...chatRow, id: 9, name: 'Second', terminalId: 'agentws-9' }
+    client.allSessions.mockResolvedValue([other])
+    client.resumeSession.mockResolvedValue({ ...other, windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    const { router } = await mountWithOpenChat(client)
+
+    await router.push({ name: 'agents', params: { workspace: 'web-app' }, query: { chat: '9', canvas: '1' } })
+    await flushPromises()
+
+    expect(client.resumeSession).toHaveBeenCalledWith({ id: 9 })
+    expect(router.currentRoute.value.query.chat).toBe('9')
+  })
+
+  // A route naming a chat that cannot be attached leaves the live one alone:
+  // clearing ?chat here would drop ?canvas too and unmount the canvas pane of
+  // a chat that is still running.
+  it('keeps the live chat in the route when the routed chat is dead', async () => {
+    const client = fakeClient()
+    client.allSessions.mockResolvedValue([{ ...chatRow, id: 9, name: 'Second', terminalId: '' }])
+    const { router } = await mountWithOpenChat(client)
+
+    await router.push({ name: 'agents', params: { workspace: 'web-app' }, query: { chat: '9', canvas: '1' } })
+    await flushPromises()
+
+    expect(client.resumeSession).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.query.chat).toBe('7')
+    expect(router.currentRoute.value.query.canvas).toBe('1')
+  })
+
+  // A scheduled chat is usually opened after its agent finished, so "Open
+  // chat" has to relaunch it the way a click on its sidebar row does: writing
+  // ?chat alone would do nothing at all.
+  it('relaunches a finished scheduled chat from the run history', async () => {
+    const client = fakeClient()
+    const dead = { ...chatRow, id: 9, name: 'Weekly summary', terminalId: '' }
+    client.allSessions.mockResolvedValue([dead])
+    client.scheduleRuns.mockResolvedValue([{
+      id: 3, workspace: 'web-app', scheduleId: 'weekly-summary', scheduleName: 'Weekly summary',
+      scheduledFor: Date.now(), startedAt: Date.now(), reason: 'due', status: 'launched',
+      missed: 0, sessionId: 9, prompt: 'Summarize the week.', error: '',
+    }])
+    client.resumeSession.mockResolvedValue({ ...dead, terminalId: 'agentws-9', windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper, router } = await mountAgentsMode('/workspaces/web-app?schedules=1')
+
+    await wrapper.get('[data-testid="agent-schedule-open-chat-3"]').trigger('click')
+    await flushPromises()
+
+    expect(client.resumeSession).toHaveBeenCalledWith({ id: 9 })
+    expect(router.currentRoute.value.query.chat).toBe('9')
+  })
+
+  // The pane's own toggle moves no focus, so it leaves no history entry to
+  // back out of; the sidebar's clock does move it, and that is worth one.
+  it('pushes history for the schedules pane only when the focus moves', async () => {
+    const { wrapper, router } = await mountWithOpenChat()
+    const push = vi.spyOn(router, 'push')
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-schedules"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.schedules).toBe('1')
+    expect(push).not.toHaveBeenCalled()
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('open-schedules', 'api')
+    await flushPromises()
+
+    expect(push).toHaveBeenCalled()
+    expect(router.currentRoute.value.params.workspace).toBe('api')
+    expect(router.currentRoute.value.query.schedules).toBe('1')
+  })
+
+  // A schedule firing at 09:00 starts a chat nobody clicked for: the tree
+  // learns about it from the wake-up, not from the next user action.
+  it('reloads the chat list when a schedule reports a change', async () => {
+    const { client } = await mountWithOpenChat()
+    const before = client.allSessions.mock.calls.length
+
+    wailsEvents.fire('schedules:updated', 'web-app')
+    await flushPromises()
+
+    expect(client.allSessions.mock.calls.length).toBeGreaterThan(before)
+  })
+
   it('reports a failed open/reveal in the bar instead of dropping it', async () => {
     const { wrapper, client } = await mountWithOpenChat()
     client.revealWorkspace.mockRejectedValue(new Error('the directory is gone'))
@@ -508,6 +602,37 @@ describe('AgentsMode', () => {
     await flushPromises()
     expect(router.currentRoute.value.query.canvas).toBeUndefined()
     expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
+  })
+
+  // The schedules pane is the canvas pane's sibling arrangement: opening it
+  // must not re-key or unmount the terminal host either.
+  it('keeps the terminal pane element across a schedules toggle', async () => {
+    const { wrapper, router } = await mountWithOpenChat()
+    const paneBefore = wrapper.find('[data-testid="agents-session-pane"]').element
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-schedules"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.schedules).toBe('1')
+    expect(wrapper.find('[data-testid="agent-schedules-pane"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agents-session-pane"]').element).toBe(paneBefore)
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-schedules"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.schedules).toBeUndefined()
+    expect(wrapper.find('[data-testid="agent-schedules-pane"]').exists()).toBe(false)
+  })
+
+  // The sidebar's clock focuses the workspace it names and opens the pane on
+  // it, so the pane never shows a workspace the tree did not point at.
+  it('focuses the workspace the sidebar names and opens its schedules', async () => {
+    const { wrapper, router } = await mountAgentsMode('/workspaces/web-app')
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('open-schedules', 'api')
+    await flushPromises()
+
+    expect(router.currentRoute.value.params.workspace).toBe('api')
+    expect(router.currentRoute.value.query.schedules).toBe('1')
+    expect(wrapper.get('[data-testid="agent-schedules-workspace"]').text()).toBe('API')
   })
 
   // An unnamed chat is still a named chat — the default is applied at launch,

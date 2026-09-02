@@ -213,6 +213,70 @@ export interface WorkspaceCanvasMeta {
   blockCount: number
 }
 
+/**
+ * One `schedules:` entry from a workspace manifest, joined with the app-local
+ * run state the Go side keeps: when it fires next and how it went last time.
+ * `nextRunAt` is null when the schedule is disabled or its cron does not parse.
+ */
+export interface AgentSchedule {
+  workspace: string
+  id: string
+  name: string
+  cron: string
+  prompt: string
+  disabled: boolean
+  onMissed: 'run' | 'skip'
+  nextRunAt: number | null
+  lastRun: AgentScheduleRun | null
+}
+
+/** One execution of a schedule. `sessionId` is the chat it launched, null otherwise. */
+export interface AgentScheduleRun {
+  id: number
+  workspace: string
+  scheduleId: string
+  scheduleName: string
+  scheduledFor: number
+  startedAt: number
+  reason: 'due' | 'catch_up' | 'manual'
+  status: 'launched' | 'failed' | 'skipped'
+  /** Earlier occurrences this run stands in for, 0 when it fired on time. */
+  missed: number
+  sessionId: number | null
+  prompt: string
+  error: string
+}
+
+/**
+ * A dry run of an unsaved edit: the next occurrences its cron produces and the
+ * prompt rendered against sample data. A bad cron or template is reported in
+ * `cronError`/`promptError` rather than as a failed call, so the editor can
+ * show it beside the field the user is still typing in.
+ */
+export interface AgentSchedulePreview {
+  next: number[]
+  prompt: string
+  cronError: string
+  promptError: string
+}
+
+/** The manifest fields the schedule editor writes. */
+export interface ScheduleEditRequest {
+  workspace: string
+  id: string
+  name: string
+  cron: string
+  prompt: string
+  disabled: boolean
+  onMissed: string
+}
+
+export interface SchedulePreviewRequest {
+  workspace: string
+  cron: string
+  prompt: string
+}
+
 export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
@@ -287,6 +351,17 @@ export interface AgentWorkspacesClient {
   canvasMarkdown(workspace: string, name: string): Promise<string>
   /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
   exportCanvas(workspace: string, name: string, path: string): Promise<void>
+  /** A workspace's schedules, each carrying its next run and its last one. */
+  schedules(workspace: string): Promise<AgentSchedule[]>
+  /** Writes one entry into the workspace manifest, creating it when the id is new. */
+  saveSchedule(request: ScheduleEditRequest): Promise<AgentSchedule>
+  deleteSchedule(workspace: string, id: string): Promise<void>
+  /** Fires a schedule now, outside its timetable; the cursor is untouched. */
+  runSchedule(workspace: string, id: string): Promise<AgentScheduleRun>
+  /** Run history, newest first. An empty id spans every schedule in the workspace. */
+  scheduleRuns(workspace: string, id?: string, limit?: number): Promise<AgentScheduleRun[]>
+  /** Validates an unsaved edit and reports what it would do. */
+  previewSchedule(request: SchedulePreviewRequest): Promise<AgentSchedulePreview>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
   openStream(name: string): WebSocket
 }
@@ -424,6 +499,32 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async exportCanvas(workspace, name, path) {
       await post('/canvas/export', { workspace, name, path })
+    },
+    async schedules(workspace) {
+      const body = await post<{ schedules: AgentSchedule[] | null }>('/schedules', { workspace })
+      return body?.schedules ?? []
+    },
+    async saveSchedule(request) {
+      const body = await post<{ schedule: AgentSchedule }>('/schedules/save', request)
+      if (!body?.schedule) throw new AgentRequestError('the schedule was not saved', '')
+      return body.schedule
+    },
+    async deleteSchedule(workspace, id) {
+      await post('/schedules/delete', { workspace, id })
+    },
+    async runSchedule(workspace, id) {
+      const body = await post<{ run: AgentScheduleRun }>('/schedules/run', { workspace, id })
+      if (!body?.run) throw new AgentRequestError('the schedule did not run', '')
+      return body.run
+    },
+    async scheduleRuns(workspace, id, limit) {
+      const body = await post<{ runs: AgentScheduleRun[] | null }>('/schedules/runs', { workspace, id: id ?? '', limit: limit ?? 0 })
+      return body?.runs ?? []
+    },
+    async previewSchedule(request) {
+      const body = await post<AgentSchedulePreview>('/schedules/preview', request)
+      if (!body) throw new AgentRequestError('the schedule could not be previewed', '')
+      return { ...body, next: body.next ?? [] }
     },
     openStream,
   }

@@ -403,17 +403,29 @@ describe('AgentsSidebar', () => {
     expect(rows[1].find('.text-severity-warning').exists()).toBe(true) // b-session needs approval
   })
 
-  it('a workspace header carries its name and three controls, and no rollup of its own', async () => {
+  it('a workspace header carries its name and its controls, and no rollup of its own', async () => {
     const wrapper = await mountSidebar({ sessionActivity: { 2: 'approval' } })
     const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
     expect(header.text()).toBe('Demo B') // no count beside the name
     expect(header.find('.bg-severity-warning').exists()).toBe(false)
-    // +, edit, chevron — in that order, all on one pitch.
+    // +, edit, schedules, chevron — in that order, all on one pitch.
     expect(header.findAll('button').map((button) => button.attributes('data-testid'))).toEqual([
       'agents-sidebar-workspace-new-session',
       'agents-sidebar-workspace-edit',
+      'agents-sidebar-workspace-schedules',
       'agents-sidebar-workspace-toggle',
     ])
+  })
+
+  // The clock names the workspace it opens on, so the pane never shows one the
+  // tree did not point at.
+  it('emits open-schedules for the workspace whose header was clicked', async () => {
+    const wrapper = await mountSidebar()
+    const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+
+    await header.get('[data-testid="agents-sidebar-workspace-schedules"]').trigger('click')
+
+    expect(wrapper.emitted('open-schedules')).toEqual([['demo-b']])
   })
 
   it('exposes focus() for the global keymap handle', async () => {

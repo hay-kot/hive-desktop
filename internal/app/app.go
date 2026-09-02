@@ -29,6 +29,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -114,6 +115,7 @@ type App struct {
 	AgentWorkspaces *AgentWorkspacesService
 	Tasks           *TasksService
 	Canvas          *CanvasService
+	Schedules       *SchedulesService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -202,6 +204,10 @@ type App struct {
 	// projected onto their bare command, with Flags dropped (ADR a-workspace-declares-its-own-authority). Set
 	// in openHiveRuntime, alongside every other hiveCfg-derived field.
 	agentCommands map[string]string
+
+	// scheduler launches a workspace's scheduled chats when they come due, and
+	// catches up the ones that fell due while the app was closed.
+	scheduler *schedule.Scheduler
 
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR terminal-transport).
@@ -441,6 +447,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	a.Tasks = newTasksService(tasks)
 
+	// After AgentWorkspaces: the scheduler launches chats through it, and the
+	// service reads the same workspace store the scheduler takes its specs
+	// from.
+	a.scheduler = a.buildScheduler(cfg.Logger)
+	a.Schedules = newSchedulesService(a.agentWorkspaceStore, db, a.scheduler, func(workspace string) {
+		a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: workspace})
+	})
+
 	return a, nil
 }
 
@@ -518,6 +532,11 @@ func (a *App) Start(ctx context.Context) error {
 	if a.agentWorkspacesWatcher != nil {
 		a.agentWorkspacesWatcher.Start()
 	}
+	// After the watcher, so the first pass evaluates the workspace set the
+	// watcher is already keeping current. That pass is the catch-up for
+	// everything that came due while the app was closed, so it runs in mock
+	// modes too -- a fixture root simply declares no schedules.
+	a.scheduler.Start(ctx)
 	if a.mock == "" {
 		a.outputs.Start(ctx)
 	}
@@ -610,6 +629,13 @@ func (a *App) HiveConn() *sql.DB {
 // tolerates it or a plugs release makes signal registration optional.
 func (a *App) Close() error {
 	a.cancel()
+
+	// Before the terminals: a pass in flight is launching chats through them,
+	// and stopping the transport underneath it would fail a launch that has
+	// already been recorded as made.
+	if a.scheduler != nil {
+		a.scheduler.Stop()
+	}
 
 	// Before the webhook listener: a terminal WebSocket has hijacked its
 	// connection, which http.Server.Shutdown neither tracks nor closes, so the
@@ -807,6 +833,9 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 		}
 		count := len(a.agentWorkspaceStore.Statuses())
 		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
+		// A hand edit to a manifest's schedules: list is a schedule change like
+		// any other, so the scheduler re-reads on the same signal the UI does.
+		a.scheduler.Reload()
 	}, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("agent workspace hot-reload unavailable")

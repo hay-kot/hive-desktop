@@ -52,6 +52,14 @@ type AgentLaunch struct {
 	// could not be resumed.
 	Resume func(id string) []string
 
+	// PromptArgs renders the agent's first message as arguments. nil means the
+	// agent takes no prompt at launch and a scheduled run cannot drive it.
+	//
+	// Both entries lead with "--": a prompt is prose the user wrote, and a
+	// markdown list ("- Summarize the week") reaches the CLI as an unknown
+	// option without the end-of-options marker.
+	PromptArgs func(prompt string) []string
+
 	// HasConversation reports whether the agent holds a persisted conversation
 	// addressable by id; nil means Hive cannot tell and resume is attempted
 	// unconditionally. It exists because an agent may accept a session id at
@@ -94,6 +102,7 @@ var agentLaunches = map[string]AgentLaunch{
 		},
 		SessionArgs:     func(id string) []string { return []string{"--session-id", id} },
 		Resume:          func(id string) []string { return []string{"--resume", id} },
+		PromptArgs:      func(prompt string) []string { return []string{"--", prompt} },
 		HasConversation: claudeConversationExists,
 	},
 	"codex": {
@@ -107,6 +116,7 @@ var agentLaunches = map[string]AgentLaunch{
 			Render:  renderCodexTOML,
 			Bounded: false,
 		},
+		PromptArgs: func(prompt string) []string { return []string{"--", prompt} },
 		// codex has no launch-time session-id flag and no resume-by-id form
 		// (`codex resume` takes only an id or name the agent itself minted),
 		// so SessionArgs and Resume both stay nil: a reopened codex session
@@ -205,14 +215,16 @@ func MCPBounded(agent string) (bounded, ok bool) {
 // paths into it — see shellQuote. w.Dir must be the absolute workspace
 // directory: it is threaded straight into MCPWiring.Args, which needs a path
 // that resolves regardless of the launched process's cwd.
-func Resolve(command string, w Workspace, sessionID string, resume bool) (string, error) {
-	return resolveAgainst(agentLaunches, command, w, sessionID, resume)
+//
+// An empty prompt produces exactly the line an interactive launch produces.
+func Resolve(command string, w Workspace, sessionID string, resume bool, prompt string) (string, error) {
+	return resolveAgainst(agentLaunches, command, w, sessionID, resume, prompt)
 }
 
 // resolveAgainst is Resolve's implementation, parameterized over the launch
 // table so tests can exercise a fail-closed path (an agent with MCP == nil)
 // that does not exist in the real, always-total agentLaunches.
-func resolveAgainst(table map[string]AgentLaunch, command string, w Workspace, sessionID string, resume bool) (string, error) {
+func resolveAgainst(table map[string]AgentLaunch, command string, w Workspace, sessionID string, resume bool, prompt string) (string, error) {
 	if len(strings.Fields(command)) != 1 {
 		return "", fmt.Errorf("%w: %q", ErrCommandNotASingleWord, command)
 	}
@@ -240,6 +252,9 @@ func resolveAgainst(table map[string]AgentLaunch, command string, w Workspace, s
 		words = append(words, launch.Resume(sessionID)...)
 	case !resume && launch.SessionArgs != nil:
 		words = append(words, launch.SessionArgs(sessionID)...)
+	}
+	if prompt != "" && launch.PromptArgs != nil {
+		words = append(words, launch.PromptArgs(prompt)...)
 	}
 
 	quoted := make([]string, len(words))

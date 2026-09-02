@@ -54,6 +54,10 @@ func registerEvents() struct{} {
 	// the payload is the whole message; coalescing keeps only the latest ask,
 	// which is the final intent anyway.
 	application.RegisterEvent[CanvasToggle]("canvas:toggle")
+	// schedules:updated carries the workspace whose scheduled chats changed:
+	// a schedule saved or deleted, or one of them run. The pane re-reads that
+	// workspace's schedules and run history on receipt.
+	application.RegisterEvent[string]("schedules:updated")
 	// update:available carries the latest UpdateInfo when a self-update check
 	// finds a newer desktop release; the title bar reacts to it.
 	application.RegisterEvent[UpdateInfo]("update:available")
@@ -107,6 +111,9 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.canvas-toggle", events.Coalesce(), func(_ context.Context, e events.CanvasToggleRequested) {
 			emitCanvasToggle(CanvasToggle{Session: e.Session, Name: e.Name, Open: e.Open})
+		}),
+		events.Subscribe(ctx, bus, "wailsui.schedules", events.Coalesce(), func(_ context.Context, e events.SchedulesUpdated) {
+			emitSchedulesUpdated(e.Workspace)
 		}),
 		events.Subscribe(ctx, bus, "wailsui.connection", events.Coalesce(), func(_ context.Context, e events.ConnectionUpdated) {
 			emitConnectionUpdated(e.Provider)
@@ -186,6 +193,15 @@ type CanvasToggle struct {
 func emitCanvasToggle(toggle CanvasToggle) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("canvas:toggle", toggle)
+	}
+}
+
+// emitSchedulesUpdated wakes the schedules pane after a workspace's scheduled
+// chats changed, naming the workspace. Safe to call from any goroutine once
+// the app is running.
+func emitSchedulesUpdated(workspace string) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("schedules:updated", workspace)
 	}
 }
 

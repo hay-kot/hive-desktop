@@ -187,6 +187,7 @@ column is the section that specifies it.
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **metric, span, or log field** | Consumer-defined interface in the emitting package; the SDK stays in `app/telemetry` | [Telemetry](#telemetry) |
+| A new **scheduled/recurring launch** | Registry-free, One instance per process, App-owned lifecycle, Consumer-defined interfaces | [Scheduled chats](#scheduled-chats), ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing. A secret-bearing field holds an `internal/app/secrets` reference, never a value | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
@@ -335,6 +336,10 @@ internal/
                                   #   parse+validate, the generator, the launch table
                                   #   (autonomy flags, MCP wiring), the two-level
                                   #   watcher (ADR a-workspace-declares-its-own-authority, ADR workspace-directories-are-generated-and-disposable)
+    schedule/                     # cron parsing, prompt rendering, and the
+                                  #   catch-up decision behind the run loop; a
+                                  #   leaf, so it is testable with no tmux or DB
+                                  #   (ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite)
     skills/                       # the Agent Skills format: the SKILL.md
                                   #   frontmatter template and the naming rules
                                   #   a target agent enforces. Writing one is the
@@ -1746,10 +1751,10 @@ Code view's does, but is the fold *control* rather than an indicator of one,
 because clicking the header focuses the workspace instead of folding it.
 Secondary text a row used to stack under its name — `agent · autonomy`, a
 problem, a notice — is the row's tooltip, with the chevron going amber or red so
-a warning stays a glance rather than a hover. Its trailing edge is three
-controls on one 18px pitch — `+`, edit, fold chevron — with the first two
-revealed on hover, so at rest a header states its name and whether it is open
-and nothing else. The `+` starts a chat in that workspace under the default name
+a warning stays a glance rather than a hover. Its trailing edge is four
+controls on one 18px pitch: `+`, edit, schedules clock, fold chevron, with the
+first three revealed on hover, so at rest a header states its name and
+whether it is open and nothing else. The `+` starts a chat in that workspace under the default name
 with **no dialog**, because naming the workspace is the only thing
 `NewChatDialog` asks that has no sensible default and the header has already
 answered it. A header carries **no rollup**: no chat count, and no live-or-
@@ -1762,6 +1767,45 @@ agent on the header for a while and earned nothing: the workspaces under one
 root normally run the same agent, so the column was one glyph repeated. What the Code view still lends is the activity vocabulary
 alone: the spinner, the approval alert and the liveness dot mean here exactly
 what they mean there.
+
+### Scheduled chats
+
+A workspace can declare recurring chats it launches on its own: `schedules:`
+in `agent-workspace.yaml` is a list of `{id, name, cron, prompt, disabled,
+on_missed}` entries, written through the same `write.go` node-tree editor as
+`mcps:` and `skills:`, for the same reason -- it is user- and agent-authored,
+dotfiles-synced, and already covered by the manifest watcher
+(ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite).
+
+`internal/app/schedule` is a leaf package holding the cron parser, the
+`text/template` prompt renderer, and the catch-up decision. It declares three
+consumer-defined ports -- `Source`, `Store`, `Launcher` -- that `App`
+satisfies with adapters over `agentws` and `store`, so the package itself
+imports neither. A cursor per (workspace, schedule id), kept in
+`desktop-pipeline.db`'s `schedule_cursor` table, is what makes a missed
+launch durable across an app restart: it resets to "now" the first time a
+schedule is seen and whenever its `cron` no longer matches the stored
+cursor, so a new or re-timed schedule never fires for a time before it
+existed. Every occurrence the cursor has passed without a run of its own
+folds into one launch tagged `catch_up` -- or, when the schedule sets
+`on_missed: skip`, is recorded as `skipped` instead -- never one run per
+missed tick. `schedule_run` keeps that history, and a run is also skipped
+when the schedule's previous chat is still live.
+
+`App.scheduler` is one `*schedule.Scheduler` goroutine on the standing
+App-owned lifecycle: started after the agent-workspace watcher, stopped
+before `terminals.Stop`. `app.SchedulesService` is the facade in front of it
+-- `List`, `Save`, `Delete`, `RunNow`, `Runs`, `Preview` -- and its routes sit
+under `/api/terminal/agents/schedules/...`, the same token-guarded prefix as
+the rest of the agent-workspace control plane, because "run now" spawns a
+process like every other call on that prefix. A save, delete, or run
+publishes `events.SchedulesUpdated{Workspace}`, degraded at the Wails
+boundary to the coalesced `schedules:updated` wake-up the frontend re-reads
+on.
+
+The UI is `AgentSchedulesPane.vue`, a sibling of the pane column in
+`AgentsMode.vue` toggled by `?schedules=1` in the route query -- the same
+shape the canvas pane uses.
 
 ## Execution model
 

@@ -30,6 +30,51 @@ prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
 - `autonomy` — one of `ask`, `auto`, or `full`; omitted defaults to `ask`. `ask` leaves every prompt to the agent CLI's own defaults, and is what the area's approval indicator shows you waiting on; `auto` accepts edits but still asks about anything riskier; `full` skips prompting entirely — reserve it for a workspace you already trust completely.
 - `mcps` — optional list of MCP server ids this workspace enables. Each id is either one of the shipped catalogue entries below or a key from your own mcps.yaml `servers:` map; an mcps.yaml entry can also replace a shipped entry of the same id.
 - `skills` — optional list of **skill package** names this workspace enables, each a key from skills.yml's `packages:` map. Packages are the unit, never individual skills: `skills: [hive]` carries every `hive-*` skill this build ships, because that is what the seeded package's pattern selects. Naming a skill slug here (`hive-mcp`) enables nothing — it is read as a package that does not exist and reported when the workspace opens. Opening renders the selected skills into `.claude/skills/` and `.agents/skills/`.
+- `schedules` - optional list of recurring chats this workspace launches on its own, on a cron schedule. See "schedules schema" below.
+
+## schedules schema
+
+Recurring chats this workspace launches on its own. Each entry in the
+`schedules` list:
+
+- `id` - required, `[a-z0-9-]+`, unique within this workspace.
+- `name` - optional, shown in the UI and used to name the launched chat; defaults to `id`.
+- `cron` - required. A 5-field cron expression, or one of `@hourly`, `@daily`, `@weekly`, `@monthly`, `@every 1h`. Evaluated in local time.
+- `prompt` - required. A Go `text/template` string, rendered into the agent's opening message. See "Prompt template variables" below.
+- `disabled` - optional; `true` skips this schedule. Omitted means enabled.
+- `on_missed` - optional, `run` (default) or `skip`. `run` folds every occurrence Hive missed while it was closed into one catch-up launch; `skip` records a missed occurrence instead of launching.
+
+An id is `[a-z0-9-]+` and must be unique in the workspace, so do not reuse one
+for a different schedule. Changing a schedule's `cron` restarts its cursor, so
+nothing back-fires: Hive only ever measures missed occurrences since the last
+time this exact `cron` ran, never since the schedule was first created. An
+edit to `schedules:` -- yours or the agent's -- takes effect the next time this
+workspace opens; no restart needed.
+
+### Prompt template variables
+
+`prompt` renders with:
+
+- `{{"{{ .Now }}"}}` - the time the prompt is rendered.
+- `{{"{{ .ScheduledFor }}"}}` - the occurrence this run honors.
+- `{{"{{ .LastRun }}"}}` - the `ScheduledFor` of this schedule's previous launched run; unset on the first run. `date` renders it as empty text when unset, but write `{{"{{ if .LastRun }}"}}...{{"{{ end }}"}}` when you want different wording for the first run, as in the example below.
+- `{{"{{ .Reason }}"}}` - why this run is happening: `due`, `catch_up`, or `manual` (a "Run now" from the UI).
+- `{{"{{ .Missed }}"}}` - how many earlier occurrences in the same window were folded into this run.
+- `{{"{{ .Schedule.ID }}"}}`, `{{"{{ .Schedule.Name }}"}}`, `{{"{{ .Schedule.Cron }}"}}` - this schedule's own fields.
+- `{{"{{ .Workspace.Dir }}"}}`, `{{"{{ .Workspace.Name }}"}}` - the workspace running it.
+- `{{"{{ date \"2006-01-02\" .Now }}"}}` - a helper that formats a time value with a Go reference-time layout.
+
+A weekly summary that reads back how long it has been since the last run:
+
+```yaml
+schedules:
+  - id: weekly-summary
+    name: Weekly product summary
+    cron: "0 9 * * 5"
+    prompt: |
+      Summarize product activity since {{"{{ if .LastRun }}"}}{{"{{ date \"2006-01-02\" .LastRun }}"}}{{"{{ else }}"}}last week{{"{{ end }}"}}.
+      Check this workspace's MCP servers and write up what changed.
+```
 
 ## skills.yml schema
 

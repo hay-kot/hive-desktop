@@ -116,10 +116,10 @@ func TestAutonomyMappingIsTotal(t *testing.T) {
 		}
 	}
 
-	_, err := Resolve("bogus-cmd", Workspace{Agent: "no-such-agent", Autonomy: AutonomyAsk, Dir: "/tmp"}, "sess", false)
+	_, err := Resolve("bogus-cmd", Workspace{Agent: "no-such-agent", Autonomy: AutonomyAsk, Dir: "/tmp"}, "sess", false, "")
 	require.ErrorIs(t, err, ErrUnknownAgent)
 
-	_, err = Resolve("claude", Workspace{Agent: "claude", Autonomy: Autonomy("bogus"), Dir: "/tmp"}, "sess", false)
+	_, err = Resolve("claude", Workspace{Agent: "claude", Autonomy: Autonomy("bogus"), Dir: "/tmp"}, "sess", false, "")
 	require.ErrorIs(t, err, ErrNoAutonomyMapping)
 }
 
@@ -138,7 +138,7 @@ func TestAutonomyFlagsProjectsTheLaunchTable(t *testing.T) {
 	// launch refuses is absent, never shown as launchable.
 	for agent, postures := range flags {
 		for posture := range postures {
-			_, err := Resolve(agent, Workspace{Agent: agent, Autonomy: posture, Dir: "/abs/demo"}, "sess", false)
+			_, err := Resolve(agent, Workspace{Agent: agent, Autonomy: posture, Dir: "/abs/demo"}, "sess", false, "")
 			assert.NoError(t, err, "agent %q posture %q is projected but refused", agent, posture)
 		}
 	}
@@ -148,13 +148,64 @@ func TestResolvePassesStrictMCPConfigForClaude(t *testing.T) {
 	t.Parallel()
 
 	w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: "/abs/demo"}
-	line, err := Resolve("claude", w, "sess-1", false)
+	line, err := Resolve("claude", w, "sess-1", false, "")
 	require.NoError(t, err)
 
 	assert.Contains(t, line, "--strict-mcp-config")
 	assert.Contains(t, line, shellQuote(filepath.Join("/abs/demo", ".mcp.json")))
 	assert.Contains(t, line, "--session-id")
 	assert.Contains(t, line, shellQuote("sess-1"))
+}
+
+// TestResolveAppendsThePromptAsAPositionalArgument pins all three halves of
+// the contract every scheduled launch rests on: the prompt arrives quoted as
+// one trailing word, it arrives behind the end-of-options marker so a prompt
+// that opens with a hyphen is text rather than a flag the CLI rejects, and an
+// empty prompt leaves the interactive line untouched byte for byte.
+func TestResolveAppendsThePromptAsAPositionalArgument(t *testing.T) {
+	t.Parallel()
+
+	prompts := []string{
+		"Say hello; rm -rf /",
+		// A markdown list is what a hand-written prompt looks like, and both
+		// CLIs read a leading "-" as an option.
+		"- Summarize the week\n- Name every open question",
+		"--dangerously-skip-permissions",
+	}
+
+	for _, agent := range []string{"claude", "codex"} {
+		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
+
+			w := Workspace{Agent: agent, Autonomy: AutonomyAsk, Dir: "/abs/demo"}
+
+			bare, err := Resolve(agent, w, "sess-1", false, "")
+			require.NoError(t, err)
+
+			for _, prompt := range prompts {
+				prompted, err := Resolve(agent, w, "sess-1", false, prompt)
+				require.NoError(t, err)
+
+				assert.Equal(t, bare+" "+shellQuote("--")+" "+shellQuote(prompt), prompted)
+			}
+		})
+	}
+}
+
+// TestResolveIgnoresAPromptAnAgentCannotTake keeps the launch line total: an
+// agent with no PromptArgs still launches, silently, rather than dropping the
+// prompt somewhere the shell would run it.
+func TestResolveIgnoresAPromptAnAgentCannotTake(t *testing.T) {
+	t.Parallel()
+
+	table := map[string]AgentLaunch{"probe": {Autonomy: map[Autonomy][]string{AutonomyAsk: {}}}}
+	w := Workspace{Agent: "probe", Autonomy: AutonomyAsk, Dir: "/abs/demo"}
+
+	bare, err := resolveAgainst(table, "agent-bin", w, "sess", false, "")
+	require.NoError(t, err)
+	prompted, err := resolveAgainst(table, "agent-bin", w, "sess", false, "hello")
+	require.NoError(t, err)
+	assert.Equal(t, bare, prompted)
 }
 
 // TestPosturesWithheldWithoutAnyMCPWiring resolves against a table entry
@@ -174,12 +225,12 @@ func TestPosturesWithheldWithoutAnyMCPWiring(t *testing.T) {
 	}
 
 	w := Workspace{Agent: "no-mcp", Autonomy: AutonomyAsk, Dir: "/abs/demo"}
-	_, err := resolveAgainst(table, "agent-bin", w, "sess", false)
+	_, err := resolveAgainst(table, "agent-bin", w, "sess", false, "")
 	require.NoError(t, err, "ask is available with no MCP wiring at all")
 
 	for _, posture := range []Autonomy{AutonomyAuto, AutonomyFull} {
 		w.Autonomy = posture
-		_, err := resolveAgainst(table, "agent-bin", w, "sess", false)
+		_, err := resolveAgainst(table, "agent-bin", w, "sess", false, "")
 		require.ErrorIs(t, err, ErrPostureUnavailable, "posture %q", posture)
 	}
 }
@@ -198,7 +249,7 @@ func TestUnboundedWiringSurfacesTheGlobalServerSet(t *testing.T) {
 
 	for _, posture := range AutonomyNames() {
 		w := Workspace{Agent: "codex", Autonomy: Autonomy(posture), Dir: "/abs/demo"}
-		_, err := Resolve("codex", w, "sess", false)
+		_, err := Resolve("codex", w, "sess", false, "")
 		require.NoError(t, err, "posture %s", posture)
 	}
 }
@@ -230,7 +281,7 @@ func TestLaunchLineQuotesShellMetacharacters(t *testing.T) {
 			require.NoError(t, os.Mkdir(dir, 0o700))
 
 			w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: dir}
-			line, err := Resolve("echo", w, "sess", false)
+			line, err := Resolve("echo", w, "sess", false, "")
 			require.NoError(t, err)
 
 			out, err := exec.Command("sh", "-c", line).CombinedOutput()
@@ -252,7 +303,7 @@ func TestLaunchLineStartsInTheWorkspaceDirectory(t *testing.T) {
 	table := map[string]AgentLaunch{"probe": {Autonomy: map[Autonomy][]string{AutonomyAsk: {}}}}
 	dir := t.TempDir()
 	w := Workspace{Agent: "probe", Autonomy: AutonomyAsk, Dir: dir}
-	line, err := resolveAgainst(table, "pwd", w, "sess", false)
+	line, err := resolveAgainst(table, "pwd", w, "sess", false, "")
 	require.NoError(t, err)
 
 	cmd := exec.Command("sh", "-c", line)
@@ -266,7 +317,7 @@ func TestRejectsAMultiWordAgentCommand(t *testing.T) {
 	t.Parallel()
 
 	w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: "/tmp"}
-	_, err := Resolve("claude --dangerously-skip-permissions", w, "sess", false)
+	_, err := Resolve("claude --dangerously-skip-permissions", w, "sess", false, "")
 	require.ErrorIs(t, err, ErrCommandNotASingleWord)
 }
 

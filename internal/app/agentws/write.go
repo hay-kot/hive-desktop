@@ -182,14 +182,20 @@ func setManifestValue(mapping *yaml.Node, key string, value any) error {
 	if err := v.Encode(value); err != nil {
 		return fmt.Errorf("agent-workspace.yaml: encode %s: %w", key, err)
 	}
+	setManifestNode(mapping, key, &v)
+	return nil
+}
+
+// setManifestNode is setManifestValue over an already-built node, for values
+// whose YAML style matters (a block scalar, say).
+func setManifestNode(mapping *yaml.Node, key string, value *yaml.Node) {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = &v
-			return nil
+			mapping.Content[i+1] = value
+			return
 		}
 	}
-	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, &v)
-	return nil
+	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
 }
 
 // removeManifestKey drops key and its value from mapping. The key's own head

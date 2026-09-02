@@ -19,6 +19,7 @@
 // the chat delete confirmation live here.
 import { computed, nextTick, ref, shallowRef, watch, type Component } from 'vue'
 import { useStorage } from '@vueuse/core'
+import IconCalendarClock from '~icons/lucide/calendar-clock'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircleAlert from '~icons/lucide/circle-alert'
@@ -73,6 +74,8 @@ const emit = defineEmits<{
   'select-workspace': [dir: string]
   'create-workspace': []
   'edit-workspace': [workspace: AgentWorkspace]
+  /** Open this workspace's schedules beside the pane. */
+  'open-schedules': [dir: string]
   'close-session': [session: AgentSession]
   'rename-session': [session: AgentSession]
   'delete-session': [session: AgentSession]
@@ -487,7 +490,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @contextmenu.prevent="editWorkspace(node)"
           >
             <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
-            <!-- Three controls on one pitch, revealed together: the header
+            <!-- Four controls on one pitch, revealed together: the header
                  says nothing at rest but its own name and whether it is open. -->
             <button
               v-if="node.workspace"
@@ -508,6 +511,15 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               data-testid="agents-sidebar-workspace-edit"
               @click.stop="editWorkspace(node)"
             ><IconPencil class="size-3" /></button>
+            <button
+              v-if="node.workspace"
+              type="button"
+              class="row-action"
+              :title="`Schedules in ${node.name}`"
+              :aria-label="`Schedules in ${node.name}`"
+              data-testid="agents-sidebar-workspace-schedules"
+              @click.stop="emit('open-schedules', node.dir)"
+            ><IconCalendarClock class="size-3" /></button>
             <!-- The chevron trails the row, where the Code view's group chevron
                  sits. Unlike that one it is the fold control rather than an
                  indicator of it, because clicking this row focuses the

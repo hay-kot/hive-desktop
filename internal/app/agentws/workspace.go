@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 )
 
 // Autonomy is how much authority a workspace grants its agent.
@@ -28,7 +30,19 @@ type Workspace struct {
 	MCPs     []string `yaml:"mcps,omitempty"`
 	// Skills names skill packages defined in skills.yml, not individual
 	// skills — the unit a workspace enables is the package (ADR skill-packages-are-the-unit-a-workspace-enables).
-	Skills []string `yaml:"skills,omitempty"`
+	Skills    []string        `yaml:"skills,omitempty"`
+	Schedules []schedule.Spec `yaml:"schedules,omitempty"`
+}
+
+// withDir stamps dir onto the workspace and onto every schedule it owns. A
+// Spec's Workspace is not in the file: it travels to the scheduler on its own
+// and has to carry the directory it came from.
+func (w Workspace) withDir(dir string) Workspace {
+	w.Dir = dir
+	for i := range w.Schedules {
+		w.Schedules[i].Workspace = dir
+	}
+	return w
 }
 
 // Validate checks the fields Workspace owns directly. autonomy is no longer
@@ -59,6 +73,16 @@ func (w Workspace) Validate() error {
 	}
 	if slices.Contains(w.Skills, "") {
 		return fmt.Errorf("agent-workspace.yaml: skill package entries must not be empty")
+	}
+	seen := make(map[string]bool, len(w.Schedules))
+	for _, spec := range w.Schedules {
+		if err := spec.Validate(); err != nil {
+			return fmt.Errorf("agent-workspace.yaml: %w", err)
+		}
+		if seen[spec.ID] {
+			return fmt.Errorf("agent-workspace.yaml: duplicate schedule %q", spec.ID)
+		}
+		seen[spec.ID] = true
 	}
 	return nil
 }
