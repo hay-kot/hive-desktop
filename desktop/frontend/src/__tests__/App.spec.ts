@@ -2151,6 +2151,39 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  it('toggles the Chats sidebar on its own key, and brings a hidden one back on the focus chord', async () => {
+    localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
+    localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'false')
+    localStorage.setItem('hive.panel.agents.sidebar.collapsed', 'true')
+    const { wrapper } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-agents"]').trigger('click')
+    await vi.waitFor(() => expect(agentsOnScreen(wrapper)).toBe(true))
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="titlebar-toggle-sidebar"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-label')).toBe('Show sidebar')
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('hive.panel.agents.sidebar.collapsed')).toBe('false')
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('hive.panel.agents.sidebar.collapsed')).toBe('true')
+    // The other two modes keep their own panel out of it.
+    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('false')
+    expect(localStorage.getItem('hive.panel.terminal.sidebar.collapsed')).toBe('false')
+
+    // agents.focus-sidebar asks to work in the list, so a hidden one comes back.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(localStorage.getItem('hive.panel.agents.sidebar.collapsed')).toBe('false')
+
+    wrapper.unmount()
+  })
+
   it('keeps the title-bar navigation live inside terminal mode', async () => {
     mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
     const { wrapper, router } = await mountAppWithRouter()

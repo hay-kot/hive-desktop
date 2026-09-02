@@ -1660,6 +1660,13 @@ regenerates that workspace's files and fills the missing-capability strips above
 the pane, and the sidebar only ever *moves* it, never clears it, because
 clearing it no longer changes what is on screen.
 
+**The panel itself collapses on its own key.**
+`hive.panel.agents.sidebar.collapsed` sits beside the feed's and the Code
+view's, because each mode remembers its own left panel and the title-bar toggle
+drives whichever one is on screen. `agents.focus-sidebar` clears it before
+focusing, the rule `terminal.focus-sidebar` already follows: the chord asks to
+work in the list, and a hidden panel is not an answer to it.
+
 **Its rows are the hub sidebar's, not the Code view's.** `SideBar.vue`'s
 `.folder-header` and `SidebarFeedRow.vue`'s `.sidebar-entry` are what a
 chat row wears: one line, a leading glyph in a fixed 16px cell, and every

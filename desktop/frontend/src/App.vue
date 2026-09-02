@@ -770,6 +770,7 @@ function setMode(next: 'hub' | 'terminal' | 'agents'): void {
 // feed-only. The title-bar toggle follows whichever mode owns the current panel.
 const feedSidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
 const terminalSidebarCollapsed = useStorage('hive.panel.terminal.sidebar.collapsed', false)
+const agentsSidebarCollapsed = useStorage('hive.panel.agents.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
   !onboardingActive.value && !terminalActive.value && !agentsActive.value &&
@@ -777,14 +778,22 @@ const feedViewActive = computed(() =>
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
 )
-const sidebarCollapsed = computed(() =>
-  terminalActive.value ? terminalSidebarCollapsed.value : feedSidebarCollapsed.value,
-)
-const canToggleSidebar = computed(() => terminalActive.value || feedViewActive.value)
+// The flag the title-bar toggle drives: whichever mode owns the panel on
+// screen, and null in a view that has no left panel at all (settings, flows),
+// which is what disables the button. One mode test, not the same ternary in
+// three places.
+const activeSidebarFlag = computed(() => {
+  if (terminalActive.value) return terminalSidebarCollapsed
+  if (agentsActive.value) return agentsSidebarCollapsed
+  if (feedViewActive.value) return feedSidebarCollapsed
+  return null
+})
+const sidebarCollapsed = computed(() => activeSidebarFlag.value?.value ?? false)
+const canToggleSidebar = computed(() => activeSidebarFlag.value !== null)
 
 function toggleSidebar(): void {
-  const collapsed = terminalActive.value ? terminalSidebarCollapsed : feedSidebarCollapsed
-  collapsed.value = !collapsed.value
+  const collapsed = activeSidebarFlag.value
+  if (collapsed) collapsed.value = !collapsed.value
 }
 
 function togglePreview(): void {
@@ -927,7 +936,12 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'terminal.close-window': closeTerminalWindow,
   'terminal.next-window': () => stepTerminalWindow(1),
   'terminal.prev-window': () => stepTerminalWindow(-1),
-  'agents.focus-sidebar': focusAgentsList,
+  // Same rule as terminal.focus-sidebar: the chord asks to work in the list,
+  // so a hidden one comes back rather than swallowing the request.
+  'agents.focus-sidebar': () => {
+    agentsSidebarCollapsed.value = false
+    void nextTick(focusAgentsList)
+  },
   'agents.focus-pane': focusAgentsPane,
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
@@ -1295,6 +1309,7 @@ onUnmounted(() => {
         v-if="agentsMounted"
         v-show="agentsActive"
         :active="agentsActive"
+        :sidebar-collapsed="agentsSidebarCollapsed"
       />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is

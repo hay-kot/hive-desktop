@@ -45,7 +45,7 @@ import '@xterm/xterm/css/xterm.css'
 /** Poll period for the M2 approval indicator (hc-ou4o02zx §5), while active. */
 const ACTIVITY_POLL_MS = 2000
 
-const props = defineProps<{ active?: boolean }>()
+const props = defineProps<{ active?: boolean; sidebarCollapsed?: boolean }>()
 
 const {
   checking, available, reason,
@@ -737,6 +737,7 @@ onBeforeUnmount(() => {
 
     <div v-else class="flex min-h-0 min-w-0 flex-1">
       <AgentsSidebar
+        v-if="!sidebarCollapsed"
         ref="sidebarEl"
         :active="props.active"
         :selected-workspace="selectedWorkspace"
