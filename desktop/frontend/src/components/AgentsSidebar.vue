@@ -74,8 +74,6 @@ const emit = defineEmits<{
   'select-workspace': [dir: string]
   'create-workspace': []
   'edit-workspace': [workspace: AgentWorkspace]
-  /** Open this workspace's schedules beside the pane. */
-  'open-schedules': [dir: string]
   'close-session': [session: AgentSession]
   'rename-session': [session: AgentSession]
   'delete-session': [session: AgentSession]
@@ -215,9 +213,27 @@ watch(() => props.selectedWorkspace, (dir) => {
 function workspaceTooltip(node: WorkspaceNode): string {
   if (!node.workspace) return `${node.dir}\nThis directory is no longer in the workspace root.`
   const parts = [node.name, `${node.workspace.agent} · ${node.workspace.autonomy || '—'}`]
+  const next = nextScheduleLine(node.workspace)
+  if (next) parts.push(next)
   if (node.workspace.problem) parts.push(node.workspace.problem)
   else if (node.workspace.notice) parts.push(node.workspace.notice)
   return parts.join('\n')
+}
+
+// A header draws no rollup of its own, so the schedule that fires next is a
+// line on the tooltip rather than a mark on the row. A disabled or unparseable
+// schedule has no nextRunAt and is not a candidate.
+function nextScheduleLine(workspace: AgentWorkspace): string {
+  let soonest = ''
+  let soonestAt = Number.POSITIVE_INFINITY
+  for (const schedule of workspace.schedules ?? []) {
+    if (schedule.disabled || schedule.nextRunAt === null || schedule.nextRunAt >= soonestAt) continue
+    soonest = schedule.name || schedule.id
+    soonestAt = schedule.nextRunAt
+  }
+  if (!soonest) return ''
+  const when = new Date(soonestAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+  return `Next: ${soonest}, ${when}`
 }
 
 // The Code view's vocabulary, unchanged: a spinning loader while the agent
@@ -261,6 +277,7 @@ function chatTooltip(session: AgentSession): string {
   const indicator = sessionIndicators.value[session.id]
   if (indicator) parts.push(indicator.label)
   else if (session.terminalId) parts.push('Agent running')
+  if (session.scheduleId) parts.push(`Started by schedule ${session.scheduleId}`)
   if (session.notice) parts.push(session.notice)
   return parts.join('\n')
 }
@@ -490,7 +507,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @contextmenu.prevent="editWorkspace(node)"
           >
             <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
-            <!-- Four controls on one pitch, revealed together: the header
+            <!-- Three controls on one pitch, revealed together: the header
                  says nothing at rest but its own name and whether it is open. -->
             <button
               v-if="node.workspace"
@@ -511,15 +528,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               data-testid="agents-sidebar-workspace-edit"
               @click.stop="editWorkspace(node)"
             ><IconPencil class="size-3" /></button>
-            <button
-              v-if="node.workspace"
-              type="button"
-              class="row-action"
-              :title="`Schedules in ${node.name}`"
-              :aria-label="`Schedules in ${node.name}`"
-              data-testid="agents-sidebar-workspace-schedules"
-              @click.stop="emit('open-schedules', node.dir)"
-            ><IconCalendarClock class="size-3" /></button>
             <!-- The chevron trails the row, where the Code view's group chevron
                  sits. Unlike that one it is the fold control rather than an
                  indicator of it, because clicking this row focuses the
@@ -562,11 +570,21 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                 @keydown.space.self.prevent="emit('select-session', session)"
                 @contextmenu.prevent="openSessionMenu(session, $event)"
               >
+                <!-- A chat nobody clicked for wears the clock in the same
+                     leading cell, so the tree says where it came from without
+                     a second column; the tooltip names the schedule. -->
                 <span
                   class="nav-icon"
                   :class="{ 'nav-icon-notice': !!session.notice }"
                   :data-testid="session.notice ? 'agents-sidebar-session-notice' : undefined"
-                ><IconMessageSquare class="size-3.5" /></span>
+                >
+                  <IconCalendarClock
+                    v-if="session.scheduleId"
+                    class="size-3.5"
+                    data-testid="agents-sidebar-session-scheduled"
+                  />
+                  <IconMessageSquare v-else class="size-3.5" />
+                </span>
                 <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
                 <!-- The pin mark rides the name's line rather than the trailing
                      slot, which the status mark and the menu toggle already

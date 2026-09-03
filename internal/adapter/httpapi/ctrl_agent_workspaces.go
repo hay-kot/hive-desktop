@@ -37,6 +37,9 @@ type agentWorkspaceView struct {
 	// the workspace's declared servers, empty when the wiring is bounded or
 	// the workspace's manifest failed to parse.
 	Notice string `json:"notice"`
+	// Schedules is the workspace's schedules: list, each joined with its next
+	// run and its last one. Never null on the wire.
+	Schedules []agentScheduleView `json:"schedules"`
 }
 
 // agentSessionView is one row of a workspace's session list.
@@ -68,13 +71,20 @@ type agentSessionView struct {
 	// Notice carries a fresh-launch, unbounded-MCP, or missing-MCP explanation
 	// for the UI to show beside the session.
 	Notice string `json:"notice"`
+	// ScheduleID names the schedule whose run started this chat, and is what
+	// marks a scheduled chat in the sidebar. Empty when a person started it.
+	ScheduleID string `json:"scheduleId"`
 }
 
 func toAgentWorkspaceView(w app.WorkspaceView) agentWorkspaceView {
+	schedules := make([]agentScheduleView, 0, len(w.Schedules))
+	for _, s := range w.Schedules {
+		schedules = append(schedules, toAgentScheduleView(s))
+	}
 	return agentWorkspaceView{
 		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy,
 		MCPs: nonNilStrings(w.MCPs), Skills: nonNilStrings(w.Skills), Problem: w.Problem,
-		Notice: w.Notice,
+		Notice: w.Notice, Schedules: schedules,
 	}
 }
 
@@ -102,7 +112,7 @@ func toAgentSessionView(s app.SessionView) agentSessionView {
 	return agentSessionView{
 		ID: s.ID, Workspace: s.Workspace, Name: s.Name, Agent: s.Agent, LastOpenedAt: s.LastOpenedAt,
 		Slug: s.Slug, TerminalID: s.TerminalID, WindowID: s.WindowID, Cols: s.Cols, Rows: s.Rows,
-		ResumeAttempted: s.ResumeAttempted, Notice: s.Notice,
+		ResumeAttempted: s.ResumeAttempted, Notice: s.Notice, ScheduleID: s.ScheduleID,
 	}
 }
 
@@ -188,8 +198,28 @@ type agentWorkspaceEditRequest struct {
 	Autonomy string   `json:"autonomy"`
 	Mcps     []string `json:"mcps"`
 	Skills   []string `json:"skills"`
+	// Schedules is the whole schedules: list. Omitting it clears the key, the
+	// same way an omitted mcps does: the editor holds every entry while it is
+	// open, so what it sends is what the manifest ends up saying.
+	Schedules []agentWorkspaceScheduleEdit `json:"schedules"`
 }
 
+// agentWorkspaceScheduleEdit is one schedules: entry as the editor sends it.
+// The cron expression is built by the editor's calendar form; the manifest
+// stores cron either way.
+type agentWorkspaceScheduleEdit struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Cron     string `json:"cron"`
+	Prompt   string `json:"prompt"`
+	Disabled bool   `json:"disabled"`
+	OnMissed string `json:"onMissed"`
+}
+
+// Validate covers only the fields whose absence makes the request meaningless.
+// A schedule's own shape -- its id, cron expression and prompt template -- is
+// the core's to judge, so those failures come back as one classified error
+// with the reason in it rather than as a field list assembled twice.
 func (b agentWorkspaceEditRequest) Validate() error {
 	return criterio.ValidateStruct(
 		criterio.Run("dir", b.Dir, criterio.Required),
@@ -200,7 +230,17 @@ func (b agentWorkspaceEditRequest) Validate() error {
 }
 
 func (b agentWorkspaceEditRequest) toEdit() app.WorkspaceEdit {
-	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy, MCPs: b.Mcps, Skills: b.Skills}
+	schedules := make([]app.ScheduleEdit, 0, len(b.Schedules))
+	for _, s := range b.Schedules {
+		schedules = append(schedules, app.ScheduleEdit{
+			ID: s.ID, Name: s.Name, Cron: s.Cron, Prompt: s.Prompt,
+			Disabled: s.Disabled, OnMissed: s.OnMissed,
+		})
+	}
+	return app.WorkspaceEdit{
+		Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy,
+		MCPs: b.Mcps, Skills: b.Skills, Schedules: schedules,
+	}
 }
 
 // AgentWorkspaceCreate makes a directory under the root with a fresh

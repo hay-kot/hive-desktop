@@ -193,6 +193,37 @@ func (db *DB) DeleteScheduleRuns(ctx context.Context, workspace string) error {
 	return wrap("deleting schedule runs by workspace", db.queries.DeleteScheduleRunsByWorkspace(ctx, workspace))
 }
 
+// ScheduleIDsBySession maps each chat a schedule started to that schedule's
+// id, for one workspace. A session listed twice keeps its newest run's
+// schedule. Returning the map rather than the rows is what keeps that
+// tie-break in one place: every caller wants the lookup, none wants the runs.
+func (db *DB) ScheduleIDsBySession(ctx context.Context, workspace string) (map[int64]string, error) {
+	db = db.Ctx(ctx)
+	rows, err := db.queries.ListScheduleRunSessions(ctx, workspace)
+	if err != nil {
+		return nil, fmt.Errorf("listing scheduled chats for workspace %q: %w", workspace, err)
+	}
+	out := make(map[int64]string, len(rows))
+	for _, row := range rows {
+		out[row.SessionID.Int64] = row.ScheduleID
+	}
+	return out, nil
+}
+
+// AllScheduleIDsBySession is ScheduleIDsBySession across every workspace.
+func (db *DB) AllScheduleIDsBySession(ctx context.Context) (map[int64]string, error) {
+	db = db.Ctx(ctx)
+	rows, err := db.queries.ListAllScheduleRunSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing scheduled chats: %w", err)
+	}
+	out := make(map[int64]string, len(rows))
+	for _, row := range rows {
+		out[row.SessionID.Int64] = row.ScheduleID
+	}
+	return out, nil
+}
+
 // scheduleCursorFromRow adapts a generated row to the domain record. The two
 // are field-identical today; if a future column makes them diverge this
 // stops compiling and becomes an explicit mapping (activity_event.go follows

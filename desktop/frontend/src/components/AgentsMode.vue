@@ -17,11 +17,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import IconMessagesSquare from '~icons/lucide/messages-square'
-import IconCalendarClock from '~icons/lucide/calendar-clock'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPanelRight from '~icons/lucide/panel-right'
 import AgentCanvasPane from './AgentCanvasPane.vue'
-import AgentSchedulesPane from './AgentSchedulesPane.vue'
 import AgentsSidebar from './AgentsSidebar.vue'
 import AgentWorkspaceEditor from './AgentWorkspaceEditor.vue'
 import AppTooltip from './AppTooltip.vue'
@@ -126,9 +124,7 @@ function selectWorkspace(dir: string): void {
   // The query rides along: the focused workspace and the open chat (?chat) are
   // independent axes, and moving one must not drop the other.
   if (!dir) {
-    // The schedules pane names the focused workspace, so it leaves with it,
-    // the way ?canvas leaves with its chat.
-    void router.push({ name: 'agents', query: { ...route.query, schedules: undefined } })
+    void router.push({ name: 'agents', query: route.query })
     return
   }
   void router.push({ name: 'agents', params: { workspace: dir }, query: route.query })
@@ -271,10 +267,12 @@ watch([paneStatus, openSessionId], ([status, id]) => {
   else if (status === 'idle') syncChatQuery(null)
 })
 
-// A route naming a chat other than the open one is a request to switch. The
-// schedules pane's "Open chat" is exactly that, and a reload with a stale
-// ?chat is the same shape. Only an in-flight launch is left alone, so two
-// attaches never race for the pane.
+// A route naming a chat other than the open one is a request to switch. A
+// reload with a stale ?chat is the same shape. Only an in-flight launch is left
+// alone, so two attaches never race for the pane. The workspace editor's run
+// history does not come through here at all: it goes to
+// handleOpenScheduledChat, which resumes a dead chat rather than only naming
+// it.
 watch([routeChatId, () => props.active], ([id, active]) => {
   if (id === null || !active) return
   if (openSessionId.value === id || paneStatus.value === 'opening') return
@@ -344,43 +342,6 @@ async function resumeChatFromRoute(id: number): Promise<void> {
   await resumeRow(session)
 }
 
-// ── The schedules pane rides the route too (?schedules=1) ───────────────────
-// Written with replace so history never stacks, like ?canvas. Unlike ?canvas
-// it hangs off the focused workspace rather than the open chat: a schedule
-// belongs to the manifest, so with nothing focused there is nothing to show.
-const schedulesRequested = computed(() => route.name === 'agents' && route.query.schedules !== undefined)
-const schedulesVisible = computed(() => schedulesRequested.value && selectedWorkspace.value !== '')
-const selectedWorkspaceName = computed(() =>
-  workspaces.value.find((ws) => ws.dir === selectedWorkspace.value)?.name || selectedWorkspace.value)
-
-function syncSchedulesQuery(open: boolean): void {
-  if (route.name !== 'agents') return
-  const next = open ? '1' : undefined
-  if ((typeof route.query.schedules === 'string' ? route.query.schedules : undefined) === next) return
-  void router.replace({ name: 'agents', params: route.params, query: { ...route.query, schedules: next } })
-}
-
-// One navigation, not a focus push followed by a query replace: the second
-// would be built from the params the first has not committed yet. Only a
-// focus change is worth a history entry; opening the pane on the workspace
-// already focused replaces, the way ?canvas does.
-function openSchedules(dir: string): void {
-  if (route.name !== 'agents') return
-  const query = { ...route.query, schedules: '1' }
-  if (!dir || dir === selectedWorkspace.value) {
-    void router.replace({ name: 'agents', params: route.params, query })
-    return
-  }
-  void router.push({ name: 'agents', params: { workspace: dir }, query })
-}
-
-// The status bar's toggle. The bar only exists over a chat, so the chat's own
-// workspace is what it falls back to when nothing is focused.
-function toggleSchedules(): void {
-  if (schedulesRequested.value) syncSchedulesQuery(false)
-  else openSchedules(selectedWorkspace.value || paneWorkspaceDir.value)
-}
-
 // ── Sidebar event wiring (AgentsSidebar.vue) ─────────────────────────────────
 // The tree spans every workspace, so resuming from it can reach a chat outside
 // whatever is currently focused; every mutation reloads the cross-workspace
@@ -394,15 +355,22 @@ async function handleSidebarSelectSession(session: AgentSession): Promise<void> 
 
 // A schedule that fires starts a chat nobody clicked for, so the tree only
 // learns about it from this wake-up: every other reload here hangs off a user
-// action.
-useWailsEvent('schedules:updated', () => { void reloadRecents() })
+// action. The workspace list is re-read with it because each workspace carries
+// its schedules, and the header tooltip's next run has just moved.
+useWailsEvent('schedules:updated', () => {
+  void reloadRecents()
+  void reloadWorkspaces()
+})
 
 // The run history's "Open chat" is a row click, not a route write: ?chat never
 // relaunches a dead session (ADR the-open-chat-rides-the-route), and a
 // scheduled chat is usually opened long after its agent finished, often after
 // a reboot took the tmux session with it. The list is re-read first because the
-// chat may have been created since it was last loaded.
+// chat may have been created since it was last loaded. The editor is the
+// surface it is asked from, and it covers the pane the chat opens into, so it
+// closes with the request.
 async function handleOpenScheduledChat(id: number): Promise<void> {
+  workspaceEditorOpen.value = false
   if (!recents.value.some((row) => row.id === id)) await reloadRecents()
   const session = recents.value.find((row) => row.id === id)
   if (!session) return
@@ -815,7 +783,6 @@ onBeforeUnmount(() => {
         @select-workspace="selectWorkspace"
         @create-workspace="openCreateWorkspace"
         @edit-workspace="openEditWorkspace"
-        @open-schedules="openSchedules"
         @close-session="closeRow"
         @rename-session="openRenameSession"
         @delete-session="removeRow"
@@ -855,16 +822,6 @@ onBeforeUnmount(() => {
           @reveal="revealPaneWorkspace"
         >
           <template #actions>
-            <AppTooltip text="Toggle schedules">
-              <button
-                type="button"
-                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text aria-pressed:text-text"
-                aria-label="Toggle schedules"
-                :aria-pressed="schedulesRequested"
-                data-testid="agents-pane-statusbar-schedules"
-                @click="toggleSchedules"
-              ><IconCalendarClock class="size-3.5" /></button>
-            </AppTooltip>
             <AppTooltip text="Toggle canvas">
               <button
                 type="button"
@@ -944,17 +901,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Siblings of the pane column, never inside it: the terminal host must
-           not be re-keyed or unmounted by either side pane opening, and the
+      <!-- A sibling of the pane column, never inside it: the terminal host must
+           not be re-keyed or unmounted by the canvas opening, and the
            ResizeObserver absorbs the width change with an ordinary size vote. -->
-      <AgentSchedulesPane
-        v-if="schedulesVisible"
-        :workspace="selectedWorkspace"
-        :workspace-name="selectedWorkspaceName"
-        @open-chat="handleOpenScheduledChat"
-        @close="syncSchedulesQuery(false)"
-      />
-
       <AgentCanvasPane
         v-if="canvasVisible && routeChatId !== null"
         :session="routeChatId"
@@ -976,6 +925,7 @@ onBeforeUnmount(() => {
       @close="workspaceEditorOpen = false"
       @save="saveWorkspace"
       @delete="deleteWorkspaceFromEditor"
+      @open-chat="handleOpenScheduledChat"
     />
 
     <NewChatDialog

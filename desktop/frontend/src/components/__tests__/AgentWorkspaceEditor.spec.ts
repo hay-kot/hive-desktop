@@ -1,11 +1,35 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AgentWorkspaceEditor from '../AgentWorkspaceEditor.vue'
 import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../../composables/useAgentWorkspaces'
-import type { AgentWorkspace, MCPCatalogueEntry, SkillPackage } from '../../lib/agentWorkspacesClient'
+import type {
+  AgentSchedule, AgentScheduleRun, AgentWorkspace, MCPCatalogueEntry, SkillPackage,
+} from '../../lib/agentWorkspacesClient'
+
+// The schedule half of the form talks to the control plane for three things
+// (preview, Run now, and the run history), so those specs install a client. The
+// rest run with none, the way the composable leaves it when the probe fails,
+// which is what keeps a seeded mcpCatalogue/skillPackages from being read back
+// over by an empty response.
+const mocks = vi.hoisted(() => ({
+  Available: vi.fn(),
+  Endpoint: vi.fn(),
+  getAgentsEndpoint: vi.fn(),
+  client: null as unknown,
+}))
+
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
+  Available: mocks.Available,
+  Endpoint: mocks.Endpoint,
+}))
+vi.mock('../../lib/agentWorkspacesClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/agentWorkspacesClient')>()),
+  getAgentsEndpoint: mocks.getAgentsEndpoint,
+  createAgentWorkspacesClient: () => mocks.client,
+}))
 
 const demo: AgentWorkspace = {
-  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '',
+  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], schedules: [], problem: '', notice: '',
 }
 
 const playwright: MCPCatalogueEntry = {
@@ -39,9 +63,65 @@ function mountEditor(workspace: AgentWorkspace | null = demo) {
   })
 }
 
+function schedule(overrides: Partial<AgentSchedule> = {}): AgentSchedule {
+  return {
+    workspace: 'demo', id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+    prompt: 'Summarize the week.', disabled: false, onMissed: 'run',
+    nextRunAt: null, lastRun: null, ...overrides,
+  }
+}
+
+function run(overrides: Partial<AgentScheduleRun> = {}): AgentScheduleRun {
+  return {
+    id: 3, workspace: 'demo', scheduleId: 'weekly-summary', scheduleName: 'Weekly summary',
+    scheduledFor: Date.now(), startedAt: Date.now(), reason: 'due', status: 'launched',
+    missed: 0, sessionId: 9, prompt: 'Summarize the week.', error: '', ...overrides,
+  }
+}
+
+function scheduleClient() {
+  return {
+    mcpCatalogue: vi.fn().mockResolvedValue([]),
+    skillPackages: vi.fn().mockResolvedValue({ packages: [], skills: [], problem: '' }),
+    schedules: vi.fn().mockResolvedValue([schedule()]),
+    scheduleRuns: vi.fn().mockResolvedValue([run()]),
+    runSchedule: vi.fn().mockResolvedValue(run({ reason: 'manual' })),
+    previewSchedule: vi.fn().mockResolvedValue({ next: [], prompt: '', cronError: '', promptError: '' }),
+  }
+}
+
+function typeInto(testid: string, value: string): void {
+  const field = el<HTMLInputElement | HTMLTextAreaElement>(testid)!
+  field.value = value
+  field.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+// AppSelect's popover teleports out of the drawer, so both halves are reached
+// through the document rather than the wrapper.
+async function chooseOption(wrapper: VueWrapper, testid: string, value: string): Promise<void> {
+  el<HTMLButtonElement>(testid)!.click()
+  await flushPromises()
+  document.querySelector<HTMLElement>(`[data-testid="${testid}-option-${value}"]`)!
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  await wrapper.vm.$nextTick()
+}
+
+/** Long enough for the card's 300ms preview debounce to fire and land. */
+function settlePreview(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 350))
+}
+
+function savedSchedules(wrapper: VueWrapper) {
+  const saves = wrapper.emitted('save') as unknown[][] | undefined
+  return (saves?.[0]?.[0] as { schedules: unknown[] } | undefined)?.schedules
+}
+
 beforeEach(() => {
   document.body.innerHTML = ''
   resetAgentWorkspacesForTests()
+  mocks.client = null
+  mocks.Available.mockResolvedValue({ available: true, reason: '' })
+  mocks.getAgentsEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
 })
 
 describe('AgentWorkspaceEditor', () => {
@@ -104,6 +184,35 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
+  // A manifest the loader could not read reaches the form as empty lists, so a
+  // save would reconcile mcps:/skills:/schedules: to nothing. The Go side
+  // refuses the update; the form refuses it first and names the file to fix.
+  it('refuses to save a workspace whose manifest could not be read', async () => {
+    const wrapper = mountEditor({ ...demo, problem: 'agent-workspace.yaml: line 4: mapping values are not allowed' })
+    await wrapper.vm.$nextTick()
+
+    const notice = el('agent-workspace-editor-problem')!
+    expect(notice.textContent).toContain('mapping values are not allowed')
+    expect(notice.textContent).toContain('Fix agent-workspace.yaml')
+    expect(el<HTMLButtonElement>('agent-workspace-editor-save')!.disabled).toBe(true)
+    // Deleting a workspace whose file is broken has to stay possible.
+    expect(el<HTMLButtonElement>('agent-workspace-editor-delete')!.disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows no manifest notice for a readable workspace or a new one', async () => {
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-problem')).toBeNull()
+    expect(el<HTMLButtonElement>('agent-workspace-editor-save')!.disabled).toBe(false)
+    wrapper.unmount()
+
+    const creating = mountEditor(null)
+    await creating.vm.$nextTick()
+    expect(el('agent-workspace-editor-problem')).toBeNull()
+    creating.unmount()
+  })
+
   it('creation offers no delete', () => {
     const wrapper = mountEditor(null)
     expect(el('agent-workspace-editor-delete')).toBeNull()
@@ -131,7 +240,7 @@ describe('AgentWorkspaceEditor', () => {
 
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [], skills: [] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [], skills: [], schedules: [] },
     ]])
     wrapper.unmount()
   })
@@ -159,7 +268,7 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'], skills: [] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'], skills: [], schedules: [] },
     ]])
     wrapper.unmount()
   })
@@ -177,7 +286,7 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: ['hive', 'infra'] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: ['hive', 'infra'], schedules: [] },
     ]])
     wrapper.unmount()
   })
@@ -285,6 +394,205 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-mcp-import-format')!.click()
     await wrapper.vm.$nextTick()
     expect(el('agent-workspace-editor-mcp-error')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  // ── Schedules ─────────────────────────────────────────────────────────────
+  // A schedule is manifest state, so the form holds the whole list and Save
+  // sends it; the cards read their cron back as a sentence rather than showing
+  // one.
+  it('states each of the workspace manifest schedules as a card', async () => {
+    const wrapper = mountEditor({
+      ...demo,
+      schedules: [schedule({ lastRun: run({ status: 'failed', reason: 'catch_up', error: 'the agent exited' }) })],
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(el('agent-workspace-editor-schedule-0-summary')!.textContent).toBe('Every Friday at 09:00')
+    expect(el('agent-workspace-editor-schedule-0-next')!.textContent).toBe('not scheduled')
+    expect(el('agent-workspace-editor-schedule-0-last-run')!.textContent).toContain('failed · catch-up')
+    expect(el('agent-workspace-editor-schedule-0')!.textContent).toContain('the agent exited')
+    wrapper.unmount()
+  })
+
+  it('adds a card, compiles its shape to cron, and saves the whole list', async () => {
+    const wrapper = mountEditor()
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-add')!.click()
+    await wrapper.vm.$nextTick()
+
+    typeInto('agent-workspace-editor-schedule-0-name', 'Weekly summary')
+    await wrapper.vm.$nextTick()
+    typeInto('agent-workspace-editor-schedule-0-prompt', 'Summarize the week.')
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(savedSchedules(wrapper)).toEqual([{
+      id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+      prompt: 'Summarize the week.', disabled: false, onMissed: 'run',
+    }])
+    wrapper.unmount()
+  })
+
+  // The id keys the run history and the scheduler's cursor, so a saved card
+  // keeps it however the name changes; the flags a card is not showing ride
+  // the save untouched too.
+  it('keeps a saved id and its unedited flags across a rename', async () => {
+    const wrapper = mountEditor({
+      ...demo,
+      schedules: [schedule({ disabled: true, onMissed: 'skip' })],
+    })
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-edit')!.click()
+    await wrapper.vm.$nextTick()
+
+    typeInto('agent-workspace-editor-schedule-0-name', 'Monday digest')
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+
+    expect(savedSchedules(wrapper)).toEqual([{
+      id: 'weekly-summary', name: 'Monday digest', cron: '0 9 * * 5',
+      prompt: 'Summarize the week.', disabled: true, onMissed: 'skip',
+    }])
+    wrapper.unmount()
+  })
+
+  // A hand-authored entry may name nothing at all. The card is still editable
+  // and still saves, and the save must not write `name: <id>` back into the
+  // manifest on the user's behalf.
+  it('keeps a saved schedule nameless, showing its id instead', async () => {
+    const wrapper = mountEditor({ ...demo, schedules: [schedule({ name: '' })] })
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-schedule-0')!.textContent).toContain('weekly-summary')
+    expect(el('agent-workspace-editor-schedule-0-problem')).toBeNull()
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-edit')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el<HTMLInputElement>('agent-workspace-editor-schedule-0-name')!.placeholder).toBe('weekly-summary')
+
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(savedSchedules(wrapper)).toEqual([expect.objectContaining({ id: 'weekly-summary', name: '' })])
+    wrapper.unmount()
+  })
+
+  it('recompiles the cron as the weekly day chips are picked', async () => {
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-edit')!.click()
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-day-1')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-schedule-0-summary')!.textContent).toBe('Mon, Fri at 09:00')
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-day-5')!.click()
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+
+    expect(savedSchedules(wrapper)).toEqual([expect.objectContaining({ cron: '0 9 * * 1' })])
+    wrapper.unmount()
+  })
+
+  // Custom is where an expression no shape can state stays editable. Switching
+  // to it carries the compiled cron over, so the box opens on what the picker
+  // was already saying.
+  it('shows the raw cron under Custom and saves what is typed there', async () => {
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-edit')!.click()
+    await wrapper.vm.$nextTick()
+
+    await chooseOption(wrapper, 'agent-workspace-editor-schedule-0-repeat', 'custom')
+    expect(el<HTMLInputElement>('agent-workspace-editor-schedule-0-cron')!.value).toBe('0 9 * * 5')
+
+    typeInto('agent-workspace-editor-schedule-0-cron', '0 */2 * * *')
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-schedule-0-summary')!.textContent).toBe('Custom: 0 */2 * * *')
+
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(savedSchedules(wrapper)).toEqual([expect.objectContaining({ cron: '0 */2 * * *' })])
+    wrapper.unmount()
+  })
+
+  // The Go side upserts by id, so two cards on one id would silently drop a
+  // schedule. The name is what the id derives from, so the collision is the
+  // user's to resolve before the manifest is written.
+  it('blocks Save while two cards derive the same id', async () => {
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-add')!.click()
+    await wrapper.vm.$nextTick()
+
+    typeInto('agent-workspace-editor-schedule-1-name', 'Weekly Summary')
+    await wrapper.vm.$nextTick()
+    typeInto('agent-workspace-editor-schedule-1-prompt', 'Again.')
+    await wrapper.vm.$nextTick()
+
+    expect(el('agent-workspace-editor-schedule-1-problem')!.textContent)
+      .toContain('Another schedule already uses the id "weekly-summary"')
+    expect(el<HTMLButtonElement>('agent-workspace-editor-save')!.disabled).toBe(true)
+
+    typeInto('agent-workspace-editor-schedule-1-name', 'Nightly digest')
+    await wrapper.vm.$nextTick()
+    expect(el<HTMLButtonElement>('agent-workspace-editor-save')!.disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('blocks Save on the cron and prompt errors the preview reports', async () => {
+    const client = scheduleClient()
+    client.previewSchedule.mockResolvedValue({ next: [], prompt: '', cronError: 'not a cron', promptError: '' })
+    mocks.client = client
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    await flushPromises()
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-edit')!.click()
+    await settlePreview()
+    await flushPromises()
+
+    expect(client.previewSchedule).toHaveBeenCalledWith({ workspace: 'demo', cron: '0 9 * * 5', prompt: 'Summarize the week.' })
+    expect(el<HTMLButtonElement>('agent-workspace-editor-save')!.disabled).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('runs a schedule now and re-reads its run state afterwards', async () => {
+    const client = scheduleClient()
+    mocks.client = client
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    await flushPromises()
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-run')!.click()
+    await flushPromises()
+
+    expect(client.runSchedule).toHaveBeenCalledWith('demo', 'weekly-summary')
+    expect(client.schedules).toHaveBeenCalledWith('demo')
+    wrapper.unmount()
+  })
+
+  // A card asks for its history only when it is opened, and the chat a run
+  // launched is opened by the area, never by the drawer writing a route.
+  it('loads the run history on demand and asks the area to open a run chat', async () => {
+    const client = scheduleClient()
+    mocks.client = client
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    await flushPromises()
+    expect(client.scheduleRuns).not.toHaveBeenCalled()
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-history')!.click()
+    await flushPromises()
+    expect(client.scheduleRuns).toHaveBeenCalledWith('demo', 'weekly-summary', 20)
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-open-chat-3')!.click()
+    expect(wrapper.emitted('open-chat')).toEqual([[9]])
+    wrapper.unmount()
+  })
+
+  it('removes a card only after its inline confirm is answered', async () => {
+    const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-remove')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-schedule-0')).not.toBeNull()
+
+    el<HTMLButtonElement>('agent-workspace-editor-schedule-0-remove-confirm-yes')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-schedule-0')).toBeNull()
+
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(savedSchedules(wrapper)).toEqual([])
     wrapper.unmount()
   })
 })

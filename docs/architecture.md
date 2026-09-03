@@ -1583,9 +1583,14 @@ reveal use.
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
-writer. The workspace editor owns `name`, `agent`, `autonomy`, `mcps:`, and
-`skills:` in the manifest (an empty list removes the key); comments and
-everything else stay the user's. `mcps.yaml` gains entries through the same pattern —
+writer. The workspace editor owns `name`, `agent`, `autonomy`, `mcps:`,
+`skills:`, and `schedules:` in the manifest (an empty list removes the key);
+comments and everything else stay the user's. It refuses to write at all over
+a manifest that does not currently parse: the form is loaded from the
+workspace view, and on the first load of a run there is no last-good snapshot
+behind a broken file, so the form opens empty and a save would reconcile every
+list in it to nothing. A broken manifest is fixed in the file.
+`mcps.yaml` gains entries through the same pattern —
 `ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
 bare id-to-server map), an id already declared is a conflict rather than an
 overwrite, and only user entries can be removed. The merged catalogue
@@ -1751,9 +1756,9 @@ Code view's does, but is the fold *control* rather than an indicator of one,
 because clicking the header focuses the workspace instead of folding it.
 Secondary text a row used to stack under its name — `agent · autonomy`, a
 problem, a notice — is the row's tooltip, with the chevron going amber or red so
-a warning stays a glance rather than a hover. Its trailing edge is four
-controls on one 18px pitch: `+`, edit, schedules clock, fold chevron, with the
-first three revealed on hover, so at rest a header states its name and
+a warning stays a glance rather than a hover. Its trailing edge is three
+controls on one 18px pitch: `+`, edit, fold chevron, with the
+first two revealed on hover, so at rest a header states its name and
 whether it is open and nothing else. The `+` starts a chat in that workspace under the default name
 with **no dialog**, because naming the workspace is the only thing
 `NewChatDialog` asks that has no sensible default and the header has already
@@ -1772,10 +1777,15 @@ what they mean there.
 
 A workspace can declare recurring chats it launches on its own: `schedules:`
 in `agent-workspace.yaml` is a list of `{id, name, cron, prompt, disabled,
-on_missed}` entries, written through the same `write.go` node-tree editor as
-`mcps:` and `skills:`, for the same reason -- it is user- and agent-authored,
+on_missed}` entries, written by the same `write.go` node-tree call as `mcps:`
+and `skills:`, for the same reason -- it is user- and agent-authored,
 dotfiles-synced, and already covered by the manifest watcher
 (ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite).
+`WriteManifest` reconciles the sequence to exactly the list it is handed:
+entries are matched by id, one the list no longer names is deleted, and an
+empty list takes the key with it. There is no per-schedule write: a schedule
+is saved atomically with the rest of the manifest, so a workspace never has
+half an edit on disk.
 
 `internal/app/schedule` is a leaf package holding the cron parser, the
 `text/template` prompt renderer, and the catch-up decision. It declares three
@@ -1794,18 +1804,32 @@ when the schedule's previous chat is still live.
 
 `App.scheduler` is one `*schedule.Scheduler` goroutine on the standing
 App-owned lifecycle: started after the agent-workspace watcher, stopped
-before `terminals.Stop`. `app.SchedulesService` is the facade in front of it
--- `List`, `Save`, `Delete`, `RunNow`, `Runs`, `Preview` -- and its routes sit
-under `/api/terminal/agents/schedules/...`, the same token-guarded prefix as
-the rest of the agent-workspace control plane, because "run now" spawns a
-process like every other call on that prefix. A save, delete, or run
-publishes `events.SchedulesUpdated{Workspace}`, degraded at the Wails
-boundary to the coalesced `schedules:updated` wake-up the frontend re-reads
-on.
+before `terminals.Stop`. `app.SchedulesService` is the read facade in front
+of it -- `List`, `RunNow`, `Runs`, `Preview` -- and its routes sit under
+`/api/terminal/agents/schedules/...`, the same token-guarded prefix as the
+rest of the agent-workspace control plane, because "run now" spawns a process
+like every other call on that prefix. Writing belongs to
+`AgentWorkspacesService` instead: `WorkspaceEdit.Schedules` rides
+`workspaces/create` and `workspaces/update`, and each entry is validated as a
+`schedule.Spec` before anything is written. A write then fires
+`AgentWorkspacesService.OnSchedulesChanged`, which App points at
+`scheduler.Reload()` plus `events.SchedulesUpdated{Workspace}`, degraded at
+the Wails boundary to the coalesced `schedules:updated` wake-up the frontend
+re-reads on. A run publishes the same event.
 
-The UI is `AgentSchedulesPane.vue`, a sibling of the pane column in
-`AgentsMode.vue` toggled by `?schedules=1` in the route query -- the same
-shape the canvas pane uses.
+Schedules are a section of the workspace editor, not a surface of their own.
+The form is a calendar-style one -- hourly, daily, weekly, monthly, or a raw
+expression -- that compiles to cron on the way out; cron is still what the
+manifest stores. `WorkspaceView.schedules` carries each entry joined with its
+`nextRunAt` and `lastRun`, which is what fills the editor and lets a sidebar
+workspace header name its next run in its tooltip. `name` on that view is the
+manifest's own, empty when the entry has none, and the client falls back to
+the id for display: resolving the fallback in Go would round trip through the
+editor and write the id back as a name nobody typed. `lastRun` is a
+decoration, so a run-history read that fails costs a row its `lastRun` rather
+than the caller its listing.
+`SessionView.scheduleId`, read out of `schedule_run`, is what marks a
+scheduled chat's row with a clock glyph.
 
 ## Execution model
 

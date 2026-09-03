@@ -5,7 +5,6 @@ import AgentsMode from '../AgentsMode.vue'
 import AgentsSidebar from '../AgentsSidebar.vue'
 import NewChatDialog from '../NewChatDialog.vue'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
-import { resetAgentSchedulesForTests } from '../../composables/useAgentSchedules'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { createAppRouter } from '../../router'
 import { tooltipFor } from '../../test-utils/tooltip'
@@ -115,9 +114,15 @@ class FakeResizeObserver {
   constructor(_callback: () => void) {}
 }
 
+const weeklySummary = {
+  workspace: 'web-app', id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+  prompt: 'Summarize the week.', disabled: false, onMissed: 'run' as const,
+  nextRunAt: null, lastRun: null,
+}
+
 const workspaceRows = [
-  { dir: 'web-app', name: 'Web App', agent: 'claude', autonomy: '', mcps: [], skills: [], problem: '', notice: '' },
-  { dir: 'api', name: 'API', agent: 'claude', autonomy: '', mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'web-app', name: 'Web App', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [weeklySummary], problem: '', notice: '' },
+  { dir: 'api', name: 'API', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
 ]
 
 // A chat row as the cross-workspace listing reports it: terminalId set means
@@ -125,6 +130,7 @@ const workspaceRows = [
 const chatRow = {
   id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
   terminalId: 'agentws-7', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: '',
+  scheduleId: '',
 }
 
 function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
@@ -155,10 +161,8 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     revealSharedSkills: vi.fn().mockResolvedValue(undefined),
     canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', name: 'plan', title: '', session: 7, createdAt: 0, updatedAt: 0, blocks: [] }),
     canvases: vi.fn().mockResolvedValue([]),
-    schedules: vi.fn().mockResolvedValue([]),
+    schedules: vi.fn().mockResolvedValue([weeklySummary]),
     scheduleRuns: vi.fn().mockResolvedValue([]),
-    saveSchedule: vi.fn(),
-    deleteSchedule: vi.fn().mockResolvedValue(undefined),
     runSchedule: vi.fn(),
     previewSchedule: vi.fn().mockResolvedValue({ next: [], prompt: '', cronError: '', promptError: '' }),
   }
@@ -194,7 +198,6 @@ async function mountWithOpenChat(client = fakeClient()) {
 describe('AgentsMode', () => {
   beforeEach(() => {
     resetAgentWorkspacesForTests()
-    resetAgentSchedulesForTests()
     resetAgentSessionsAllForTests()
     xterm.FakeTerminal.instances = []
     wailsEvents.handlers = []
@@ -389,9 +392,10 @@ describe('AgentsMode', () => {
     expect(router.currentRoute.value.query.canvas).toBe('1')
   })
 
-  // A scheduled chat is usually opened after its agent finished, so "Open
-  // chat" has to relaunch it the way a click on its sidebar row does: writing
-  // ?chat alone would do nothing at all.
+  // A scheduled chat is usually opened after its agent finished, so the
+  // editor's "Open chat" has to relaunch it the way a click on its sidebar row
+  // does: writing ?chat alone would do nothing at all. The editor closes with
+  // it, since it covers the pane the chat opens into.
   it('relaunches a finished scheduled chat from the run history', async () => {
     const client = fakeClient()
     const dead = { ...chatRow, id: 9, name: 'Weekly summary', terminalId: '' }
@@ -403,32 +407,18 @@ describe('AgentsMode', () => {
     }])
     client.resumeSession.mockResolvedValue({ ...dead, terminalId: 'agentws-9', windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
     mocks.createAgentWorkspacesClient.mockReturnValue(client)
-    const { wrapper, router } = await mountAgentsMode('/workspaces/web-app?schedules=1')
+    const { wrapper, router } = await mountAgentsMode('/workspaces/web-app')
 
-    await wrapper.get('[data-testid="agent-schedule-open-chat-3"]').trigger('click')
+    wrapper.findComponent(AgentsSidebar).vm.$emit('edit-workspace', workspaceRows[0])
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-0-history"]')!.click()
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-open-chat-3"]')!.click()
     await flushPromises()
 
     expect(client.resumeSession).toHaveBeenCalledWith({ id: 9 })
     expect(router.currentRoute.value.query.chat).toBe('9')
-  })
-
-  // The pane's own toggle moves no focus, so it leaves no history entry to
-  // back out of; the sidebar's clock does move it, and that is worth one.
-  it('pushes history for the schedules pane only when the focus moves', async () => {
-    const { wrapper, router } = await mountWithOpenChat()
-    const push = vi.spyOn(router, 'push')
-
-    await wrapper.get('[data-testid="agents-pane-statusbar-schedules"]').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.query.schedules).toBe('1')
-    expect(push).not.toHaveBeenCalled()
-
-    wrapper.findComponent(AgentsSidebar).vm.$emit('open-schedules', 'api')
-    await flushPromises()
-
-    expect(push).toHaveBeenCalled()
-    expect(router.currentRoute.value.params.workspace).toBe('api')
-    expect(router.currentRoute.value.query.schedules).toBe('1')
+    expect(document.querySelector('[data-testid="agent-workspace-editor"]')).toBeNull()
   })
 
   // A schedule firing at 09:00 starts a chat nobody clicked for: the tree
@@ -602,37 +592,6 @@ describe('AgentsMode', () => {
     await flushPromises()
     expect(router.currentRoute.value.query.canvas).toBeUndefined()
     expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
-  })
-
-  // The schedules pane is the canvas pane's sibling arrangement: opening it
-  // must not re-key or unmount the terminal host either.
-  it('keeps the terminal pane element across a schedules toggle', async () => {
-    const { wrapper, router } = await mountWithOpenChat()
-    const paneBefore = wrapper.find('[data-testid="agents-session-pane"]').element
-
-    await wrapper.get('[data-testid="agents-pane-statusbar-schedules"]').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.query.schedules).toBe('1')
-    expect(wrapper.find('[data-testid="agent-schedules-pane"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agents-session-pane"]').element).toBe(paneBefore)
-
-    await wrapper.get('[data-testid="agents-pane-statusbar-schedules"]').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.query.schedules).toBeUndefined()
-    expect(wrapper.find('[data-testid="agent-schedules-pane"]').exists()).toBe(false)
-  })
-
-  // The sidebar's clock focuses the workspace it names and opens the pane on
-  // it, so the pane never shows a workspace the tree did not point at.
-  it('focuses the workspace the sidebar names and opens its schedules', async () => {
-    const { wrapper, router } = await mountAgentsMode('/workspaces/web-app')
-
-    wrapper.findComponent(AgentsSidebar).vm.$emit('open-schedules', 'api')
-    await flushPromises()
-
-    expect(router.currentRoute.value.params.workspace).toBe('api')
-    expect(router.currentRoute.value.query.schedules).toBe('1')
-    expect(wrapper.get('[data-testid="agent-schedules-workspace"]').text()).toBe('API')
   })
 
   // An unnamed chat is still a named chat — the default is applied at launch,

@@ -1640,6 +1640,43 @@ func (q *Queries) ListAllInboxItems(ctx context.Context, arg ListAllInboxItemsPa
 	return items, nil
 }
 
+const listAllScheduleRunSessions = `-- name: ListAllScheduleRunSessions :many
+SELECT session_id, schedule_id FROM schedule_run
+WHERE session_id IS NOT NULL
+ORDER BY started_at ASC, id ASC
+`
+
+type ListAllScheduleRunSessionsRow struct {
+	SessionID  sql.NullInt64 `json:"session_id"`
+	ScheduleID string        `json:"schedule_id"`
+}
+
+// ListScheduleRunSessions across every workspace, for the sidebar's
+// cross-workspace chat list. Session ids are unique across workspaces, so the
+// rows key the same way.
+func (q *Queries) ListAllScheduleRunSessions(ctx context.Context) ([]ListAllScheduleRunSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllScheduleRunSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllScheduleRunSessionsRow{}
+	for rows.Next() {
+		var i ListAllScheduleRunSessionsRow
+		if err := rows.Scan(&i.SessionID, &i.ScheduleID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listArchivedInboxItemsByFeed = `-- name: ListArchivedInboxItemsByFeed :many
 SELECT DISTINCT i.id, i.profile_id, i.source_kind, i.source_scope, i.external_id, i.title, i.url, i.payload, i.revision, i.unread, i.archived_at, i.archived_actor, i.archived_reason, i.lifecycle, i.source_state, i.first_seen_at, i.last_event_at, i.ignored_at FROM inbox_item i
 JOIN feed_membership_claim c ON c.item_id = i.id
@@ -2175,6 +2212,45 @@ func (q *Queries) ListScheduleCursors(ctx context.Context) ([]ScheduleCursor, er
 			&i.EvaluatedThrough,
 			&i.Cron,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listScheduleRunSessions = `-- name: ListScheduleRunSessions :many
+SELECT session_id, schedule_id FROM schedule_run
+WHERE workspace = ? AND session_id IS NOT NULL
+ORDER BY started_at ASC, id ASC
+`
+
+type ListScheduleRunSessionsRow struct {
+	SessionID  sql.NullInt64 `json:"session_id"`
+	ScheduleID string        `json:"schedule_id"`
+}
+
+// Which schedule started each chat in one workspace. Oldest first so a caller
+// folding these into a map keyed by session ends up with the newest run's
+// schedule. No index of its own: a workspace keeps at most ScheduleRunLimit
+// runs per schedule, and schedule_run_by_schedule already narrows to the
+// workspace.
+func (q *Queries) ListScheduleRunSessions(ctx context.Context, workspace string) ([]ListScheduleRunSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listScheduleRunSessions, workspace)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListScheduleRunSessionsRow{}
+	for rows.Next() {
+		var i ListScheduleRunSessionsRow
+		if err := rows.Scan(&i.SessionID, &i.ScheduleID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

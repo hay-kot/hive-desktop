@@ -15,7 +15,10 @@ import (
 // a root is made, which is every harness run.
 const seededWorkspace = "hive"
 
-func TestAgentSchedulesListAndSaveOverTheWire(t *testing.T) {
+// A schedule is written by the workspace editor, so the read surface and the
+// write surface are two different routes: workspaces/update saves it, and
+// schedules lists it back with the run state joined on.
+func TestAgentSchedulesListWhatTheWorkspaceEditorWrote(t *testing.T) {
 	h := newAgentHarness(t)
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"schedules", "", agentSchedulesRequest{Workspace: seededWorkspace})
@@ -30,18 +33,14 @@ func TestAgentSchedulesListAndSaveOverTheWire(t *testing.T) {
 	require.NotNil(t, list.Schedules, "schedules is never null on the wire")
 	assert.Empty(t, list.Schedules)
 
-	saveResp := h.post(t, AgentWorkspacesPathPrefix+"schedules/save", testToken, agentScheduleSaveRequest{
-		Workspace: seededWorkspace, ID: "weekly", Name: "Weekly summary",
-		Cron: "0 9 * * 5", Prompt: "Summarize the week.",
+	saved := h.saveWorkspaceSchedules(t, agentWorkspaceScheduleEdit{
+		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
 	})
-	defer func() { _ = saveResp.Body.Close() }()
-	require.Equal(t, http.StatusOK, saveResp.StatusCode)
-	var saved agentScheduleResponse
-	require.NoError(t, json.NewDecoder(saveResp.Body).Decode(&saved))
-	assert.Equal(t, "weekly", saved.Schedule.ID)
-	assert.Equal(t, "run", saved.Schedule.OnMissed)
-	require.NotNil(t, saved.Schedule.NextRunAt)
-	assert.Nil(t, saved.Schedule.LastRun)
+	require.Len(t, saved.Schedules, 1, "the workspace view answers with the schedules it just wrote")
+	assert.Equal(t, "weekly", saved.Schedules[0].ID)
+	assert.Equal(t, "run", saved.Schedules[0].OnMissed)
+	require.NotNil(t, saved.Schedules[0].NextRunAt)
+	assert.Nil(t, saved.Schedules[0].LastRun)
 
 	resp2 := h.post(t, AgentWorkspacesPathPrefix+"schedules", testToken, agentSchedulesRequest{Workspace: seededWorkspace})
 	defer func() { _ = resp2.Body.Close() }()
@@ -50,23 +49,32 @@ func TestAgentSchedulesListAndSaveOverTheWire(t *testing.T) {
 	require.Len(t, list.Schedules, 1)
 	assert.Equal(t, "Weekly summary", list.Schedules[0].Name)
 
-	deleteResp := h.post(t, AgentWorkspacesPathPrefix+"schedules/delete", testToken, agentScheduleIDRequest{
-		Workspace: seededWorkspace, ID: "weekly",
-	})
-	defer func() { _ = deleteResp.Body.Close() }()
-	require.Equal(t, http.StatusOK, deleteResp.StatusCode)
-	var deleted agentScheduleDeleteResponse
-	require.NoError(t, json.NewDecoder(deleteResp.Body).Decode(&deleted))
-	assert.True(t, deleted.Deleted)
+	cleared := h.saveWorkspaceSchedules(t)
+	assert.Empty(t, cleared.Schedules, "an omitted list deletes every entry")
 }
 
-// The core classifies a bad cron, an unknown workspace and a missing field
-// differently, and this adapter is the one place each becomes a status.
-func TestAgentScheduleSaveMapsFailuresToStatuses(t *testing.T) {
+// saveWorkspaceSchedules writes the seeded workspace's schedules through the
+// editor's own route and returns the workspace view it answers with.
+func (h *terminalHarness) saveWorkspaceSchedules(t *testing.T, schedules ...agentWorkspaceScheduleEdit) agentWorkspaceView {
+	t.Helper()
+	resp := h.post(t, AgentWorkspacesPathPrefix+"workspaces/update", testToken, agentWorkspaceEditRequest{
+		Dir: seededWorkspace, Name: "Hive", Agent: "claude", Autonomy: "ask", Schedules: schedules,
+	})
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var view agentWorkspaceView
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&view))
+	return view
+}
+
+// The core classifies a bad cron and an unknown workspace differently, and
+// this adapter is the one place each becomes a status.
+func TestAgentWorkspaceUpdateMapsScheduleFailuresToStatuses(t *testing.T) {
 	h := newAgentHarness(t)
 
-	badCron := h.post(t, AgentWorkspacesPathPrefix+"schedules/save", testToken, agentScheduleSaveRequest{
-		Workspace: seededWorkspace, ID: "weekly", Cron: "not a cron", Prompt: "hi",
+	badCron := h.post(t, AgentWorkspacesPathPrefix+"workspaces/update", testToken, agentWorkspaceEditRequest{
+		Dir: seededWorkspace, Name: "Hive", Agent: "claude", Autonomy: "ask",
+		Schedules: []agentWorkspaceScheduleEdit{{ID: "weekly", Cron: "not a cron", Prompt: "hi"}},
 	})
 	defer func() { _ = badCron.Body.Close() }()
 	assert.Equal(t, http.StatusBadRequest, badCron.StatusCode)
@@ -78,17 +86,19 @@ func TestAgentScheduleSaveMapsFailuresToStatuses(t *testing.T) {
 	assert.Equal(t, "invalid", failure.Kind)
 	assert.Contains(t, failure.Message, "not a cron", "the reason reaches the editor, not just the status")
 
-	unknown := h.post(t, AgentWorkspacesPathPrefix+"schedules/save", testToken, agentScheduleSaveRequest{
-		Workspace: "no-such-workspace", ID: "weekly", Cron: "@daily", Prompt: "hi",
+	unknown := h.post(t, AgentWorkspacesPathPrefix+"workspaces/update", testToken, agentWorkspaceEditRequest{
+		Dir: "no-such-workspace", Name: "Hive", Agent: "claude", Autonomy: "ask",
+		Schedules: []agentWorkspaceScheduleEdit{{ID: "weekly", Cron: "@daily", Prompt: "hi"}},
 	})
 	_ = unknown.Body.Close()
 	assert.Equal(t, http.StatusNotFound, unknown.StatusCode)
 
-	missing := h.post(t, AgentWorkspacesPathPrefix+"schedules/save", testToken, agentScheduleSaveRequest{
-		Workspace: seededWorkspace, Cron: "@daily", Prompt: "hi",
+	missingID := h.post(t, AgentWorkspacesPathPrefix+"workspaces/update", testToken, agentWorkspaceEditRequest{
+		Dir: seededWorkspace, Name: "Hive", Agent: "claude", Autonomy: "ask",
+		Schedules: []agentWorkspaceScheduleEdit{{Cron: "@daily", Prompt: "hi"}},
 	})
-	_ = missing.Body.Close()
-	assert.Equal(t, http.StatusUnprocessableEntity, missing.StatusCode, "an absent id is caught before the core")
+	_ = missingID.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, missingID.StatusCode, "an absent id is the spec's own rule")
 }
 
 // The frontend sends limit 0 for "however many you think", so the default has

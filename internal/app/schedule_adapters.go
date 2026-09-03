@@ -91,9 +91,11 @@ func (s scheduleStore) SaveCursor(ctx context.Context, cursor schedule.Cursor) e
 // the ones it kept. Everything else is left where it is: a cursor whose
 // workspace is missing from the root, or whose manifest did not parse this
 // pass, is state the app cannot yet say is stale. Losing it silently drops the
-// occurrence between the break and the fix. The deliberate removals -- a
-// deleted schedule, a deleted workspace -- run through
-// SchedulesService.Delete and DeleteWorkspace instead.
+// occurrence between the break and the fix. A schedule the editor removed from
+// a manifest the pass could read is exactly the case this does prune, so an id
+// reused later starts from now rather than back-firing every occurrence since
+// the old one was last seen. A deleted workspace runs through
+// DeleteWorkspace instead.
 func (s scheduleStore) PruneCursors(ctx context.Context, workspaces []string, keep []schedule.Cursor) error {
 	stored, err := s.db.ListScheduleCursors(ctx)
 	if err != nil {

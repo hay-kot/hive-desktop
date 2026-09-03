@@ -3,19 +3,27 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentsSidebar from '../AgentsSidebar.vue'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
-import type { AgentSession, AgentWorkspace } from '../../lib/agentWorkspacesClient'
+import type { AgentSchedule, AgentSession, AgentWorkspace } from '../../lib/agentWorkspacesClient'
 
 // Two workspaces and one session belonging to each, standing in for the
 // wire responses AgentWorkspacesClient normally decodes. Demo B's chat is
 // live and Demo A's is not, which is also what the fold default keys on.
 const workspaceFixtures: AgentWorkspace[] = [
-  { dir: 'demo-a', name: 'Demo A', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '' },
-  { dir: 'demo-b', name: 'Demo B', agent: 'codex', autonomy: 'auto', mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'demo-a', name: 'Demo A', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
+  { dir: 'demo-b', name: 'Demo B', agent: 'codex', autonomy: 'auto', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
 ]
 
+function schedule(overrides: Partial<AgentSchedule> = {}): AgentSchedule {
+  return {
+    workspace: 'demo-b', id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+    prompt: 'Summarize the week.', disabled: false, onMissed: 'run',
+    nextRunAt: null, lastRun: null, ...overrides,
+  }
+}
+
 const recentFixtures: AgentSession[] = [
-  { id: 2, workspace: 'demo-b', name: 'b-session', agent: 'codex', lastOpenedAt: Date.now() - 1_000, slug: 'agentws-2', terminalId: 'agentws-2', windowId: '@2', cols: 80, rows: 24, resumeAttempted: true, notice: '' },
-  { id: 1, workspace: 'demo-a', name: 'a-session', agent: 'claude', lastOpenedAt: Date.now() - 100_000, slug: 'agentws-1', terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true, notice: '' },
+  { id: 2, workspace: 'demo-b', name: 'b-session', agent: 'codex', lastOpenedAt: Date.now() - 1_000, slug: 'agentws-2', terminalId: 'agentws-2', windowId: '@2', cols: 80, rows: 24, resumeAttempted: true, notice: '', scheduleId: '' },
+  { id: 1, workspace: 'demo-a', name: 'a-session', agent: 'claude', lastOpenedAt: Date.now() - 100_000, slug: 'agentws-1', terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true, notice: '', scheduleId: '' },
 ]
 
 const mocks = vi.hoisted(() => ({
@@ -408,24 +416,54 @@ describe('AgentsSidebar', () => {
     const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
     expect(header.text()).toBe('Demo B') // no count beside the name
     expect(header.find('.bg-severity-warning').exists()).toBe(false)
-    // +, edit, schedules, chevron — in that order, all on one pitch.
+    // +, edit, chevron — in that order, all on one pitch.
     expect(header.findAll('button').map((button) => button.attributes('data-testid'))).toEqual([
       'agents-sidebar-workspace-new-session',
       'agents-sidebar-workspace-edit',
-      'agents-sidebar-workspace-schedules',
       'agents-sidebar-workspace-toggle',
     ])
   })
 
-  // The clock names the workspace it opens on, so the pane never shows one the
-  // tree did not point at.
-  it('emits open-schedules for the workspace whose header was clicked', async () => {
+  // The header draws no rollup, so the schedule that fires next is a tooltip
+  // line, and the earliest enabled one is what a header can usefully say.
+  it("names the workspace's next schedule on the header tooltip, and nothing on the row", async () => {
+    const at = new Date('2026-09-04T09:00:00').getTime()
+    mocks.workspaces.mockResolvedValue({
+      root: '/root', rootProblem: '', available: true, error: '',
+      workspaces: [
+        workspaceFixtures[0],
+        {
+          ...workspaceFixtures[1],
+          schedules: [
+            schedule({ id: 'nightly', name: 'Nightly', nextRunAt: at + 60_000 }),
+            schedule({ nextRunAt: at }),
+            schedule({ id: 'paused', name: 'Paused', disabled: true, nextRunAt: at - 60_000 }),
+          ],
+        },
+      ],
+    })
     const wrapper = await mountSidebar()
-    const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+    const headers = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
 
-    await header.get('[data-testid="agents-sidebar-workspace-schedules"]').trigger('click')
+    expect(headers[1].attributes('title')).toContain('Next: Weekly summary,')
+    expect(headers[1].text()).toBe('Demo B')
+    expect(headers[0].attributes('title')).not.toContain('Next:')
+  })
 
-    expect(wrapper.emitted('open-schedules')).toEqual([['demo-b']])
+  // A chat nobody clicked for says so in the leading cell the tree already
+  // reserves, rather than in a column of its own.
+  it('wears the clock glyph on a chat a schedule started, and names it on the tooltip', async () => {
+    mocks.allSessions.mockResolvedValue([
+      { ...recentFixtures[0], scheduleId: 'weekly-summary' },
+      recentFixtures[1],
+    ])
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+
+    expect(rows[0].find('[data-testid="agents-sidebar-session-scheduled"]').exists()).toBe(false)
+    expect(rows[1].find('[data-testid="agents-sidebar-session-scheduled"]').exists()).toBe(true)
+    expect(rows[1].attributes('title')).toContain('Started by schedule weekly-summary')
+    expect(rows[0].attributes('title')).not.toContain('Started by schedule')
   })
 
   it('exposes focus() for the global keymap handle', async () => {

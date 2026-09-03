@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 )
 
 // This file is the manifest writer the Migration Notes reserved: it edits the
@@ -49,6 +50,10 @@ type ManifestEdit struct {
 	Autonomy Autonomy
 	MCPs     []string
 	Skills   []string
+	// Schedules is the whole schedules: list, not a delta: the editor holds
+	// every entry while it is open, so a write reconciles the file to exactly
+	// this set.
+	Schedules []schedule.Spec
 }
 
 // CreateWorkspace makes dir under root, writes its first manifest, and seeds
@@ -102,8 +107,8 @@ func RemoveWorkspace(root, dir string) error {
 // WriteManifest sets exactly the ManifestEdit fields in dir's
 // agent-workspace.yaml, creating a fresh version-current document when the
 // file does not exist and editing the existing document in place when it
-// does — everything else the file says survives. An empty mcps or skills
-// removes the key rather than writing an empty list.
+// does — everything else the file says survives. An empty mcps, skills or
+// schedules removes the key rather than writing an empty list.
 func WriteManifest(root, dir string, edit ManifestEdit) error {
 	path := filepath.Join(root, dir, manifestFileName)
 
@@ -152,6 +157,7 @@ func WriteManifest(root, dir string, edit ManifestEdit) error {
 			return err
 		}
 	}
+	reconcileSchedules(mapping, edit.Schedules)
 
 	out, err := encodeManifestDoc(doc)
 	if err != nil {

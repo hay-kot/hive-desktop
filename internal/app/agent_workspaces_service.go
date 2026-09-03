@@ -13,11 +13,13 @@ import (
 
 	"github.com/colonyops/hive/pkg/osopen"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
@@ -82,10 +84,18 @@ type AgentWorkspacesService struct {
 	// port is not known when this service is built and can change if it
 	// rebinds.
 	mcpBase func(context.Context) string
+	// OnSchedulesChanged is called after a manifest write lands, with the
+	// workspace directory that was written. App points it at the scheduler's
+	// reload and the SchedulesUpdated event; a schedule saved with the rest of
+	// the manifest has to reach the running loop the same way a save through
+	// its own route used to. It is a field rather than a constructor argument
+	// because the scheduler is built after this service, over it.
+	OnSchedulesChanged func(workspace string)
+	logger             zerolog.Logger
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string, logger zerolog.Logger) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase, logger: logger}
 }
 
 // catalogue is the merged catalogue with this install's own entries resolved.
@@ -144,6 +154,11 @@ type WorkspaceView struct {
 	// what the workspace declares says so before any session is even started
 	// (spec §7.2, ADR a-workspace-declares-its-own-authority).
 	Notice string `json:"notice"`
+	// Schedules is the workspace's schedules: list, each joined with when it
+	// fires next and how it went last time. It rides the workspace view
+	// because the editor that writes it is the workspace editor, and the
+	// sidebar names the next run in a header tooltip.
+	Schedules []ScheduleView `json:"schedules"`
 }
 
 // SessionView is one row of a workspace's session list.
@@ -190,6 +205,11 @@ type SessionView struct {
 	// scheduler -- reads this rather than the prose, so the reason it treats a
 	// launch as failed does not depend on the wording of a notice.
 	ExitedEarly bool `json:"exitedEarly"`
+	// ScheduleID names the schedule whose run started this chat, empty when a
+	// person started it. It comes from the run history rather than the session
+	// record: the record is the same either way, and the history is already
+	// where a launch is written down.
+	ScheduleID string `json:"scheduleId"`
 }
 
 // SessionActivityItem is one live session's detected activity, keyed by
@@ -264,11 +284,11 @@ func (s *AgentWorkspacesService) RootProblem(context.Context) string {
 
 // List returns every recognized workspace, valid or not — a broken manifest
 // carries its last-good content plus Problem, rather than vanishing.
-func (s *AgentWorkspacesService) List(context.Context) ([]WorkspaceView, error) {
+func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, error) {
 	statuses := s.store.Statuses()
 	views := make([]WorkspaceView, 0, len(statuses))
 	for _, st := range statuses {
-		views = append(views, workspaceView(st))
+		views = append(views, s.workspaceView(ctx, st))
 	}
 	return views, nil
 }
@@ -311,12 +331,12 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	if err != nil {
 		return OpenResult{}, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
-	sessions := make([]SessionView, 0, len(records))
-	for _, rec := range records {
-		sessions = append(sessions, s.sessionView(ctx, rec))
+	sessions, err := s.sessionViews(ctx, records, dir)
+	if err != nil {
+		return OpenResult{}, err
 	}
 
-	view := workspaceView(st)
+	view := s.workspaceView(ctx, st)
 	if len(genResult.Problems) > 0 {
 		view.Problem = strings.Join(genResult.Problems, "; ")
 	}
@@ -339,11 +359,7 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
-	views := make([]SessionView, 0, len(records))
-	for _, rec := range records {
-		views = append(views, s.sessionView(ctx, rec))
-	}
-	return views, nil
+	return s.sessionViews(ctx, records, dir)
 }
 
 // SessionActivity captures each live session's tmux pane and classifies it
@@ -686,13 +702,25 @@ type WorkspaceEdit struct {
 	Autonomy string
 	MCPs     []string
 	Skills   []string
+	// Schedules is the whole schedules: list as the editor holds it. A write
+	// reconciles the manifest to exactly this, so an entry the editor dropped
+	// is deleted by the same call that saves the rest.
+	Schedules []ScheduleEdit
 }
 
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
 	return agentws.ManifestEdit{
 		Name: strings.TrimSpace(e.Name), Agent: e.Agent, Autonomy: agentws.Autonomy(e.Autonomy),
-		MCPs: e.MCPs, Skills: e.Skills,
+		MCPs: e.MCPs, Skills: e.Skills, Schedules: e.specs(),
 	}
+}
+
+func (e WorkspaceEdit) specs() []schedule.Spec {
+	specs := make([]schedule.Spec, 0, len(e.Schedules))
+	for _, edit := range e.Schedules {
+		specs = append(specs, edit.spec())
+	}
+	return specs
 }
 
 func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
@@ -726,6 +754,19 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 			seen[id] = true
 		}
 	}
+	// A schedule judges itself: the id shape, the cron expression and the
+	// prompt template are the spec's own rules, and repeating them here would
+	// be a second place for them to drift.
+	seen := make(map[string]bool, len(req.Schedules))
+	for _, spec := range req.specs() {
+		if err := spec.Validate(); err != nil {
+			return Errorf(KindInvalid, "%s", err)
+		}
+		if seen[spec.ID] {
+			return Errorf(KindInvalid, "duplicate schedule %q", spec.ID)
+		}
+		seen[spec.ID] = true
+	}
 	return nil
 }
 
@@ -741,22 +782,33 @@ func (s *AgentWorkspacesService) CreateWorkspace(ctx context.Context, req Worksp
 		}
 		return WorkspaceView{}, Wrap(err, KindInternal, "creating workspace %q", req.Dir)
 	}
-	return s.reloadedView(ctx, req.Dir)
+	return s.savedView(ctx, req.Dir)
 }
 
 // UpdateWorkspace rewrites the editable fields of an existing workspace's
 // manifest in place — comments and keys the editor does not own survive.
+//
+// A workspace whose manifest does not currently parse is refused. The editor
+// loads its form from the workspace view, and on the first load of a run
+// there is no last-good snapshot behind a broken file, so the form opens
+// empty; saving it would reconcile mcps, skills and schedules to nothing. The
+// file has to be fixed where it broke.
 func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req WorkspaceEdit) (WorkspaceView, error) {
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
 	}
-	if _, ok := s.workspaceStatus(req.Dir); !ok {
+	st, ok := s.workspaceStatus(req.Dir)
+	if !ok {
 		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
+	}
+	if !st.Valid {
+		return WorkspaceView{}, Errorf(KindInvalid,
+			"agent-workspace.yaml has a problem (%s); fix the file before editing it here", st.Err)
 	}
 	if err := agentws.WriteManifest(s.store.Root(), req.Dir, req.manifest()); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInvalid, "updating workspace %q", req.Dir)
 	}
-	return s.reloadedView(ctx, req.Dir)
+	return s.savedView(ctx, req.Dir)
 }
 
 // MCPCatalogueItem is one row of the merged MCP catalogue as the UI shows it:
@@ -1010,10 +1062,12 @@ func resolvedCommandLine(server mcpcatalog.Server) string {
 	return server.URL
 }
 
-// reloadedView re-reads the store after a manifest write and returns dir's
-// fresh view, so the response reflects what actually landed on disk rather
-// than what was asked for.
-func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (WorkspaceView, error) {
+// savedView re-reads the store after a manifest write and returns dir's fresh
+// view, so the response reflects what actually landed on disk rather than what
+// was asked for, then tells the scheduler the schedules may have moved. The
+// hook fires after the reload because the scheduler takes its specs from the
+// same snapshot this read comes out of.
+func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (WorkspaceView, error) {
 	if err := s.store.Reload(); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInternal, "reloading workspaces")
 	}
@@ -1021,7 +1075,11 @@ func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (Wo
 	if !ok {
 		return WorkspaceView{}, Errorf(KindInternal, "workspace %q vanished after writing it", dir)
 	}
-	return workspaceView(st), nil
+	view := s.workspaceView(ctx, st)
+	if s.OnSchedulesChanged != nil {
+		s.OnSchedulesChanged(dir)
+	}
+	return view, nil
 }
 
 // ResizeSession votes a size for a session's attached control client — the
@@ -1277,22 +1335,43 @@ func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceS
 	return agentws.WorkspaceStatus{}, false
 }
 
-// sessionView reports a session record's current, read-only state -- unlike
-// launchTerminal's view, this never launches or attaches anything, so
-// WindowID, ResumeAttempted and Notice stay zero-valued.
-func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec store.AgentWorkspaceSession) SessionView {
-	name := sessionName(rec.ID)
-	live := ""
-	if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
-		live = name
+// sessionViews reports read-only rows for records -- unlike launchTerminal's
+// view, nothing here launches or attaches, so WindowID, ResumeAttempted and
+// Notice stay zero-valued. dir scopes the schedule lookup to one workspace;
+// empty spans every workspace, for AllSessions.
+func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []store.AgentWorkspaceSession, dir string) ([]SessionView, error) {
+	var (
+		scheduleIDs map[int64]string
+		err         error
+	)
+	if dir == "" {
+		scheduleIDs, err = s.db.AllScheduleIDsBySession(ctx)
+	} else {
+		scheduleIDs, err = s.db.ScheduleIDsBySession(ctx, dir)
 	}
-	return SessionView{
-		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: live,
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "reading which chats a schedule started")
 	}
+
+	views := make([]SessionView, 0, len(records))
+	for _, rec := range records {
+		name := sessionName(rec.ID)
+		live := ""
+		if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
+			live = name
+		}
+		views = append(views, SessionView{
+			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
+			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: live,
+			ScheduleID: scheduleIDs[rec.ID],
+		})
+	}
+	return views, nil
 }
 
-func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
+// workspaceView is one workspace's row: the manifest fields, why it could not
+// be read, and its schedules joined with their run state.
+func (s *AgentWorkspacesService) workspaceView(ctx context.Context, st agentws.WorkspaceStatus) WorkspaceView {
 	problem, notice := "", ""
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
@@ -1302,11 +1381,14 @@ func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
 		// against whatever the zero value happens to be.
 		notice = mcpNotice(st.Workspace.Agent)
 	}
+	// A broken manifest still lists its last-good schedules, the same way it
+	// still lists its last-good mcps. UpdateWorkspace refuses to write over a
+	// broken file either way, so nothing here can be saved back.
 	return WorkspaceView{
 		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
 		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs,
-		Skills: st.Workspace.Skills, Problem: problem,
-		Notice: notice,
+		Skills: st.Workspace.Skills, Problem: problem, Notice: notice,
+		Schedules: scheduleRows(ctx, s.db, s.logger, st.Workspace.Schedules, time.Now()),
 	}
 }
 
@@ -1371,11 +1453,7 @@ func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing all sessions")
 	}
-	views := make([]SessionView, 0, len(records))
-	for _, rec := range records {
-		views = append(views, s.sessionView(ctx, rec))
-	}
-	return views, nil
+	return s.sessionViews(ctx, records, "")
 }
 
 // agentLaunchError classifies an agentws launch-resolution failure by

@@ -26,7 +26,11 @@ schedule lives under a new `schedules:` list in `agent-workspace.yaml`,
 alongside `mcps:` and `skills:`: it is user-authored and agent-editable, it
 travels with the workspace's dotfiles, the directory watcher already sees the
 manifest change, and `agentws/write.go`'s node-tree editor already knows how
-to add and remove a key without disturbing comments or unrelated content. How
+to add and remove a key without disturbing comments or unrelated content.
+Being a manifest key is also what decides where it is edited: the workspace
+editor writes `schedules:` in the same request that writes `name`, `mcps` and
+`skills`, and the write reconciles the list to exactly what that request
+carries. There is no per-schedule save route, and no half-saved manifest. How
 far each schedule has been evaluated (its cursor) and its run history are not
 something a user authors, so they live in `desktop-pipeline.db` instead, in
 two new tables: `schedule_cursor` and `schedule_run`.

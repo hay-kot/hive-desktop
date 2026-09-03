@@ -34,17 +34,24 @@ func loadManifest(t *testing.T, root string) (Workspace, string) {
 
 const baseManifest = "version: 3\nname: Product\nagent: claude\nautonomy: ask\n"
 
-func TestWriteScheduleAddsAndUpdatesByID(t *testing.T) {
+// writeSchedules is the only way a schedule reaches the file: it travels with
+// the rest of the manifest edit, so every test here goes through WriteManifest.
+func writeSchedules(t *testing.T, root string, specs ...schedule.Spec) {
+	t.Helper()
+	require.NoError(t, WriteManifest(root, "product", ManifestEdit{
+		Name: "Product", Agent: "claude", Autonomy: AutonomyAsk, Schedules: specs,
+	}))
+}
+
+func TestWriteManifestAddsAndUpdatesSchedulesByID(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest)
 
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{
-		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
-	}))
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{
-		ID: "daily", Cron: "@daily", Prompt: "Standup.",
-	}))
+	writeSchedules(t, root,
+		schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
+		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "Standup."},
+	)
 
 	w, raw := loadManifest(t, root)
 	require.Len(t, w.Schedules, 2)
@@ -57,23 +64,26 @@ func TestWriteScheduleAddsAndUpdatesByID(t *testing.T) {
 	assert.Empty(t, w.Schedules[1].Name, "a schedule with no name round trips without one; DisplayName falls back to the id")
 	assert.NotContains(t, raw, "name: daily", "the id is not written back as a name the user never typed")
 
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{
-		ID: "weekly", Name: "Renamed", Cron: "0 10 * * 1", Prompt: "Something else.",
-		Disabled: true, OnMissed: schedule.OnMissedSkip,
-	}))
+	writeSchedules(t, root,
+		schedule.Spec{
+			ID: "weekly", Name: "Renamed", Cron: "0 10 * * 1", Prompt: "Something else.",
+			Disabled: true, OnMissed: schedule.OnMissedSkip,
+		},
+		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "Standup."},
+	)
 
 	w, _ = loadManifest(t, root)
-	require.Len(t, w.Schedules, 2, "an upsert matches by id rather than appending")
+	require.Len(t, w.Schedules, 2, "an entry the list still names is updated rather than appended beside itself")
 	assert.Equal(t, "Renamed", w.Schedules[0].Name)
 	assert.Equal(t, "0 10 * * 1", w.Schedules[0].Cron)
 	assert.True(t, w.Schedules[0].Disabled)
 	assert.Equal(t, schedule.OnMissedSkip, w.Schedules[0].OnMissed)
 }
 
-// TestWriteScheduleRemovesTheDefaultKeys: name, disabled and on_missed are
-// written only when they say something, so a schedule returned to its defaults
-// leaves no leftovers claiming otherwise.
-func TestWriteScheduleRemovesTheDefaultKeys(t *testing.T) {
+// TestWriteManifestRemovesTheDefaultScheduleKeys: name, disabled and on_missed
+// are written only when they say something, so a schedule returned to its
+// defaults leaves no leftovers claiming otherwise.
+func TestWriteManifestRemovesTheDefaultScheduleKeys(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest)
@@ -81,7 +91,7 @@ func TestWriteScheduleRemovesTheDefaultKeys(t *testing.T) {
 		ID: "weekly", Name: "Weekly summary", Cron: "@daily", Prompt: "go",
 		Disabled: true, OnMissed: schedule.OnMissedSkip,
 	}
-	require.NoError(t, WriteSchedule(root, "product", spec))
+	writeSchedules(t, root, spec)
 
 	_, raw := loadManifest(t, root)
 	assert.Contains(t, raw, "name: Weekly summary")
@@ -91,7 +101,7 @@ func TestWriteScheduleRemovesTheDefaultKeys(t *testing.T) {
 	spec.Name = ""
 	spec.Disabled = false
 	spec.OnMissed = schedule.OnMissedRun
-	require.NoError(t, WriteSchedule(root, "product", spec))
+	writeSchedules(t, root, spec)
 
 	w, raw := loadManifest(t, root)
 	assert.NotContains(t, raw, "Weekly summary", "the name key goes with the name; the manifest's own name: stays")
@@ -103,12 +113,12 @@ func TestWriteScheduleRemovesTheDefaultKeys(t *testing.T) {
 	assert.Empty(t, w.Schedules[0].OnMissed)
 }
 
-func TestWriteScheduleUsesALiteralBlockForAMultiLinePrompt(t *testing.T) {
+func TestWriteManifestUsesALiteralBlockForAMultiLinePrompt(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest)
 	prompt := "Summarize product activity.\n\nList every open question at the end.\n"
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{ID: "weekly", Cron: "@daily", Prompt: prompt}))
+	writeSchedules(t, root, schedule.Spec{ID: "weekly", Cron: "@daily", Prompt: prompt})
 
 	w, raw := loadManifest(t, root)
 	assert.Contains(t, raw, "prompt: |")
@@ -116,9 +126,9 @@ func TestWriteScheduleUsesALiteralBlockForAMultiLinePrompt(t *testing.T) {
 	assert.Equal(t, prompt, w.Schedules[0].Prompt, "the block round trips byte for byte")
 }
 
-// TestWriteScheduleKeepsCommentsAndTheOtherEntries is the whole reason this is
-// a node-tree edit: a hand-authored manifest survives an edit made from the UI.
-func TestWriteScheduleKeepsCommentsAndTheOtherEntries(t *testing.T) {
+// TestWriteManifestKeepsScheduleComments is the whole reason this is a
+// node-tree edit: a hand-authored manifest survives an edit made from the UI.
+func TestWriteManifestKeepsScheduleComments(t *testing.T) {
 	t.Parallel()
 
 	original := `# hand-authored: do not lose me
@@ -139,9 +149,10 @@ schedules:
 `
 	root := manifestRoot(t, original)
 
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{
-		ID: "daily", Name: "Daily standup", Cron: "0 9 * * 1-5", Prompt: "Standup, please.",
-	}))
+	writeSchedules(t, root,
+		schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
+		schedule.Spec{ID: "daily", Name: "Daily standup", Cron: "0 9 * * 1-5", Prompt: "Standup, please."},
+	)
 
 	w, raw := loadManifest(t, root)
 	assert.Contains(t, raw, "# hand-authored: do not lose me")
@@ -156,55 +167,57 @@ schedules:
 	assert.Equal(t, "Standup, please.", w.Schedules[1].Prompt)
 }
 
-func TestRemoveSchedule(t *testing.T) {
+// A write reconciles the sequence to exactly the list it is handed: an entry
+// the list stops naming is gone, and an empty list takes the key with it.
+func TestWriteManifestRemovesSchedulesTheListNoLongerNames(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest)
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"}))
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"}))
+	writeSchedules(t, root,
+		schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"},
+		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
+	)
 
-	require.NoError(t, RemoveSchedule(root, "product", "weekly"))
+	writeSchedules(t, root, schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"})
 	w, _ := loadManifest(t, root)
 	require.Len(t, w.Schedules, 1)
 	assert.Equal(t, "daily", w.Schedules[0].ID)
 
-	require.NoError(t, RemoveSchedule(root, "product", "no-such-id"), "an id the file does not carry is not an error")
-	w, _ = loadManifest(t, root)
-	require.Len(t, w.Schedules, 1)
-
-	require.NoError(t, RemoveSchedule(root, "product", "daily"))
+	writeSchedules(t, root)
 	w, raw := loadManifest(t, root)
 	assert.Empty(t, w.Schedules)
-	assert.NotContains(t, raw, "schedules", "the last removal takes the key with it rather than leaving schedules: []")
+	assert.NotContains(t, raw, "schedules", "an empty list takes the key with it rather than leaving schedules: []")
 }
 
-func TestRemoveScheduleOnAManifestWithNoSchedules(t *testing.T) {
+func TestWriteManifestReordersSchedulesToTheListOrder(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest)
-	require.NoError(t, RemoveSchedule(root, "product", "weekly"))
+	writeSchedules(t, root,
+		schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"},
+		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
+	)
+	writeSchedules(t, root,
+		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
+		schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"},
+	)
 
 	w, _ := loadManifest(t, root)
-	assert.Empty(t, w.Schedules)
+	require.Len(t, w.Schedules, 2)
+	assert.Equal(t, "daily", w.Schedules[0].ID, "the editor owns the order the file lists them in")
+	assert.Equal(t, "weekly", w.Schedules[1].ID)
 }
 
-// TestWriteScheduleReplacesAnEmptySchedulesKey: `schedules:` with nothing
+// TestWriteManifestReplacesAnEmptySchedulesKey: `schedules:` with nothing
 // under it parses as null rather than as a list, so the writer has to replace
 // the value instead of appending to it.
-func TestWriteScheduleReplacesAnEmptySchedulesKey(t *testing.T) {
+func TestWriteManifestReplacesAnEmptySchedulesKey(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest+"schedules:\n")
-	require.NoError(t, WriteSchedule(root, "product", schedule.Spec{ID: "weekly", Cron: "@daily", Prompt: "go"}))
+	writeSchedules(t, root, schedule.Spec{ID: "weekly", Cron: "@daily", Prompt: "go"})
 
 	w, _ := loadManifest(t, root)
 	require.Len(t, w.Schedules, 1)
 	assert.Equal(t, "weekly", w.Schedules[0].ID)
-}
-
-func TestWriteScheduleNeedsAManifest(t *testing.T) {
-	t.Parallel()
-
-	err := WriteSchedule(t.TempDir(), "missing", schedule.Spec{ID: "weekly", Cron: "@daily", Prompt: "go"})
-	require.ErrorIs(t, err, os.ErrNotExist)
 }

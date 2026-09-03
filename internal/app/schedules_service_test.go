@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -52,11 +50,12 @@ func (f *fakeScheduleLauncher) requests() []schedule.LaunchRequest {
 }
 
 type scheduleFixture struct {
-	svc       *SchedulesService
-	db        *store.DB
-	root      string
-	launcher  *fakeScheduleLauncher
-	published *[]string
+	svc        *SchedulesService
+	db         *store.DB
+	root       string
+	workspaces *agentws.Store
+	scheduler  *schedule.Scheduler
+	launcher   *fakeScheduleLauncher
 }
 
 // newTestSchedulesService builds the service over a real workspace root and a
@@ -86,106 +85,88 @@ func newTestSchedulesService(t *testing.T) scheduleFixture {
 		Logger:   zerolog.Nop(),
 	})
 
-	published := []string{}
-	svc := newSchedulesService(workspaces, db, scheduler, func(workspace string) {
-		published = append(published, workspace)
-	})
-	return scheduleFixture{svc: svc, db: db, root: root, launcher: launcher, published: &published}
+	svc := newSchedulesService(workspaces, db, scheduler, zerolog.Nop())
+	return scheduleFixture{
+		svc: svc, db: db, root: root, workspaces: workspaces,
+		scheduler: scheduler, launcher: launcher,
+	}
 }
 
-func (f scheduleFixture) manifest(t *testing.T) string {
+// declare puts specs in the manifest the way the workspace editor does, then
+// reloads the readers of it. This service only reads schedules; writing one is
+// AgentWorkspacesService's.
+func (f scheduleFixture) declare(t *testing.T, specs ...schedule.Spec) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(f.root, "demo", "agent-workspace.yaml"))
-	require.NoError(t, err)
-	return string(raw)
+	require.NoError(t, agentws.WriteManifest(f.root, "demo", agentws.ManifestEdit{
+		Name: "Demo", Agent: "claude", Autonomy: agentws.AutonomyAsk, Schedules: specs,
+	}))
+	require.NoError(t, f.workspaces.Reload())
+	f.scheduler.Reload()
 }
 
-func TestSchedulesServiceSaveWritesTheManifestAndListsTheNextRun(t *testing.T) {
+func TestSchedulesServiceListJoinsTheNextRun(t *testing.T) {
 	f := newTestSchedulesService(t)
 
-	saved, err := f.svc.Save(t.Context(), ScheduleEdit{
-		Workspace: "demo", ID: "weekly", Name: "Weekly summary",
-		Cron: "0 9 * * 5", Prompt: "Summarize the week.",
+	f.declare(t, schedule.Spec{
+		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
 	})
-	require.NoError(t, err)
-	assert.Equal(t, "weekly", saved.ID)
-	assert.Equal(t, "Weekly summary", saved.Name)
-	assert.Equal(t, "run", saved.OnMissed, "the manifest omits the default; the view names it")
-	require.NotNil(t, saved.NextRunAt)
-	assert.Greater(t, *saved.NextRunAt, time.Now().UnixMilli())
-	assert.Nil(t, saved.LastRun, "a schedule that has never fired has no last run")
-	assert.Equal(t, []string{"demo"}, *f.published)
-
-	assert.Contains(t, f.manifest(t), "id: weekly")
-	assert.NotContains(t, f.manifest(t), "on_missed", "a default is not written")
 
 	listed, err := f.svc.List(t.Context(), "demo")
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
-	assert.Equal(t, saved.ID, listed[0].ID)
+	assert.Equal(t, "weekly", listed[0].ID)
+	assert.Equal(t, "Weekly summary", listed[0].Name)
 	assert.Equal(t, "0 9 * * 5", listed[0].Cron)
+	assert.Equal(t, "run", listed[0].OnMissed, "the manifest omits the default; the view names it")
+	require.NotNil(t, listed[0].NextRunAt)
+	assert.Greater(t, *listed[0].NextRunAt, time.Now().UnixMilli())
+	assert.Nil(t, listed[0].LastRun, "a schedule that has never fired has no last run")
 
 	// A disabled schedule keeps its cron but has nothing coming.
-	disabled, err := f.svc.Save(t.Context(), ScheduleEdit{
-		Workspace: "demo", ID: "weekly", Name: "Weekly summary",
-		Cron: "0 9 * * 5", Prompt: "Summarize the week.", Disabled: true, OnMissed: "skip",
+	f.declare(t, schedule.Spec{
+		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
+		Disabled: true, OnMissed: schedule.OnMissedSkip,
 	})
+	listed, err = f.svc.List(t.Context(), "demo")
 	require.NoError(t, err)
-	assert.True(t, disabled.Disabled)
-	assert.Equal(t, "skip", disabled.OnMissed)
-	assert.Nil(t, disabled.NextRunAt)
+	require.Len(t, listed, 1)
+	assert.True(t, listed[0].Disabled)
+	assert.Equal(t, "skip", listed[0].OnMissed)
+	assert.Nil(t, listed[0].NextRunAt)
 }
 
-func TestSchedulesServiceSaveRejectsBadInput(t *testing.T) {
+// The run history is a decoration on a row the manifest already fully
+// describes, so a database that cannot answer for it costs the row its
+// lastRun, not the caller its listing.
+func TestSchedulesServiceListSurvivesAnUnreadableRunHistory(t *testing.T) {
 	f := newTestSchedulesService(t)
 
-	_, err := f.svc.Save(t.Context(), ScheduleEdit{
-		Workspace: "demo", ID: "weekly", Cron: "not a cron", Prompt: "hi",
-	})
-	require.Error(t, err)
-	assert.Equal(t, KindInvalid, KindOf(err))
-	assert.Contains(t, err.Error(), "not a cron", "the reason has to reach the editor")
-
-	_, err = f.svc.Save(t.Context(), ScheduleEdit{
-		Workspace: "missing", ID: "weekly", Cron: "@daily", Prompt: "hi",
-	})
-	require.Error(t, err)
-	assert.Equal(t, KindNotFound, KindOf(err))
-
-	assert.NotContains(t, f.manifest(t), "schedules", "a rejected edit writes nothing")
-}
-
-func TestSchedulesServiceDeleteDropsTheEntryAndItsCursor(t *testing.T) {
-	f := newTestSchedulesService(t)
-
-	_, err := f.svc.Save(t.Context(), ScheduleEdit{
-		Workspace: "demo", ID: "weekly", Cron: "@daily", Prompt: "hi",
-	})
-	require.NoError(t, err)
-	require.NoError(t, f.db.UpsertScheduleCursor(t.Context(), store.ScheduleCursorRecord{
-		Workspace: "demo", ScheduleID: "weekly", EvaluatedThrough: time.Now().UnixMilli(), Cron: "@daily",
-	}))
-
-	require.NoError(t, f.svc.Delete(t.Context(), "demo", "weekly"))
-
-	assert.NotContains(t, f.manifest(t), "schedules", "the key goes with the last entry")
-	_, ok, err := f.db.GetScheduleCursor(t.Context(), "demo", "weekly")
-	require.NoError(t, err)
-	assert.False(t, ok, "a reused id must start from now, not from the deleted schedule's window")
+	f.declare(t, schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "@daily", Prompt: "go"})
+	require.NoError(t, f.db.Close())
 
 	listed, err := f.svc.List(t.Context(), "demo")
 	require.NoError(t, err)
-	assert.Empty(t, listed)
+	require.Len(t, listed, 1)
+	assert.Equal(t, "weekly", listed[0].ID)
+	require.NotNil(t, listed[0].NextRunAt, "everything the manifest says is still there")
+	assert.Nil(t, listed[0].LastRun)
+}
+
+func TestSchedulesServiceListRefusesAnUnknownWorkspace(t *testing.T) {
+	f := newTestSchedulesService(t)
+
+	_, err := f.svc.List(t.Context(), "missing")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
 func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
 	f := newTestSchedulesService(t)
 
-	_, err := f.svc.Save(t.Context(), ScheduleEdit{
-		Workspace: "demo", ID: "weekly", Name: "Weekly summary",
+	f.declare(t, schedule.Spec{
+		ID: "weekly", Name: "Weekly summary",
 		Cron: "0 9 * * 5", Prompt: "Summarize {{ .Workspace.Name }}.",
 	})
-	require.NoError(t, err)
 
 	run, err := f.svc.RunNow(t.Context(), "demo", "weekly")
 	require.NoError(t, err)

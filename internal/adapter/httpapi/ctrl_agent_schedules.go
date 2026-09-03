@@ -13,13 +13,20 @@ import (
 // with the run state the app keeps beside it. It sits under the same prefix as
 // the rest of the agent control plane because a schedule launches an agent
 // CLI, which is arbitrary command execution (ADR terminal-transport).
+//
+// It is read-only. A schedule is written by the workspace editor, in the same
+// request that saves the rest of the manifest (workspaces/create and
+// workspaces/update), so there is no per-schedule write route.
 
 // agentScheduleView is one schedule row. nextRunAt and lastRun are nullable on
 // the wire: a disabled schedule has no next run, and one that has never fired
 // has no last one.
 type agentScheduleView struct {
-	Workspace string                `json:"workspace"`
-	ID        string                `json:"id"`
+	Workspace string `json:"workspace"`
+	ID        string `json:"id"`
+	// Name is the manifest's own name and is empty when the entry has none:
+	// the client falls back to the id for display. Resolving it here would
+	// round trip through the editor and write the id back as a name.
 	Name      string                `json:"name"`
 	Cron      string                `json:"cron"`
 	Prompt    string                `json:"prompt"`
@@ -95,49 +102,6 @@ func (ctrl *Controller) AgentSchedules(w http.ResponseWriter, r *http.Request) e
 	return server.JSON(w, http.StatusOK, agentSchedulesResponse{Schedules: views})
 }
 
-type agentScheduleSaveRequest struct {
-	Workspace string `json:"workspace"`
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Cron      string `json:"cron"`
-	Prompt    string `json:"prompt"`
-	Disabled  bool   `json:"disabled"`
-	OnMissed  string `json:"onMissed"`
-}
-
-// Validate covers only the fields whose absence makes the request meaningless.
-// The shape of the id, the cron expression and the prompt template are the
-// core's to judge, so their failures come back as one classified error with
-// the reason in it rather than as a field list assembled twice.
-func (b agentScheduleSaveRequest) Validate() error {
-	return criterio.ValidateStruct(
-		criterio.Run("workspace", b.Workspace, criterio.Required),
-		criterio.Run("id", b.ID, criterio.Required),
-		criterio.Run("cron", b.Cron, criterio.Required),
-		criterio.Run("prompt", b.Prompt, criterio.Required),
-	)
-}
-
-type agentScheduleResponse struct {
-	Schedule agentScheduleView `json:"schedule"`
-}
-
-// AgentScheduleSave upserts one schedule into its workspace manifest.
-func (ctrl *Controller) AgentScheduleSave(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentScheduleSaveRequest](ctrl, w, r)
-	if err != nil {
-		return err
-	}
-	saved, err := ctrl.core.Schedules.Save(r.Context(), app.ScheduleEdit{
-		Workspace: body.Workspace, ID: body.ID, Name: body.Name, Cron: body.Cron,
-		Prompt: body.Prompt, Disabled: body.Disabled, OnMissed: body.OnMissed,
-	})
-	if err != nil {
-		return err
-	}
-	return server.JSON(w, http.StatusOK, agentScheduleResponse{Schedule: toAgentScheduleView(saved)})
-}
-
 type agentScheduleIDRequest struct {
 	Workspace string `json:"workspace"`
 	ID        string `json:"id"`
@@ -148,22 +112,6 @@ func (b agentScheduleIDRequest) Validate() error {
 		criterio.Run("workspace", b.Workspace, criterio.Required),
 		criterio.Run("id", b.ID, criterio.Required),
 	)
-}
-
-type agentScheduleDeleteResponse struct {
-	Deleted bool `json:"deleted"`
-}
-
-// AgentScheduleDelete removes one schedule from its manifest.
-func (ctrl *Controller) AgentScheduleDelete(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentScheduleIDRequest](ctrl, w, r)
-	if err != nil {
-		return err
-	}
-	if err := ctrl.core.Schedules.Delete(r.Context(), body.Workspace, body.ID); err != nil {
-		return err
-	}
-	return server.JSON(w, http.StatusOK, agentScheduleDeleteResponse{Deleted: true})
 }
 
 type agentScheduleRunResponse struct {

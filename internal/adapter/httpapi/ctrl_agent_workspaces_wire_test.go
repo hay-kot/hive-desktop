@@ -9,7 +9,27 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app"
 )
+
+// The schedule fields the Chats area reads: a workspace always carries its
+// schedules array, and a chat a schedule started names it. Starting a session
+// needs tmux, which this harness has no use for otherwise, so the DTO mappers
+// are what get pinned.
+func TestAgentViewsCarryTheScheduleFields(t *testing.T) {
+	session, err := json.Marshal(toAgentSessionView(app.SessionView{ID: 1, ScheduleID: "weekly"}))
+	require.NoError(t, err)
+	assert.Contains(t, string(session), `"scheduleId":"weekly"`)
+
+	byHand, err := json.Marshal(toAgentSessionView(app.SessionView{ID: 2}))
+	require.NoError(t, err)
+	assert.Contains(t, string(byHand), `"scheduleId":""`, "a chat a person started names no schedule")
+
+	workspace, err := json.Marshal(toAgentWorkspaceView(app.WorkspaceView{Dir: "demo"}))
+	require.NoError(t, err)
+	assert.Contains(t, string(workspace), `"schedules":[]`, "never null on the wire")
+}
 
 // Array-valued fields must encode as [] on the wire, never null: encoding/json
 // marshals a nil Go slice as the JSON literal null, and the frontend calls
@@ -30,6 +50,7 @@ func TestAgentWireArraysAreNeverNull(t *testing.T) {
 			assert.NotEqualf(t, "null", string(doc[field]), "%s must be [] on the wire, got %s in %s", field, doc[field], raw)
 		}
 		assert.NotContainsf(t, string(raw), `"mcps":null`, "a workspace view carried a null mcps array: %s", raw)
+		assert.NotContainsf(t, string(raw), `"schedules":null`, "a workspace view carried a null schedules array: %s", raw)
 	}
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"workspaces", testToken, struct{}{})

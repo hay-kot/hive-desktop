@@ -42,7 +42,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	require.NoError(t, awStore.Reload())
 
 	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL })
+		func(context.Context) string { return testMCPBaseURL }, zerolog.Nop())
 }
 
 // testMCPBaseURL stands in for this run's loopback base URL, which the
@@ -626,6 +626,160 @@ func TestWorkspaceEditOwnsTheSkillPackageList(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+// Schedules are a manifest key like mcps: and skills:, so they are saved with
+// the rest of the manifest and reconciled to exactly what the editor sends.
+func TestWorkspaceEditOwnsTheScheduleList(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	var changed []string
+	svc.OnSchedulesChanged = func(workspace string) { changed = append(changed, workspace) }
+
+	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"}
+	created := base
+	created.Schedules = []ScheduleEdit{
+		{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
+		{ID: "daily", Cron: "@daily", Prompt: "Standup."},
+	}
+	view, err := svc.CreateWorkspace(t.Context(), created)
+	require.NoError(t, err)
+	require.Len(t, view.Schedules, 2)
+	assert.Equal(t, "weekly", view.Schedules[0].ID)
+	assert.Equal(t, "demo", view.Schedules[0].Workspace, "the loader stamps the directory on the way back")
+	assert.Equal(t, "run", view.Schedules[0].OnMissed, "the manifest omits the default; the view names it")
+	require.NotNil(t, view.Schedules[0].NextRunAt)
+	assert.Nil(t, view.Schedules[0].LastRun)
+	assert.Empty(t, view.Schedules[1].Name,
+		"a nameless schedule stays nameless; resolving it here would round trip into the file as a name nobody typed")
+	assert.Equal(t, []string{"demo"}, changed, "a write has to reach the running scheduler")
+
+	updated := base
+	updated.Schedules = []ScheduleEdit{
+		{ID: "weekly", Name: "Weekly summary", Cron: "0 10 * * 1", Prompt: "Summarize the week.", Disabled: true},
+	}
+	view, err = svc.UpdateWorkspace(t.Context(), updated)
+	require.NoError(t, err)
+	require.Len(t, view.Schedules, 1, "an entry the editor stopped naming is deleted by the same write")
+	assert.Equal(t, "0 10 * * 1", view.Schedules[0].Cron)
+	assert.True(t, view.Schedules[0].Disabled)
+	assert.Nil(t, view.Schedules[0].NextRunAt, "a disabled schedule has nothing coming")
+
+	view, err = svc.UpdateWorkspace(t.Context(), base)
+	require.NoError(t, err)
+	assert.Empty(t, view.Schedules)
+	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "schedules", "an empty list takes the key with it")
+	assert.Len(t, changed, 3)
+}
+
+func TestWorkspaceEditRejectsAnInvalidSchedule(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"}
+	_, err := svc.CreateWorkspace(t.Context(), base)
+	require.NoError(t, err)
+
+	var changed []string
+	svc.OnSchedulesChanged = func(workspace string) { changed = append(changed, workspace) }
+
+	badCron := base
+	badCron.Name = "Renamed"
+	badCron.Schedules = []ScheduleEdit{{ID: "weekly", Cron: "not a cron", Prompt: "hi"}}
+	_, err = svc.UpdateWorkspace(t.Context(), badCron)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "not a cron", "the reason has to reach the editor")
+
+	duplicate := base
+	duplicate.Schedules = []ScheduleEdit{
+		{ID: "weekly", Cron: "@daily", Prompt: "hi"},
+		{ID: "weekly", Cron: "@weekly", Prompt: "hi"},
+	}
+	_, err = svc.UpdateWorkspace(t.Context(), duplicate)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+
+	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "schedules", "a rejected edit writes nothing")
+	assert.NotContains(t, string(raw), "Renamed", "not even the fields the edit got right")
+	assert.Empty(t, changed, "nothing was written, so the scheduler has nothing to re-read")
+}
+
+// A manifest the loader could not read is not something the editor may write
+// over: its form loads from the workspace view, and on the first load of a run
+// there is no last-good snapshot behind the break, so a save would reconcile
+// every list in the file to nothing.
+func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo",
+		"version: 2\nname: Demo\nagent: claude\nautonomy: ask\n"+
+			"schedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	path := filepath.Join(root, "demo", "agent-workspace.yaml")
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{
+		Dir: "demo", Name: "Renamed", Agent: "claude", Autonomy: "ask",
+	})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "agent-workspace.yaml has a problem")
+	assert.Contains(t, err.Error(), "not a cron", "the reason names what to fix")
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "a refused edit leaves the file byte for byte")
+}
+
+// A chat a schedule started wears its schedule's id, which is what marks the
+// row in the sidebar. It comes from the run history rather than the session
+// record, so it holds for both the scoped and the cross-workspace read.
+func TestSessionsNameTheScheduleThatStartedThem(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	scheduled, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	byHand, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s2", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+
+	_, err = svc.db.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
+		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "Weekly summary",
+		ScheduledFor: 1_000, StartedAt: 1_000, Reason: "due", Status: "launched",
+		SessionID: scheduled.ID, Prompt: "go",
+	})
+	require.NoError(t, err)
+
+	sessions, err := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, err)
+	require.Len(t, sessions, 2)
+	byID := map[int64]SessionView{}
+	for _, s := range sessions {
+		byID[s.ID] = s
+	}
+	assert.Equal(t, "weekly", byID[scheduled.ID].ScheduleID)
+	assert.Empty(t, byID[byHand.ID].ScheduleID, "a chat a person started names no schedule")
+
+	all, err := svc.AllSessions(t.Context())
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	for _, s := range all {
+		if s.ID == scheduled.ID {
+			assert.Equal(t, "weekly", s.ScheduleID)
+		}
+	}
 }
 
 // TestSkillPackagesResolveMembers is the editor's read: packages from

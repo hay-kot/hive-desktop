@@ -28,6 +28,8 @@ export interface AgentWorkspace {
   autonomy: string
   mcps: string[]
   skills: string[]
+  /** The manifest's schedules, each joined with its next and last run. */
+  schedules: AgentSchedule[]
   problem: string
   /** An unbounded-MCP or missing-manifest explanation, empty when neither applies. */
   notice: string
@@ -66,6 +68,11 @@ export interface WorkspaceEditRequest {
   mcps: string[]
   /** Skill package names from skills.yml, not individual skills. */
   skills: string[]
+  /**
+   * The whole `schedules:` list. The manifest is reconciled to it, so an entry
+   * left out here is removed from the workspace.
+   */
+  schedules: ScheduleEdit[]
 }
 
 /** One row of the merged MCP catalogue: shipped entries plus the user's mcps.yaml. */
@@ -157,6 +164,8 @@ export interface AgentSession {
   rows: number
   resumeAttempted: boolean
   notice: string
+  /** The schedule that launched this chat, empty when a person started it. */
+  scheduleId: string
 }
 
 /** One live session's detected activity — ready, active, or approval. */
@@ -260,9 +269,8 @@ export interface AgentSchedulePreview {
   promptError: string
 }
 
-/** The manifest fields the schedule editor writes. */
-export interface ScheduleEditRequest {
-  workspace: string
+/** One `schedules:` entry as the workspace editor writes it. */
+export interface ScheduleEdit {
   id: string
   name: string
   cron: string
@@ -351,11 +359,11 @@ export interface AgentWorkspacesClient {
   canvasMarkdown(workspace: string, name: string): Promise<string>
   /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
   exportCanvas(workspace: string, name: string, path: string): Promise<void>
-  /** A workspace's schedules, each carrying its next run and its last one. */
+  /**
+   * A workspace's schedules with their run state read fresh. The rows also ride
+   * the workspace view, so this is for a refresh after "Run now", not a load.
+   */
   schedules(workspace: string): Promise<AgentSchedule[]>
-  /** Writes one entry into the workspace manifest, creating it when the id is new. */
-  saveSchedule(request: ScheduleEditRequest): Promise<AgentSchedule>
-  deleteSchedule(workspace: string, id: string): Promise<void>
   /** Fires a schedule now, outside its timetable; the cursor is untouched. */
   runSchedule(workspace: string, id: string): Promise<AgentScheduleRun>
   /** Run history, newest first. An empty id spans every schedule in the workspace. */
@@ -504,14 +512,6 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
       const body = await post<{ schedules: AgentSchedule[] | null }>('/schedules', { workspace })
       return body?.schedules ?? []
     },
-    async saveSchedule(request) {
-      const body = await post<{ schedule: AgentSchedule }>('/schedules/save', request)
-      if (!body?.schedule) throw new AgentRequestError('the schedule was not saved', '')
-      return body.schedule
-    },
-    async deleteSchedule(workspace, id) {
-      await post('/schedules/delete', { workspace, id })
-    },
     async runSchedule(workspace, id) {
       const body = await post<{ run: AgentScheduleRun }>('/schedules/run', { workspace, id })
       if (!body?.run) throw new AgentRequestError('the schedule did not run', '')
@@ -531,15 +531,15 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
 }
 
 function emptyWorkspace(dir: string): AgentWorkspace {
-  return { dir, name: '', agent: '', autonomy: '', mcps: [], skills: [], problem: '', notice: '' }
+  return { dir, name: '', agent: '', autonomy: '', mcps: [], skills: [], schedules: [], problem: '', notice: '' }
 }
 
-// normalizeWorkspace guards against a null mcps or skills array on the wire:
-// the Go side now always sends [], but this is the client boundary, so a
-// template or composable can trust both are iterable without its own null
-// check regardless.
+// normalizeWorkspace guards against a null mcps, skills or schedules array on
+// the wire: the Go side now always sends [], but this is the client boundary,
+// so a template or composable can trust all three are iterable without its own
+// null check regardless.
 function normalizeWorkspace(w: AgentWorkspace): AgentWorkspace {
-  return { ...w, mcps: w.mcps ?? [], skills: w.skills ?? [] }
+  return { ...w, mcps: w.mcps ?? [], skills: w.skills ?? [], schedules: w.schedules ?? [] }
 }
 
 async function failure(response: Response): Promise<AgentRequestError> {

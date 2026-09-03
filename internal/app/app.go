@@ -437,7 +437,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		func(session int64, name string, open bool) {
 			a.Events.Publish(a.ctx, events.CanvasToggleRequested{Session: session, Name: name, Open: open})
 		})
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL, cfg.Logger)
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
 	// Tasks answering KindUnavailable instead.
@@ -451,9 +451,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// service reads the same workspace store the scheduler takes its specs
 	// from.
 	a.scheduler = a.buildScheduler(cfg.Logger)
-	a.Schedules = newSchedulesService(a.agentWorkspaceStore, db, a.scheduler, func(workspace string) {
+	a.Schedules = newSchedulesService(a.agentWorkspaceStore, db, a.scheduler, cfg.Logger)
+	// Schedules are saved with the manifest, so the write that reaches the
+	// running loop is the workspace editor's, not a route of its own.
+	a.AgentWorkspaces.OnSchedulesChanged = func(workspace string) {
+		a.scheduler.Reload()
 		a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: workspace})
-	})
+	}
 
 	return a, nil
 }

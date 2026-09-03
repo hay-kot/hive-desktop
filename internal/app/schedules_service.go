@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -26,11 +28,15 @@ const (
 type ScheduleView struct {
 	Workspace string `json:"workspace"`
 	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Cron      string `json:"cron"`
-	Prompt    string `json:"prompt"`
-	Disabled  bool   `json:"disabled"`
-	OnMissed  string `json:"onMissed"`
+	// Name is the manifest's own name, empty when the entry has none. Whatever
+	// shows it falls back to the id itself (schedule.Spec.DisplayName); a view
+	// that resolved the fallback here would round trip through the editor and
+	// persist the id as a name the user never typed.
+	Name     string `json:"name"`
+	Cron     string `json:"cron"`
+	Prompt   string `json:"prompt"`
+	Disabled bool   `json:"disabled"`
+	OnMissed string `json:"onMissed"`
 	// NextRunAt is unix ms, nil when the schedule is disabled or its cron does
 	// not parse.
 	NextRunAt *int64 `json:"nextRunAt"`
@@ -56,17 +62,16 @@ type RunView struct {
 	Error        string `json:"error"`
 }
 
-// ScheduleEdit names the manifest fields the schedule editor writes. Anything
-// else the entry says is untouched, the same way WorkspaceEdit leaves the rest
-// of the manifest alone.
+// ScheduleEdit is one row of the workspace editor's schedules section. It
+// travels inside WorkspaceEdit, because a schedule is a manifest key like
+// mcps: or skills: and is saved with the rest of them.
 type ScheduleEdit struct {
-	Workspace string
-	ID        string
-	Name      string
-	Cron      string
-	Prompt    string
-	Disabled  bool
-	OnMissed  string
+	ID       string
+	Name     string
+	Cron     string
+	Prompt   string
+	Disabled bool
+	OnMissed string
 }
 
 // PreviewRequest is an unsaved edit to dry-run.
@@ -86,22 +91,20 @@ type PreviewView struct {
 	PromptError string
 }
 
-// SchedulesService owns scheduled chats: the definitions in each workspace
-// manifest, and the run state the app keeps beside them. Writes go to the
-// manifest, then reload both readers of it -- the workspace store the UI lists
-// from, and the scheduler's own view of what is due.
+// SchedulesService reads scheduled chats: the definitions in each workspace
+// manifest joined with the run state the app keeps beside them, plus the two
+// things a user does to one outside the editor -- fire it now, and read what
+// it did. Writing a schedule is AgentWorkspacesService's, because a schedule
+// is a manifest key saved with the rest of the manifest.
 type SchedulesService struct {
 	workspaces *agentws.Store
 	db         *store.DB
 	scheduler  *schedule.Scheduler
-	publish    func(workspace string)
+	logger     zerolog.Logger
 }
 
-func newSchedulesService(workspaces *agentws.Store, db *store.DB, scheduler *schedule.Scheduler, publish func(workspace string)) *SchedulesService {
-	if publish == nil {
-		publish = func(string) {}
-	}
-	return &SchedulesService{workspaces: workspaces, db: db, scheduler: scheduler, publish: publish}
+func newSchedulesService(workspaces *agentws.Store, db *store.DB, scheduler *schedule.Scheduler, logger zerolog.Logger) *SchedulesService {
+	return &SchedulesService{workspaces: workspaces, db: db, scheduler: scheduler, logger: logger}
 }
 
 // List returns a workspace's schedules in manifest order.
@@ -110,63 +113,7 @@ func (s *SchedulesService) List(ctx context.Context, workspace string) ([]Schedu
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	out := make([]ScheduleView, 0, len(specs))
-	for _, spec := range specs {
-		view, err := s.scheduleView(ctx, spec, now)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, view)
-	}
-	return out, nil
-}
-
-// Save upserts one schedule into its workspace manifest, matched by id, and
-// returns it as it reads back.
-func (s *SchedulesService) Save(ctx context.Context, edit ScheduleEdit) (ScheduleView, error) {
-	spec := edit.spec()
-	if err := spec.Validate(); err != nil {
-		return ScheduleView{}, Errorf(KindInvalid, "%s", err)
-	}
-	if _, err := s.specs(edit.Workspace); err != nil {
-		return ScheduleView{}, err
-	}
-	if err := agentws.WriteSchedule(s.workspaces.Root(), edit.Workspace, spec); err != nil {
-		return ScheduleView{}, Wrap(err, KindInternal, "saving schedule %q", spec.ID)
-	}
-	if err := s.refresh(edit.Workspace); err != nil {
-		return ScheduleView{}, err
-	}
-
-	specs, err := s.specs(edit.Workspace)
-	if err != nil {
-		return ScheduleView{}, err
-	}
-	for _, saved := range specs {
-		if saved.ID == spec.ID {
-			return s.scheduleView(ctx, saved, time.Now())
-		}
-	}
-	return ScheduleView{}, Errorf(KindInternal, "schedule %q was written but the workspace did not reload with it", spec.ID)
-}
-
-// Delete removes one schedule from its manifest and drops the cursor that
-// tracked how far it had been evaluated, so an id reused later starts from now
-// instead of back-firing every occurrence since the old one was last seen. The
-// run history stays: it is the record of what the schedule did, and deleting
-// the definition is not a reason to erase it.
-func (s *SchedulesService) Delete(ctx context.Context, workspace, id string) error {
-	if _, err := s.specs(workspace); err != nil {
-		return err
-	}
-	if err := agentws.RemoveSchedule(s.workspaces.Root(), workspace, id); err != nil {
-		return Wrap(err, KindInternal, "deleting schedule %q", id)
-	}
-	if err := s.db.DeleteScheduleCursor(ctx, workspace, id); err != nil {
-		return Wrap(err, KindInternal, "deleting the cursor for schedule %q", id)
-	}
-	return s.refresh(workspace)
+	return scheduleRows(ctx, s.db, s.logger, specs, time.Now()), nil
 }
 
 // RunNow fires a schedule outside its timetable. The cursor is untouched, so
@@ -268,55 +215,60 @@ func (s *SchedulesService) specs(workspace string) ([]schedule.Spec, error) {
 	return nil, Errorf(KindNotFound, "workspace %q not found", workspace)
 }
 
-// refresh re-reads the manifest the write just changed, points the scheduler
-// at the new set, and announces it. The store reload has to succeed: every
-// read after a write, this service's own included, comes out of that snapshot.
-func (s *SchedulesService) refresh(workspace string) error {
-	if err := s.workspaces.Reload(); err != nil {
-		return Wrap(err, KindInternal, "reloading the workspace root")
-	}
-	s.scheduler.Reload()
-	s.publish(workspace)
-	return nil
-}
-
-func (s *SchedulesService) scheduleView(ctx context.Context, spec schedule.Spec, now time.Time) (ScheduleView, error) {
-	view := ScheduleView{
-		Workspace: spec.Workspace,
-		ID:        spec.ID,
-		Name:      spec.DisplayName(),
-		Cron:      spec.Cron,
-		Prompt:    spec.Prompt,
-		Disabled:  spec.Disabled,
-		OnMissed:  onMissedName(spec),
-	}
-	if !spec.Disabled {
-		if next, err := schedule.NextOccurrences(spec.Cron, now, 1); err == nil && len(next) > 0 {
-			at := next[0].UnixMilli()
-			view.NextRunAt = &at
+// scheduleRows joins manifest specs with the state the manifest does not
+// carry. Both readers of a workspace's schedules go through it -- the
+// schedules list and the workspace view the editor loads -- so a row means the
+// same thing wherever it is read.
+//
+// A run-history read that fails leaves that row's LastRun nil rather than
+// failing the listing. The definitions are the manifest's and are already in
+// hand; losing the whole list, and with it the editor's form and the workspace
+// list behind it, over a decoration on one row is the wrong trade.
+func scheduleRows(ctx context.Context, db *store.DB, logger zerolog.Logger, specs []schedule.Spec, now time.Time) []ScheduleView {
+	out := make([]ScheduleView, 0, len(specs))
+	for _, spec := range specs {
+		view := ScheduleView{
+			Workspace: spec.Workspace,
+			ID:        spec.ID,
+			Name:      spec.Name,
+			Cron:      spec.Cron,
+			Prompt:    spec.Prompt,
+			Disabled:  spec.Disabled,
+			OnMissed:  onMissedName(spec),
 		}
-	}
+		if !spec.Disabled {
+			if next, err := schedule.NextOccurrences(spec.Cron, now, 1); err == nil && len(next) > 0 {
+				at := next[0].UnixMilli()
+				view.NextRunAt = &at
+			}
+		}
 
-	records, err := s.db.ListScheduleRunsFor(ctx, spec.Workspace, spec.ID, 1)
-	if err != nil {
-		return ScheduleView{}, Wrap(err, KindInternal, "reading the last run of schedule %q", spec.ID)
+		records, err := db.ListScheduleRunsFor(ctx, spec.Workspace, spec.ID, 1)
+		switch {
+		case err != nil:
+			logger.Warn().Err(err).
+				Str("workspace", spec.Workspace).Str("schedule", spec.ID).
+				Msg("reading a schedule's last run")
+		case len(records) > 0:
+			last := runView(scheduleRunFromRecord(records[0]))
+			view.LastRun = &last
+		}
+		out = append(out, view)
 	}
-	if len(records) > 0 {
-		last := runView(scheduleRunFromRecord(records[0]))
-		view.LastRun = &last
-	}
-	return view, nil
+	return out
 }
 
+// spec is the manifest entry this edit stands for. Workspace stays empty: the
+// loader stamps it on when the file is read back, and nothing between here and
+// the write needs it.
 func (e ScheduleEdit) spec() schedule.Spec {
 	return schedule.Spec{
-		Workspace: e.Workspace,
-		ID:        strings.TrimSpace(e.ID),
-		Name:      strings.TrimSpace(e.Name),
-		Cron:      strings.TrimSpace(e.Cron),
-		Prompt:    e.Prompt,
-		Disabled:  e.Disabled,
-		OnMissed:  schedule.OnMissed(strings.TrimSpace(e.OnMissed)),
+		ID:       strings.TrimSpace(e.ID),
+		Name:     strings.TrimSpace(e.Name),
+		Cron:     strings.TrimSpace(e.Cron),
+		Prompt:   e.Prompt,
+		Disabled: e.Disabled,
+		OnMissed: schedule.OnMissed(strings.TrimSpace(e.OnMissed)),
 	}
 }
 

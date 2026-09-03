@@ -1,9 +1,6 @@
 package agentws
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,68 +10,28 @@ import (
 
 const schedulesKey = "schedules"
 
-// WriteSchedule upserts spec into dir's agent-workspace.yaml, matching an
-// existing entry by id. It is a node-tree edit for the same reason
-// WriteManifest is: everything else the file says survives, including
-// comments, key order, keys this build does not know, and the other
-// schedules' own comments.
-//
-// The manifest must already exist: a schedule belongs to a workspace, and
-// creating one is CreateWorkspace's job.
-func WriteSchedule(root, dir string, spec schedule.Spec) error {
-	return editSchedules(root, dir, func(mapping *yaml.Node) {
-		sequence := manifestSequence(mapping, schedulesKey)
+// reconcileSchedules makes the schedules: sequence say exactly specs, in that
+// order: each entry upserted by id, entries whose id specs no longer names
+// dropped, and the key removed once nothing is left. It is a node-tree edit
+// for the same reason the rest of WriteManifest is -- everything a surviving
+// entry carries beyond the keys a Spec owns, its own comments included,
+// survives.
+func reconcileSchedules(mapping *yaml.Node, specs []schedule.Spec) {
+	if len(specs) == 0 {
+		removeManifestKey(mapping, schedulesKey)
+		return
+	}
+	sequence := manifestSequence(mapping, schedulesKey)
+	kept := make([]*yaml.Node, 0, len(specs))
+	for _, spec := range specs {
 		entry := scheduleEntry(sequence, spec.ID)
 		if entry == nil {
 			entry = &yaml.Node{Kind: yaml.MappingNode}
-			sequence.Content = append(sequence.Content, entry)
 		}
 		applySchedule(entry, spec)
-	})
-}
-
-// RemoveSchedule drops the entry with this id, and the schedules key itself
-// when that was the last one. An id the file does not carry is not an error:
-// the file already says what the caller asked for.
-func RemoveSchedule(root, dir, id string) error {
-	return editSchedules(root, dir, func(mapping *yaml.Node) {
-		sequence := findManifestValue(mapping, schedulesKey)
-		if sequence == nil || sequence.Kind != yaml.SequenceNode {
-			return
-		}
-		for i, entry := range sequence.Content {
-			if scheduleID(entry) == id {
-				sequence.Content = append(sequence.Content[:i], sequence.Content[i+1:]...)
-				break
-			}
-		}
-		if len(sequence.Content) == 0 {
-			removeManifestKey(mapping, schedulesKey)
-		}
-	})
-}
-
-func editSchedules(root, dir string, edit func(mapping *yaml.Node)) error {
-	path := filepath.Join(root, dir, manifestFileName)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("agent-workspace.yaml: %w", err)
+		kept = append(kept, entry)
 	}
-	doc, mapping, err := parseManifestNode(raw)
-	if err != nil {
-		return err
-	}
-
-	edit(mapping)
-
-	out, err := encodeManifestDoc(doc)
-	if err != nil {
-		return err
-	}
-	if err := writeFileAtomic(path, out); err != nil {
-		return fmt.Errorf("agent-workspace.yaml: %w", err)
-	}
-	return nil
+	sequence.Content = kept
 }
 
 // applySchedule writes the keys a Spec owns onto one sequence entry. An empty
