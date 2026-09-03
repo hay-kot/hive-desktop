@@ -242,6 +242,19 @@ describe('AgentsMode', () => {
     expect(wrapper.find('[data-testid="agents-workspace-sidebar"]').element).toBe(sidebarBefore)
   })
 
+  it('drops the sidebar on the collapse prop and rebuilds it on the way back', async () => {
+    const { wrapper } = await mountAgentsMode()
+    expect(wrapper.find('[data-testid="agents-workspace-sidebar"]').exists()).toBe(true)
+
+    await wrapper.setProps({ sidebarCollapsed: true })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-workspace-sidebar"]').exists()).toBe(false)
+
+    await wrapper.setProps({ sidebarCollapsed: false })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-workspace-sidebar"]').exists()).toBe(true)
+  })
+
   it('reports the unavailable reason and offers a retry when ptyterm is unavailable', async () => {
     mocks.Available.mockResolvedValue({ available: false, reason: 'agent workspaces need macOS or Linux and a desktop build.' })
     const { wrapper } = await mountAgentsMode()
