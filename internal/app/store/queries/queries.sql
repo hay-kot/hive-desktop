@@ -660,9 +660,6 @@ INSERT INTO schedule_run (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
--- name: GetScheduleRun :one
-SELECT * FROM schedule_run WHERE id = ?;
-
 -- name: ListScheduleRuns :many
 -- One workspace's runs across every schedule, newest first.
 SELECT * FROM schedule_run
@@ -705,7 +702,7 @@ DELETE FROM schedule_run WHERE workspace = ?;
 -- name: ListScheduleRunSessions :many
 -- Which schedule started each chat in one workspace. Oldest first so a caller
 -- folding these into a map keyed by session ends up with the newest run's
--- schedule. No index of its own: a workspace keeps at most ScheduleRunLimit
+-- schedule. No index of its own: a workspace keeps at most scheduleRunLimit
 -- runs per schedule, and schedule_run_by_schedule already narrows to the
 -- workspace.
 SELECT session_id, schedule_id FROM schedule_run

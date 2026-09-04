@@ -24,7 +24,7 @@ export const WEEK_ORDER: readonly number[] = [1, 2, 3, 4, 5, 6, 0]
 
 const WEEKDAYS = [1, 2, 3, 4, 5]
 
-export function dayName(day: number): string {
+function dayName(day: number): string {
   return DAY_NAMES[day] ?? String(day)
 }
 

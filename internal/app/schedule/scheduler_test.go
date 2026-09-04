@@ -418,7 +418,7 @@ func TestPassSkipsWhileThePreviousChatIsStillRunning(t *testing.T) {
 	h.store.seedRun(Run{Workspace: spec.Workspace, ScheduleID: spec.ID, Status: StatusLaunched, SessionID: 7})
 	h.launcher.live[7] = true
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	runs := h.store.allRuns()
 	require.Len(t, runs, 2)
@@ -434,7 +434,7 @@ func TestPassSkipsAMissedRunWhenTheScheduleSaysTo(t *testing.T) {
 	spec.OnMissed = OnMissedSkip
 	h := duePass(t, spec, nil)
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	runs := h.store.allRuns()
 	require.Len(t, runs, 1)
@@ -450,7 +450,7 @@ func TestPassRecordsALaunchFailure(t *testing.T) {
 	h := duePass(t, hourlySpec(), nil)
 	h.launcher.err = errors.New("tmux is not installed")
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	runs := h.store.allRuns()
 	require.Len(t, runs, 1)
@@ -468,7 +468,7 @@ func TestPassRecordsAPromptFailure(t *testing.T) {
 	spec.Prompt = "{{ .Nope }}"
 	h := duePass(t, spec, nil)
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	runs := h.store.allRuns()
 	require.Len(t, runs, 1)
@@ -487,7 +487,7 @@ func TestPassRendersThePromptWithTheLastRunAndWorkspaceName(t *testing.T) {
 		ScheduledFor: time.Date(2026, time.September, 4, 8, 0, 0, 0, time.UTC),
 	})
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	requests := h.launcher.allRequests()
 	require.Len(t, requests, 1)
@@ -501,7 +501,7 @@ func TestPassCallsOnRun(t *testing.T) {
 	var seen []Run
 	h := duePass(t, hourlySpec(), &Options{OnRun: func(run Run) { seen = append(seen, run) }})
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	require.Len(t, seen, 1)
 	assert.NotZero(t, seen[0].ID, "OnRun receives the stored run, not the one handed to InsertRun")
@@ -513,7 +513,7 @@ func TestPassPrunesTheCursorsOfTheSpecsItSaw(t *testing.T) {
 
 	h := duePass(t, hourlySpec(), nil)
 
-	require.NoError(t, h.scheduler.Pass(t.Context()))
+	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	pruned := h.store.lastPruned()
 	assert.Equal(t, []string{"product"}, pruned.workspaces)
@@ -541,7 +541,7 @@ func TestPassPrunesOnlyInsideTheWorkspacesItCouldRead(t *testing.T) {
 	store.seedCursor(Cursor{Workspace: "broken", ID: "weekly", EvaluatedThrough: now, Cron: "0 9 * * 5"})
 
 	scheduler := New(Options{Source: source, Store: store, Launcher: newFakeLauncher(), Now: func() time.Time { return now }})
-	require.NoError(t, scheduler.Pass(t.Context()))
+	require.NoError(t, scheduler.pass(t.Context()))
 
 	cursors := store.allCursors()
 	assert.Contains(t, cursors, storeKey("product", "hourly"))
@@ -624,7 +624,7 @@ func TestPassKeepsGoingAfterASpecFails(t *testing.T) {
 	store.cursorErr = errors.New("the database is locked")
 
 	scheduler := New(Options{Source: source, Store: store, Launcher: newFakeLauncher(), Now: func() time.Time { return now }})
-	err := scheduler.Pass(t.Context())
+	err := scheduler.pass(t.Context())
 
 	require.ErrorContains(t, err, "the database is locked")
 	assert.Len(t, store.lastPruned().keep, 2, "a spec that failed still keeps its cursor")
@@ -658,7 +658,7 @@ func TestPassClosesTheWindowAfterAFailedRun(t *testing.T) {
 	h := duePass(t, hourlySpec(), nil)
 	h.store.insertErr = errors.New("the database is locked")
 
-	require.Error(t, h.scheduler.Pass(t.Context()))
+	require.Error(t, h.scheduler.pass(t.Context()))
 
 	cursor, ok := h.store.allCursors()[storeKey("product", "hourly")]
 	require.True(t, ok)

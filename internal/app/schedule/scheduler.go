@@ -10,16 +10,16 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// DefaultGrace is how late an occurrence may be and still be reported as due.
-const DefaultGrace = 5 * time.Minute
+// grace is how late an occurrence may be and still be reported as due.
+const grace = 5 * time.Minute
 
-// DefaultMaxSleep bounds one wait between passes.
+// maxSleep bounds one wait between passes.
 //
 // darwin's monotonic clock does not advance while the machine sleeps, so a
 // timer armed for several hours fires hours late after a lid is opened. A
 // bounded sleep costs one cheap pass a minute and puts the catch-up within a
 // minute of wake instead.
-const DefaultMaxSleep = time.Minute
+const maxSleep = time.Minute
 
 // ErrNotFound reports a workspace/id pair that names no live schedule.
 var ErrNotFound = errors.New("schedule: not found")
@@ -103,9 +103,7 @@ type Options struct {
 	// Now defaults to time.Now. Cron is evaluated in whatever location it
 	// returns, so a clock that reports time.Local is what makes "0 9 * * 5"
 	// mean 09:00 where the user is.
-	Now      func() time.Time
-	Grace    time.Duration
-	MaxSleep time.Duration
+	Now func() time.Time
 	// OnRun is called after a run is recorded, launched or not.
 	OnRun  func(Run)
 	Logger zerolog.Logger
@@ -119,10 +117,10 @@ type Options struct {
 type Scheduler struct {
 	opts Options
 
-	// pass serializes evaluation. Pass runs on the loop goroutine while RunNow
+	// mu serializes evaluation. pass runs on the loop goroutine while RunNow
 	// arrives from an HTTP handler, and two executions interleaving would
 	// launch the same schedule twice.
-	pass sync.Mutex
+	mu sync.Mutex
 
 	reload chan struct{}
 
@@ -135,12 +133,6 @@ type Scheduler struct {
 func New(opts Options) *Scheduler {
 	if opts.Now == nil {
 		opts.Now = time.Now
-	}
-	if opts.Grace <= 0 {
-		opts.Grace = DefaultGrace
-	}
-	if opts.MaxSleep <= 0 {
-		opts.MaxSleep = DefaultMaxSleep
 	}
 	return &Scheduler{
 		opts:    opts,
@@ -185,7 +177,7 @@ func (s *Scheduler) Reload() {
 
 func (s *Scheduler) loop(ctx context.Context) {
 	for {
-		if err := s.Pass(ctx); err != nil && ctx.Err() == nil {
+		if err := s.pass(ctx); err != nil && ctx.Err() == nil {
 			s.opts.Logger.Warn().Err(err).Msg("a schedule pass reported an error")
 		}
 
@@ -202,10 +194,10 @@ func (s *Scheduler) loop(ctx context.Context) {
 }
 
 // wait is how long the loop sleeps before the next pass: until the soonest
-// occurrence, capped at MaxSleep.
+// occurrence, capped at maxSleep.
 func (s *Scheduler) wait() time.Duration {
 	now := s.opts.Now()
-	d := s.opts.MaxSleep
+	d := maxSleep
 	if due, ok := NextDue(s.opts.Source.Snapshot().Specs, now); ok {
 		if until := due.Sub(now); until < d {
 			d = until
@@ -214,11 +206,11 @@ func (s *Scheduler) wait() time.Duration {
 	return max(d, 0)
 }
 
-// Pass evaluates every spec once. A spec that fails is logged and the pass
+// pass evaluates every spec once. A spec that fails is logged and the pass
 // continues; the returned error is the first failure, for tests.
-func (s *Scheduler) Pass(ctx context.Context) error {
-	s.pass.Lock()
-	defer s.pass.Unlock()
+func (s *Scheduler) pass(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	snapshot := s.opts.Source.Snapshot()
 	now := s.opts.Now()
@@ -250,8 +242,8 @@ func (s *Scheduler) Pass(ctx context.Context) error {
 // run answers "does this work", and consuming the window would silently cancel
 // the next real occurrence.
 func (s *Scheduler) RunNow(ctx context.Context, workspace, id string) (Run, error) {
-	s.pass.Lock()
-	defer s.pass.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	var spec Spec
 	found := false
@@ -290,7 +282,7 @@ func (s *Scheduler) evaluate(ctx context.Context, spec Spec, now time.Time) (Cur
 		previous = &stored
 	}
 
-	evaluation := Evaluate(spec, previous, now, s.opts.Grace)
+	evaluation := Evaluate(spec, previous, now, grace)
 	var (
 		runErr   error
 		launched bool

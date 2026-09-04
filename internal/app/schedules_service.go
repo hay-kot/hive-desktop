@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -60,18 +59,6 @@ type RunView struct {
 	SessionID    *int64 `json:"sessionId"`
 	Prompt       string `json:"prompt"`
 	Error        string `json:"error"`
-}
-
-// ScheduleEdit is one row of the workspace editor's schedules section. It
-// travels inside WorkspaceEdit, because a schedule is a manifest key like
-// mcps: or skills: and is saved with the rest of them.
-type ScheduleEdit struct {
-	ID       string
-	Name     string
-	Cron     string
-	Prompt   string
-	Disabled bool
-	OnMissed string
 }
 
 // PreviewRequest is an unsaved edit to dry-run.
@@ -256,20 +243,6 @@ func scheduleRows(ctx context.Context, db *store.DB, logger zerolog.Logger, spec
 		out = append(out, view)
 	}
 	return out
-}
-
-// spec is the manifest entry this edit stands for. Workspace stays empty: the
-// loader stamps it on when the file is read back, and nothing between here and
-// the write needs it.
-func (e ScheduleEdit) spec() schedule.Spec {
-	return schedule.Spec{
-		ID:       strings.TrimSpace(e.ID),
-		Name:     strings.TrimSpace(e.Name),
-		Cron:     strings.TrimSpace(e.Cron),
-		Prompt:   e.Prompt,
-		Disabled: e.Disabled,
-		OnMissed: schedule.OnMissed(strings.TrimSpace(e.OnMissed)),
-	}
 }
 
 // onMissedName resolves the manifest's optional on_missed to the closed set

@@ -86,10 +86,9 @@ type AgentWorkspacesService struct {
 	mcpBase func(context.Context) string
 	// OnSchedulesChanged is called after a manifest write lands, with the
 	// workspace directory that was written. App points it at the scheduler's
-	// reload and the SchedulesUpdated event; a schedule saved with the rest of
-	// the manifest has to reach the running loop the same way a save through
-	// its own route used to. It is a field rather than a constructor argument
-	// because the scheduler is built after this service, over it.
+	// reload and the SchedulesUpdated event. It is a field rather than a
+	// constructor argument because the scheduler is built after this service,
+	// over it.
 	OnSchedulesChanged func(workspace string)
 	logger             zerolog.Logger
 }
@@ -706,6 +705,30 @@ type WorkspaceEdit struct {
 	// reconciles the manifest to exactly this, so an entry the editor dropped
 	// is deleted by the same call that saves the rest.
 	Schedules []ScheduleEdit
+}
+
+// ScheduleEdit is one row of the workspace editor's schedules section.
+type ScheduleEdit struct {
+	ID       string
+	Name     string
+	Cron     string
+	Prompt   string
+	Disabled bool
+	OnMissed string
+}
+
+// spec is the manifest entry this edit stands for. Workspace stays empty: the
+// loader stamps it on when the file is read back, and nothing between here and
+// the write needs it.
+func (e ScheduleEdit) spec() schedule.Spec {
+	return schedule.Spec{
+		ID:       strings.TrimSpace(e.ID),
+		Name:     strings.TrimSpace(e.Name),
+		Cron:     strings.TrimSpace(e.Cron),
+		Prompt:   e.Prompt,
+		Disabled: e.Disabled,
+		OnMissed: schedule.OnMissed(strings.TrimSpace(e.OnMissed)),
+	}
 }
 
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {

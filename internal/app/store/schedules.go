@@ -7,9 +7,9 @@ import (
 	"fmt"
 )
 
-// ScheduleRunLimit is the number of newest runs InsertScheduleRun keeps per
+// scheduleRunLimit is the number of newest runs InsertScheduleRun keeps per
 // (workspace, schedule) after each insert.
-const ScheduleRunLimit = 200
+const scheduleRunLimit = 200
 
 // ScheduleCursorRecord is how far one workspace schedule has been evaluated.
 // Named Record, like JobRecord and NodeRunRecord, because sqlc already emits
@@ -95,7 +95,7 @@ func (db *DB) DeleteScheduleCursor(ctx context.Context, workspace, scheduleID st
 
 // InsertScheduleRun persists one run and returns the stored row with its
 // assigned id, then prunes that schedule's run history back to
-// ScheduleRunLimit.
+// scheduleRunLimit.
 func (db *DB) InsertScheduleRun(ctx context.Context, run ScheduleRunRecord) (ScheduleRunRecord, error) {
 	db = db.Ctx(ctx)
 	row, err := db.queries.InsertScheduleRun(ctx, InsertScheduleRunParams{
@@ -118,25 +118,12 @@ func (db *DB) InsertScheduleRun(ctx context.Context, run ScheduleRunRecord) (Sch
 	if err := db.queries.PruneScheduleRuns(ctx, PruneScheduleRunsParams{
 		Workspace:  run.Workspace,
 		ScheduleID: run.ScheduleID,
-		Keep:       ScheduleRunLimit,
+		Keep:       scheduleRunLimit,
 	}); err != nil {
 		return ScheduleRunRecord{}, fmt.Errorf("pruning schedule runs for %s/%s: %w", run.Workspace, run.ScheduleID, err)
 	}
 
 	return scheduleRunFromRow(row), nil
-}
-
-// GetScheduleRun reads one run by id. ok reports whether it exists.
-func (db *DB) GetScheduleRun(ctx context.Context, id int64) (ScheduleRunRecord, bool, error) {
-	db = db.Ctx(ctx)
-	row, err := db.queries.GetScheduleRun(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ScheduleRunRecord{}, false, nil
-	}
-	if err != nil {
-		return ScheduleRunRecord{}, false, fmt.Errorf("getting schedule run %d: %w", id, err)
-	}
-	return scheduleRunFromRow(row), true, nil
 }
 
 // ListScheduleRuns returns up to limit of a workspace's runs across every

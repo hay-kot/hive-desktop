@@ -63,14 +63,10 @@ func TestInsertScheduleRun_ReturnsAssignedID(t *testing.T) {
 	assert.NotZero(t, run.ID)
 	assert.Equal(t, int64(7), run.SessionID)
 
-	fetched, ok, err := db.GetScheduleRun(ctx, run.ID)
+	stored, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 10)
 	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, run, fetched)
-
-	_, ok, err = db.GetScheduleRun(ctx, run.ID+1000)
-	require.NoError(t, err)
-	assert.False(t, ok)
+	require.Len(t, stored, 1)
+	assert.Equal(t, run, stored[0])
 }
 
 func TestInsertScheduleRun_NullSessionIDRoundTripsAsZero(t *testing.T) {
@@ -85,10 +81,10 @@ func TestInsertScheduleRun_NullSessionIDRoundTripsAsZero(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), run.SessionID)
 
-	fetched, ok, err := db.GetScheduleRun(ctx, run.ID)
+	stored, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 10)
 	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, int64(0), fetched.SessionID)
+	require.Len(t, stored, 1)
+	assert.Equal(t, int64(0), stored[0].SessionID)
 
 	var raw any
 	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT session_id FROM schedule_run WHERE id = ?`, run.ID).Scan(&raw))
@@ -158,7 +154,7 @@ func TestInsertScheduleRun_PrunesToTheLimitPerSchedule(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
 
-	const total = ScheduleRunLimit + 5
+	const total = scheduleRunLimit + 5
 	var ids []int64
 	for i := range total {
 		run := mustInsertRun(t, db, "ws-1", "weekly", int64(i))
@@ -172,24 +168,25 @@ func TestInsertScheduleRun_PrunesToTheLimitPerSchedule(t *testing.T) {
 	var count int
 	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT count(*) FROM schedule_run WHERE workspace = 'ws-1' AND schedule_id = 'weekly'`).Scan(&count))
-	assert.Equal(t, ScheduleRunLimit, count)
+	assert.Equal(t, scheduleRunLimit, count)
 
-	runs, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", ScheduleRunLimit+10)
+	runs, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", scheduleRunLimit+10)
 	require.NoError(t, err)
-	require.Len(t, runs, ScheduleRunLimit)
-	// The newest ScheduleRunLimit runs survive; the oldest are gone.
+	require.Len(t, runs, scheduleRunLimit)
+	// The newest scheduleRunLimit runs survive; the oldest are gone.
 	kept := make(map[int64]bool, len(runs))
 	for _, run := range runs {
 		kept[run.ID] = true
 	}
 	for i, id := range ids {
-		wantKept := i >= total-ScheduleRunLimit
+		wantKept := i >= total-scheduleRunLimit
 		assert.Equal(t, wantKept, kept[id], "run %d (index %d) retention mismatch", id, i)
 	}
 
-	_, ok, err := db.GetScheduleRun(ctx, other.ID)
+	daily, err := db.ListScheduleRunsFor(ctx, "ws-1", "daily", 10)
 	require.NoError(t, err)
-	assert.True(t, ok, "pruning one schedule must not touch another schedule's runs")
+	require.Len(t, daily, 1, "pruning one schedule must not touch another schedule's runs")
+	assert.Equal(t, other.ID, daily[0].ID)
 }
 
 func TestDeleteScheduleRuns_RemovesOnlyTheWorkspace(t *testing.T) {

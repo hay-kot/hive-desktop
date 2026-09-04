@@ -943,30 +943,6 @@ func (q *Queries) GetScheduleCursor(ctx context.Context, arg GetScheduleCursorPa
 	return i, err
 }
 
-const getScheduleRun = `-- name: GetScheduleRun :one
-SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run WHERE id = ?
-`
-
-func (q *Queries) GetScheduleRun(ctx context.Context, id int64) (ScheduleRun, error) {
-	row := q.db.QueryRowContext(ctx, getScheduleRun, id)
-	var i ScheduleRun
-	err := row.Scan(
-		&i.ID,
-		&i.Workspace,
-		&i.ScheduleID,
-		&i.ScheduleName,
-		&i.ScheduledFor,
-		&i.StartedAt,
-		&i.Reason,
-		&i.Missed,
-		&i.Status,
-		&i.SessionID,
-		&i.Prompt,
-		&i.Error,
-	)
-	return i, err
-}
-
 const getSourceHeadPayload = `-- name: GetSourceHeadPayload :one
 SELECT payload FROM source_head
 WHERE topic = ? AND key = ?
@@ -2238,7 +2214,7 @@ type ListScheduleRunSessionsRow struct {
 
 // Which schedule started each chat in one workspace. Oldest first so a caller
 // folding these into a map keyed by session ends up with the newest run's
-// schedule. No index of its own: a workspace keeps at most ScheduleRunLimit
+// schedule. No index of its own: a workspace keeps at most scheduleRunLimit
 // runs per schedule, and schedule_run_by_schedule already narrows to the
 // workspace.
 func (q *Queries) ListScheduleRunSessions(ctx context.Context, workspace string) ([]ListScheduleRunSessionsRow, error) {

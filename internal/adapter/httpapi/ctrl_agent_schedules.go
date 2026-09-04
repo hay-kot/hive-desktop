@@ -196,11 +196,7 @@ func (ctrl *Controller) AgentSchedulePreview(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return err
 	}
-	next := preview.Next
-	if next == nil {
-		next = []int64{}
-	}
 	return server.JSON(w, http.StatusOK, agentSchedulePreviewResponse{
-		Next: next, Prompt: preview.Prompt, CronError: preview.CronError, PromptError: preview.PromptError,
+		Next: preview.Next, Prompt: preview.Prompt, CronError: preview.CronError, PromptError: preview.PromptError,
 	})
 }

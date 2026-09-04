@@ -34,8 +34,8 @@ func loadManifest(t *testing.T, root string) (Workspace, string) {
 
 const baseManifest = "version: 3\nname: Product\nagent: claude\nautonomy: ask\n"
 
-// writeSchedules is the only way a schedule reaches the file: it travels with
-// the rest of the manifest edit, so every test here goes through WriteManifest.
+// writeSchedules saves specs the way the editor does: as part of a whole
+// manifest edit through WriteManifest.
 func writeSchedules(t *testing.T, root string, specs ...schedule.Spec) {
 	t.Helper()
 	require.NoError(t, WriteManifest(root, "product", ManifestEdit{

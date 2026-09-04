@@ -55,8 +55,8 @@ func registerEvents() struct{} {
 	// which is the final intent anyway.
 	application.RegisterEvent[CanvasToggle]("canvas:toggle")
 	// schedules:updated carries the workspace whose scheduled chats changed:
-	// a schedule saved or deleted, or one of them run. The pane re-reads that
-	// workspace's schedules and run history on receipt.
+	// its manifest was written, or one of its schedules ran. The Chats area
+	// re-reads its workspace and chat lists on receipt.
 	application.RegisterEvent[string]("schedules:updated")
 	// update:available carries the latest UpdateInfo when a self-update check
 	// finds a newer desktop release; the title bar reacts to it.

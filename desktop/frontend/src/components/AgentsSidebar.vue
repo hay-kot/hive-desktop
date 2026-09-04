@@ -226,7 +226,7 @@ function workspaceTooltip(node: WorkspaceNode): string {
 function nextScheduleLine(workspace: AgentWorkspace): string {
   let soonest = ''
   let soonestAt = Number.POSITIVE_INFINITY
-  for (const schedule of workspace.schedules ?? []) {
+  for (const schedule of workspace.schedules) {
     if (schedule.disabled || schedule.nextRunAt === null || schedule.nextRunAt >= soonestAt) continue
     soonest = schedule.name || schedule.id
     soonestAt = schedule.nextRunAt
