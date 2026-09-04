@@ -37,13 +37,17 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, autonomyFlags,
+  root, editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, autonomyFlags,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
   reloadSkillPackages, revealSkillPackages, revealSharedSkills,
   openWorkspaceInEditor, revealWorkspace,
 } = useAgentWorkspaces()
 
 const creating = computed(() => !props.workspace)
+
+// The confirm strip names the folder it is about to delete, in full: the
+// directory name alone reads as a label in the app, not as a path on disk.
+const deletedPath = computed(() => (root.value ? `${root.value}/${props.workspace?.dir ?? ''}` : props.workspace?.dir ?? ''))
 
 const dir = ref(props.workspace?.dir ?? '')
 const name = ref(props.workspace?.name ?? '')
@@ -615,7 +619,7 @@ onMounted(async () => {
         v-if="confirming"
         class="-mx-[18px] -my-[13px]"
         title="Delete this workspace?"
-        :description="`Every live chat in ${workspace!.name || workspace!.dir} closes and its chat history is removed. The directory itself stays on disk.`"
+        :description="`Every live chat in ${workspace!.name || workspace!.dir} closes, its chat history is removed, and ${deletedPath} is deleted from disk with everything in it — AGENTS.md, docs, canvases, and anything else written there. This cannot be undone.`"
         confirm-label="Delete"
         :busy="busy"
         :error="error"

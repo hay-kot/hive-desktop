@@ -68,6 +68,37 @@ func CreateWorkspace(root, dir string, edit ManifestEdit) error {
 	return nil
 }
 
+// RemoveWorkspace deletes dir and everything under it: the manifest, the
+// generated trees, and the authored files the user and the agent wrote there,
+// canvases included (ADR deleting-a-workspace-deletes-its-directory).
+//
+// It re-checks the target itself rather than trusting the caller, because it
+// is the one call in this package that removes files it did not write: dir
+// must name a single directory under root, and that directory must hold a
+// manifest. A root with no workspace in it, .shared, and a symlink pointing
+// somewhere else all fail those checks, so the worst a wrong dir can do is
+// nothing.
+func RemoveWorkspace(root, dir string) error {
+	if dir == "" || filepath.Base(dir) != dir || !filepath.IsLocal(dir) {
+		return fmt.Errorf("agentws: %q is not a workspace directory name", dir)
+	}
+	path := filepath.Join(root, dir)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("agentws: workspace %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("agentws: workspace %s is not a directory", path)
+	}
+	if _, err := os.Stat(filepath.Join(path, manifestFileName)); err != nil {
+		return fmt.Errorf("agentws: workspace %s: %w", path, err)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("agentws: delete workspace %s: %w", path, err)
+	}
+	return nil
+}
+
 // WriteManifest sets exactly the ManifestEdit fields in dir's
 // agent-workspace.yaml, creating a fresh version-current document when the
 // file does not exist and editing the existing document in place when it

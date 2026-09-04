@@ -291,9 +291,9 @@ func toAgentMissingPackageViews(in []app.MissingPackageItem) []agentMissingPacka
 	return out
 }
 
-// AgentWorkspaceDelete ends every live terminal a workspace's sessions hold
-// and removes their records. The workspace directory itself is untouched —
-// it is the user's, and possibly under version control (spec §14).
+// AgentWorkspaceDelete ends every live terminal a workspace's sessions hold,
+// deletes the workspace directory, and removes the session records
+// (ADR deleting-a-workspace-deletes-its-directory).
 func (ctrl *Controller) AgentWorkspaceDelete(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentWorkspaceDirRequest](ctrl, w, r)
 	if err != nil {
