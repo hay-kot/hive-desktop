@@ -10,7 +10,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   Typography — family, weight, line height, letter spacing — is configurable.
 - **The Chats area** (experimental): workspaces, tmux-backed chats, and an
   MCP catalogue. A chat can be pinned into the Code view's session tree to
-  stay in reach while you work.
+  stay in reach while you work. Deleting a workspace deletes its folder from
+  disk — its chats, its canvases, and everything else under it — behind a
+  confirmation that names the path it removes.
 - **Canvases** (experimental): a chat's agent can put markdown, links and
   laid-out HTML on named canvases shown beside the conversation, via the
   `hive-canvas` MCP server. HTML blocks are styled by Hive's own class

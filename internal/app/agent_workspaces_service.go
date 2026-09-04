@@ -543,11 +543,17 @@ func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) er
 }
 
 // DeleteWorkspace ends every live tmux session the workspace's sessions hold,
-// then removes the session records — never the directory, which is the
-// user's and possibly under version control (spec §14).
+// deletes the workspace directory, then removes the session records
+// (ADR deleting-a-workspace-deletes-its-directory).
+//
+// That order is what a failure leaves behind. Terminals go first because the
+// directory under their working directory is about to disappear. The
+// directory goes before the records so a delete that cannot finish — a
+// permission, an unreachable root — still has the chat history to come back
+// to, rather than reporting a failure that already threw it away.
 func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string) error {
-	if !validWorkspaceDir(dir) {
-		return Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	if _, err := s.knownWorkspaceDir(dir); err != nil {
+		return err
 	}
 	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
 	if err != nil {
@@ -558,8 +564,14 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 			return terminalError(err, "closing session %q", rec.Name)
 		}
 	}
+	if err := agentws.RemoveWorkspace(s.store.Root(), dir); err != nil {
+		return Wrap(err, KindInternal, "deleting workspace %q", dir)
+	}
 	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
+	}
+	if err := s.store.Reload(); err != nil {
+		return Wrap(err, KindInternal, "reloading workspaces")
 	}
 	return nil
 }

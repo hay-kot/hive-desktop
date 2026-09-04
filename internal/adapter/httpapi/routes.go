@@ -126,7 +126,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such workspace"),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "End every live terminal a workspace's sessions hold and delete their records. The workspace directory itself is never touched — it is the user's, and possibly under version control.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "Delete a workspace: end every live terminal its sessions hold, remove the workspace directory and everything under it — canvases and authored files included — then delete the session records. Refuses a directory the root does not list as a workspace.",
 			Request: agentWorkspaceDirRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
 			Errors: agentErrors(""),
 		},

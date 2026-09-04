@@ -131,6 +131,7 @@ async function deleteWorkspace(dir: string): Promise<void> {
   if (!client.value) return
   await client.value.deleteWorkspace(dir)
   workspaces.value = workspaces.value.filter((w) => w.dir !== dir)
+  void reloadWorkspaces()
 }
 
 // Create/update fold the returned view straight into the list the same way

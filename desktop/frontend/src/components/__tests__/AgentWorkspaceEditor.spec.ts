@@ -89,6 +89,21 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
+  it('the delete confirm names the folder it removes from disk', async () => {
+    const { root } = useAgentWorkspaces()
+    root.value = '/Users/me/workspaces'
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-delete')!.click()
+    await wrapper.vm.$nextTick()
+
+    const confirm = el<HTMLElement>('agent-workspace-editor-delete-confirm')!
+    expect(confirm.textContent).toContain('/Users/me/workspaces/demo')
+    expect(confirm.textContent).toContain('deleted from disk')
+    wrapper.unmount()
+  })
+
   it('creation offers no delete', () => {
     const wrapper = mountEditor(null)
     expect(el('agent-workspace-editor-delete')).toBeNull()

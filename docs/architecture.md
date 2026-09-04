@@ -1531,6 +1531,16 @@ scaffold — authored at birth, written exactly once, never regenerated
 (ADR a-created-workspace-starts-with-an-agents-md-scaffold): overriding the default framing is editing the file, and deleting
 it deletes it. Hand-authored workspaces get no scaffold.
 
+Deleting a workspace deletes that directory
+(ADR deleting-a-workspace-deletes-its-directory): the live terminals its
+sessions hold are killed, the directory and everything under it goes, and the
+session records follow. The list is a scan of the root, so a delete that left
+the manifest behind would list the workspace again on the next refresh.
+`agentws.RemoveWorkspace` re-checks its own target — a single directory name
+local to the root, holding a manifest — and the service refuses a directory
+the root does not list as a workspace, the same guard open-in-editor and
+reveal use.
+
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
@@ -1602,9 +1612,10 @@ link blocks shown in a pane beside the conversation
 Each is one JSON file at `<workspace>/canvases/<name>.json` in the workspace
 folder, owned by `internal/app/canvas` and served by `CanvasService`: a
 canvas is keyed by (workspace, name), carries a display title and the
-creating session as provenance, and outlives both the chat and the workspace
-record — deletion never touches the workspace directory, and the generator's
-reconcile never enters `canvases/`. Every mutation resolves the workspace
+creating session as provenance, and outlives the chat that made it — deleting
+a chat never touches the folder, and the generator's reconcile never enters
+`canvases/`. Deleting the workspace does take them, with the directory they
+sit in (ADR deleting-a-workspace-deletes-its-directory). Every mutation resolves the workspace
 through the session record — the record is the authority, the agent never
 names the workspace. Writes exist only as the `hive-canvas` MCP tools (a
 second app-hosted server in `mcpsrv`, mounted at `/mcp/canvas`); the

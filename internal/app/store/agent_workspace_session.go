@@ -77,8 +77,8 @@ func (db *DB) DeleteAgentWorkspaceSession(ctx context.Context, id int64) error {
 }
 
 // DeleteAgentWorkspaceSessionsByWorkspace removes every session record for a
-// workspace. It never touches the workspace directory itself: deleting a
-// workspace deletes its session history, not the user's files.
+// workspace. Removing the directory those records name is the service's job
+// (AgentWorkspacesService.DeleteWorkspace); this is the history alone.
 func (db *DB) DeleteAgentWorkspaceSessionsByWorkspace(ctx context.Context, workspace string) error {
 	return wrap("deleting agent workspace sessions by workspace", db.queries.DeleteAgentWorkspaceSessionsByWorkspace(ctx, workspace))
 }

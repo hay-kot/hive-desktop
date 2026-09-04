@@ -331,7 +331,7 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	assert.False(t, ok)
 	metas, err := canvases.List("demo")
 	require.NoError(t, err)
-	assert.Len(t, metas, 1, "canvases live in the workspace folder, which deletion never touches")
+	assert.Empty(t, metas, "canvases live in the workspace folder, which the delete takes with it")
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "every live terminal the workspace held is gone")
 }
 
@@ -417,10 +417,11 @@ func TestSessionsListsWithoutRegeneratingArtifacts(t *testing.T) {
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
-func TestDeleteWorkspaceRemovesRecordsAndLeavesTheDirectory(t *testing.T) {
+func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	require.NoError(t, os.WriteFile(filepath.Join(root, "demo", "AGENTS.md"), []byte("# Demo\n"), 0o600))
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
 	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
@@ -432,8 +433,36 @@ func TestDeleteWorkspaceRemovesRecordsAndLeavesTheDirectory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
 
+	assert.NoDirExists(t, filepath.Join(root, "demo"))
+	listed, err := svc.List(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, listed, "the row is gone from the next scan, not just from the caller's copy")
+	assert.DirExists(t, root, "only the workspace goes, never the root around it")
+}
+
+func TestDeleteWorkspaceRefusesAPathTheRootDoesNotList(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".shared", "skills"), 0o700))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	for _, tc := range []struct {
+		dir  string
+		kind Kind
+	}{
+		{"../escape", KindInvalid},
+		{"", KindInvalid},
+		{".shared", KindNotFound},
+		{"never-created", KindNotFound},
+	} {
+		err := svc.DeleteWorkspace(t.Context(), tc.dir)
+		require.Error(t, err, "dir %q", tc.dir)
+		assert.Equal(t, tc.kind, KindOf(err), "dir %q", tc.dir)
+	}
+
+	assert.DirExists(t, filepath.Join(root, ".shared", "skills"))
 	assert.DirExists(t, filepath.Join(root, "demo"))
-	assert.FileExists(t, filepath.Join(root, "demo", "agent-workspace.yaml"))
 }
 
 func TestAllSessionsSpansEveryWorkspaceInStableCreationOrder(t *testing.T) {

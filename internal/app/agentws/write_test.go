@@ -128,3 +128,34 @@ func TestCreateWorkspaceScaffoldsAgentsMD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(raw), string(claude))
 }
+
+func TestRemoveWorkspaceDeletesTheWholeDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, CreateWorkspace(root, "fresh", ManifestEdit{Name: "Fresh", Agent: "claude", Autonomy: AutonomyAsk}))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "fresh", "canvases"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "fresh", "canvases", "plan.json"), []byte("{}"), 0o600))
+
+	require.NoError(t, RemoveWorkspace(root, "fresh"))
+	assert.NoDirExists(t, filepath.Join(root, "fresh"))
+}
+
+func TestRemoveWorkspaceRefusesAnythingThatIsNotAWorkspace(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(outside, manifestFileName), []byte("version: 3\n"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".shared", "skills"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, libraryFileName), []byte("version: 1\n"), 0o600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "linked")))
+
+	for _, dir := range []string{"", ".", "..", "../" + filepath.Base(outside), ".shared", libraryFileName, "linked", "never-created"} {
+		require.Error(t, RemoveWorkspace(root, dir), "dir %q", dir)
+	}
+
+	assert.DirExists(t, outside)
+	assert.DirExists(t, filepath.Join(root, ".shared", "skills"))
+	assert.FileExists(t, filepath.Join(root, libraryFileName))
+}
