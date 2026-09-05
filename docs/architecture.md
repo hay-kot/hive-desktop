@@ -1828,8 +1828,10 @@ the id for display: resolving the fallback in Go would round trip through the
 editor and write the id back as a name nobody typed. `lastRun` is a
 decoration, so a run-history read that fails costs a row its `lastRun` rather
 than the caller its listing.
-`SessionView.scheduleId`, read out of `schedule_run`, is what marks a
-scheduled chat's row with a clock glyph.
+`SessionView.scheduleId`, a column the launch writes on the session row, is
+what marks a scheduled chat's row with a clock glyph. It is stored rather
+than derived from `schedule_run`: session ids are reused after a delete and
+run history is pruned, so a derivation would mislabel or lose it.
 
 ## Execution model
 

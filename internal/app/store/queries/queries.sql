@@ -609,8 +609,8 @@ ORDER BY id DESC;
 SELECT * FROM agent_workspace_session WHERE id = ?;
 
 -- name: InsertAgentWorkspaceSession :one
-INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: TouchAgentWorkspaceSession :exec
@@ -694,21 +694,3 @@ WHERE target.workspace = sqlc.arg(workspace) AND target.schedule_id = sqlc.arg(s
 
 -- name: DeleteScheduleRunsByWorkspace :exec
 DELETE FROM schedule_run WHERE workspace = ?;
-
--- name: ListScheduleRunSessions :many
--- Which schedule started each chat in one workspace. Oldest first so a caller
--- folding these into a map keyed by session ends up with the newest run's
--- schedule. No index of its own: a workspace keeps at most scheduleRunLimit
--- runs per schedule, and schedule_run_by_schedule already narrows to the
--- workspace.
-SELECT session_id, schedule_id FROM schedule_run
-WHERE workspace = ? AND session_id IS NOT NULL
-ORDER BY started_at ASC, id ASC;
-
--- name: ListAllScheduleRunSessions :many
--- ListScheduleRunSessions across every workspace, for the sidebar's
--- cross-workspace chat list. Session ids are unique across workspaces, so the
--- rows key the same way.
-SELECT session_id, schedule_id FROM schedule_run
-WHERE session_id IS NOT NULL
-ORDER BY started_at ASC, id ASC;

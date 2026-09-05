@@ -140,6 +140,25 @@ func TestScheduleSnapshotListsOnlyTheValidWorkspaces(t *testing.T) {
 	assert.Empty(t, snapshot.Specs)
 }
 
+// TestScheduleLauncherMarksTheChatWithItsSchedule: the schedule id a launch
+// carries lands on the session record, which is where the sidebar reads it.
+func TestScheduleLauncherMarksTheChatWithItsSchedule(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	id, err := scheduleLauncher{workspaces: svc}.Launch(t.Context(), schedule.LaunchRequest{
+		Workspace: "demo", ScheduleID: "weekly", Name: "Weekly summary - Sep 5 09:00", Prompt: "go",
+	})
+	require.NoError(t, err)
+
+	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), id)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "weekly", rec.ScheduleID)
+}
+
 // TestScheduleLauncherFailsOnAnImmediateExit: a scheduled launch has no pane
 // to show the "exited immediately" notice on, so an agent CLI that is not on
 // PATH has to reach the run history as a failure rather than as a launched run

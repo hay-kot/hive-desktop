@@ -734,7 +734,7 @@ func (q *Queries) FindRunningJobByCommandID(ctx context.Context, commandID sql.N
 }
 
 const getAgentWorkspaceSession = `-- name: GetAgentWorkspaceSession :one
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session WHERE id = ?
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id FROM agent_workspace_session WHERE id = ?
 `
 
 func (q *Queries) GetAgentWorkspaceSession(ctx context.Context, id int64) (AgentWorkspaceSession, error) {
@@ -748,6 +748,7 @@ func (q *Queries) GetAgentWorkspaceSession(ctx context.Context, id int64) (Agent
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.LastOpenedAt,
+		&i.ScheduleID,
 	)
 	return i, err
 }
@@ -1016,9 +1017,9 @@ func (q *Queries) GetWebhookCapture(ctx context.Context, topic string) (WebhookC
 }
 
 const insertAgentWorkspaceSession = `-- name: InsertAgentWorkspaceSession :one
-INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at)
-VALUES (?, ?, ?, ?, ?, ?)
-RETURNING id, workspace, name, agent, agent_session_id, created_at, last_opened_at
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+RETURNING id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id
 `
 
 type InsertAgentWorkspaceSessionParams struct {
@@ -1028,6 +1029,7 @@ type InsertAgentWorkspaceSessionParams struct {
 	AgentSessionID string `json:"agent_session_id"`
 	CreatedAt      int64  `json:"created_at"`
 	LastOpenedAt   int64  `json:"last_opened_at"`
+	ScheduleID     string `json:"schedule_id"`
 }
 
 func (q *Queries) InsertAgentWorkspaceSession(ctx context.Context, arg InsertAgentWorkspaceSessionParams) (AgentWorkspaceSession, error) {
@@ -1038,6 +1040,7 @@ func (q *Queries) InsertAgentWorkspaceSession(ctx context.Context, arg InsertAge
 		arg.AgentSessionID,
 		arg.CreatedAt,
 		arg.LastOpenedAt,
+		arg.ScheduleID,
 	)
 	var i AgentWorkspaceSession
 	err := row.Scan(
@@ -1048,6 +1051,7 @@ func (q *Queries) InsertAgentWorkspaceSession(ctx context.Context, arg InsertAge
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.LastOpenedAt,
+		&i.ScheduleID,
 	)
 	return i, err
 }
@@ -1494,7 +1498,7 @@ func (q *Queries) ListActivityEvents(ctx context.Context, arg ListActivityEvents
 }
 
 const listAgentWorkspaceSessions = `-- name: ListAgentWorkspaceSessions :many
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id FROM agent_workspace_session
 WHERE workspace = ?
 ORDER BY id DESC
 `
@@ -1519,6 +1523,7 @@ func (q *Queries) ListAgentWorkspaceSessions(ctx context.Context, workspace stri
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.LastOpenedAt,
+			&i.ScheduleID,
 		); err != nil {
 			return nil, err
 		}
@@ -1534,7 +1539,7 @@ func (q *Queries) ListAgentWorkspaceSessions(ctx context.Context, workspace stri
 }
 
 const listAllAgentWorkspaceSessions = `-- name: ListAllAgentWorkspaceSessions :many
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id FROM agent_workspace_session
 ORDER BY id DESC
 `
 
@@ -1557,6 +1562,7 @@ func (q *Queries) ListAllAgentWorkspaceSessions(ctx context.Context) ([]AgentWor
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.LastOpenedAt,
+			&i.ScheduleID,
 		); err != nil {
 			return nil, err
 		}
@@ -1612,43 +1618,6 @@ func (q *Queries) ListAllInboxItems(ctx context.Context, arg ListAllInboxItemsPa
 			&i.LastEventAt,
 			&i.IgnoredAt,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listAllScheduleRunSessions = `-- name: ListAllScheduleRunSessions :many
-SELECT session_id, schedule_id FROM schedule_run
-WHERE session_id IS NOT NULL
-ORDER BY started_at ASC, id ASC
-`
-
-type ListAllScheduleRunSessionsRow struct {
-	SessionID  sql.NullInt64 `json:"session_id"`
-	ScheduleID string        `json:"schedule_id"`
-}
-
-// ListScheduleRunSessions across every workspace, for the sidebar's
-// cross-workspace chat list. Session ids are unique across workspaces, so the
-// rows key the same way.
-func (q *Queries) ListAllScheduleRunSessions(ctx context.Context) ([]ListAllScheduleRunSessionsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listAllScheduleRunSessions)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListAllScheduleRunSessionsRow{}
-	for rows.Next() {
-		var i ListAllScheduleRunSessionsRow
-		if err := rows.Scan(&i.SessionID, &i.ScheduleID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2197,45 +2166,6 @@ func (q *Queries) ListScheduleCursors(ctx context.Context) ([]ScheduleCursor, er
 			&i.EvaluatedThrough,
 			&i.Cron,
 		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listScheduleRunSessions = `-- name: ListScheduleRunSessions :many
-SELECT session_id, schedule_id FROM schedule_run
-WHERE workspace = ? AND session_id IS NOT NULL
-ORDER BY started_at ASC, id ASC
-`
-
-type ListScheduleRunSessionsRow struct {
-	SessionID  sql.NullInt64 `json:"session_id"`
-	ScheduleID string        `json:"schedule_id"`
-}
-
-// Which schedule started each chat in one workspace. Oldest first so a caller
-// folding these into a map keyed by session ends up with the newest run's
-// schedule. No index of its own: a workspace keeps at most scheduleRunLimit
-// runs per schedule, and schedule_run_by_schedule already narrows to the
-// workspace.
-func (q *Queries) ListScheduleRunSessions(ctx context.Context, workspace string) ([]ListScheduleRunSessionsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listScheduleRunSessions, workspace)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListScheduleRunSessionsRow{}
-	for rows.Next() {
-		var i ListScheduleRunSessionsRow
-		if err := rows.Scan(&i.SessionID, &i.ScheduleID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

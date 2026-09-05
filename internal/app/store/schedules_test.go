@@ -217,37 +217,6 @@ func TestDeleteScheduleRuns_RemovesOnlyTheWorkspace(t *testing.T) {
 	assert.Equal(t, kept.ID, runs[0].ID)
 }
 
-func TestScheduleIDsBySession_NewestRunWinsAndSkipsRunsWithNoChat(t *testing.T) {
-	db := openTestDB(t)
-	ctx := t.Context()
-
-	mustInsertRunWithSession(t, db, "ws-1", "weekly", 100, 11)
-	mustInsertRun(t, db, "ws-1", "weekly", 150) // failed to launch, so no chat
-	mustInsertRunWithSession(t, db, "ws-1", "daily", 200, 12)
-	// The same chat recorded twice keeps whichever schedule ran last.
-	mustInsertRunWithSession(t, db, "ws-1", "weekly", 250, 12)
-	mustInsertRunWithSession(t, db, "ws-2", "monthly", 300, 13)
-
-	scoped, err := db.ScheduleIDsBySession(ctx, "ws-1")
-	require.NoError(t, err)
-	assert.Equal(t, map[int64]string{11: "weekly", 12: "weekly"}, scoped)
-
-	all, err := db.AllScheduleIDsBySession(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, map[int64]string{11: "weekly", 12: "weekly", 13: "monthly"}, all)
-}
-
-func mustInsertRunWithSession(t *testing.T, db *DB, workspace, scheduleID string, startedAt, sessionID int64) ScheduleRunRecord {
-	t.Helper()
-	run, err := db.InsertScheduleRun(t.Context(), ScheduleRunRecord{
-		Workspace: workspace, ScheduleID: scheduleID, ScheduleName: scheduleID,
-		ScheduledFor: startedAt, StartedAt: startedAt, Reason: "due", Status: "launched",
-		SessionID: sessionID, Prompt: "Summarize.",
-	})
-	require.NoError(t, err)
-	return run
-}
-
 func mustInsertRun(t *testing.T, db *DB, workspace, scheduleID string, startedAt int64) ScheduleRunRecord {
 	t.Helper()
 	return mustInsertRunWithStatus(t, db, workspace, scheduleID, startedAt, "launched")

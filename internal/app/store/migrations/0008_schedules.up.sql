@@ -29,3 +29,8 @@ CREATE TABLE schedule_run (
 ) STRICT;
 
 CREATE INDEX schedule_run_by_schedule ON schedule_run (workspace, schedule_id, started_at DESC);
+
+-- A chat a schedule started names its schedule here rather than through
+-- schedule_run: session ids are reused after a delete and runs are pruned, so
+-- a derivation would mislabel or lose it.
+ALTER TABLE agent_workspace_session ADD COLUMN schedule_id TEXT NOT NULL DEFAULT '';

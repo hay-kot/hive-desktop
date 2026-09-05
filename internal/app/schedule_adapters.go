@@ -173,7 +173,7 @@ type scheduleLauncher struct{ workspaces *AgentWorkspacesService }
 
 func (l scheduleLauncher) Launch(ctx context.Context, req schedule.LaunchRequest) (int64, error) {
 	view, err := l.workspaces.StartScheduledSession(ctx, StartScheduledSession{
-		Workspace: req.Workspace, Name: req.Name, Prompt: req.Prompt,
+		Workspace: req.Workspace, ScheduleID: req.ScheduleID, Name: req.Name, Prompt: req.Prompt,
 	})
 	if err != nil {
 		return 0, err

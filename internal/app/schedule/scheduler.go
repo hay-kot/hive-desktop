@@ -80,11 +80,13 @@ type Store interface {
 	InsertRun(ctx context.Context, run Run) (Run, error)
 }
 
-// LaunchRequest is one chat to start.
+// LaunchRequest is one chat to start. ScheduleID is the schedule it belongs
+// to, which the launcher records on the chat.
 type LaunchRequest struct {
-	Workspace string
-	Name      string
-	Prompt    string
+	Workspace  string
+	ScheduleID string
+	Name       string
+	Prompt     string
 }
 
 // Launcher starts chats and reports whether one is still running.
@@ -361,7 +363,9 @@ func (s *Scheduler) execute(ctx context.Context, spec Spec, decision Decision, n
 		run.Prompt = prompt
 
 		name := fmt.Sprintf("%s - %s", spec.DisplayName(), decision.ScheduledFor.Format("Jan 2 15:04"))
-		sessionID, err := s.opts.Launcher.Launch(ctx, LaunchRequest{Workspace: spec.Workspace, Name: name, Prompt: prompt})
+		sessionID, err := s.opts.Launcher.Launch(ctx, LaunchRequest{
+			Workspace: spec.Workspace, ScheduleID: spec.ID, Name: name, Prompt: prompt,
+		})
 		if err != nil {
 			// A launch the quit itself stopped is not the schedule failing.
 			// Reporting it would spend the occurrence on a chat that never

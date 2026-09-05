@@ -36,6 +36,7 @@ func (db *DB) CreateAgentWorkspaceSession(ctx context.Context, s AgentWorkspaceS
 		AgentSessionID: s.AgentSessionID,
 		CreatedAt:      s.CreatedAt,
 		LastOpenedAt:   s.LastOpenedAt,
+		ScheduleID:     s.ScheduleID,
 	})
 	return row, wrap("creating agent workspace session", err)
 }

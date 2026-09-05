@@ -764,24 +764,19 @@ func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
 }
 
 // A chat a schedule started wears its schedule's id, which is what marks the
-// row in the sidebar. It comes from the run history rather than the session
-// record, so it holds for both the scoped and the cross-workspace read.
+// row in the sidebar. It is written on the session record at launch, so it
+// holds for the scoped and the cross-workspace read alike and outlives the
+// run history's pruning.
 func TestSessionsNameTheScheduleThatStartedThem(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
 
-	scheduled, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
+	scheduled, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24, ScheduleID: "weekly"})
 	require.NoError(t, err)
+	assert.Equal(t, "weekly", scheduled.ScheduleID, "the launch answers with it too")
 	byHand, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s2", Cols: 80, Rows: 24})
-	require.NoError(t, err)
-
-	_, err = svc.db.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
-		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "Weekly summary",
-		ScheduledFor: 1_000, StartedAt: 1_000, Reason: "due", Status: "launched",
-		SessionID: scheduled.ID, Prompt: "go",
-	})
 	require.NoError(t, err)
 
 	sessions, err := svc.Sessions(t.Context(), "demo")

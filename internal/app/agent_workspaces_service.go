@@ -205,9 +205,9 @@ type SessionView struct {
 	// launch as failed does not depend on the wording of a notice.
 	ExitedEarly bool `json:"exitedEarly"`
 	// ScheduleID names the schedule whose run started this chat, empty when a
-	// person started it. It comes from the run history rather than the session
-	// record: the record is the same either way, and the history is already
-	// where a launch is written down.
+	// person started it. It is a column on the session record rather than a
+	// lookup in the run history: session ids are reused after a delete and the
+	// history is pruned, so a derivation would mislabel or lose it.
 	ScheduleID string `json:"scheduleId"`
 }
 
@@ -233,14 +233,18 @@ type StartSession struct {
 	// TerminalID or WindowID. A scheduled launch has no pane to render into
 	// and no size to negotiate; the UI never sets this.
 	Detached bool
+	// ScheduleID marks a chat a schedule started. The scheduler sets it; the
+	// UI's launch never does.
+	ScheduleID string
 }
 
 // StartScheduledSession is one schedule's launch. It has no cols/rows because
 // it is always detached.
 type StartScheduledSession struct {
-	Workspace string
-	Name      string
-	Prompt    string
+	Workspace  string
+	ScheduleID string
+	Name       string
+	Prompt     string
 }
 
 // OpenResult is what opening a workspace reports back to the UI.
@@ -304,10 +308,7 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	if err != nil {
 		return OpenResult{}, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
-	sessions, err := s.sessionViews(ctx, records, dir)
-	if err != nil {
-		return OpenResult{}, err
-	}
+	sessions := s.sessionViews(ctx, records)
 
 	view := s.workspaceView(ctx, regen.status)
 	if len(regen.generated.Problems) > 0 {
@@ -375,7 +376,7 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
-	return s.sessionViews(ctx, records, dir)
+	return s.sessionViews(ctx, records), nil
 }
 
 // SessionActivity captures each live session's tmux pane and classifies it
@@ -443,7 +444,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	now := time.Now().UnixMilli()
 	rec, err := s.db.CreateAgentWorkspaceSession(ctx, store.AgentWorkspaceSession{
 		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent, AgentSessionID: agentSessionID,
-		CreatedAt: now, LastOpenedAt: now,
+		CreatedAt: now, LastOpenedAt: now, ScheduleID: req.ScheduleID,
 	})
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "creating session %q", req.Name)
@@ -466,6 +467,7 @@ func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req 
 	}
 	return s.StartSession(ctx, StartSession{
 		Workspace: req.Workspace, Name: req.Name, Prompt: req.Prompt, Detached: true,
+		ScheduleID: req.ScheduleID,
 	})
 }
 
@@ -1182,6 +1184,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	view := SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
 		LastOpenedAt: rec.LastOpenedAt, Slug: name, ResumeAttempted: opts.resumeAttempted,
+		ScheduleID: rec.ScheduleID,
 	}
 
 	if s.awaitEarlyExit(ctx, name) {
@@ -1359,22 +1362,8 @@ func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.W
 
 // sessionViews reports read-only rows for records -- unlike launchTerminal's
 // view, nothing here launches or attaches, so WindowID, ResumeAttempted and
-// Notice stay zero-valued. dir scopes the schedule lookup to one workspace;
-// empty spans every workspace, for AllSessions.
-func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []store.AgentWorkspaceSession, dir string) ([]SessionView, error) {
-	var (
-		scheduleIDs map[int64]string
-		err         error
-	)
-	if dir == "" {
-		scheduleIDs, err = s.db.AllScheduleIDsBySession(ctx)
-	} else {
-		scheduleIDs, err = s.db.ScheduleIDsBySession(ctx, dir)
-	}
-	if err != nil {
-		return nil, Wrap(err, KindInternal, "reading which chats a schedule started")
-	}
-
+// Notice stay zero-valued.
+func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []store.AgentWorkspaceSession) []SessionView {
 	views := make([]SessionView, 0, len(records))
 	for _, rec := range records {
 		name := sessionName(rec.ID)
@@ -1385,10 +1374,10 @@ func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []sto
 		views = append(views, SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
 			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: live,
-			ScheduleID: scheduleIDs[rec.ID],
+			ScheduleID: rec.ScheduleID,
 		})
 	}
-	return views, nil
+	return views
 }
 
 // workspaceView is one workspace's row: the manifest fields, why it could not
@@ -1475,7 +1464,7 @@ func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing all sessions")
 	}
-	return s.sessionViews(ctx, records, "")
+	return s.sessionViews(ctx, records), nil
 }
 
 // agentLaunchError classifies an agentws launch-resolution failure by
