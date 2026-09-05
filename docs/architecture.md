@@ -1804,8 +1804,8 @@ when the schedule's previous chat is still live.
 
 `App.scheduler` is one `*schedule.Scheduler` goroutine on the standing
 App-owned lifecycle: started after the agent-workspace watcher, stopped
-before `terminals.Stop`. `app.SchedulesService` is the read facade in front
-of it -- `List`, `RunNow`, `Runs`, `Preview` -- and its routes sit under
+before `terminals.Stop`. `app.SchedulesService` is the facade in front of
+it -- `RunNow`, `Runs`, `Preview` -- and its routes sit under
 `/api/terminal/agents/schedules/...`, the same token-guarded prefix as the
 rest of the agent-workspace control plane, because "run now" spawns a process
 like every other call on that prefix. Writing belongs to

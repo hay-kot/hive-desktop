@@ -104,60 +104,64 @@ func (f scheduleFixture) declare(t *testing.T, specs ...schedule.Spec) {
 	f.scheduler.Reload()
 }
 
-func TestSchedulesServiceListJoinsTheNextRun(t *testing.T) {
+// rows reads the demo workspace's schedules back the way the workspace view
+// does: the manifest's specs joined with their run state.
+func (f scheduleFixture) rows(t *testing.T) []ScheduleView {
+	t.Helper()
+	for _, st := range f.workspaces.Statuses() {
+		if st.Dir != "demo" {
+			continue
+		}
+		require.True(t, st.Valid, st.Err)
+		return scheduleRows(t.Context(), f.db, zerolog.Nop(), st.Workspace.Schedules, time.Now())
+	}
+	t.Fatal("the demo workspace is missing")
+	return nil
+}
+
+func TestScheduleRowsJoinTheNextRun(t *testing.T) {
 	f := newTestSchedulesService(t)
 
 	f.declare(t, schedule.Spec{
 		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
 	})
 
-	listed, err := f.svc.List(t.Context(), "demo")
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, "weekly", listed[0].ID)
-	assert.Equal(t, "Weekly summary", listed[0].Name)
-	assert.Equal(t, "0 9 * * 5", listed[0].Cron)
-	assert.Equal(t, "run", listed[0].OnMissed, "the manifest omits the default; the view names it")
-	require.NotNil(t, listed[0].NextRunAt)
-	assert.Greater(t, *listed[0].NextRunAt, time.Now().UnixMilli())
-	assert.Nil(t, listed[0].LastRun, "a schedule that has never fired has no last run")
+	rows := f.rows(t)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "weekly", rows[0].ID)
+	assert.Equal(t, "Weekly summary", rows[0].Name)
+	assert.Equal(t, "0 9 * * 5", rows[0].Cron)
+	assert.Equal(t, "run", rows[0].OnMissed, "the manifest omits the default; the view names it")
+	require.NotNil(t, rows[0].NextRunAt)
+	assert.Greater(t, *rows[0].NextRunAt, time.Now().UnixMilli())
+	assert.Nil(t, rows[0].LastRun, "a schedule that has never fired has no last run")
 
 	// A disabled schedule keeps its cron but has nothing coming.
 	f.declare(t, schedule.Spec{
 		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
 		Disabled: true, OnMissed: schedule.OnMissedSkip,
 	})
-	listed, err = f.svc.List(t.Context(), "demo")
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.True(t, listed[0].Disabled)
-	assert.Equal(t, "skip", listed[0].OnMissed)
-	assert.Nil(t, listed[0].NextRunAt)
+	rows = f.rows(t)
+	require.Len(t, rows, 1)
+	assert.True(t, rows[0].Disabled)
+	assert.Equal(t, "skip", rows[0].OnMissed)
+	assert.Nil(t, rows[0].NextRunAt)
 }
 
 // The run history is a decoration on a row the manifest already fully
 // describes, so a database that cannot answer for it costs the row its
 // lastRun, not the caller its listing.
-func TestSchedulesServiceListSurvivesAnUnreadableRunHistory(t *testing.T) {
+func TestScheduleRowsSurviveAnUnreadableRunHistory(t *testing.T) {
 	f := newTestSchedulesService(t)
 
 	f.declare(t, schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "@daily", Prompt: "go"})
 	require.NoError(t, f.db.Close())
 
-	listed, err := f.svc.List(t.Context(), "demo")
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, "weekly", listed[0].ID)
-	require.NotNil(t, listed[0].NextRunAt, "everything the manifest says is still there")
-	assert.Nil(t, listed[0].LastRun)
-}
-
-func TestSchedulesServiceListRefusesAnUnknownWorkspace(t *testing.T) {
-	f := newTestSchedulesService(t)
-
-	_, err := f.svc.List(t.Context(), "missing")
-	require.Error(t, err)
-	assert.Equal(t, KindNotFound, KindOf(err))
+	rows := f.rows(t)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "weekly", rows[0].ID)
+	require.NotNil(t, rows[0].NextRunAt, "everything the manifest says is still there")
+	assert.Nil(t, rows[0].LastRun)
 }
 
 func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
@@ -182,11 +186,10 @@ func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
 	assert.Contains(t, requests[0].Name, "Weekly summary")
 
 	// The manual run is the schedule's newest, so it shows as its last run.
-	listed, err := f.svc.List(t.Context(), "demo")
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	require.NotNil(t, listed[0].LastRun)
-	assert.Equal(t, run.ID, listed[0].LastRun.ID)
+	rows := f.rows(t)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].LastRun)
+	assert.Equal(t, run.ID, rows[0].LastRun.ID)
 
 	_, err = f.svc.RunNow(t.Context(), "demo", "nope")
 	require.Error(t, err)

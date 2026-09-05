@@ -15,23 +15,15 @@ import (
 // a root is made, which is every harness run.
 const seededWorkspace = "hive"
 
-// A schedule is written by the workspace editor, so the read surface and the
-// write surface are two different routes: workspaces/update saves it, and
-// schedules lists it back with the run state joined on.
-func TestAgentSchedulesListWhatTheWorkspaceEditorWrote(t *testing.T) {
+// A schedule is written and read back on the workspace view: workspaces/update
+// saves it and answers with what it wrote, and workspaces/open lists it joined
+// with its run state. There is no schedules list route of its own.
+func TestAgentWorkspaceViewCarriesTheSchedulesTheEditorWrote(t *testing.T) {
 	h := newAgentHarness(t)
 
-	resp := h.post(t, AgentWorkspacesPathPrefix+"schedules", "", agentSchedulesRequest{Workspace: seededWorkspace})
+	resp := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", "", agentScheduleRunsRequest{Workspace: seededWorkspace})
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the schedules surface rides the terminal bearer gate")
-
-	resp = h.post(t, AgentWorkspacesPathPrefix+"schedules", testToken, agentSchedulesRequest{Workspace: seededWorkspace})
-	defer func() { _ = resp.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var list agentSchedulesResponse
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
-	require.NotNil(t, list.Schedules, "schedules is never null on the wire")
-	assert.Empty(t, list.Schedules)
 
 	saved := h.saveWorkspaceSchedules(t, agentWorkspaceScheduleEdit{
 		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
@@ -42,14 +34,16 @@ func TestAgentSchedulesListWhatTheWorkspaceEditorWrote(t *testing.T) {
 	require.NotNil(t, saved.Schedules[0].NextRunAt)
 	assert.Nil(t, saved.Schedules[0].LastRun)
 
-	resp2 := h.post(t, AgentWorkspacesPathPrefix+"schedules", testToken, agentSchedulesRequest{Workspace: seededWorkspace})
-	defer func() { _ = resp2.Body.Close() }()
-	require.Equal(t, http.StatusOK, resp2.StatusCode)
-	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&list))
-	require.Len(t, list.Schedules, 1)
-	assert.Equal(t, "Weekly summary", list.Schedules[0].Name)
+	opened := h.post(t, AgentWorkspacesPathPrefix+"workspaces/open", testToken, agentWorkspaceDirRequest{Dir: seededWorkspace})
+	defer func() { _ = opened.Body.Close() }()
+	require.Equal(t, http.StatusOK, opened.StatusCode)
+	var open agentWorkspaceOpenResponse
+	require.NoError(t, json.NewDecoder(opened.Body).Decode(&open))
+	require.Len(t, open.Workspace.Schedules, 1)
+	assert.Equal(t, "Weekly summary", open.Workspace.Schedules[0].Name)
 
 	cleared := h.saveWorkspaceSchedules(t)
+	require.NotNil(t, cleared.Schedules, "schedules is never null on the wire")
 	assert.Empty(t, cleared.Schedules, "an omitted list deletes every entry")
 }
 

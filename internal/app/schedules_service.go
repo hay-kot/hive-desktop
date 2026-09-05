@@ -78,11 +78,11 @@ type PreviewView struct {
 	PromptError string
 }
 
-// SchedulesService reads scheduled chats: the definitions in each workspace
-// manifest joined with the run state the app keeps beside them, plus the two
-// things a user does to one outside the editor -- fire it now, and read what
-// it did. Writing a schedule is AgentWorkspacesService's, because a schedule
-// is a manifest key saved with the rest of the manifest.
+// SchedulesService is what a user does to a schedule outside the editor: fire
+// it now, read what it did, and dry-run an edit before saving it. The
+// definitions themselves ride the workspace view, and writing one is
+// AgentWorkspacesService's, because a schedule is a manifest key saved with
+// the rest of the manifest.
 type SchedulesService struct {
 	workspaces *agentws.Store
 	db         *store.DB
@@ -92,15 +92,6 @@ type SchedulesService struct {
 
 func newSchedulesService(workspaces *agentws.Store, db *store.DB, scheduler *schedule.Scheduler, logger zerolog.Logger) *SchedulesService {
 	return &SchedulesService{workspaces: workspaces, db: db, scheduler: scheduler, logger: logger}
-}
-
-// List returns a workspace's schedules in manifest order.
-func (s *SchedulesService) List(ctx context.Context, workspace string) ([]ScheduleView, error) {
-	specs, err := s.specs(workspace)
-	if err != nil {
-		return nil, err
-	}
-	return scheduleRows(ctx, s.db, s.logger, specs, time.Now()), nil
 }
 
 // RunNow fires a schedule outside its timetable. The cursor is untouched, so
@@ -184,28 +175,8 @@ func (s *SchedulesService) Preview(_ context.Context, req PreviewRequest) (Previ
 	return view, nil
 }
 
-// specs is the workspace's schedules, and the one place a workspace that is
-// missing or broken is refused.
-func (s *SchedulesService) specs(workspace string) ([]schedule.Spec, error) {
-	if !validWorkspaceDir(workspace) {
-		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", workspace)
-	}
-	for _, st := range s.workspaces.Statuses() {
-		if st.Dir != workspace {
-			continue
-		}
-		if !st.Valid {
-			return nil, Errorf(KindNotFound, "workspace %q could not be read: %s", workspace, st.Err)
-		}
-		return st.Workspace.Schedules, nil
-	}
-	return nil, Errorf(KindNotFound, "workspace %q not found", workspace)
-}
-
 // scheduleRows joins manifest specs with the state the manifest does not
-// carry. Both readers of a workspace's schedules go through it -- the
-// schedules list and the workspace view the editor loads -- so a row means the
-// same thing wherever it is read.
+// carry, for the workspace view the editor and the sidebar read.
 //
 // A run-history read that fails leaves that row's LastRun nil rather than
 // failing the listing. The definitions are the manifest's and are already in

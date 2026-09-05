@@ -1,6 +1,5 @@
 import { useAgentWorkspaces } from './useAgentWorkspaces'
 import type {
-  AgentSchedule,
   AgentSchedulePreview,
   AgentScheduleRun,
   SchedulePreviewRequest,
@@ -23,16 +22,11 @@ async function resolveClient() {
 }
 
 export function useAgentSchedules(): {
-  /** A workspace's schedules with fresh nextRunAt/lastRun: the refresh after a manual run. */
-  list: (workspace: string) => Promise<AgentSchedule[]>
   runs: (workspace: string, id: string) => Promise<AgentScheduleRun[]>
   runNow: (workspace: string, id: string) => Promise<AgentScheduleRun>
   preview: (request: SchedulePreviewRequest) => Promise<AgentSchedulePreview>
 } {
   return {
-    async list(workspace) {
-      return await (await resolveClient()).schedules(workspace)
-    },
     async runs(workspace, id) {
       return await (await resolveClient()).scheduleRuns(workspace, id, RUN_HISTORY_LIMIT)
     },

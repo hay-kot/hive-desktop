@@ -83,7 +83,6 @@ function scheduleClient() {
   return {
     mcpCatalogue: vi.fn().mockResolvedValue([]),
     skillPackages: vi.fn().mockResolvedValue({ packages: [], skills: [], problem: '' }),
-    schedules: vi.fn().mockResolvedValue([schedule()]),
     scheduleRuns: vi.fn().mockResolvedValue([run()]),
     runSchedule: vi.fn().mockResolvedValue(run({ reason: 'manual' })),
     previewSchedule: vi.fn().mockResolvedValue({ next: [], prompt: '', cronError: '', promptError: '' }),
@@ -549,17 +548,20 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
-  it('runs a schedule now and re-reads its run state afterwards', async () => {
+  // The run the Go side answers with is the schedule's newest, so the card
+  // shows it as the last run without re-reading the workspace.
+  it('runs a schedule now and shows the run it answered with as the last run', async () => {
     const client = scheduleClient()
     mocks.client = client
     const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
     await flushPromises()
+    expect(el('agent-workspace-editor-schedule-0-last-run')).toBeNull()
 
     el<HTMLButtonElement>('agent-workspace-editor-schedule-0-run')!.click()
     await flushPromises()
 
     expect(client.runSchedule).toHaveBeenCalledWith('demo', 'weekly-summary')
-    expect(client.schedules).toHaveBeenCalledWith('demo')
+    expect(el('agent-workspace-editor-schedule-0-last-run')!.textContent).toContain('launched · manual')
     wrapper.unmount()
   })
 

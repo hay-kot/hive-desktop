@@ -236,11 +236,6 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such canvas"),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules", Summary: "List a workspace's scheduled chats in manifest order, each joined with the state the manifest does not carry: nextRunAt is when its cron fires next (null when it is disabled or the expression does not parse), and lastRun is its newest run whatever the outcome, so a failing schedule says so where it is listed.",
-			Request: agentSchedulesRequest{}, Response: agentSchedulesResponse{}, Handler: ctrl.AgentSchedules,
-			Errors: agentErrors("no such workspace, or its manifest is invalid"),
-		},
-		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/run", Summary: "Fire one schedule now, outside its timetable, and return the run it recorded. The cursor is untouched, so the next real occurrence still happens. A run whose previous chat is still open, or whose prompt or launch failed, answers 200 with that outcome on the run rather than an error.",
 			Request: agentScheduleIDRequest{}, Response: agentScheduleRunResponse{}, Handler: ctrl.AgentScheduleRun,
 			Errors: agentErrors("no schedule of that id in that workspace",

@@ -359,11 +359,6 @@ export interface AgentWorkspacesClient {
   canvasMarkdown(workspace: string, name: string): Promise<string>
   /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
   exportCanvas(workspace: string, name: string, path: string): Promise<void>
-  /**
-   * A workspace's schedules with their run state read fresh. The rows also ride
-   * the workspace view, so this is for a refresh after "Run now", not a load.
-   */
-  schedules(workspace: string): Promise<AgentSchedule[]>
   /** Fires a schedule now, outside its timetable; the cursor is untouched. */
   runSchedule(workspace: string, id: string): Promise<AgentScheduleRun>
   /** Run history, newest first. An empty id spans every schedule in the workspace. */
@@ -507,10 +502,6 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async exportCanvas(workspace, name, path) {
       await post('/canvas/export', { workspace, name, path })
-    },
-    async schedules(workspace) {
-      const body = await post<{ schedules: AgentSchedule[] | null }>('/schedules', { workspace })
-      return body?.schedules ?? []
     },
     async runSchedule(workspace, id) {
       const body = await post<{ run: AgentScheduleRun }>('/schedules/run', { workspace, id })

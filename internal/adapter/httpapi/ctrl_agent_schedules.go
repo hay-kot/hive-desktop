@@ -9,14 +9,15 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app"
 )
 
-// The schedules surface is the workspace manifest's schedules: list joined
-// with the run state the app keeps beside it. It sits under the same prefix as
-// the rest of the agent control plane because a schedule launches an agent
+// The schedules surface is what a user does to a schedule outside the editor:
+// run it now, read its history, preview an edit. It sits under the same prefix
+// as the rest of the agent control plane because a schedule launches an agent
 // CLI, which is arbitrary command execution (ADR terminal-transport).
 //
-// It is read-only. A schedule is written by the workspace editor, in the same
-// request that saves the rest of the manifest (workspaces/create and
-// workspaces/update), so there is no per-schedule write route.
+// A schedule is read and written through the workspace view: workspaces/open
+// lists them joined with their run state, and workspaces/create and
+// workspaces/update save them with the rest of the manifest. There is no
+// per-schedule list or write route.
 
 // agentScheduleView is one schedule row. nextRunAt and lastRun are nullable on
 // the wire: a disabled schedule has no next run, and one that has never fired
@@ -71,35 +72,6 @@ func toAgentScheduleRunView(r app.RunView) agentScheduleRunView {
 		ScheduledFor: r.ScheduledFor, StartedAt: r.StartedAt, Reason: r.Reason, Status: r.Status,
 		Missed: r.Missed, SessionID: r.SessionID, Prompt: r.Prompt, Error: r.Error,
 	}
-}
-
-type agentSchedulesRequest struct {
-	Workspace string `json:"workspace"`
-}
-
-func (b agentSchedulesRequest) Validate() error {
-	return criterio.Run("workspace", b.Workspace, criterio.Required)
-}
-
-type agentSchedulesResponse struct {
-	Schedules []agentScheduleView `json:"schedules"`
-}
-
-// AgentSchedules lists a workspace's schedules in manifest order.
-func (ctrl *Controller) AgentSchedules(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentSchedulesRequest](ctrl, w, r)
-	if err != nil {
-		return err
-	}
-	schedules, err := ctrl.core.Schedules.List(r.Context(), body.Workspace)
-	if err != nil {
-		return err
-	}
-	views := make([]agentScheduleView, 0, len(schedules))
-	for _, s := range schedules {
-		views = append(views, toAgentScheduleView(s))
-	}
-	return server.JSON(w, http.StatusOK, agentSchedulesResponse{Schedules: views})
 }
 
 type agentScheduleIDRequest struct {

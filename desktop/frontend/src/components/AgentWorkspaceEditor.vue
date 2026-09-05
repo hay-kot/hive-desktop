@@ -320,7 +320,7 @@ interface ScheduleCard {
   history: AgentScheduleRun[]
 }
 
-const { list: listSchedules, runs: listScheduleRuns, runNow, preview } = useAgentSchedules()
+const { runs: listScheduleRuns, runNow, preview } = useAgentSchedules()
 
 let cardSeq = 0
 
@@ -602,27 +602,15 @@ async function runScheduleNow(card: ScheduleCard): Promise<void> {
   card.running = true
   card.actionError = ''
   try {
-    await runNow(props.workspace.dir, card.id)
-    await refreshRunState()
+    // The run the Go side answers with is, by construction, the schedule's
+    // newest, which is what lastRun shows. nextRunAt is untouched: a manual
+    // run never consumes the window.
+    card.lastRun = await runNow(props.workspace.dir, card.id)
     if (card.historyLoaded) await loadHistory(card, true)
   } catch (failure) {
     card.actionError = failure instanceof Error ? failure.message : 'The schedule could not be run.'
   } finally {
     card.running = false
-  }
-}
-
-// The run state is the Go side's, not the form's: a manual run moves nextRunAt
-// and lastRun, and nothing in the form can compute either.
-async function refreshRunState(): Promise<void> {
-  if (!props.workspace) return
-  const rows = await listSchedules(props.workspace.dir)
-  const byId = new Map(rows.map((row) => [row.id, row]))
-  for (const card of scheduleCards.value) {
-    const row = card.saved ? byId.get(card.id) : undefined
-    if (!row) continue
-    card.nextRunAt = row.nextRunAt
-    card.lastRun = row.lastRun
   }
 }
 
