@@ -293,37 +293,11 @@ func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, err
 }
 
 // Open regenerates the workspace's disposable artifacts and returns its
-// sessions. It is the only entry point that writes into a workspace, and the
-// resolution chain Generate itself stays pure over: mcps: [...] resolves
-// through the store's Catalogue, skills: [...] through skills.yml's packages
-// (ADR skill-packages-are-the-unit-a-workspace-enables).
+// sessions. It is the only entry point that writes into a workspace.
 func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResult, error) {
-	if !validWorkspaceDir(dir) {
-		return OpenResult{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
-	}
-	st, ok := s.workspaceStatus(dir)
-	if !ok {
-		return OpenResult{}, Errorf(KindNotFound, "workspace %q not found", dir)
-	}
-	if !st.Valid {
-		return OpenResult{}, Wrap(st.Err, KindInvalid, "workspace %q", dir)
-	}
-	ws := st.Workspace
-
-	rendered, missingPackages, err := s.resolveSkills(ctx, ws)
+	regen, err := s.regenerate(ctx, dir)
 	if err != nil {
 		return OpenResult{}, err
-	}
-
-	workspaceDir := filepath.Join(s.store.Root(), dir)
-	genResult, err := agentws.Generate(agentws.GenerateInput{
-		Dir:       workspaceDir,
-		Workspace: ws,
-		Servers:   s.resolveServers(ctx, ws),
-		Skills:    rendered,
-	})
-	if err != nil {
-		return OpenResult{}, Wrap(err, KindInternal, "generating workspace %q", dir)
 	}
 
 	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
@@ -335,15 +309,58 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 		return OpenResult{}, err
 	}
 
-	view := s.workspaceView(ctx, st)
-	if len(genResult.Problems) > 0 {
-		view.Problem = strings.Join(genResult.Problems, "; ")
+	view := s.workspaceView(ctx, regen.status)
+	if len(regen.generated.Problems) > 0 {
+		view.Problem = strings.Join(regen.generated.Problems, "; ")
 	}
 
 	return OpenResult{
 		Workspace: view, Sessions: sessions,
-		MissingMCPs: genResult.MissingMCPs, MissingPackages: missingPackages,
+		MissingMCPs: regen.generated.MissingMCPs, MissingPackages: regen.missingPackages,
 	}, nil
+}
+
+// regeneration is what one regenerate produced: the status it read, and what
+// the skill resolution and Generate reported.
+type regeneration struct {
+	status          agentws.WorkspaceStatus
+	generated       agentws.Result
+	missingPackages []MissingPackageItem
+}
+
+// regenerate rewrites a workspace's disposable artifacts from its manifest:
+// Open's write half, and what a scheduled launch needs before it starts. The
+// resolution chain Generate itself stays pure over lives here: mcps: [...]
+// resolves through the store's Catalogue, skills: [...] through skills.yml's
+// packages (ADR skill-packages-are-the-unit-a-workspace-enables).
+func (s *AgentWorkspacesService) regenerate(ctx context.Context, dir string) (regeneration, error) {
+	if !validWorkspaceDir(dir) {
+		return regeneration{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	st, ok := s.workspaceStatus(dir)
+	if !ok {
+		return regeneration{}, Errorf(KindNotFound, "workspace %q not found", dir)
+	}
+	if !st.Valid {
+		return regeneration{}, Wrap(st.Err, KindInvalid, "workspace %q", dir)
+	}
+	ws := st.Workspace
+
+	rendered, missingPackages, err := s.resolveSkills(ctx, ws)
+	if err != nil {
+		return regeneration{}, err
+	}
+
+	generated, err := agentws.Generate(agentws.GenerateInput{
+		Dir:       filepath.Join(s.store.Root(), dir),
+		Workspace: ws,
+		Servers:   s.resolveServers(ctx, ws),
+		Skills:    rendered,
+	})
+	if err != nil {
+		return regeneration{}, Wrap(err, KindInternal, "generating workspace %q", dir)
+	}
+	return regeneration{status: st, generated: generated, missingPackages: missingPackages}, nil
 }
 
 // Sessions lists a workspace's session rows without regenerating its
@@ -438,13 +455,13 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	})
 }
 
-// StartScheduledSession launches a chat the scheduler asked for. Open comes
-// first because the UI's own launch path always opens the workspace before
-// starting a session: without it a scheduled run would drive an agent whose
-// .mcp.json and skills were never regenerated for the manifest as it stands
-// now.
+// StartScheduledSession launches a chat the scheduler asked for. The
+// workspace is regenerated first, as the UI's own launch path does through
+// Open: without it a scheduled run would drive an agent whose .mcp.json and
+// skills were never regenerated for the manifest as it stands now. Open's
+// read half, the session list and the view, has no reader here.
 func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req StartScheduledSession) (SessionView, error) {
-	if _, err := s.Open(ctx, req.Workspace); err != nil {
+	if _, err := s.regenerate(ctx, req.Workspace); err != nil {
 		return SessionView{}, err
 	}
 	return s.StartSession(ctx, StartSession{

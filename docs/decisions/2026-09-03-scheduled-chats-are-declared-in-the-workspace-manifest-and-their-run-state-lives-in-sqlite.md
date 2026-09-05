@@ -83,9 +83,9 @@ the schedule instead of leaking `<no value>` into the agent's opening
 message.
 
 **A scheduled launch is an ordinary session launch, only detached.** It goes
-through `AgentWorkspacesService.StartScheduledSession`, which opens the
-workspace first, so the manifest and generated files (`.mcp.json` and the
-rest) are current before anything runs, then starts the session the same way
+through `AgentWorkspacesService.StartScheduledSession`, which regenerates the
+workspace first, as `Open` does, so the manifest and generated files
+(`.mcp.json` and the rest) are current before anything runs, then starts the session the same way
 a user-initiated one starts, with the rendered prompt appended behind the `--`
 end-of-options marker as the agent's final positional argument -- a prompt is
 prose, and one that opens with a hyphen (a markdown list) is otherwise read as
