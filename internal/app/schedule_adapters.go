@@ -52,12 +52,8 @@ func (w scheduleWorkspaces) Snapshot() schedule.Snapshot {
 }
 
 func (w scheduleWorkspaces) WorkspaceName(dir string) string {
-	for _, st := range w.store.Statuses() {
-		if st.Dir == dir {
-			return st.Workspace.Name
-		}
-	}
-	return ""
+	st, _ := w.store.Status(dir)
+	return st.Workspace.Name
 }
 
 // scheduleStore is the scheduler's Store over the pipeline database. The

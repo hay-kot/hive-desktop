@@ -337,7 +337,7 @@ func (s *AgentWorkspacesService) regenerate(ctx context.Context, dir string) (re
 	if !validWorkspaceDir(dir) {
 		return regeneration{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 	}
-	st, ok := s.workspaceStatus(dir)
+	st, ok := s.store.Status(dir)
 	if !ok {
 		return regeneration{}, Errorf(KindNotFound, "workspace %q not found", dir)
 	}
@@ -422,7 +422,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	if !validWorkspaceDir(req.Workspace) {
 		return SessionView{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", req.Workspace)
 	}
-	st, ok := s.workspaceStatus(req.Workspace)
+	st, ok := s.store.Status(req.Workspace)
 	if !ok || !st.Valid {
 		return SessionView{}, Errorf(KindNotFound, "workspace %q not found", req.Workspace)
 	}
@@ -518,7 +518,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		}, nil
 	}
 
-	st, ok := s.workspaceStatus(rec.Workspace)
+	st, ok := s.store.Status(rec.Workspace)
 	if !ok || !st.Valid {
 		return SessionView{}, Errorf(KindNotFound, "workspace %q not found", rec.Workspace)
 	}
@@ -828,7 +828,7 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
 	}
-	st, ok := s.workspaceStatus(req.Dir)
+	st, ok := s.store.Status(req.Dir)
 	if !ok {
 		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
 	}
@@ -1078,7 +1078,7 @@ func (s *AgentWorkspacesService) knownWorkspaceDir(dir string) (string, error) {
 	if !validWorkspaceDir(dir) {
 		return "", Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 	}
-	if _, ok := s.workspaceStatus(dir); !ok {
+	if _, ok := s.store.Status(dir); !ok {
 		return "", Errorf(KindNotFound, "workspace %q not found", dir)
 	}
 	return filepath.Join(s.store.Root(), dir), nil
@@ -1102,7 +1102,7 @@ func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (Wor
 	if err := s.store.Reload(); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInternal, "reloading workspaces")
 	}
-	st, ok := s.workspaceStatus(dir)
+	st, ok := s.store.Status(dir)
 	if !ok {
 		return WorkspaceView{}, Errorf(KindInternal, "workspace %q vanished after writing it", dir)
 	}
@@ -1355,15 +1355,6 @@ func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.W
 		rendered = append(rendered, agentws.RenderedSkill{Slug: slug, Body: body})
 	}
 	return rendered, missingPackages, nil
-}
-
-func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceStatus, bool) {
-	for _, st := range s.store.Statuses() {
-		if st.Dir == dir {
-			return st, true
-		}
-	}
-	return agentws.WorkspaceStatus{}, false
 }
 
 // sessionViews reports read-only rows for records -- unlike launchTerminal's

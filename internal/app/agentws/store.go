@@ -99,6 +99,15 @@ func (s *Store) Statuses() []WorkspaceStatus {
 	return out
 }
 
+// Status returns one workspace directory's WorkspaceStatus, valid or broken.
+// ok is false for a directory the root does not hold.
+func (s *Store) Status(dir string) (WorkspaceStatus, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.statuses[dir]
+	return st, ok
+}
+
 // Library returns mcps.yaml's last-good outcome.
 func (s *Store) Library() LibraryStatus {
 	s.mu.Lock()
