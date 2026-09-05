@@ -50,6 +50,26 @@ func TestScheduleCursor_UpsertGetListDelete(t *testing.T) {
 	assert.Equal(t, "ws-2", cursors[0].Workspace)
 }
 
+func TestDeleteScheduleCursors_RemovesOnlyTheWorkspace(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	for _, cursor := range []ScheduleCursorRecord{
+		{Workspace: "ws-1", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly"},
+		{Workspace: "ws-1", ScheduleID: "daily", EvaluatedThrough: 100, Cron: "@daily"},
+		{Workspace: "ws-2", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly"},
+	} {
+		require.NoError(t, db.UpsertScheduleCursor(ctx, cursor))
+	}
+
+	require.NoError(t, db.DeleteScheduleCursors(ctx, "ws-1"))
+
+	cursors, err := db.ListScheduleCursors(ctx)
+	require.NoError(t, err)
+	require.Len(t, cursors, 1)
+	assert.Equal(t, "ws-2", cursors[0].Workspace)
+}
+
 func TestInsertScheduleRun_ReturnsAssignedID(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()

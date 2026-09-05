@@ -653,6 +653,9 @@ SELECT * FROM schedule_cursor;
 -- name: DeleteScheduleCursor :exec
 DELETE FROM schedule_cursor WHERE workspace = ? AND schedule_id = ?;
 
+-- name: DeleteScheduleCursorsByWorkspace :exec
+DELETE FROM schedule_cursor WHERE workspace = ?;
+
 -- name: InsertScheduleRun :one
 INSERT INTO schedule_run (
     workspace, schedule_id, schedule_name, scheduled_for, started_at,

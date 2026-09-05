@@ -93,6 +93,13 @@ func (db *DB) DeleteScheduleCursor(ctx context.Context, workspace, scheduleID st
 	return wrap(fmt.Sprintf("deleting schedule cursor for %s/%s", workspace, scheduleID), err)
 }
 
+// DeleteScheduleCursors removes every cursor a workspace has. Workspace
+// deletion calls this alongside DeleteScheduleRuns.
+func (db *DB) DeleteScheduleCursors(ctx context.Context, workspace string) error {
+	db = db.Ctx(ctx)
+	return wrap("deleting schedule cursors by workspace", db.queries.DeleteScheduleCursorsByWorkspace(ctx, workspace))
+}
+
 // InsertScheduleRun persists one run and returns the stored row with its
 // assigned id, then prunes that schedule's run history back to
 // scheduleRunLimit.

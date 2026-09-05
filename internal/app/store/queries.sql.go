@@ -545,6 +545,15 @@ func (q *Queries) DeleteScheduleCursor(ctx context.Context, arg DeleteScheduleCu
 	return err
 }
 
+const deleteScheduleCursorsByWorkspace = `-- name: DeleteScheduleCursorsByWorkspace :exec
+DELETE FROM schedule_cursor WHERE workspace = ?
+`
+
+func (q *Queries) DeleteScheduleCursorsByWorkspace(ctx context.Context, workspace string) error {
+	_, err := q.db.ExecContext(ctx, deleteScheduleCursorsByWorkspace, workspace)
+	return err
+}
+
 const deleteScheduleRunsByWorkspace = `-- name: DeleteScheduleRunsByWorkspace :exec
 DELETE FROM schedule_run WHERE workspace = ?
 `

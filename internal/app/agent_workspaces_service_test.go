@@ -463,11 +463,33 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
 
+	// Schedule state is app-local like the session records, and a cursor left
+	// behind would back-fire for a workspace rebuilt under the same name.
+	for _, cursor := range []store.ScheduleCursorRecord{
+		{Workspace: "demo", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly"},
+		{Workspace: "other", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly"},
+	} {
+		require.NoError(t, svc.db.UpsertScheduleCursor(t.Context(), cursor))
+	}
+	_, err = svc.db.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
+		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "weekly",
+		ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched", SessionID: 1,
+	})
+	require.NoError(t, err)
+
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 
 	sessions, err := svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
+
+	runs, err := svc.db.ListScheduleRunsFor(t.Context(), "demo", "weekly", 10)
+	require.NoError(t, err)
+	assert.Empty(t, runs)
+	cursors, err := svc.db.ListScheduleCursors(t.Context())
+	require.NoError(t, err)
+	require.Len(t, cursors, 1, "another workspace's cursor is untouched")
+	assert.Equal(t, "other", cursors[0].Workspace)
 
 	assert.NoDirExists(t, filepath.Join(root, "demo"))
 	listed, err := svc.List(t.Context())

@@ -660,17 +660,8 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if err := s.db.DeleteScheduleRuns(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting schedule runs for workspace %q", dir)
 	}
-	cursors, err := s.db.ListScheduleCursors(ctx)
-	if err != nil {
-		return Wrap(err, KindInternal, "listing schedule cursors")
-	}
-	for _, cursor := range cursors {
-		if cursor.Workspace != dir {
-			continue
-		}
-		if err := s.db.DeleteScheduleCursor(ctx, dir, cursor.ScheduleID); err != nil {
-			return Wrap(err, KindInternal, "deleting the cursor for schedule %q", cursor.ScheduleID)
-		}
+	if err := s.db.DeleteScheduleCursors(ctx, dir); err != nil {
+		return Wrap(err, KindInternal, "deleting schedule cursors for workspace %q", dir)
 	}
 	if err := s.store.Reload(); err != nil {
 		return Wrap(err, KindInternal, "reloading workspaces")
