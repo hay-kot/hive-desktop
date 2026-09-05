@@ -91,39 +91,25 @@ func TestInsertScheduleRun_NullSessionIDRoundTripsAsZero(t *testing.T) {
 	assert.Nil(t, raw, "session_id should be stored as NULL, not 0")
 }
 
-func TestListScheduleRuns_NewestFirstAcrossSchedules(t *testing.T) {
-	db := openTestDB(t)
-	ctx := t.Context()
-
-	first := mustInsertRun(t, db, "ws-1", "weekly", 100)
-	second := mustInsertRun(t, db, "ws-1", "daily", 200)
-	third := mustInsertRun(t, db, "ws-1", "weekly", 300)
-	// A run in a different workspace must not appear.
-	mustInsertRun(t, db, "ws-2", "weekly", 400)
-
-	runs, err := db.ListScheduleRuns(ctx, "ws-1", 10)
-	require.NoError(t, err)
-	require.Len(t, runs, 3)
-	assert.Equal(t, []int64{third.ID, second.ID, first.ID}, []int64{runs[0].ID, runs[1].ID, runs[2].ID})
-
-	limited, err := db.ListScheduleRuns(ctx, "ws-1", 2)
-	require.NoError(t, err)
-	require.Len(t, limited, 2)
-	assert.Equal(t, []int64{third.ID, second.ID}, []int64{limited[0].ID, limited[1].ID})
-}
-
-func TestListScheduleRunsFor_ScopedToOneSchedule(t *testing.T) {
+func TestListScheduleRunsFor_ScopedToOneScheduleNewestFirst(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
 
 	weeklyOld := mustInsertRun(t, db, "ws-1", "weekly", 100)
 	mustInsertRun(t, db, "ws-1", "daily", 150)
 	weeklyNew := mustInsertRun(t, db, "ws-1", "weekly", 200)
+	// The same schedule id in a different workspace must not appear.
+	mustInsertRun(t, db, "ws-2", "weekly", 300)
 
 	runs, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 10)
 	require.NoError(t, err)
 	require.Len(t, runs, 2)
 	assert.Equal(t, []int64{weeklyNew.ID, weeklyOld.ID}, []int64{runs[0].ID, runs[1].ID})
+
+	limited, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 1)
+	require.NoError(t, err)
+	require.Len(t, limited, 1)
+	assert.Equal(t, weeklyNew.ID, limited[0].ID)
 }
 
 func TestLastLaunchedScheduleRun_IgnoresFailedAndSkipped(t *testing.T) {
@@ -199,11 +185,13 @@ func TestDeleteScheduleRuns_RemovesOnlyTheWorkspace(t *testing.T) {
 
 	require.NoError(t, db.DeleteScheduleRuns(ctx, "ws-1"))
 
-	runs, err := db.ListScheduleRuns(ctx, "ws-1", 10)
-	require.NoError(t, err)
-	assert.Empty(t, runs)
+	for _, id := range []string{"weekly", "daily"} {
+		runs, err := db.ListScheduleRunsFor(ctx, "ws-1", id, 10)
+		require.NoError(t, err)
+		assert.Empty(t, runs, "schedule %q should have no runs left", id)
+	}
 
-	runs, err = db.ListScheduleRuns(ctx, "ws-2", 10)
+	runs, err := db.ListScheduleRunsFor(ctx, "ws-2", "weekly", 10)
 	require.NoError(t, err)
 	require.Len(t, runs, 1)
 	assert.Equal(t, kept.ID, runs[0].ID)

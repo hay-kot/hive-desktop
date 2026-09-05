@@ -2240,55 +2240,6 @@ func (q *Queries) ListScheduleRunSessions(ctx context.Context, workspace string)
 	return items, nil
 }
 
-const listScheduleRuns = `-- name: ListScheduleRuns :many
-SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run
-WHERE workspace = ?
-ORDER BY started_at DESC, id DESC
-LIMIT ?
-`
-
-type ListScheduleRunsParams struct {
-	Workspace string `json:"workspace"`
-	Limit     int64  `json:"limit"`
-}
-
-// One workspace's runs across every schedule, newest first.
-func (q *Queries) ListScheduleRuns(ctx context.Context, arg ListScheduleRunsParams) ([]ScheduleRun, error) {
-	rows, err := q.db.QueryContext(ctx, listScheduleRuns, arg.Workspace, arg.Limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ScheduleRun{}
-	for rows.Next() {
-		var i ScheduleRun
-		if err := rows.Scan(
-			&i.ID,
-			&i.Workspace,
-			&i.ScheduleID,
-			&i.ScheduleName,
-			&i.ScheduledFor,
-			&i.StartedAt,
-			&i.Reason,
-			&i.Missed,
-			&i.Status,
-			&i.SessionID,
-			&i.Prompt,
-			&i.Error,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listScheduleRunsForSchedule = `-- name: ListScheduleRunsForSchedule :many
 SELECT id, workspace, schedule_id, schedule_name, scheduled_for, started_at, reason, missed, status, session_id, prompt, error FROM schedule_run
 WHERE workspace = ? AND schedule_id = ?

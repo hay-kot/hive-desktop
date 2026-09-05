@@ -21,7 +21,7 @@ const seededWorkspace = "hive"
 func TestAgentWorkspaceViewCarriesTheSchedulesTheEditorWrote(t *testing.T) {
 	h := newAgentHarness(t)
 
-	resp := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", "", agentScheduleRunsRequest{Workspace: seededWorkspace})
+	resp := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", "", agentScheduleRunsRequest{Workspace: seededWorkspace, ID: "weekly"})
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "the schedules surface rides the terminal bearer gate")
 
@@ -111,7 +111,7 @@ func TestAgentScheduleRunsAppliesTheDefaultLimit(t *testing.T) {
 	}
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
-		Workspace: seededWorkspace, ID: "", Limit: 0,
+		Workspace: seededWorkspace, ID: "weekly", Limit: 0,
 	})
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -122,13 +122,19 @@ func TestAgentScheduleRunsAppliesTheDefaultLimit(t *testing.T) {
 	require.NotNil(t, body.Runs[0].SessionID)
 
 	empty := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
-		Workspace: "nothing-here",
+		Workspace: "nothing-here", ID: "weekly",
 	})
 	defer func() { _ = empty.Body.Close() }()
 	require.Equal(t, http.StatusOK, empty.StatusCode)
 	require.NoError(t, json.NewDecoder(empty.Body).Decode(&body))
 	require.NotNil(t, body.Runs, "runs is never null on the wire")
 	assert.Empty(t, body.Runs)
+
+	noID := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
+		Workspace: seededWorkspace,
+	})
+	_ = noID.Body.Close()
+	assert.Equal(t, http.StatusUnprocessableEntity, noID.StatusCode, "history is per schedule; there is no workspace-wide listing")
 }
 
 func TestAgentSchedulePreviewReportsErrorsAsFields(t *testing.T) {

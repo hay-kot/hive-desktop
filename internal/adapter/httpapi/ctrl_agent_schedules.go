@@ -105,21 +105,23 @@ func (ctrl *Controller) AgentScheduleRun(w http.ResponseWriter, r *http.Request)
 
 type agentScheduleRunsRequest struct {
 	Workspace string `json:"workspace"`
-	// ID empty spans every schedule in the workspace; Limit of 0 takes the
-	// core's default.
-	ID    string `json:"id"`
-	Limit int    `json:"limit"`
+	ID        string `json:"id"`
+	// Limit of 0 takes the core's default.
+	Limit int `json:"limit"`
 }
 
 func (b agentScheduleRunsRequest) Validate() error {
-	return criterio.Run("workspace", b.Workspace, criterio.Required)
+	return criterio.ValidateStruct(
+		criterio.Run("workspace", b.Workspace, criterio.Required),
+		criterio.Run("id", b.ID, criterio.Required),
+	)
 }
 
 type agentScheduleRunsResponse struct {
 	Runs []agentScheduleRunView `json:"runs"`
 }
 
-// AgentScheduleRuns lists run history, newest first.
+// AgentScheduleRuns lists one schedule's run history, newest first.
 func (ctrl *Controller) AgentScheduleRuns(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentScheduleRunsRequest](ctrl, w, r)
 	if err != nil {

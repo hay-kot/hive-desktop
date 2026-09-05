@@ -242,7 +242,7 @@ func (ctrl *Controller) agentOperations() []Op {
 				ErrResp{Status: 503, When: "tmux is unavailable, so whether the previous run's chat is still open cannot be answered"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/runs", Summary: "List run history, newest first. An empty id spans every schedule in the workspace; a limit of 0 takes the default. History outlives the manifest entry it came from, so a workspace whose manifest is broken still answers.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/runs", Summary: "List one schedule's run history, newest first. A limit of 0 takes the default. History outlives the manifest entry it came from, so a schedule that was deleted, or whose workspace manifest is broken, still answers.",
 			Request: agentScheduleRunsRequest{}, Response: agentScheduleRunsResponse{}, Handler: ctrl.AgentScheduleRuns,
 			Errors: agentErrors(""),
 		},

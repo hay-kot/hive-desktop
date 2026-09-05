@@ -126,20 +126,6 @@ func (db *DB) InsertScheduleRun(ctx context.Context, run ScheduleRunRecord) (Sch
 	return scheduleRunFromRow(row), nil
 }
 
-// ListScheduleRuns returns up to limit of a workspace's runs across every
-// schedule, newest first.
-func (db *DB) ListScheduleRuns(ctx context.Context, workspace string, limit int) ([]ScheduleRunRecord, error) {
-	db = db.Ctx(ctx)
-	rows, err := db.queries.ListScheduleRuns(ctx, ListScheduleRunsParams{
-		Workspace: workspace,
-		Limit:     int64(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("listing schedule runs for workspace %q: %w", workspace, err)
-	}
-	return scheduleRunsFromRows(rows), nil
-}
-
 // ListScheduleRunsFor returns up to limit of one schedule's runs, newest
 // first.
 func (db *DB) ListScheduleRunsFor(ctx context.Context, workspace, scheduleID string, limit int) ([]ScheduleRunRecord, error) {

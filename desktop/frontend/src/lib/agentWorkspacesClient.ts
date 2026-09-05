@@ -361,8 +361,8 @@ export interface AgentWorkspacesClient {
   exportCanvas(workspace: string, name: string, path: string): Promise<void>
   /** Fires a schedule now, outside its timetable; the cursor is untouched. */
   runSchedule(workspace: string, id: string): Promise<AgentScheduleRun>
-  /** Run history, newest first. An empty id spans every schedule in the workspace. */
-  scheduleRuns(workspace: string, id?: string, limit?: number): Promise<AgentScheduleRun[]>
+  /** One schedule's run history, newest first. */
+  scheduleRuns(workspace: string, id: string, limit?: number): Promise<AgentScheduleRun[]>
   /** Validates an unsaved edit and reports what it would do. */
   previewSchedule(request: SchedulePreviewRequest): Promise<AgentSchedulePreview>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
@@ -509,7 +509,7 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
       return body.run
     },
     async scheduleRuns(workspace, id, limit) {
-      const body = await post<{ runs: AgentScheduleRun[] | null }>('/schedules/runs', { workspace, id: id ?? '', limit: limit ?? 0 })
+      const body = await post<{ runs: AgentScheduleRun[] | null }>('/schedules/runs', { workspace, id, limit: limit ?? 0 })
       return body?.runs ?? []
     },
     async previewSchedule(request) {

@@ -202,7 +202,7 @@ func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestSchedulesServiceRunsSpansTheWorkspaceNewestFirst(t *testing.T) {
+func TestSchedulesServiceRunsAreOneSchedulesNewestFirst(t *testing.T) {
 	f := newTestSchedulesService(t)
 
 	for i, id := range []string{"alpha", "beta"} {
@@ -216,23 +216,27 @@ func TestSchedulesServiceRunsSpansTheWorkspaceNewestFirst(t *testing.T) {
 		}
 	}
 
-	all, err := f.svc.Runs(t.Context(), "demo", "", 0)
-	require.NoError(t, err)
-	require.Len(t, all, 4)
-	for i := 1; i < len(all); i++ {
-		assert.GreaterOrEqual(t, all[i-1].StartedAt, all[i].StartedAt, "runs come back newest first")
-	}
-
 	scoped, err := f.svc.Runs(t.Context(), "demo", "alpha", 0)
 	require.NoError(t, err)
 	require.Len(t, scoped, 2)
+	assert.Greater(t, scoped[0].StartedAt, scoped[1].StartedAt, "runs come back newest first")
 	for _, run := range scoped {
 		assert.Equal(t, "alpha", run.ScheduleID)
 	}
 
-	limited, err := f.svc.Runs(t.Context(), "demo", "", 1)
+	limited, err := f.svc.Runs(t.Context(), "demo", "alpha", 1)
 	require.NoError(t, err)
 	assert.Len(t, limited, 1)
+
+	// History is per schedule, and a schedule that no longer exists still
+	// answers with what it did.
+	gone, err := f.svc.Runs(t.Context(), "demo", "beta", 0)
+	require.NoError(t, err)
+	assert.Len(t, gone, 2)
+
+	_, err = f.svc.Runs(t.Context(), "demo", "", 0)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
 func TestSchedulesServicePreviewReportsErrorsAsFields(t *testing.T) {

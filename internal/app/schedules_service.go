@@ -115,28 +115,23 @@ func (s *SchedulesService) RunNow(ctx context.Context, workspace, id string) (Ru
 	return runView(run), nil
 }
 
-// Runs returns run history newest first. An empty id spans every schedule in
-// the workspace; a limit of zero or less takes the default.
+// Runs returns one schedule's run history newest first. A limit of zero or
+// less takes the default.
 //
-// It does not require the workspace to still exist: history outlives the
-// manifest entry it came from, and a workspace whose manifest just broke is
-// exactly when a caller wants to read what its schedules did.
+// It does not require the schedule, or its workspace, to still exist: history
+// outlives the manifest entry it came from, and a workspace whose manifest
+// just broke is exactly when a caller wants to read what its schedules did.
 func (s *SchedulesService) Runs(ctx context.Context, workspace, id string, limit int) ([]RunView, error) {
+	if id == "" {
+		return nil, Errorf(KindInvalid, "a schedule id is required")
+	}
 	if limit <= 0 {
 		limit = defaultRunHistory
 	}
 
-	var (
-		records []store.ScheduleRunRecord
-		err     error
-	)
-	if id == "" {
-		records, err = s.db.ListScheduleRuns(ctx, workspace, limit)
-	} else {
-		records, err = s.db.ListScheduleRunsFor(ctx, workspace, id, limit)
-	}
+	records, err := s.db.ListScheduleRunsFor(ctx, workspace, id, limit)
 	if err != nil {
-		return nil, Wrap(err, KindInternal, "listing runs for workspace %q", workspace)
+		return nil, Wrap(err, KindInternal, "listing runs for schedule %q in workspace %q", id, workspace)
 	}
 
 	out := make([]RunView, 0, len(records))

@@ -660,13 +660,6 @@ INSERT INTO schedule_run (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
--- name: ListScheduleRuns :many
--- One workspace's runs across every schedule, newest first.
-SELECT * FROM schedule_run
-WHERE workspace = ?
-ORDER BY started_at DESC, id DESC
-LIMIT ?;
-
 -- name: ListScheduleRunsForSchedule :many
 -- One schedule's runs, newest first.
 SELECT * FROM schedule_run
