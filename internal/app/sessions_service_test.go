@@ -12,6 +12,12 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
+// defaultAgentFunc adapts a plain function to DefaultAgentReader, the same
+// shape http.HandlerFunc gives http.Handler.
+type defaultAgentFunc func(context.Context) string
+
+func (f defaultAgentFunc) DefaultAgent(ctx context.Context) string { return f(ctx) }
+
 type fakeSessionLauncher struct {
 	opts  dispatch.SessionLaunchOptions
 	calls []dispatch.LaunchSessionRequest
@@ -186,18 +192,18 @@ func TestSessionsService_SessionLaunchOptionsPrefersTheEnvironmentAgent(t *testi
 	manager, _ := activeSession()
 	svc := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{opts: opts}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}})
 
-	svc.defaultAgentEnv = func(context.Context) string { return " codex " }
+	svc.defaultAgentEnv = defaultAgentFunc(func(context.Context) string { return " codex " })
 	got, err := svc.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "codex", got.DefaultAgent)
 	assert.Equal(t, opts.Agents, got.Agents, "the choices themselves are hive's")
 
-	svc.defaultAgentEnv = func(context.Context) string { return "aider" }
+	svc.defaultAgentEnv = defaultAgentFunc(func(context.Context) string { return "aider" })
 	got, err = svc.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "claude", got.DefaultAgent, "an agent with no configured profile is not preselected")
 
-	svc.defaultAgentEnv = func(context.Context) string { return "" }
+	svc.defaultAgentEnv = defaultAgentFunc(func(context.Context) string { return "" })
 	got, err = svc.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "claude", got.DefaultAgent)

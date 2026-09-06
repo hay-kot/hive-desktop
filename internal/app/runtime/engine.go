@@ -7,8 +7,10 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 )
 
@@ -65,15 +67,16 @@ type EngineOptions struct {
 	Logger  zerolog.Logger
 	// PageSize bounds one read. Zero means DefaultPageSize.
 	PageSize int
-	// OnCommitted is called after a pass in which at least one flow committed
-	// something. It is how a UI learns that feed membership may have changed —
-	// the log growing is not that signal, because a message can be appended
-	// and routed nowhere.
-	OnCommitted func()
-	// OnFlowError reports a flow that could not be installed. The engine keeps
-	// running the last known-good version of that flow, so this is the only
-	// way the failure becomes visible.
-	OnFlowError func(flowID string, err error)
+	// Events is published to after a pass in which at least one flow
+	// committed something (events.InboxUpdated{}). It is how a UI learns that
+	// feed membership may have changed — the log growing is not that signal,
+	// because a message can be appended and routed nowhere.
+	Events *events.Bus
+	// Recorder reports a flow that could not be installed: it records, it
+	// does not publish, because a failed install is an audit-log entry, not a
+	// UI wake-up. The engine keeps running the last known-good version of
+	// that flow, so this is the only way the failure becomes visible.
+	Recorder activity.Recorder
 }
 
 // Engine runs every enabled flow against the event log. One per process: the
@@ -211,8 +214,8 @@ func (e *Engine) install(ctx context.Context) {
 			// an authoring error, and taking a working flow offline for it would
 			// lose messages that the last-known-good version handles fine.
 			e.opts.Logger.Warn().Err(err).Str("flow", id).Msg("flow could not be installed; keeping the last known-good runtime")
-			if e.opts.OnFlowError != nil {
-				e.opts.OnFlowError(id, err)
+			if e.opts.Recorder != nil {
+				e.opts.Recorder.Record(ctx, activity.FlowRuntimeFailed(id, err))
 			}
 		}
 	}
@@ -335,8 +338,8 @@ func (e *Engine) drain(ctx context.Context) {
 			committed = true
 		}
 	}
-	if committed && e.opts.OnCommitted != nil {
-		e.opts.OnCommitted()
+	if committed && e.opts.Events != nil {
+		e.opts.Events.Publish(ctx, events.InboxUpdated{})
 	}
 }
 

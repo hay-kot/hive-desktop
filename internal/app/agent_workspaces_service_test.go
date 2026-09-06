@@ -48,13 +48,24 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 		Sessions:        stores.New(db, stores.Options{}).AgentSessions,
 		Skills:          newTestSkillsService(t),
 		ProfileCommands: commands,
-		MCPBase:         func(context.Context) string { return testMCPBaseURL },
+		MCPBase:         mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
 	})
 }
 
 // testMCPBaseURL stands in for this run's loopback base URL, which the
 // catalogue joins with each app-hosted entry's RuntimePath.
 const testMCPBaseURL = "http://127.0.0.1:24917"
+
+// mcpBaseFunc adapts a plain function to MCPBaseReader, the same shape
+// http.HandlerFunc gives http.Handler.
+type mcpBaseFunc func(context.Context) string
+
+func (f mcpBaseFunc) MCPBaseURL(ctx context.Context) string { return f(ctx) }
+
+// editorCommandFunc adapts a plain function to EditorCommandReader.
+type editorCommandFunc func(context.Context) (string, error)
+
+func (f editorCommandFunc) Editor(ctx context.Context) (string, error) { return f(ctx) }
 
 // liveAgentSessionCount is the test-side equivalent of the service's own
 // liveSessionCount, used to assert how many agentws-* tmux sessions a call
@@ -104,7 +115,7 @@ func newManifestOnlyService(t *testing.T, root string, profileCommands map[strin
 
 	return newAgentWorkspacesService(AgentWorkspacesDeps{
 		Store: awStore, Sessions: stores.New(db, stores.Options{}).AgentSessions, Skills: newTestSkillsService(t),
-		ProfileCommands: profileCommands, MCPBase: func(context.Context) string { return testMCPBaseURL },
+		ProfileCommands: profileCommands, MCPBase: mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
 	})
 }
 
@@ -836,7 +847,7 @@ func TestCatalogueReportsAProblemWhenTheServerIsDown(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
-	svc.mcpBase = func(context.Context) string { return "" }
+	svc.mcpBase = mcpBaseFunc(func(context.Context) string { return "" })
 
 	byID := make(map[string]MCPCatalogueItem)
 	for _, item := range svc.MCPCatalogue(t.Context()) {
@@ -918,7 +929,7 @@ func TestOpenWorkspaceInEditor(t *testing.T) {
 	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
 		return map[string]string{"PATH": "/usr/bin:/bin"}, nil
 	}})
-	svc.editorCommand = func(context.Context) (string, error) { return fake, nil }
+	svc.editorCommand = editorCommandFunc(func(context.Context) (string, error) { return fake, nil })
 	command, title := svc.Editor(t.Context())
 	assert.Equal(t, fake, command)
 	assert.Equal(t, fake, title, "a command outside the known catalogue labels itself")

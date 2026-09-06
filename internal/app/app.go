@@ -312,12 +312,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// (producer, worker, session launcher, config watchers) as the
 	// activity.Recorder it holds, and by the frontend RPC surface that reads
 	// and writes it directly. Jobs is the same shape for jobs.Recorder.
-	a.Activity = newActivityService(a.Stores.ActivityEvents, func(id int64) {
-		a.Events.Publish(a.ctx, events.ActivityAppended{ID: id})
-	})
-	a.Jobs = newJobService(a.Stores.Jobs, func(id int64) {
-		a.Events.Publish(a.ctx, events.JobsUpdated{JobID: id})
-	})
+	a.Activity = newActivityService(a.Stores.ActivityEvents, a.Events)
+	a.Jobs = newJobService(a.Stores.Jobs, a.Events)
 	if a.fetchers != nil {
 		a.fetchers.SetRecorder(a.Activity)
 	}
@@ -398,11 +394,9 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 			newGitHubForge(gitHubClient, a.credentials),
 			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
 		),
-		ExecEnv:       a.execEnv,
-		EditorCommand: a.Settings.Editor,
-		DefaultAgentEnv: func(ctx context.Context) string {
-			return a.execEnv.Getenv(ctx, config.EnvDefaultAgent)
-		},
+		ExecEnv:         a.execEnv,
+		EditorCommand:   a.Settings,
+		DefaultAgentEnv: defaultAgentEnvReader{env: a.execEnv},
 	})
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
@@ -415,11 +409,9 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		Marks:      sourceMarks,
 		Scripts:    a.scripts,
 		Settings:   a.settingsStore,
-		OnUpdated:  func() { a.PublishFlowsUpdated("save") },
+		Events:     a.Events,
 	})
-	a.Actions = newActionsService(a.actionStore, func() {
-		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
-	})
+	a.Actions = newActionsService(a.actionStore, a.Events)
 	a.System = newSystemService(cfg.Paths)
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, a.Stores.WebhookCaptures, a.webhook, a.webhookHost, a.webhookPort)
@@ -442,12 +434,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Canvas = newCanvasService(CanvasDeps{
 		Store:    canvas.NewStore(cfg.Paths.AgentWorkspacesDir),
 		Sessions: a.Stores.AgentSessions,
-		OnUpdated: func(session int64) {
-			a.Events.Publish(a.ctx, events.CanvasUpdated{Session: session})
-		},
-		OnToggled: func(session int64, name string, open bool) {
-			a.Events.Publish(a.ctx, events.CanvasToggleRequested{Session: session, Name: name, Open: open})
-		},
+		Events:   a.Events,
 	})
 	a.AgentWorkspaces = newAgentWorkspacesService(AgentWorkspacesDeps{
 		Store:           a.agentWorkspaceStore,
@@ -457,8 +444,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		ProfileCommands: a.agentCommands,
 		RootProblem:     a.agentWorkspaceRootProblem,
 		ExecEnv:         a.execEnv,
-		EditorCommand:   a.Settings.Editor,
-		MCPBase:         a.mcpBaseURL,
+		EditorCommand:   a.Settings,
+		MCPBase:         a,
 	})
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
@@ -587,13 +574,14 @@ func (a *App) Start(ctx context.Context) error {
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
 
-// mcpBaseURL reports this run's own loopback base URL, or empty when the
+// MCPBaseURL reports this run's own loopback base URL, or empty when the
 // server is not running. It is what lets a workspace declare an app-hosted
 // entry (hive-desktop, hive-canvas) in its mcps: list and get an address that
 // actually answers — mcpcatalog ships those entries with no URL, because the
 // port is allocated at startup, and the catalogue joins this base with each
-// entry's RuntimePath (ADR mcp-replaces-the-agent-facing-http-api).
-func (a *App) mcpBaseURL(ctx context.Context) string {
+// entry's RuntimePath (ADR mcp-replaces-the-agent-facing-http-api). It
+// satisfies MCPBaseReader.
+func (a *App) MCPBaseURL(ctx context.Context) string {
 	if a.Webhooks == nil {
 		return ""
 	}
@@ -898,19 +886,15 @@ func (a *App) MountAPI(prefix string, h http.Handler) bool {
 // contradicting it.
 func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 	return runtime.NewEngine(runtime.EngineOptions{
-		Log:     a.Stores.EventLog,
-		Items:   a.Stores.InboxItems,
-		Commits: a.Stores.EventLog,
-		KV:      a.Stores.NodeKV,
-		Flows:   a.flowStore,
-		Scripts: a.scripts,
-		Logger:  logger,
-		OnCommitted: func() {
-			a.Events.Publish(a.ctx, events.InboxUpdated{})
-		},
-		OnFlowError: func(flowID string, err error) {
-			a.Activity.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
-		},
+		Log:      a.Stores.EventLog,
+		Items:    a.Stores.InboxItems,
+		Commits:  a.Stores.EventLog,
+		KV:       a.Stores.NodeKV,
+		Flows:    a.flowStore,
+		Scripts:  a.scripts,
+		Logger:   logger,
+		Events:   a.Events,
+		Recorder: a.Activity,
 	})
 }
 
@@ -965,13 +949,13 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 		return nil
 	}
 	producer := ingest.NewProducer(ingest.ProducerDeps{
-		Ingester:   a.Stores.InboxItems,
-		Snapshots:  a.Stores.EventLog,
-		Heads:      a.Stores.SourceHeads,
-		Sources:    a.sources,
-		Interval:   a.pollInterval,
-		OnAppended: a.PublishLogAppended,
-		Logger:     logger,
+		Ingester:  a.Stores.InboxItems,
+		Snapshots: a.Stores.EventLog,
+		Heads:     a.Stores.SourceHeads,
+		Sources:   a.sources,
+		Interval:  a.pollInterval,
+		Notifier:  a,
+		Logger:    logger,
 	})
 	producer.SetRecorder(a.Activity)
 	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
@@ -1041,6 +1025,15 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 	return f(ctx, n)
 }
 
+// defaultAgentEnvReader adapts execenv.Resolver's Getenv to DefaultAgentReader,
+// since HIVE_DEFAULT_AGENT is one environment variable among many rather than
+// a method of its own.
+type defaultAgentEnvReader struct{ env *execenv.Resolver }
+
+func (r defaultAgentEnvReader) DefaultAgent(ctx context.Context) string {
+	return r.env.Getenv(ctx, config.EnvDefaultAgent)
+}
+
 // openWebhook constructs the optional loopback listener without binding it.
 // Port zero is passed through to net.Listen so the OS allocates without a
 // probe/rebind race. Mock instances only claim a listener through an explicit
@@ -1055,7 +1048,7 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 		return
 	}
 
-	a.webhook = webhook.NewListener(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.WebhookCaptures, a.Stores.InboxItems, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
+	a.webhook = webhook.NewListener(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.WebhookCaptures, a.Stores.InboxItems, a.sources.PushInstances, a.webhookHost, a.webhookPort, a, cfg.Logger)
 	a.webhook.SetRecorder(a.Activity)
 }
 

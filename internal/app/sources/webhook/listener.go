@@ -70,14 +70,14 @@ type Instances func() []connector.Instance
 // so membership replay keeps webhook-fed feeds intact across deploys and
 // restarts.
 type Listener struct {
-	ingester   Ingester
-	snapshots  SnapshotAppender
-	captures   CaptureStore
-	items      InboxItemLister
-	instances  Instances
-	onAppended func(nextOffset int64)
-	logger     zerolog.Logger
-	recorder   activity.Recorder
+	ingester  Ingester
+	snapshots SnapshotAppender
+	captures  CaptureStore
+	items     InboxItemLister
+	instances Instances
+	notifier  LogAppendNotifier
+	logger    zerolog.Logger
+	recorder  activity.Recorder
 
 	host     string
 	port     int
@@ -95,13 +95,23 @@ type mount struct {
 	handler http.Handler
 }
 
+// LogAppendNotifier is told the log grew after a delivery appends event-log
+// rows. The implementation wakes the flow engine synchronously and then
+// announces on the bus (*app.App.PublishLogAppended). It is deliberately not
+// a bus publish here: the wake is a latch on the pipeline's routing path, and
+// every bus subscriber in this app coalesces, which would change when a
+// burst of deliveries actually gets routed.
+type LogAppendNotifier interface {
+	PublishLogAppended(nextOffset int64)
+}
+
 // NewListener builds a listener bound to host:port at Start. Configuration
-// validation limits host to loopback. onAppended fires after a delivery
+// validation limits host to loopback. notifier is told after a delivery
 // appends event-log rows so the core can wake the flow engine.
-func NewListener(ingester Ingester, snapshots SnapshotAppender, captures CaptureStore, items InboxItemLister, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
+func NewListener(ingester Ingester, snapshots SnapshotAppender, captures CaptureStore, items InboxItemLister, instances Instances, host string, port int, notifier LogAppendNotifier, logger zerolog.Logger) *Listener {
 	return &Listener{
 		ingester: ingester, snapshots: snapshots, captures: captures, items: items,
-		instances: instances, host: host, port: port, onAppended: onAppended, logger: logger,
+		instances: instances, host: host, port: port, notifier: notifier, logger: logger,
 	}
 }
 
@@ -284,8 +294,8 @@ func (l *Listener) handleHook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ingest failed", http.StatusInternalServerError)
 		return
 	}
-	if lastOffset > 0 && l.onAppended != nil {
-		l.onAppended(lastOffset)
+	if lastOffset > 0 && l.notifier != nil {
+		l.notifier.PublishLogAppended(lastOffset)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -11,15 +11,18 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 )
 
-func newTestJobService(t *testing.T) *JobService {
+func newTestJobService(t *testing.T) (*JobService, <-chan events.JobsUpdated) {
 	t.Helper()
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	return newJobService(stores.New(db, stores.Options{}).Jobs, nil)
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.JobsUpdated](t, bus)
+	return newJobService(stores.New(db, stores.Options{}).Jobs, bus), ch
 }
 
 func TestJobService_ListAndListActive(t *testing.T) {
@@ -29,7 +32,7 @@ func TestJobService_ListAndListActive(t *testing.T) {
 
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	st := stores.New(db, stores.Options{Now: func() time.Time { return now }})
-	service := newJobService(st.Jobs, nil)
+	service := newJobService(st.Jobs, newTestBus(t))
 	ctx := t.Context()
 
 	outside, err := db.InsertJob(ctx, queries.InsertJobParams{
@@ -64,17 +67,18 @@ func TestJobService_ListAndListActive(t *testing.T) {
 	assert.Equal(t, outside.ID, older[0].ID)
 }
 
-// TestJobService_RecordsLifecycleLabelsAndEmits moved from
+// TestJobService_RecordsLifecycleLabelsAndPublishes moved from
 // jobs/recorder_test.go along with the persistence it exercises.
-func TestJobService_RecordsLifecycleLabelsAndEmits(t *testing.T) {
+func TestJobService_RecordsLifecycleLabelsAndPublishes(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := t.Context()
 	now := time.UnixMilli(1_000)
 	st := stores.New(db, stores.Options{Now: func() time.Time { return now }})
-	var emitted []int64
-	service := newJobService(st.Jobs, func(id int64) { emitted = append(emitted, id) })
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.JobsUpdated](t, bus)
+	service := newJobService(st.Jobs, bus)
 
 	id := service.Begin(ctx, "Review PR", "review", "pr-1")
 	require.Positive(t, id)
@@ -84,7 +88,9 @@ func TestJobService_RecordsLifecycleLabelsAndEmits(t *testing.T) {
 	now = time.UnixMilli(3_000)
 	service.Done(ctx, id)
 	assert.Zero(t, service.Resume(ctx, 44))
-	assert.Equal(t, []int64{id, id, id}, emitted)
+	for _, e := range requireEvents(t, ch, 3) {
+		assert.Equal(t, id, e.JobID)
+	}
 
 	rows, err := service.List(ctx, 0, 10)
 	require.NoError(t, err)
@@ -100,6 +106,7 @@ func TestJobService_RecordsLifecycleLabelsAndEmits(t *testing.T) {
 	failedID := service.Begin(ctx, "Deploy", "deploy", "pr-2")
 	service.Running(ctx, failedID, 45)
 	service.Fail(ctx, failedID, "boom")
+	requireEvents(t, ch, 3)
 	rows, err = service.List(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
@@ -108,11 +115,10 @@ func TestJobService_RecordsLifecycleLabelsAndEmits(t *testing.T) {
 	assert.Equal(t, "boom", rows[0].Error)
 	require.NotNil(t, rows[0].CommandID)
 	assert.Equal(t, int64(45), *rows[0].CommandID)
-	assert.Len(t, emitted, 6)
 }
 
 func TestJobService_TrackRunsToCompletionUnlinkedToACommand(t *testing.T) {
-	service := newTestJobService(t)
+	service, _ := newTestJobService(t)
 
 	ran := make(chan struct{})
 	id := service.Track(t.Context(), "Create session", "new-session", "sess-1", func(context.Context) error {
@@ -134,7 +140,7 @@ func TestJobService_TrackRunsToCompletionUnlinkedToACommand(t *testing.T) {
 }
 
 func TestJobService_TrackRecordsFailure(t *testing.T) {
-	service := newTestJobService(t)
+	service, _ := newTestJobService(t)
 
 	id := service.Track(t.Context(), "Create session", "new-session", "sess-2", func(context.Context) error {
 		return errors.New("clone failed")
@@ -147,6 +153,38 @@ func TestJobService_TrackRecordsFailure(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
+// TestJobService_TrackPublishesTerminalTransitionAfterFnReturns is the phase
+// 5 proof for the exception the plan calls out: Track's queued transition
+// (Begin) runs on the caller's context before it forks, but the terminal
+// transition (Done/Fail) runs on bg inside the goroutine after fn returns.
+// This asserts the ordering, not just that the event eventually arrives.
+func TestJobService_TrackPublishesTerminalTransitionAfterFnReturns(t *testing.T) {
+	service, ch := newTestJobService(t)
+
+	release := make(chan struct{})
+	fnReturned := make(chan struct{})
+	id := service.Track(t.Context(), "Long task", "action", "target", func(context.Context) error {
+		<-release
+		close(fnReturned)
+		return nil
+	})
+	require.Positive(t, id)
+
+	// Begin (synchronous, before Track forks) and Running (the goroutine's
+	// first act, before it calls fn) have both published by now.
+	for _, e := range requireEvents(t, ch, 2) {
+		assert.Equal(t, id, e.JobID)
+	}
+	// fn is still blocked on release: nothing more may have published yet.
+	requireNoMoreEvents(t, ch)
+
+	close(release)
+	<-fnReturned
+
+	final := requireEvents(t, ch, 1)
+	assert.Equal(t, id, final[0].JobID, "the terminal transition publishes only once fn has returned")
+}
+
 func TestJobService_ListActiveUsesBackendClockWindow(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
@@ -154,7 +192,7 @@ func TestJobService_ListActiveUsesBackendClockWindow(t *testing.T) {
 	ctx := t.Context()
 	now := time.UnixMilli(10_000)
 	st := stores.New(db, stores.Options{Now: func() time.Time { return now }})
-	service := newJobService(st.Jobs, nil)
+	service := newJobService(st.Jobs, newTestBus(t))
 
 	_, err = db.InsertJob(ctx, queries.InsertJobParams{
 		CreatedAt: 1, UpdatedAt: now.Add(-jobs.DefaultLingerWindow).UnixMilli(), Status: "done", Label: "Boundary",
@@ -181,7 +219,7 @@ func TestJobService_BeginFailureAndZeroTransitionsAreNoOps(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 	st := stores.New(db, stores.Options{})
-	service := newJobService(st.Jobs, nil)
+	service := newJobService(st.Jobs, newTestBus(t))
 	id := service.Begin(t.Context(), "Review", "review", "pr-1")
 	assert.Zero(t, id)
 	assert.NotPanics(t, func() {

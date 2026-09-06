@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -9,9 +10,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
@@ -177,18 +180,46 @@ func (c *committed) wait(t *testing.T) {
 	}
 }
 
+// fakeFlowRecorder collects the flow id of every activity.FlowRuntimeFailed
+// record (its Source field). Guarded by a mutex: the engine records on its
+// own loop goroutine while a test reads back through require.Eventually.
+type fakeFlowRecorder struct {
+	mu    sync.Mutex
+	flows []string
+}
+
+func (r *fakeFlowRecorder) Record(_ context.Context, e activity.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flows = append(r.flows, e.Source)
+}
+
+func (r *fakeFlowRecorder) sources() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.flows...)
+}
+
 func startEngine(t *testing.T, db *queries.DB, flows *flowSet, onCommit func()) *runtime.Engine {
 	t.Helper()
 	st := testStores(db)
+	bus := events.New(zerolog.Nop())
+	t.Cleanup(bus.Close)
+	if onCommit != nil {
+		cancel := events.Subscribe(t.Context(), bus, "test", events.Coalesce(), func(context.Context, events.InboxUpdated) {
+			onCommit()
+		})
+		t.Cleanup(cancel)
+	}
 	engine := runtime.NewEngine(runtime.EngineOptions{
-		Log:         st.EventLog,
-		Items:       st.InboxItems,
-		Commits:     st.EventLog,
-		KV:          st.NodeKV,
-		Flows:       flows,
-		Scripts:     testScripts(),
-		Logger:      zerolog.Nop(),
-		OnCommitted: onCommit,
+		Log:     st.EventLog,
+		Items:   st.InboxItems,
+		Commits: st.EventLog,
+		KV:      st.NodeKV,
+		Flows:   flows,
+		Scripts: testScripts(),
+		Logger:  zerolog.Nop(),
+		Events:  bus,
 	})
 	require.NoError(t, engine.Start(t.Context()))
 	t.Cleanup(engine.Stop)
@@ -325,18 +356,24 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 	flows.set(triageFlow("triage", true))
 
 	done := newCommitted()
-	var failures []string
+	rec := &fakeFlowRecorder{}
 	st := testStores(db)
+	bus := events.New(zerolog.Nop())
+	t.Cleanup(bus.Close)
+	cancel := events.Subscribe(t.Context(), bus, "test", events.Coalesce(), func(context.Context, events.InboxUpdated) {
+		done.signal()
+	})
+	t.Cleanup(cancel)
 	engine := runtime.NewEngine(runtime.EngineOptions{
-		Log:         st.EventLog,
-		Items:       st.InboxItems,
-		Commits:     st.EventLog,
-		KV:          st.NodeKV,
-		Flows:       flows,
-		Scripts:     testScripts(),
-		Logger:      zerolog.Nop(),
-		OnCommitted: done.signal,
-		OnFlowError: func(flowID string, _ error) { failures = append(failures, flowID) },
+		Log:      st.EventLog,
+		Items:    st.InboxItems,
+		Commits:  st.EventLog,
+		KV:       st.NodeKV,
+		Flows:    flows,
+		Scripts:  testScripts(),
+		Logger:   zerolog.Nop(),
+		Events:   bus,
+		Recorder: rec,
 	})
 	require.NoError(t, engine.Start(t.Context()))
 	t.Cleanup(engine.Stop)
@@ -357,7 +394,7 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
 		return err == nil && len(items) == 2
 	}, 5*time.Second, 20*time.Millisecond, "the previous runner must keep routing")
-	require.Contains(t, failures, "triage", "and the failure must be reported, or the app silently runs an older graph")
+	require.Contains(t, rec.sources(), "triage", "and the failure must be reported, or the app silently runs an older graph")
 }
 
 // A function node splitting one source message into per-entity feed items is

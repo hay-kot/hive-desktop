@@ -162,19 +162,29 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
+// notifierFunc adapts a plain function to LogAppendNotifier, the same shape
+// http.HandlerFunc gives http.Handler.
+type notifierFunc func(offset int64)
+
+func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
+
 // newTestProducer wires a Producer's three store dependencies over one
 // database handle, mirroring how app.go's buildProducer wires the real
 // Stores.
 func newTestProducer(db *queries.DB, sources Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *Producer {
 	st := stores.New(db, stores.Options{})
+	var notifier LogAppendNotifier
+	if onAppended != nil {
+		notifier = notifierFunc(onAppended)
+	}
 	return NewProducer(ProducerDeps{
-		Ingester:   st.InboxItems,
-		Snapshots:  st.EventLog,
-		Heads:      st.SourceHeads,
-		Sources:    sources,
-		Interval:   interval,
-		OnAppended: onAppended,
-		Logger:     logger,
+		Ingester:  st.InboxItems,
+		Snapshots: st.EventLog,
+		Heads:     st.SourceHeads,
+		Sources:   sources,
+		Interval:  interval,
+		Notifier:  notifier,
+		Logger:    logger,
 	})
 }
 
@@ -385,13 +395,13 @@ func TestProducer_NoSourcesAppendsNothingAndDoesNotWake(t *testing.T) {
 	appender := &fakeAppender{}
 	woke := false
 	producer := NewProducer(ProducerDeps{
-		Ingester:   appender,
-		Snapshots:  appender,
-		Heads:      appender,
-		Sources:    stubSources{},
-		Interval:   time.Hour,
-		OnAppended: func(int64) { woke = true },
-		Logger:     zerolog.Nop(),
+		Ingester:  appender,
+		Snapshots: appender,
+		Heads:     appender,
+		Sources:   stubSources{},
+		Interval:  time.Hour,
+		Notifier:  notifierFunc(func(int64) { woke = true }),
+		Logger:    zerolog.Nop(),
 	})
 
 	producer.Tick(t.Context())

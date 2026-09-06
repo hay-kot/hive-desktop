@@ -40,6 +40,12 @@ func fakeInstances(instances ...connector.Instance) Instances {
 	return func() []connector.Instance { return instances }
 }
 
+// notifierFunc adapts a plain function to LogAppendNotifier, the same shape
+// http.HandlerFunc gives http.Handler.
+type notifierFunc func(offset int64)
+
+func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
+
 func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *queries.DB, *int64) {
 	t.Helper()
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
@@ -49,7 +55,7 @@ func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *quer
 	st := stores.New(db, stores.Options{})
 
 	var lastOffset int64
-	listener := NewListener(st.InboxItems, st.EventLog, st.WebhookCaptures, st.InboxItems, instances, "127.0.0.1", 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
+	listener := NewListener(st.InboxItems, st.EventLog, st.WebhookCaptures, st.InboxItems, instances, "127.0.0.1", 0, notifierFunc(func(offset int64) { lastOffset = offset }), zerolog.Nop())
 	return listener, db, &lastOffset
 }
 

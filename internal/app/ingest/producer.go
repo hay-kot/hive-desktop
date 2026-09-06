@@ -22,8 +22,8 @@ import (
 // Producer is the poll loop that turns configured source connectors into
 // event_log rows. On each tick it resolves the current pull-mode instances,
 // drains each one through Produce, and appends every emitted Msg to the log.
-// After a tick appends at least one row, onAppended fires with the offset of
-// the last row, so the core can wake the flow engine.
+// After a tick appends at least one row, notifier is told the offset of the
+// last row, so the core can wake the flow engine.
 //
 // There is one ticker for every source, at settings.polling.interval. An
 // instance that wants to run less often than that declares a MinInterval and
@@ -54,7 +54,7 @@ type Producer struct {
 	intervalMu  sync.Mutex
 	interval    time.Duration
 	intervalCh  chan time.Duration
-	onAppended  func(nextOffset int64)
+	notifier    LogAppendNotifier
 	logger      zerolog.Logger
 	recorder    activity.Recorder
 	pauseIngest time.Duration
@@ -79,16 +79,25 @@ func (pr *Producer) SetRecorder(r activity.Recorder) { pr.recorder = r }
 // SetDebugPause injects the development-only post-hydration pause.
 func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = duration }
 
-// ProducerDeps is NewProducer's constructor argument. OnAppended stays a
-// func in this phase; naming it as a one-method interface is phase 5.
+// LogAppendNotifier is told the log grew after a tick appends at least one
+// row. The implementation wakes the flow engine synchronously and then
+// announces on the bus (*app.App.PublishLogAppended). It is deliberately not
+// a bus publish here: the wake is a latch on the pipeline's routing path, and
+// every bus subscriber in this app coalesces, which would change when a
+// burst of appends actually gets routed.
+type LogAppendNotifier interface {
+	PublishLogAppended(nextOffset int64)
+}
+
+// ProducerDeps is NewProducer's constructor argument.
 type ProducerDeps struct {
-	Ingester   Ingester
-	Snapshots  SnapshotAppender
-	Heads      SourceHeads
-	Sources    Sources
-	Interval   time.Duration
-	OnAppended func(nextOffset int64)
-	Logger     zerolog.Logger
+	Ingester  Ingester
+	Snapshots SnapshotAppender
+	Heads     SourceHeads
+	Sources   Sources
+	Interval  time.Duration
+	Notifier  LogAppendNotifier
+	Logger    zerolog.Logger
 }
 
 // NewProducer builds a Producer. Interval <= 0 is rejected by the caller's
@@ -103,7 +112,7 @@ func NewProducer(d ProducerDeps) *Producer {
 		sources:     d.Sources,
 		interval:    d.Interval,
 		intervalCh:  make(chan time.Duration, 1),
-		onAppended:  d.OnAppended,
+		notifier:    d.Notifier,
 		logger:      d.Logger,
 		now:         time.Now,
 		lastRun:     map[string]time.Time{},
@@ -224,8 +233,8 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 		attribute.Int(attrAppended, summary.Appended),
 	)
 
-	if summary.Appended > 0 && pr.onAppended != nil {
-		pr.onAppended(lastOffset)
+	if summary.Appended > 0 && pr.notifier != nil {
+		pr.notifier.PublishLogAppended(lastOffset)
 	}
 	return summary
 }

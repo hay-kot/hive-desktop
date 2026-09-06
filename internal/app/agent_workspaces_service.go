@@ -76,17 +76,28 @@ type AgentWorkspacesService struct {
 	// editorCommand reads the configured editor from settings on every call,
 	// so a settings change applies without restarting. Empty means none
 	// configured.
-	editorCommand func(context.Context) (string, error)
+	editorCommand EditorCommandReader
 	// mcpBase reads this run's own loopback base URL, empty when the server
 	// is down. Read per call rather than captured, because the listener's
 	// port is not known when this service is built and can change if it
 	// rebinds.
-	mcpBase func(context.Context) string
+	mcpBase MCPBaseReader
+}
+
+// EditorCommandReader reads the configured editor on every call, so a
+// settings change applies without a restart. Empty means none configured.
+// *SettingsService satisfies it structurally.
+type EditorCommandReader interface {
+	Editor(ctx context.Context) (string, error)
+}
+
+// MCPBaseReader reads this run's loopback base URL. Empty means the server is
+// down. Read per call, because the port is unknown when the service is built.
+type MCPBaseReader interface {
+	MCPBaseURL(ctx context.Context) string
 }
 
 // AgentWorkspacesDeps is newAgentWorkspacesService's constructor argument.
-// EditorCommand and MCPBase stay func-typed here; naming them as one-method
-// interfaces is phase 5.
 type AgentWorkspacesDeps struct {
 	Store           *agentws.Store
 	Terminals       *tmuxcc.Manager
@@ -95,8 +106,8 @@ type AgentWorkspacesDeps struct {
 	ProfileCommands map[string]string
 	RootProblem     string
 	ExecEnv         *execenv.Resolver
-	EditorCommand   func(context.Context) (string, error)
-	MCPBase         func(context.Context) string
+	EditorCommand   EditorCommandReader
+	MCPBase         MCPBaseReader
 }
 
 func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
@@ -124,7 +135,7 @@ func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.Catalo
 	entries := agentws.Catalogue(ctx, s.store.Library().Library, s.lookPath())
 	base := ""
 	if s.mcpBase != nil {
-		base = s.mcpBase(ctx)
+		base = s.mcpBase.MCPBaseURL(ctx)
 	}
 	for i, entry := range entries {
 		descriptor, ok := mcpcatalog.Lookup(entry.ID)
@@ -920,7 +931,7 @@ func (s *AgentWorkspacesService) Editor(ctx context.Context) (command, title str
 	if s.editorCommand == nil {
 		return "", ""
 	}
-	command, err := s.editorCommand(ctx)
+	command, err := s.editorCommand.Editor(ctx)
 	if err != nil || command == "" {
 		return "", ""
 	}

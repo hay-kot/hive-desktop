@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/gitea"
@@ -22,14 +23,18 @@ import (
 // ActionsService owns the editable actions catalog.
 type ActionsService struct {
 	catalog *actions.ActionStore
-	wake    func()
+	events  *events.Bus
 }
 
-func newActionsService(catalog *actions.ActionStore, wake func()) *ActionsService {
-	if wake == nil {
-		wake = func() {}
-	}
-	return &ActionsService{catalog: catalog, wake: wake}
+func newActionsService(catalog *actions.ActionStore, bus *events.Bus) *ActionsService {
+	return &ActionsService{catalog: catalog, events: bus}
+}
+
+// publish announces the catalog's current size after a successful mutation.
+// The count is read back from the catalog rather than threaded through the
+// call, so every one of the seven sites below reports the same live value.
+func (s *ActionsService) publish(ctx context.Context) {
+	s.events.Publish(ctx, events.ActionsUpdated{Count: len(s.catalog.List())})
 }
 
 // List returns the effective last-good catalog plus a current parse error, if
@@ -38,12 +43,12 @@ func (s *ActionsService) List(context.Context) actions.EditableCatalog {
 	return s.catalog.ListEditable()
 }
 
-func (s *ActionsService) Create(_ context.Context, a actions.EditableAction) (actions.EditableAction, error) {
+func (s *ActionsService) Create(ctx context.Context, a actions.EditableAction) (actions.EditableAction, error) {
 	out, err := s.catalog.Create(a)
 	if err != nil {
 		return out, Wrap(err, KindInvalid, "creating action %q", a.ID)
 	}
-	s.wake()
+	s.publish(ctx)
 	return out, nil
 }
 
@@ -52,18 +57,18 @@ func (s *ActionsService) Update(ctx context.Context, id string, a actions.Editab
 	if err != nil {
 		return out, Wrap(err, KindInvalid, "updating action %q", id)
 	}
-	s.wake()
+	s.publish(ctx)
 	return out, nil
 }
 
 // Reorder persists the catalog order. A stale list — a hand edit added or
 // removed an action meanwhile — is rejected so the caller reloads, which is
 // the caller's view having moved rather than a failure.
-func (s *ActionsService) Reorder(_ context.Context, ids []string) error {
+func (s *ActionsService) Reorder(ctx context.Context, ids []string) error {
 	if err := s.catalog.Reorder(ids); err != nil {
 		return Wrap(err, KindConflict, "reordering the actions catalog")
 	}
-	s.wake()
+	s.publish(ctx)
 	return nil
 }
 
@@ -71,7 +76,7 @@ func (s *ActionsService) Delete(ctx context.Context, id string) error {
 	if err := s.catalog.Delete(ctx, id); err != nil {
 		return Wrap(err, KindConflict, "deleting action %q", id)
 	}
-	s.wake()
+	s.publish(ctx)
 	return nil
 }
 
@@ -80,29 +85,29 @@ func (s *ActionsService) Delete(ctx context.Context, id string) error {
 // on change — the launchers are simply the other list in it (ADR launchers-are-their-own-list-in-actions-yml). List
 // answers for both, so there is no LaunchersList here.
 
-func (s *ActionsService) CreateLauncher(_ context.Context, l actions.Launcher) (actions.Launcher, error) {
+func (s *ActionsService) CreateLauncher(ctx context.Context, l actions.Launcher) (actions.Launcher, error) {
 	out, err := s.catalog.CreateLauncher(l)
 	if err != nil {
 		return out, Wrap(err, KindInvalid, "creating launcher %q", l.ID)
 	}
-	s.wake()
+	s.publish(ctx)
 	return out, nil
 }
 
-func (s *ActionsService) UpdateLauncher(_ context.Context, id string, l actions.Launcher) (actions.Launcher, error) {
+func (s *ActionsService) UpdateLauncher(ctx context.Context, id string, l actions.Launcher) (actions.Launcher, error) {
 	out, err := s.catalog.UpdateLauncher(id, l)
 	if err != nil {
 		return out, Wrap(err, KindInvalid, "updating launcher %q", id)
 	}
-	s.wake()
+	s.publish(ctx)
 	return out, nil
 }
 
-func (s *ActionsService) DeleteLauncher(_ context.Context, id string) error {
+func (s *ActionsService) DeleteLauncher(ctx context.Context, id string) error {
 	if err := s.catalog.DeleteLauncher(id); err != nil {
 		return Wrap(err, KindInvalid, "deleting launcher %q", id)
 	}
-	s.wake()
+	s.publish(ctx)
 	return nil
 }
 

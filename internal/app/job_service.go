@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 )
 
@@ -17,16 +18,13 @@ const (
 // jobs.Recorder port the output worker holds, and sessionJobRunner's Track
 // for tracked background session work.
 type JobService struct {
-	store     *stores.JobStore
-	onUpdated func(id int64)
-	log       *slog.Logger
+	store  *stores.JobStore
+	events *events.Bus
+	log    *slog.Logger
 }
 
-func newJobService(store *stores.JobStore, onUpdated func(id int64)) *JobService {
-	if onUpdated == nil {
-		onUpdated = func(int64) {}
-	}
-	return &JobService{store: store, onUpdated: onUpdated, log: slog.Default()}
+func newJobService(store *stores.JobStore, bus *events.Bus) *JobService {
+	return &JobService{store: store, events: bus, log: slog.Default()}
 }
 
 // List returns up to limit jobs with id < before, newest first.
@@ -62,7 +60,7 @@ func (s *JobService) Begin(ctx context.Context, label, actionID, target string) 
 		s.log.Warn("beginning job failed", "label", label, "action_id", actionID, "error", err)
 		return 0
 	}
-	s.onUpdated(job.ID)
+	s.events.Publish(ctx, events.JobsUpdated{JobID: job.ID})
 	return job.ID
 }
 
@@ -77,7 +75,7 @@ func (s *JobService) Running(ctx context.Context, id int64, commandID int64) {
 		s.log.Warn("marking job running failed", "job_id", id, "command_id", commandID, "error", err)
 		return
 	}
-	s.onUpdated(id)
+	s.events.Publish(ctx, events.JobsUpdated{JobID: id})
 }
 
 // Resume implements jobs.Recorder: it returns the running job linked to
@@ -139,7 +137,7 @@ func (s *JobService) setStatus(ctx context.Context, id int64, status jobs.JobSta
 		s.log.Warn("updating job status failed", "job_id", id, "status", status, "error", err)
 		return
 	}
-	s.onUpdated(id)
+	s.events.Publish(ctx, events.JobsUpdated{JobID: id})
 }
 
 func jobsFromStore(rows []stores.Job) []jobs.Job {

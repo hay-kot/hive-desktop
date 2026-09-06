@@ -17,6 +17,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
@@ -60,6 +61,17 @@ func testScripts() *runtime.ScriptRegistry {
 	return scripts
 }
 
+// testFlowsService fills in a bus when the caller does not need to assert on
+// one, so every construction gets a non-nil events.Bus without every test
+// having to say so.
+func testFlowsService(t *testing.T, d FlowsDeps) *FlowsService {
+	t.Helper()
+	if d.Events == nil {
+		d.Events = newTestBus(t)
+	}
+	return newFlowsService(d)
+}
+
 // pngBytes encodes a small non-square opaque image the normalizer can decode.
 func pngBytes(t *testing.T) []byte {
 	t.Helper()
@@ -95,8 +107,9 @@ func TestFlowsServiceSetOrderPersistsAndApplies(t *testing.T) {
 		require.NoError(t, flows.Save(flow.Flow{ID: id, Name: id, Enabled: true}))
 	}
 	settingsStore := settings.NewStore(filepath.Join(t.TempDir(), "settings.yaml"))
-	updates := 0
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Settings: settingsStore, OnUpdated: func() { updates++ }})
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.FlowsUpdated](t, bus)
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Settings: settingsStore, Events: bus})
 
 	require.NoError(t, service.SetOrder(t.Context(), []string{"personal", "hive"}))
 
@@ -105,7 +118,8 @@ func TestFlowsServiceSetOrderPersistsAndApplies(t *testing.T) {
 		ids = append(ids, st.ID)
 	}
 	assert.Equal(t, []string{"personal", "hive", "recipinned"}, ids, "the live listing reorders without a reload")
-	assert.Equal(t, 1, updates, "a reorder notifies, so the rail re-reads")
+	got := requireEvents(t, ch, 1)
+	assert.Equal(t, "save", got[0].Reason, "a reorder notifies, so the rail re-reads")
 
 	persisted, err := settingsStore.Persisted()
 	require.NoError(t, err)
@@ -118,7 +132,7 @@ func TestFlowsServiceSetOrderKeepsUnknownIDs(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	require.NoError(t, flows.Save(flow.Flow{ID: "personal", Name: "Personal", Enabled: true}))
 	settingsStore := settings.NewStore(filepath.Join(t.TempDir(), "settings.yaml"))
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Settings: settingsStore})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Settings: settingsStore})
 
 	require.NoError(t, service.SetOrder(t.Context(), []string{"deleted", "personal"}))
 
@@ -133,13 +147,14 @@ func TestFlowsServiceNodeImageLifecycle(t *testing.T) {
 		t.Run(nodeID, func(t *testing.T) {
 			flows := flow.NewFlowStore(t.TempDir(), nil)
 			require.NoError(t, flows.Save(markableSourceFlow()))
-			updates := 0
-			service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), OnUpdated: func() { updates++ }})
+			bus := newTestBus(t)
+			ch := subscribeEvents[events.FlowsUpdated](t, bus)
+			service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Events: bus})
 
 			hash, err := service.SetNodeImage(t.Context(), "hooks", nodeID, pngBytes(t))
 			require.NoError(t, err)
 			assert.True(t, sourcemark.ValidHash(hash))
-			assert.Equal(t, 1, updates, "setting a node image notifies")
+			requireEvents(t, ch, 1)
 
 			data, err := service.NodeImage(t.Context(), "hooks", nodeID)
 			require.NoError(t, err)
@@ -156,7 +171,7 @@ func TestFlowsServiceNodeImageLifecycle(t *testing.T) {
 func TestFlowsServiceNodeImageErrorKinds(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	require.NoError(t, flows.Save(markableSourceFlow()))
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	_, err := service.SetNodeImage(t.Context(), "nope", "hook", pngBytes(t))
 	assert.Equal(t, KindNotFound, KindOf(err), "unknown flow is not-found")
@@ -174,7 +189,7 @@ func TestFlowsServiceNodeImageErrorKinds(t *testing.T) {
 // The editor's two-step path: the bytes are stored before the graph save that
 // records the hash, so the store must round-trip without a flow.
 func TestFlowsServiceMarkImageRoundTrip(t *testing.T) {
-	service := newFlowsService(FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	hash, err := service.StoreMarkImage(t.Context(), pngBytes(t))
 	require.NoError(t, err)
@@ -193,7 +208,7 @@ func TestFlowsServiceMarkImageRoundTrip(t *testing.T) {
 }
 
 func TestFlowsServiceStoreMarkImageRejectsBadInput(t *testing.T) {
-	service := newFlowsService(FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	_, err := service.StoreMarkImage(t.Context(), []byte("not an image"))
 	require.Error(t, err)
@@ -206,7 +221,7 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	st := stores.New(db, stores.Options{})
-	service := newFlowsService(FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
 	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
@@ -236,7 +251,7 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	st := stores.New(db, stores.Options{})
-	service := newFlowsService(FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
 	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
@@ -321,7 +336,7 @@ func TestFlowsServicePurgeProfile_DeletesEveryOwnedRowAndLeavesOtherProfilesInta
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	st := stores.New(db, stores.Options{})
-	service := newFlowsService(FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	target := seedPurgeProfileRows(t, db, "p")
 	other := seedPurgeProfileRows(t, db, "other")
@@ -342,7 +357,7 @@ func TestFlowsServicePurgeProfile_RollsBackTheWholeTransactionOnFailure(t *testi
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	st := stores.New(db, stores.Options{})
-	service := newFlowsService(FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	target := seedPurgeProfileRows(t, db, "p")
 
@@ -364,7 +379,7 @@ func TestFlowsServiceDeleteRemovesAProfileThatDoesNotParse(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("version: 1\nnodes: [\n"), 0o600))
 	flows := flow.NewFlowStore(dir, nil)
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	err := service.Delete(t.Context(), "broken")
 	assert.Equal(t, KindUnavailable, KindOf(err), "no store is wired, so only the purge is refused")
@@ -373,14 +388,14 @@ func TestFlowsServiceDeleteRemovesAProfileThatDoesNotParse(t *testing.T) {
 
 func TestFlowsServiceDeleteReportsAnUnknownProfileAsNotFound(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	assert.Equal(t, KindNotFound, KindOf(service.Delete(t.Context(), "never-existed")))
 }
 
 func TestFlowsServiceCreateSeedsWithTheOneConnectedAccount(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	created, err := service.Create(t.Context(), "Triage")
 	require.NoError(t, err)
@@ -406,7 +421,7 @@ func TestFlowsServiceCreateWithoutAnUnambiguousAccountMakesAnEmptyWorkspace(t *t
 				require.NoError(t, err)
 				require.NoError(t, creds.Set(ref, "token"))
 			}
-			service := newFlowsService(FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: creds, Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+			service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: creds, Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 			created, err := service.Create(t.Context(), "Triage")
 			require.NoError(t, err)
@@ -418,8 +433,9 @@ func TestFlowsServiceCreateWithoutAnUnambiguousAccountMakesAnEmptyWorkspace(t *t
 func TestFlowsServiceSeedStarterFillsAnEmptyWorkspace(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	creds := credentials.NewMemoryStore()
-	updates := 0
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: creds, Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), OnUpdated: func() { updates++ }})
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.FlowsUpdated](t, bus)
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: creds, Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Events: bus})
 
 	// The first-run order: the workspace exists before the account does.
 	created, err := service.Create(t.Context(), "Triage")
@@ -438,7 +454,7 @@ func TestFlowsServiceSeedStarterFillsAnEmptyWorkspace(t *testing.T) {
 	assert.NotEmpty(t, seeded.Nodes)
 	assert.NotEmpty(t, flows.GetLayout(created.ID).Nodes)
 	assert.Equal(t, created.Name, seeded.Name, "seeding keeps the name the user chose")
-	assert.Equal(t, 2, updates, "create and seed each reshape the flows list")
+	requireEvents(t, ch, 2)
 
 	// Appending a second starter graph onto a graph someone has since edited
 	// is not a mistake they can undo, so a populated workspace is refused.
@@ -454,13 +470,14 @@ func TestFlowsServiceSetFlowEnabled(t *testing.T) {
 	created, err := flows.Create("Triage", starterSeed(seedRef))
 	require.NoError(t, err)
 
-	updates := 0
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), OnUpdated: func() { updates++ }})
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.FlowsUpdated](t, bus)
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Events: bus})
 	summary, err := service.SetEnabled(t.Context(), created.ID, false)
 	require.NoError(t, err)
 	assert.Equal(t, created.ID, summary.ID)
 	assert.False(t, summary.Enabled)
-	assert.Equal(t, 1, updates)
+	requireEvents(t, ch, 1)
 
 	stored, ok := flows.Get(created.ID)
 	require.True(t, ok)
@@ -468,12 +485,13 @@ func TestFlowsServiceSetFlowEnabled(t *testing.T) {
 }
 
 func TestFlowsServiceSetFlowEnabledDoesNotEmitOnFailure(t *testing.T) {
-	updates := 0
-	service := newFlowsService(FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), OnUpdated: func() { updates++ }})
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.FlowsUpdated](t, bus)
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Events: bus})
 
 	_, err := service.SetEnabled(t.Context(), "missing", false)
 	require.Error(t, err)
-	assert.Zero(t, updates)
+	requireNoMoreEvents(t, ch)
 }
 
 func TestFlowsServiceProfileImageLifecycle(t *testing.T) {
@@ -481,13 +499,14 @@ func TestFlowsServiceProfileImageLifecycle(t *testing.T) {
 	created, err := flows.Create("Triage", starterSeed(seedRef))
 	require.NoError(t, err)
 
-	updates := 0
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), OnUpdated: func() { updates++ }})
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.FlowsUpdated](t, bus)
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Events: bus})
 
 	set, err := service.SetProfileImage(t.Context(), created.ID, pngBytes(t))
 	require.NoError(t, err)
 	require.NotEmpty(t, set.Image, "the flow records a content-hash reference")
-	assert.Equal(t, 1, updates)
+	requireEvents(t, ch, 1)
 
 	data, err := service.ProfileImage(t.Context(), created.ID)
 	require.NoError(t, err)
@@ -521,7 +540,7 @@ func TestFlowsServiceSetProfileImageRejectsBadInput(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	created, err := flows.Create("Triage", starterSeed(seedRef))
 	require.NoError(t, err)
-	service := newFlowsService(FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	_, err = service.SetProfileImage(t.Context(), created.ID, []byte("not an image"))
 	require.Error(t, err)

@@ -9,23 +9,24 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 )
 
 // newTestActivityService moved from activity/recorder_test.go along with the
 // persistence it exercises: activity.Store no longer holds a database, so its
 // round-trip and validation behaviour is ActivityService's to test.
-func newTestActivityService(t *testing.T, onAppended func(id int64)) *ActivityService {
+func newTestActivityService(t *testing.T) (*ActivityService, <-chan events.ActivityAppended) {
 	t.Helper()
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	return newActivityService(stores.New(db, stores.Options{}).ActivityEvents, onAppended)
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.ActivityAppended](t, bus)
+	return newActivityService(stores.New(db, stores.Options{}).ActivityEvents, bus), ch
 }
 
 func TestActivityService_AppendRoundTrip(t *testing.T) {
-	emitted := 0
-	var lastEmittedID int64
-	service := newTestActivityService(t, func(id int64) { emitted++; lastEmittedID = id })
+	service, ch := newTestActivityService(t)
 	ctx := t.Context()
 
 	stored, err := service.Append(ctx, activity.ActionRun("Reproduce & fix", "exit 0"))
@@ -35,13 +36,13 @@ func TestActivityService_AppendRoundTrip(t *testing.T) {
 	require.Equal(t, activity.CategoryAction, stored.Category)
 	require.Equal(t, activity.SeveritySuccess, stored.Severity)
 	require.Equal(t, "Ran Reproduce & fix", stored.Title)
-	require.Equal(t, 1, emitted, "onAppended fires once per successful append")
-	require.Equal(t, stored.ID, lastEmittedID, "onAppended carries the new event id")
+	got := requireEvents(t, ch, 1)
+	require.Equal(t, stored.ID, got[0].ID, "events.ActivityAppended carries the new event id")
 
-	events, err := service.List(ctx, 0, 50)
+	listed, err := service.List(ctx, 0, 50)
 	require.NoError(t, err)
-	require.Len(t, events, 1)
-	require.Equal(t, stored, events[0])
+	require.Len(t, listed, 1)
+	require.Equal(t, stored, listed[0])
 }
 
 func TestActivityService_ListNewestFirstAndCursor(t *testing.T) {
@@ -52,7 +53,7 @@ func TestActivityService_ListNewestFirstAndCursor(t *testing.T) {
 	// ordering itself is by the autoincrement id, not the timestamp.
 	now := time.Unix(0, 0)
 	st := stores.New(db, stores.Options{Now: func() time.Time { now = now.Add(time.Second); return now }})
-	service := newActivityService(st.ActivityEvents, nil)
+	service := newActivityService(st.ActivityEvents, newTestBus(t))
 	ctx := t.Context()
 
 	for range 5 {
@@ -73,7 +74,7 @@ func TestActivityService_ListNewestFirstAndCursor(t *testing.T) {
 }
 
 func TestActivityService_AppendRejectsBadInput(t *testing.T) {
-	service := newTestActivityService(t, nil)
+	service, ch := newTestActivityService(t)
 	ctx := t.Context()
 
 	_, err := service.Append(ctx, activity.Event{Category: activity.CategorySystem, Severity: activity.SeverityInfo})
@@ -83,10 +84,11 @@ func TestActivityService_AppendRejectsBadInput(t *testing.T) {
 	_, err = service.Append(ctx, activity.Event{Title: "bad", Category: activity.Category("nope"), Severity: activity.SeverityInfo})
 	require.Error(t, err, "invalid category is rejected")
 	require.Equal(t, KindInvalid, KindOf(err))
+	requireNoMoreEvents(t, ch)
 }
 
 func TestActivityService_AppendDefaultsCategoryAndSeverity(t *testing.T) {
-	service := newTestActivityService(t, nil)
+	service, _ := newTestActivityService(t)
 	stored, err := service.Append(t.Context(), activity.Event{Title: "something happened"})
 	require.NoError(t, err)
 	require.Equal(t, activity.CategorySystem, stored.Category)
@@ -97,7 +99,7 @@ func TestActivityService_AppendDefaultsCategoryAndSeverity(t *testing.T) {
 // activity.Recorder promises: a persistence failure must never reach the
 // caller.
 func TestActivityService_RecordSwallowsErrors(t *testing.T) {
-	service := newTestActivityService(t, nil)
+	service, _ := newTestActivityService(t)
 	require.NotPanics(t, func() {
 		service.Record(t.Context(), activity.Event{}) // missing title would error from Append
 	})

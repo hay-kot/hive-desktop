@@ -6,6 +6,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 )
 
 const (
@@ -20,16 +21,13 @@ const (
 // ActivityEventStore, because they need the activity package's enum, which a
 // store in data/ must not import.
 type ActivityService struct {
-	store      *stores.ActivityEventStore
-	onAppended func(id int64)
-	log        *slog.Logger
+	store  *stores.ActivityEventStore
+	events *events.Bus
+	log    *slog.Logger
 }
 
-func newActivityService(store *stores.ActivityEventStore, onAppended func(id int64)) *ActivityService {
-	if onAppended == nil {
-		onAppended = func(int64) {}
-	}
-	return &ActivityService{store: store, onAppended: onAppended, log: slog.Default()}
+func newActivityService(store *stores.ActivityEventStore, bus *events.Bus) *ActivityService {
+	return &ActivityService{store: store, events: bus, log: slog.Default()}
 }
 
 // List returns up to limit events with id < before, newest first. Pass
@@ -50,8 +48,9 @@ func (s *ActivityService) List(ctx context.Context, before int64, limit int) ([]
 }
 
 // Append validates, persists, and returns the stored event (with its
-// assigned id and timestamp), firing onAppended on success. It is the
-// error-returning path used by the frontend RPC; backend sites use Record.
+// assigned id and timestamp), publishing events.ActivityAppended on success.
+// It is the error-returning path used by the frontend RPC; backend sites use
+// Record.
 func (s *ActivityService) Append(ctx context.Context, e activity.Event) (activity.Event, error) {
 	if e.Title == "" {
 		return activity.Event{}, Errorf(KindInvalid, "activity event requires a title")
@@ -80,7 +79,7 @@ func (s *ActivityService) Append(ctx context.Context, e activity.Event) (activit
 	if err != nil {
 		return activity.Event{}, Wrap(err, KindInternal, "recording an activity event")
 	}
-	s.onAppended(stored.ID)
+	s.events.Publish(ctx, events.ActivityAppended{ID: stored.ID})
 	return activityEventFromStore(stored), nil
 }
 

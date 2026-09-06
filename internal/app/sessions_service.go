@@ -105,11 +105,17 @@ type SessionsService struct {
 	// disconnected.
 	pullRequests  *sessionPullRequests
 	execEnv       *execenv.Resolver
-	editorCommand func(context.Context) (string, error)
+	editorCommand EditorCommandReader
 	// defaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
 	// would. nil leaves the agent hive's config resolved.
-	defaultAgentEnv func(context.Context) string
+	defaultAgentEnv DefaultAgentReader
 	logger          zerolog.Logger
+}
+
+// DefaultAgentReader reads HIVE_DEFAULT_AGENT the way the user's terminal
+// would. A nil implementation leaves the agent hive's config resolved.
+type DefaultAgentReader interface {
+	DefaultAgent(ctx context.Context) string
 }
 
 // SessionsDeps is newSessionsService's constructor argument: the service
@@ -132,10 +138,10 @@ type SessionsDeps struct {
 	// EditorCommand reads the configured editor from settings on every call,
 	// so a settings change applies without restarting. Empty means none
 	// configured.
-	EditorCommand func(context.Context) (string, error)
+	EditorCommand EditorCommandReader
 	// DefaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
 	// would. nil leaves the agent hive's config resolved.
-	DefaultAgentEnv func(context.Context) string
+	DefaultAgentEnv DefaultAgentReader
 	Logger          zerolog.Logger
 }
 
@@ -186,7 +192,7 @@ func (s *SessionsService) withEnvironmentDefaultAgent(ctx context.Context, opts 
 	if s.defaultAgentEnv == nil {
 		return opts
 	}
-	preferred := strings.TrimSpace(s.defaultAgentEnv(ctx))
+	preferred := strings.TrimSpace(s.defaultAgentEnv.DefaultAgent(ctx))
 	if preferred == "" || !slices.Contains(opts.Agents, preferred) {
 		return opts
 	}
@@ -351,7 +357,7 @@ func (s *SessionsService) OpenSessionInEditor(ctx context.Context, id string) er
 	}
 	command := ""
 	if s.editorCommand != nil {
-		if configured, err := s.editorCommand(ctx); err == nil {
+		if configured, err := s.editorCommand.Editor(ctx); err == nil {
 			command = configured
 		}
 	}

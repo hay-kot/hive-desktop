@@ -71,19 +71,29 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
+// notifierFunc adapts a plain function to ingest.LogAppendNotifier, the same
+// shape http.HandlerFunc gives http.Handler.
+type notifierFunc func(offset int64)
+
+func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
+
 // newTestProducer wires a Producer's three store dependencies over one
 // database handle, mirroring how app.go's buildProducer wires the real
 // Stores.
 func newTestProducer(db *queries.DB, sources ingest.Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *ingest.Producer {
 	st := stores.New(db, stores.Options{})
+	var notifier ingest.LogAppendNotifier
+	if onAppended != nil {
+		notifier = notifierFunc(onAppended)
+	}
 	return ingest.NewProducer(ingest.ProducerDeps{
-		Ingester:   st.InboxItems,
-		Snapshots:  st.EventLog,
-		Heads:      st.SourceHeads,
-		Sources:    sources,
-		Interval:   interval,
-		OnAppended: onAppended,
-		Logger:     logger,
+		Ingester:  st.InboxItems,
+		Snapshots: st.EventLog,
+		Heads:     st.SourceHeads,
+		Sources:   sources,
+		Interval:  interval,
+		Notifier:  notifier,
+		Logger:    logger,
 	})
 }
 
