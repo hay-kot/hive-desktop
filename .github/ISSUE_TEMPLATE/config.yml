@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://hivedesktop.com/docs
+    about: Setup, sources, flows, terminal mode, and troubleshooting.
+  - name: Report a security vulnerability
+    url: https://github.com/hay-kot/hive-desktop/security/advisories/new
+    about: Private disclosure. Never open a public issue for a vulnerability.

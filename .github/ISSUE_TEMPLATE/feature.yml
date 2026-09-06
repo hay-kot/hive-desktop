@@ -1,0 +1,68 @@
+name: Feature request
+description: Something the app should be able to do and cannot.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        State the outcome you want, then what stops you today. The second part is
+        what turns a wish into something someone can build.
+
+  - type: textarea
+    id: intent
+    attributes:
+      label: Intent
+      description: |
+        What you want to do and why. Describe the outcome, not the implementation
+        -- the shape it should take is the next box down.
+      placeholder: |
+        I want a flow to route on whether I am currently on call. Same alerts, two
+        destinations: on my shift they fire a notify, off it they go somewhere quiet.
+        Today the only way to get that is to edit the flow when a shift starts.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: Today
+      description: |
+        What the app does now, and where it stops short. Name the node, the view,
+        or the setting you tried. Cite `file:line` if you found the limit in the
+        code.
+      placeholder: |
+        Nothing in a graph can consult external state. `github-filter` matches
+        fields on the message; `function` is deliberately I/O-free
+        (`internal/app/flow/nodes_function.go:23-30`).
+    validations:
+      required: true
+
+  - type: textarea
+    id: direction
+    attributes:
+      label: Direction
+      description: |
+        A shape you have in mind, if you have one, and what you are unsure about.
+        Open questions are welcome -- an unresolved design question is more useful
+        than a confident guess.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the open issues for this.
+          required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        **Agents.** If an LLM writes this issue, use ASD-STE100 Simplified
+        Technical English: active voice, approved-vocabulary words, sentences of
+        20 words or fewer, no gerunds. See
+        [CONTRIBUTING.md, Writing
+        style](https://github.com/hay-kot/hive-desktop/blob/main/CONTRIBUTING.md#writing-style).
+        Separate what you ran from what you read, and say which one each claim
+        comes from.
