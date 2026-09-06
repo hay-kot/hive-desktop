@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/attribute"
@@ -177,4 +180,46 @@ func TestBridgeParsesEventTimestamp(t *testing.T) {
 	require.Len(t, records, 1)
 	assert.True(t, records[0].Timestamp().After(before))
 	assert.False(t, records[0].ObservedTimestamp().IsZero())
+}
+
+// Trace correlation has to reach the record's own trace context, not just its
+// attributes: that is the field a backend joins logs to traces on.
+func TestBridgeCorrelatesToTheActiveSpan(t *testing.T) {
+	logger, exp := newBridge(t)
+	logger = logger.Hook(observe.TraceHook)
+
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10},
+		SpanID:     trace.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18},
+		TraceFlags: trace.FlagsSampled,
+	})
+	ctx := trace.ContextWithSpanContext(t.Context(), sc)
+
+	logger.Info().Ctx(ctx).Str("source", "github").Msg("polled")
+
+	records := exp.all()
+	require.Len(t, records, 1)
+	assert.Equal(t, sc.TraceID(), records[0].TraceID())
+	assert.Equal(t, sc.SpanID(), records[0].SpanID())
+
+	// The ids are the record's own, so repeating them as attributes would put
+	// the same value on every correlated line twice.
+	got := attrs(records[0])
+	assert.NotContains(t, got, observe.LogTraceIDKey)
+	assert.NotContains(t, got, observe.LogSpanIDKey)
+	assert.Equal(t, "github", got["source"].AsString())
+}
+
+// An event with no span is the common case — most of this app's logging is not
+// inside a trace — and it must still reach the exporter.
+func TestBridgeEmitsUncorrelatedLinesUnchanged(t *testing.T) {
+	logger, exp := newBridge(t)
+	logger = logger.Hook(observe.TraceHook)
+
+	logger.Info().Msg("no span here")
+
+	records := exp.all()
+	require.Len(t, records, 1)
+	assert.False(t, records[0].TraceID().IsValid())
+	assert.Equal(t, "no span here", records[0].Body().AsString())
 }

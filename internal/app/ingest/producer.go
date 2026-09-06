@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Producer is the poll loop that turns configured source connectors into
@@ -167,20 +170,24 @@ func (pr *Producer) Tick(ctx context.Context) TickSummary { return pr.tick(ctx, 
 func (pr *Producer) Refresh(ctx context.Context) TickSummary { return pr.tick(ctx, true) }
 
 func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
+	// A trigger, so a root span: everything below hangs off it, which is what
+	// makes an otherwise orphan client span readable.
+	ctx, span := tracer.Start(ctx, "ingest.tick", trace.WithAttributes(attribute.Bool(attrForced, forced)))
+	defer span.End()
+
 	instances := pr.sources.PullInstances()
 
-	if err := pr.sources.Prefetch(ctx, instances); err != nil {
-		pr.logger.Debug().Err(err).Msg("pipeline producer: source prefetch failed")
-	}
+	pr.prefetch(ctx, instances)
 
 	pr.pruneSchedule(instances)
 
 	summary := TickSummary{Sources: len(instances)}
-	var lastOffset int64
+	var lastOffset, drained int64
 	for _, instance := range instances {
 		if !forced && !pr.claimRun(instance) {
 			continue
 		}
+		drained++
 		rows, err := pr.drain(ctx, instance)
 		if err != nil {
 			summary.Failed++
@@ -192,10 +199,40 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 		}
 	}
 
+	span.SetAttributes(
+		attribute.Int(attrSources, summary.Sources),
+		attribute.Int64(attrDrained, drained),
+		attribute.Int(attrFailed, summary.Failed),
+		attribute.Int(attrAppended, summary.Appended),
+	)
+
 	if summary.Appended > 0 && pr.onAppended != nil {
 		pr.onAppended(lastOffset)
 	}
 	return summary
+}
+
+// A kind is overridable per message and so can be absent; a trailing space in
+// a search key helps nobody.
+func sourceSpanName(kind string) string {
+	if kind == "" {
+		return "ingest.source"
+	}
+	return "ingest.source " + kind
+}
+
+// One batched round trip per tick. It has a span because without one its time
+// lands under ingest.tick as a bare HTTP call, and it can be most of the tick.
+func (pr *Producer) prefetch(ctx context.Context, instances []connector.Instance) {
+	ctx, span := tracer.Start(ctx, "ingest.prefetch", trace.WithAttributes(
+		attribute.Int(attrSources, len(instances)),
+	))
+	defer span.End()
+
+	if err := pr.sources.Prefetch(ctx, instances); err != nil {
+		observe.RecordError(span, err)
+		pr.logger.Debug().Ctx(ctx).Err(err).Msg("pipeline producer: source prefetch failed")
+	}
 }
 
 // pruneSchedule drops the per-source state of sources that are no longer
@@ -253,15 +290,28 @@ type drained struct {
 // appends the topic's authoritative snapshot. The returned error means the
 // source did not complete — its snapshot is not authoritative, so neither
 // absence confirmation nor the snapshot append may run.
-func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (drained, error) {
-	var out drained
-
+func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out drained, err error) {
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 	meta := instance.Metadata
 	if meta.Policy == "" {
 		meta.Policy = store.ResurfacePolicyStateChanges
 	}
+
+	// Named by kind, which is bounded; the id rides as an attribute.
+	ctx, span := tracer.Start(ctx, sourceSpanName(meta.SourceKind), trace.WithAttributes(
+		attribute.String(attrSourceID, id),
+		attribute.String(attrSourceKnd, meta.SourceKind),
+		attribute.String(attrTopic, topic),
+	))
+	// A failed source is the question this span answers; the tick only counts it.
+	defer func() {
+		if err != nil {
+			observe.RecordError(span, err)
+		}
+		span.SetAttributes(attribute.Int(attrAppended, out.appended))
+		span.End()
+	}()
 	// A connector that declared no classifier gets the generic one, which
 	// records that something was observed or updated and nothing more.
 	classifier := instance.Classifier
@@ -271,7 +321,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (dra
 
 	items := make([]store.SnapshotItem, 0)
 	observed := make(map[string]struct{})
-	err := instance.Pull.Produce(ctx, func(msg Msg) error {
+	err = instance.Pull.Produce(ctx, func(msg Msg) error {
 		if msg.Topic != topic {
 			return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
 		}

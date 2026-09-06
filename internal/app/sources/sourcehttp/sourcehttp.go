@@ -10,7 +10,12 @@ import (
 
 	"github.com/hay-kot/appkit/httpclient"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+// server.address cannot name the connector: one host serves several, and the
+// dev proxy serves them all.
+const attrSource = "source"
 
 const DefaultTimeout = 30 * time.Second
 
@@ -31,6 +36,11 @@ type Config struct {
 // New builds the client a source's API calls go through. Logging is installed
 // as a transport rather than middleware so it observes the request that
 // reaches the wire, after redirects and regardless of caller middleware.
+//
+// otelhttp wraps the logging transport, so the span covers everything the log
+// line describes. Its semconv metrics are the whole of this package's request
+// instrumentation; a hand-written counter would duplicate them under a name no
+// dashboard knows.
 func New(cfg Config, mws ...httpclient.Middleware) *httpclient.Client {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -38,8 +48,11 @@ func New(cfg Config, mws ...httpclient.Middleware) *httpclient.Client {
 	}
 
 	httpClient := &http.Client{
-		Timeout:   timeout,
-		Transport: NewTransport(cfg.Name, cfg.Logger, cfg.Transport),
+		Timeout: timeout,
+		Transport: otelhttp.NewTransport(
+			NewTransport(cfg.Name, cfg.Logger, cfg.Transport),
+			otelhttp.WithSpanNameFormatter(spanName(cfg.Name)),
+		),
 	}
 
 	chain := make([]httpclient.Middleware, 0, len(mws)+1)
@@ -49,4 +62,10 @@ func New(cfg Config, mws ...httpclient.Middleware) *httpclient.Client {
 	chain = append(chain, mws...)
 
 	return httpclient.New(httpClient, cfg.BaseURL, chain...)
+}
+
+// Provider and method, never the path: a source path carries org and repository
+// names. The "http." prefix says which layer produced the span.
+func spanName(source string) func(string, *http.Request) string {
+	return func(_ string, r *http.Request) string { return "http." + source + " " + r.Method }
 }

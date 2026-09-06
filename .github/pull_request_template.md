@@ -11,7 +11,7 @@ Append ! before the colon for a breaking change.
 
   types   feat fix perf refactor docs test build ci chore revert
   scopes  chats canvas terminal code feed flows tasks settings sources
-          actions mcp release skills web docs deps repo
+          actions mcp release skills telemetry web docs deps repo
 
 A change that genuinely spans the app takes no scope: `refactor: ...`. If the
 scope you want is missing, add it here in the same PR rather than inventing one

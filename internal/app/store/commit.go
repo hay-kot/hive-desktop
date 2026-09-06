@@ -10,6 +10,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 // Sink kinds: where a committed Output is written.
@@ -142,6 +146,10 @@ type CommitBatch struct {
 // Only output_command needs its own dedup key, since two different batches
 // could legitimately enqueue the same action.
 func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "db.CommitBatch")
+	defer span.End()
+	span.SetAttributes(attribute.Int("db.batch.outputs", len(b.Outputs)))
+
 	db.debugPauseCommit(ctx)
 	if b.UpToOffset < 0 {
 		return fmt.Errorf("commit offset must not be negative: %d", b.UpToOffset)

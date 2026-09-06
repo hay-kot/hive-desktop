@@ -146,7 +146,7 @@ func (h *terminalStream) writePump(ctx context.Context, conn *websocket.Conn, sl
 			return
 		}
 		if out, isOutput := ev.(tmuxcc.Output); isOutput {
-			h.core.Terminals.ObserveFrameLatency(slug, out.WindowID, time.Since(out.At))
+			h.core.Terminals.ObserveFrameLatency(ctx, time.Since(out.At))
 		}
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "terminal session ended")

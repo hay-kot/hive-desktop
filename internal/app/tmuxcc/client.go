@@ -88,13 +88,17 @@ type Options struct {
 	Rows        int
 	Binary      string // tmux executable; empty resolves "tmux" through $PATH
 	BufferBytes int    // broker bound; 0 == defaultBufferBytes
-	Metrics     MetricsSink
 	Logger      zerolog.Logger
 	OnExit      func(slug, reason string)
 	// Environ is what tmux is spawned with, minus the client variables
 	// detachedEnv drops — execenv's resolved environment in the app, nil
 	// meaning this process's own.
 	Environ []string
+
+	// onEmit is a test seam for parking inside the attach sequence's synchronous
+	// first paint, the only way to hold the attach goroutine between a client
+	// finishing its paint and the manager registering it. Nil in production.
+	onEmit func()
 
 	newProcess func(Options) process
 	// loadBuffer fills a named tmux buffer from a reader. It is a one-shot
@@ -119,9 +123,6 @@ func (o *Options) normalize() error {
 	if o.Binary == "" {
 		o.Binary = defaultBinary
 	}
-	if o.Metrics == nil {
-		o.Metrics = NopMetrics
-	}
 	if o.newProcess == nil {
 		o.newProcess = newExecProcess
 	}
@@ -136,10 +137,10 @@ func (o *Options) normalize() error {
 
 // Client is one control-mode connection to one Hive session.
 type Client struct {
-	slug    string
-	log     zerolog.Logger
-	metrics MetricsSink
-	onExit  func(slug, reason string)
+	slug   string
+	log    zerolog.Logger
+	onExit func(slug, reason string)
+	onEmit func()
 
 	proc       process
 	gw         *Gateway
@@ -205,8 +206,8 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 	c := &Client{
 		slug:         opts.Slug,
 		log:          opts.Logger.With().Str("session", opts.Slug).Logger(),
-		metrics:      opts.Metrics,
 		onExit:       opts.OnExit,
+		onEmit:       opts.onEmit,
 		ctrl:         newController(),
 		loadBuffer:   opts.loadBuffer,
 		readerDone:   make(chan struct{}),
@@ -971,27 +972,33 @@ func (c *Client) onNotification(n Notification) {
 // a non-active pane is counted and dropped rather than buffered: it is never
 // rendered, so letting it consume the broker's byte budget would let a
 // background pane tear the session down.
+//
+// The measurements take c.lifeCtx because that is what they measure: this
+// client's stream, for as long as it is attached.
 func (c *Client) emitOutput(pane string, data []byte, at time.Time) {
 	w, ok := c.ctrl.windowForPane(pane)
 	if !ok {
 		c.log.Debug().Str("pane", pane).Msg("output for unknown pane dropped")
 		return
 	}
-	c.metrics.BytesStreamed(c.slug, w.ID, len(data))
+	streamedBytes.Add(c.lifeCtx, int64(len(data)))
+	if c.onEmit != nil {
+		c.onEmit()
+	}
 	if w.ActivePane != pane {
 		return
 	}
 	c.events.publish(Output{At: at, WindowID: w.ID, PaneID: pane, Data: data})
-	c.metrics.StreamBufferDepth(c.slug, w.ID, c.events.depth())
+	bufferDepth.Record(c.lifeCtx, int64(c.events.depth()))
 }
 
 func (c *Client) publish(ev Event) {
 	if lc, ok := ev.(LifecycleChanged); ok {
 		switch lc.Kind {
 		case LifecyclePaused:
-			c.metrics.PauseEvent(c.slug, lc.WindowID)
+			lifecycleTransitions.Add(c.lifeCtx, 1, statePaused)
 		case LifecycleResumed:
-			c.metrics.ResumeEvent(c.slug, lc.WindowID)
+			lifecycleTransitions.Add(c.lifeCtx, 1, stateResumed)
 		default:
 		}
 	}
