@@ -170,10 +170,8 @@ func (pr *Producer) Tick(ctx context.Context) TickSummary { return pr.tick(ctx, 
 func (pr *Producer) Refresh(ctx context.Context) TickSummary { return pr.tick(ctx, true) }
 
 func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
-	// The tick is a trigger, so this is a root span: the poll loop's context
-	// carries none, and this is the cause a person asks questions about. Every
-	// source drain, HTTP round trip and batch write below hangs off it, which is
-	// what makes an orphan client span readable.
+	// A trigger, so a root span: everything below hangs off it, which is what
+	// makes an otherwise orphan client span readable.
 	ctx, span := tracer.Start(ctx, "ingest.tick", trace.WithAttributes(attribute.Bool(attrForced, forced)))
 	defer span.End()
 
@@ -214,9 +212,8 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	return summary
 }
 
-// sourceSpanName names a source span after its connector kind, which is a
-// bounded set. A kind is overridable per message and so can be absent here;
-// naming it anyway would leave a trailing space in a search key.
+// A kind is overridable per message and so can be absent; a trailing space in
+// a search key helps nobody.
 func sourceSpanName(kind string) string {
 	if kind == "" {
 		return "ingest.source"
@@ -224,10 +221,8 @@ func sourceSpanName(kind string) string {
 	return "ingest.source " + kind
 }
 
-// prefetch is a wait, and a bounded one — a single batched round trip per tick,
-// before any source is drained. It gets its own span because without one its
-// time lands directly under ingest.tick as a bare HTTP call, and on a slow
-// morning it is the majority of the tick.
+// One batched round trip per tick. It has a span because without one its time
+// lands under ingest.tick as a bare HTTP call, and it can be most of the tick.
 func (pr *Producer) prefetch(ctx context.Context, instances []connector.Instance) {
 	ctx, span := tracer.Start(ctx, "ingest.prefetch", trace.WithAttributes(
 		attribute.Int(attrSources, len(instances)),
@@ -303,16 +298,13 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		meta.Policy = store.ResurfacePolicyStateChanges
 	}
 
-	// Named by connector kind, not by source id: the kind is a bounded set and
-	// the id is not, and a span name is a search key. The id rides as an
-	// attribute.
+	// Named by kind, which is bounded; the id rides as an attribute.
 	ctx, span := tracer.Start(ctx, sourceSpanName(meta.SourceKind), trace.WithAttributes(
 		attribute.String(attrSourceID, id),
 		attribute.String(attrSourceKnd, meta.SourceKind),
 		attribute.String(attrTopic, topic),
 	))
-	// Named returns exist for this: a source that fails is the question this
-	// span answers, and the tick above it only counts the failure.
+	// A failed source is the question this span answers; the tick only counts it.
 	defer func() {
 		if err != nil {
 			observe.RecordError(span, err)

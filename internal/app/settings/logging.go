@@ -39,9 +39,8 @@ func ResolveLogLevel() (zerolog.Level, error) {
 func NewLogger(path string, level zerolog.Level, extra ...io.Writer) (zerolog.Logger, func(), error) {
 	stderr := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
 	build := func(writers ...io.Writer) zerolog.Logger {
-		// The trace hook runs on every event and adds nothing to one that
-		// carries no span, so it is installed unconditionally: whether the ids
-		// mean anything is telemetry's business, not the logger's.
+		// Installed unconditionally: the hook adds nothing to an event with no
+		// span, and whether the ids mean anything is telemetry's business.
 		return zerolog.New(zerolog.MultiLevelWriter(writers...)).
 			With().Timestamp().Logger().
 			Level(level).

@@ -38,10 +38,9 @@ type logWriter struct {
 // Resolver. An io.Writer has no context parameter, and the bound context is
 // detached from app cancellation so shutdown lines are not the ones dropped.
 //
-// It takes a SpanContext rather than a Context because trace correlation on an
-// OTLP log record does not travel as an attribute: the record's trace and span
-// ids come from the context handed to Emit. The ids arrive here as fields on
-// the encoded event, so this is where they are turned back into one.
+// It takes a SpanContext because correlation on an OTLP record comes from the
+// context handed to Emit, not from an attribute, and the ids arrive here as
+// fields on the encoded event.
 type emitter func(trace.SpanContext, otellog.Record)
 
 func bindEmitter(ctx context.Context, logger otellog.Logger) emitter {
@@ -103,8 +102,7 @@ func (w *logWriter) forward(p []byte) {
 		switch key {
 		case zerolog.TimestampFieldName, zerolog.LevelFieldName, zerolog.MessageFieldName:
 			continue
-		// Promoted to the record's own trace context below. Left in attributes
-		// as well they would be duplicated on every correlated line.
+		// Promoted to the record's own trace context below.
 		case observe.LogTraceIDKey, observe.LogSpanIDKey:
 			continue
 		}
@@ -120,8 +118,7 @@ func (w *logWriter) forward(p []byte) {
 	w.emit(spanContextFrom(fields), rec)
 }
 
-// spanContextFrom rebuilds the span context observe.TraceHook wrote onto the
-// event. An unparseable or absent pair yields the zero value, which emits an
+// An unparseable or absent pair yields the zero value, which emits an
 // uncorrelated record rather than failing the write.
 func spanContextFrom(fields map[string]json.RawMessage) trace.SpanContext {
 	traceHex, err := decodeString(fields[observe.LogTraceIDKey])

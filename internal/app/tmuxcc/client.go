@@ -95,10 +95,9 @@ type Options struct {
 	// meaning this process's own.
 	Environ []string
 
-	// onEmit runs on every forwarded output frame. It is a test seam for
-	// parking inside the attach sequence's synchronous first paint, which is
-	// the only way to hold the attach goroutine between a client finishing its
-	// paint and the manager registering it. Production leaves it nil.
+	// onEmit is a test seam for parking inside the attach sequence's synchronous
+	// first paint, the only way to hold the attach goroutine between a client
+	// finishing its paint and the manager registering it. Nil in production.
 	onEmit func()
 
 	newProcess func(Options) process
@@ -974,10 +973,8 @@ func (c *Client) onNotification(n Notification) {
 // rendered, so letting it consume the broker's byte budget would let a
 // background pane tear the session down.
 //
-// The measurements take c.lifeCtx rather than a request context because that is
-// what they measure: this client's stream, for as long as it is attached. A
-// metric record is not cancellable work, so the context carries trace
-// correlation and nothing else.
+// The measurements take c.lifeCtx because that is what they measure: this
+// client's stream, for as long as it is attached.
 func (c *Client) emitOutput(pane string, data []byte, at time.Time) {
 	w, ok := c.ctrl.windowForPane(pane)
 	if !ok {

@@ -13,9 +13,8 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// attrSource names the connector a request belongs to. server.address cannot
-// answer that: one host serves several connectors, and under the dev proxy every
-// connector shares one address.
+// server.address cannot name the connector: one host serves several, and the
+// dev proxy serves them all.
 const attrSource = "source"
 
 const DefaultTimeout = 30 * time.Second
@@ -38,11 +37,10 @@ type Config struct {
 // as a transport rather than middleware so it observes the request that
 // reaches the wire, after redirects and regardless of caller middleware.
 //
-// otelhttp wraps the logging transport rather than the other way round, so the
-// span covers everything the log line describes. It is the whole of this
-// package's instrumentation: request duration, status and retry counts are
-// semconv metrics the library already emits, and hand-writing them here would
-// produce the same numbers under names no dashboard knows.
+// otelhttp wraps the logging transport, so the span covers everything the log
+// line describes. Its semconv metrics are the whole of this package's request
+// instrumentation; a hand-written counter would duplicate them under a name no
+// dashboard knows.
 func New(cfg Config, mws ...httpclient.Middleware) *httpclient.Client {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -66,11 +64,8 @@ func New(cfg Config, mws ...httpclient.Middleware) *httpclient.Client {
 	return httpclient.New(httpClient, cfg.BaseURL, chain...)
 }
 
-// spanName names a client span after the provider and the method, never the
-// path. A source path carries repository and org names, which would make every
-// repository its own span name and every trace search over them useless. The
-// "http." prefix is what makes the name readable on its own: a bare
-// "gitea GET" in a trace list says nothing about which layer produced it.
+// Provider and method, never the path: a source path carries org and repository
+// names. The "http." prefix says which layer produced the span.
 func spanName(source string) func(string, *http.Request) string {
 	return func(_ string, r *http.Request) string { return "http." + source + " " + r.Method }
 }

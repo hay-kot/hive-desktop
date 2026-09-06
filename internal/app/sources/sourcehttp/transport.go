@@ -26,8 +26,7 @@ type transport struct {
 	name string
 	log  zerolog.Logger
 	next http.RoundTripper
-	// attrs is built once because the source name is fixed for the life of the
-	// transport; metric.WithAttributes allocates, and this is a per-request path.
+	// Built once: metric.WithAttributes allocates and this is a per-request path.
 	attrs metric.MeasurementOption
 }
 
@@ -47,11 +46,8 @@ func (t transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	ctx := r.Context()
 	target := redactQuery(r.URL)
 
-	// otelhttp wraps this transport, so it has already put a Labeler on the
-	// context and reads it back after this returns. Naming the source here is
-	// what makes its request metrics answer "which connector", which
-	// server.address cannot: one host serves several, and the dev proxy serves
-	// them all.
+	// otelhttp wraps this transport, so the Labeler is already on the context and
+	// is read back after this returns.
 	if labeler, ok := otelhttp.LabelerFromContext(ctx); ok {
 		labeler.Add(attribute.String(attrSource, t.name))
 	}

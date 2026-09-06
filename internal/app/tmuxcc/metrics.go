@@ -10,13 +10,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
-// The data plane's instruments.
-//
-// None of them is labelled by session slug or window id. Both are per-user and
-// effectively unbounded, and a metric attribute is where that cost is paid on
-// every export for as long as the series lives. Which session streamed the
-// bytes is a log or a span question; how much this install streams is the
-// metric question.
+// No instrument here is labelled by session slug or window id: both are
+// unbounded per user, and which session was noisy is a span question.
 var (
 	meter = observe.Meter("/internal/app/tmuxcc")
 
@@ -26,10 +21,8 @@ var (
 		metric.WithUnit("By"),
 	))
 
-	// Boundaries climb to defaultBufferBytes, the broker's own bound. The SDK
-	// default tops out at 10 KB, which puts every interesting backlog in the
-	// overflow bucket and makes a quantile report the bound rather than the
-	// depth.
+	// Boundaries reach defaultBufferBytes. The SDK default stops at 10 KB, which
+	// puts every interesting backlog in the overflow bucket.
 	bufferDepth = observe.Must(meter.Int64Histogram(
 		"tmux.stream.buffer.depth",
 		metric.WithDescription("Broker backlog depth measured after a publish."),
@@ -44,11 +37,9 @@ var (
 		metric.WithDescription("Stream pause and resume transitions."),
 	))
 
-	// Boundaries are seconds, and this path is measured in tens of
-	// microseconds. The SDK default starts at 5, so every observation lands in
-	// the first bucket and a quantile interpolates across it -- a 92us p99
-	// reports as 4.95s. Explicit boundaries are not optional on a histogram
-	// whose unit is seconds.
+	// Seconds, and this path takes tens of microseconds. The SDK default starts
+	// at 5, so every observation landed in the first bucket and a 92us p99
+	// reported as 4.95s.
 	frameLatency = observe.Must(meter.Float64Histogram(
 		"tmux.stream.frame.latency",
 		metric.WithDescription("Delay from tmux %output decode to the frame reaching the transport."),
@@ -59,15 +50,13 @@ var (
 	))
 )
 
-// ObserveFrameLatency records how long an output frame took to travel from this
-// package's decode to the wire. Only the transport knows when the send
-// happened, so it is the one that measures and reports it.
+// ObserveFrameLatency is exported because only the transport knows when a frame
+// reached the wire.
 func ObserveFrameLatency(ctx context.Context, d time.Duration) {
 	frameLatency.Record(ctx, d.Seconds())
 }
 
-// Built once rather than per call: metric.WithAttributes allocates, and these
-// two are the whole domain of the attribute.
+// Built once: metric.WithAttributes allocates.
 var (
 	statePaused  = metric.WithAttributes(attribute.String("state", "paused"))
 	stateResumed = metric.WithAttributes(attribute.String("state", "resumed"))

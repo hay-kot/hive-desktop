@@ -93,8 +93,7 @@ type Provider struct {
 	shutdown []func(context.Context) error
 }
 
-// Off returns a provider that emits nothing and registers nothing. The global
-// TracerProvider and MeterProvider keep the API's no-op default, so a span or a
+// Off registers nothing, so the globals keep the API's no-op default and a
 // measurement is safe to take without checking whether telemetry is configured.
 func Off() *Provider { return &Provider{} }
 
@@ -183,12 +182,9 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 		return fail(fmt.Errorf("telemetry: runtime metrics: %w", err))
 	}
 
-	// Registered last, so a construction failure never leaves a provider that
-	// fail() has already shut down reachable through the global. The
-	// MeterProvider is registered whichever gate is on: scrape alone is enough
-	// for an instrument to reach /metrics. There is no local sink for spans, so
-	// the TracerProvider is registered only when export is on and the global
-	// tracer otherwise stays no-op.
+	// Last, so a construction failure never leaves a provider fail() has already
+	// shut down reachable through the global. Spans have no local sink, so the
+	// TracerProvider registers only for export.
 	if tp != nil {
 		otel.SetTracerProvider(tp)
 	}
