@@ -214,6 +214,16 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	return summary
 }
 
+// sourceSpanName names a source span after its connector kind, which is a
+// bounded set. A kind is overridable per message and so can be absent here;
+// naming it anyway would leave a trailing space in a search key.
+func sourceSpanName(kind string) string {
+	if kind == "" {
+		return "ingest.source"
+	}
+	return "ingest.source " + kind
+}
+
 // prefetch is a wait, and a bounded one — a single batched round trip per tick,
 // before any source is drained. It gets its own span because without one its
 // time lands directly under ingest.tick as a bare HTTP call, and on a slow
@@ -296,7 +306,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 	// Named by connector kind, not by source id: the kind is a bounded set and
 	// the id is not, and a span name is a search key. The id rides as an
 	// attribute.
-	ctx, span := tracer.Start(ctx, "ingest.source "+meta.SourceKind, trace.WithAttributes(
+	ctx, span := tracer.Start(ctx, sourceSpanName(meta.SourceKind), trace.WithAttributes(
 		attribute.String(attrSourceID, id),
 		attribute.String(attrSourceKnd, meta.SourceKind),
 		attribute.String(attrTopic, topic),
