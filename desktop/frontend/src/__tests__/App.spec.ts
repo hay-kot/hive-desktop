@@ -491,6 +491,82 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // #387: seeding used to fire only from the first-run connect step, so a user
+  // who skipped it and connected later kept an empty workspace for good.
+  it('offers the starter feeds when GitHub is connected after first run', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([])
+    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, nodes: [], wires: [] })
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    const wrapper = await mountApp()
+
+    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
+    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
+    await wrapper.get('[data-testid="onboarding-skip-confirm"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
+    await flushPromises()
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+
+    // Connecting under Settings ▸ Integrations lands here, as the same
+    // connection:updated push the device flow uses.
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    connection?.({ data: 'github' })
+    await flushPromises()
+
+    // Offered, not applied: outside first run an empty graph can be deliberate.
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="toast-title"]').text()).toBe('GitHub connected')
+    await wrapper.get('[data-testid="toast-action"]').trigger('click')
+    await flushPromises()
+    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('personal')
+
+    wrapper.unmount()
+  })
+
+  it('does not re-offer the starter feeds on a launch into an existing connection', async () => {
+    mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Personal', enabled: true, nodes: [], wires: [] })
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="toast"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="workspace-empty-seed"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('seeds the starter feeds from the empty state', async () => {
+    mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Personal', enabled: true, nodes: [], wires: [] })
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Personal', enabled: true, valid: true })
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="workspace-empty-seed"]').trigger('click')
+    await flushPromises()
+    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('personal')
+
+    wrapper.unmount()
+  })
+
+  // SeedStarter refuses a workspace that already has nodes, so the offer follows
+  // the node count, not the feed count -- a graph with a source and no feed node
+  // renders the same empty state and must not offer a seed that would fail.
+  it('does not offer the starter feeds for a workspace that already has nodes', async () => {
+    mocks.GetFlow.mockResolvedValue({
+      id: 'personal', name: 'Personal', enabled: true, wires: [],
+      nodes: [{ id: 'src', type: 'sources.github' }],
+    })
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="workspace-empty"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-empty-seed"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('stays on the feed when GitHub disconnects — Integrations is where that is repaired', async () => {
     const wrapper = await mountApp()
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)

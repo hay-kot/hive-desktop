@@ -348,6 +348,53 @@ func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "tmux already ended the session when its command exited")
 }
 
+// The listing is where an absent agent CLI has to be legible: a workspace
+// seeded with agent: claude on a machine with no claude used to say nothing
+// until a session was started and died (#388).
+func TestListReportsAnAgentThatIsNotOnPATH(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "missing", "version: 2\nname: Missing\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "present", "version: 2\nname: Present\nagent: codex\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{
+		"claude": "this-binary-does-not-exist-anywhere-12345",
+		"codex":  "true",
+	})
+
+	views, err := svc.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, views, 2)
+
+	byDir := map[string]WorkspaceView{}
+	for _, view := range views {
+		byDir[view.Dir] = view
+	}
+	assert.Contains(t, byDir["missing"].Problem, "this-binary-does-not-exist-anywhere-12345")
+	assert.Contains(t, byDir["missing"].Problem, "PATH")
+	assert.Empty(t, byDir["present"].Problem)
+
+	// Advisory, not a gate: a login shell's startup files can reach a command
+	// that walking PATH cannot see, so the launch is still attempted.
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "missing", Name: "s1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	assert.NotEmpty(t, started.Notice)
+}
+
+// A manifest that did not parse has no trustworthy agent: field, so the parse
+// error is what the row reports -- never a PATH complaint about the zero value.
+func TestListPrefersTheManifestErrorOverAnAgentProblem(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "broken", "version: 2\nname: Broken\nagent: claude\nautonomy: sideways\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "this-binary-does-not-exist-anywhere-12345"})
+
+	views, err := svc.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	assert.Contains(t, views[0].Problem, "sideways")
+	assert.NotContains(t, views[0].Problem, "PATH")
+}
+
 func TestLaunchRefusesAnUnknownAgent(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()

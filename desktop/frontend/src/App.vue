@@ -679,25 +679,65 @@ async function submitOnboardingWorkspace(name: string): Promise<void> {
   if (!(await createProfile(name))) firstRunConnect.value = false
 }
 
-// Connecting during first run seeds the workspace made a step earlier. It was
-// made empty because a source node names the account it fetches as and there
-// was none; this is the moment there is one. The connect card stays up until
-// the seed lands, so the feed is never rendered sourceless on the way through.
-watch(githubConnected, async (connected) => {
-  if (!connected || !firstRunConnect.value) return
-  const profileId = activeProfileId.value
+// The two things SeedStarter needs: a workspace with no nodes at all, and one
+// connected account to fetch as.
+const canSeedStarter = computed(() => githubConnected.value && activeProfile.value?.empty === true)
+
+// addStarterFeeds fills an empty workspace with the starter graph. Every entry
+// point routes through here so the failure reads the same wherever it was
+// asked from: seeding is refused for a workspace that already has nodes, and
+// for one whose account went away between the offer and the click.
+async function addStarterFeeds(profileId: string): Promise<void> {
   try {
-    if (profileId) await seedStarterFlow(profileId)
+    await seedStarterFlow(profileId)
   } catch (error) {
     console.warn('Unable to seed the starter flow', error)
     showToast('Starter feeds were not added', {
       body: 'This workspace has no sources yet — add one in the flow editor.',
       severity: 'error',
     })
-  } finally {
+  }
+}
+
+// Connecting seeds the workspace, but what it means depends on when.
+//
+// During first run it is the step the workspace was waiting for: the workspace
+// was made empty because a source node names the account it fetches as and
+// there was none, and this is the moment there is one. The connect card stays
+// up until the seed lands, so the feed is never rendered sourceless on the way
+// through.
+//
+// Connecting later — from Settings ▸ Integrations, after skipping that step —
+// used to seed nothing at all, stranding everyone who deferred (#387). It is
+// offered rather than applied, because outside first run an empty graph can be
+// deliberate.
+//
+// The state, not the connected flag, is what this watches: `connected` is
+// false while the first Status() is still in flight, so an already-connected
+// user's launch would otherwise read as a connect and re-offer on every start.
+watch(() => githubStatus.value?.state ?? null, async (state, previous) => {
+  if (state !== 'connected') return
+
+  if (firstRunConnect.value) {
+    const profileId = activeProfileId.value
+    if (profileId) await addStarterFeeds(profileId)
     firstRunConnect.value = false
     advanceToPermissions()
+    return
   }
+
+  // A first connect, not a launch into one already made, and not a reconnect.
+  if (previous === null || previous === 'connected') return
+  // Read before any await: the login watcher above starts a profile reload on
+  // this same change, and its stubs carry no emptiness until the flow is read
+  // back. Undefined means unread, which is not the same as "has nodes".
+  const profile = activeProfile.value
+  if (!profile?.empty) return
+  showToast('GitHub connected', {
+    body: `${profile.name} has no sources yet. Add the starter feeds?`,
+    severity: 'success',
+    actions: [{ label: 'Add starter feeds', onClick: () => { void addStarterFeeds(profile.id) } }],
+  })
 })
 
 // ── App mode ─────────────────────────────────────────────────────────────────
@@ -1378,11 +1418,24 @@ onUnmounted(() => {
           >
             <div class="text-[13.5px] font-semibold">No sources yet</div>
             <p class="max-w-[400px] text-xs leading-relaxed text-text-3">
-              {{ githubConnected
-                ? 'This workspace has no feeds. Open the flow editor to wire a source into one.'
-                : 'This workspace has no feeds, and no account is connected to fetch as. Connect one under Integrations, then wire a source into a feed.' }}
+              {{ canSeedStarter
+                ? 'This workspace has no feeds. Add the starter feeds, or open the flow editor to wire a source in by hand.'
+                : githubConnected
+                  ? 'This workspace has no feeds. Open the flow editor to wire a source into one.'
+                  : 'This workspace has no feeds, and no account is connected to fetch as. Connect one under Integrations, then wire a source into a feed.' }}
             </p>
             <div class="mt-1 flex items-center gap-2">
+              <!-- The starter graph is what first run would have added had the
+                   connect step not been skipped, so it is offered wherever the
+                   workspace is still empty and there is now an account to fetch
+                   as (#387). SeedStarter refuses a graph that has nodes, so the
+                   offer follows `empty` rather than the feed count. -->
+              <button
+                v-if="canSeedStarter"
+                class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text"
+                data-testid="workspace-empty-seed"
+                @click="activeProfile && addStarterFeeds(activeProfile.id)"
+              >Add starter feeds</button>
               <button
                 v-if="!githubConnected"
                 class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text"
