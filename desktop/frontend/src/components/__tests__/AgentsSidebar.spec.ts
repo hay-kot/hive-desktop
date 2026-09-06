@@ -15,7 +15,7 @@ const workspaceFixtures: AgentWorkspace[] = [
 
 function schedule(overrides: Partial<AgentSchedule> = {}): AgentSchedule {
   return {
-    workspace: 'demo-b', id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+    id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
     prompt: 'Summarize the week.', disabled: false, onMissed: 'run',
     nextRunAt: null, lastRun: null, ...overrides,
   }

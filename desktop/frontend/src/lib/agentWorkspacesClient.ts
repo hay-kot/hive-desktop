@@ -228,7 +228,6 @@ export interface WorkspaceCanvasMeta {
  * `nextRunAt` is null when the schedule is disabled or its cron does not parse.
  */
 export interface AgentSchedule {
-  workspace: string
   id: string
   name: string
   cron: string
@@ -239,32 +238,25 @@ export interface AgentSchedule {
   lastRun: AgentScheduleRun | null
 }
 
-/** One execution of a schedule. `sessionId` is the chat it launched, null otherwise. */
+/** One execution of a schedule. */
 export interface AgentScheduleRun {
   id: number
-  workspace: string
-  scheduleId: string
-  scheduleName: string
-  scheduledFor: number
   startedAt: number
   reason: 'due' | 'catch_up' | 'manual'
   status: 'launched' | 'failed' | 'skipped'
   /** Earlier occurrences this run stands in for, 0 when it fired on time. */
   missed: number
-  sessionId: number | null
-  prompt: string
   error: string
 }
 
 /**
- * A dry run of an unsaved edit: the next occurrences its cron produces and the
- * prompt rendered against sample data. A bad cron or template is reported in
- * `cronError`/`promptError` rather than as a failed call, so the editor can
- * show it beside the field the user is still typing in.
+ * A dry run of an unsaved edit: the next occurrences its cron produces. A bad
+ * cron or template is reported in `cronError`/`promptError` rather than as a
+ * failed call, so the editor can show it beside the field the user is still
+ * typing in.
  */
 export interface AgentSchedulePreview {
   next: number[]
-  prompt: string
   cronError: string
   promptError: string
 }
@@ -276,7 +268,7 @@ export interface ScheduleEdit {
   cron: string
   prompt: string
   disabled: boolean
-  onMissed: string
+  onMissed: AgentSchedule['onMissed']
 }
 
 export interface SchedulePreviewRequest {
@@ -362,7 +354,7 @@ export interface AgentWorkspacesClient {
   /** Fires a schedule now, outside its timetable; the cursor is untouched. */
   runSchedule(workspace: string, id: string): Promise<AgentScheduleRun>
   /** One schedule's run history, newest first. */
-  scheduleRuns(workspace: string, id: string, limit?: number): Promise<AgentScheduleRun[]>
+  scheduleRuns(workspace: string, id: string, limit: number): Promise<AgentScheduleRun[]>
   /** Validates an unsaved edit and reports what it would do. */
   previewSchedule(request: SchedulePreviewRequest): Promise<AgentSchedulePreview>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
@@ -509,7 +501,7 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
       return body.run
     },
     async scheduleRuns(workspace, id, limit) {
-      const body = await post<{ runs: AgentScheduleRun[] | null }>('/schedules/runs', { workspace, id, limit: limit ?? 0 })
+      const body = await post<{ runs: AgentScheduleRun[] | null }>('/schedules/runs', { workspace, id, limit })
       return body?.runs ?? []
     },
     async previewSchedule(request) {

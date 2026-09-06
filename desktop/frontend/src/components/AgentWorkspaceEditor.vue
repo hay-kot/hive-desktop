@@ -1,9 +1,10 @@
 <script setup lang="ts">
 // Create/edit editor for an agent workspace's manifest, in the app's
 // DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
-// it shows — name, agent, autonomy, and the mcps and skills lists (plus the
-// directory name at creation); hand-written comments in the YAML survive the
-// write untouched. Both capability lists work the same way: a shared library
+// it shows — name, agent, autonomy, the mcps and skills lists, and the
+// schedules list (plus the directory name at creation); hand-written comments
+// in the YAML survive the write untouched. Both capability lists work the same
+// way: a shared library
 // on disk declares what exists (mcps.yaml, skills.yml) and the toggle is this
 // workspace's own. The skills list names packages, not individual skills
 // (ADR skill-packages-are-the-unit-a-workspace-enables). Deleting the workspace also lives here — the editor
@@ -37,7 +38,7 @@ import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { timeLabel } from '../lib/activityPresentation'
 import { relativeAge, relativeTimeLabel } from '../lib/age'
 import {
-  buildCron, dayAbbreviation, defaultShape, describe, parseCron, WEEK_ORDER, type ScheduleShape,
+  buildCron, clock, dayAbbreviation, defaultShape, describe, pad, parseCron, WEEK_ORDER, type ScheduleShape,
 } from '../lib/scheduleShape'
 import type {
   AgentSchedule, AgentScheduleRun, AgentWorkspace, ScheduleEdit, SkillPackageMember, WorkspaceEditRequest,
@@ -310,7 +311,6 @@ const PREVIEW_SHOWN = 3
 const DAY_MS = 24 * 60 * 60 * 1000
 /** Under a minute out, a countdown reads as noise; the row says it is up instead. */
 const IMMINENT_MS = 60 * 1000
-const SCHEDULE_ID = /^[a-z0-9][a-z0-9-]*$/
 const QUARTER_MINUTES = [0, 15, 30, 45]
 
 interface ScheduleCard {
@@ -322,7 +322,7 @@ interface ScheduleCard {
   shape: ScheduleShape
   prompt: string
   disabled: boolean
-  onMissed: string
+  onMissed: AgentSchedule['onMissed']
   /** False until a Save writes it, which is what Run now and the history need. */
   saved: boolean
   /** A saved timetable the page changed: the next run the server reported no longer holds. */
@@ -342,7 +342,7 @@ interface ScheduleDraft {
   shape: ScheduleShape
   prompt: string
   disabled: boolean
-  onMissed: string
+  onMissed: AgentSchedule['onMissed']
   saved: boolean
   /** Whether the minute picker is showing its free number input. */
   minuteFree: boolean
@@ -395,7 +395,7 @@ const REPEAT_OPTIONS: SelectOption[] = [
 ]
 
 const MINUTE_OPTIONS: SelectOption[] = [
-  ...QUARTER_MINUTES.map((minute) => ({ value: String(minute), label: `:${pad2(minute)}` })),
+  ...QUARTER_MINUTES.map((minute) => ({ value: String(minute), label: `:${pad(minute)}` })),
   { value: 'other', label: 'Other minute…' },
 ]
 
@@ -419,10 +419,6 @@ const PROMPT_VARIABLES = [
   '{{ date "2006-01-02" .Now }}',
 ]
 const promptHint = `Go template. Available: ${PROMPT_VARIABLES.join(', ')}`
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0')
-}
 
 function scheduleLabel(card: ScheduleCard): string {
   return card.name || card.id
@@ -497,10 +493,16 @@ function draftId(draft: ScheduleDraft): string {
   return draft.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
-const draftSubtitle = computed(() => {
+const headerTitle = computed(() => {
   const draft = scheduleDraft.value
-  if (!draft) return ''
-  return draftId(draft) || `Starts a chat in ${name.value.trim() || 'this workspace'} on its own timetable`
+  if (draft) return draft.key === null ? 'New schedule' : 'Edit schedule'
+  return creating.value ? 'New workspace' : 'Edit workspace'
+})
+
+const headerSubtitle = computed(() => {
+  const draft = scheduleDraft.value
+  if (draft) return draftId(draft) || `Starts a chat in ${name.value.trim() || 'this workspace'} on its own timetable`
+  return creating.value ? 'A directory an agent works in' : props.workspace!.dir
 })
 
 /** What stops this draft being kept, in the order a user would fix it. */
@@ -508,7 +510,7 @@ function draftProblem(draft: ScheduleDraft): string {
   const id = draftId(draft)
   if (!draft.saved) {
     if (!draft.name.trim()) return 'A name is required.'
-    if (!SCHEDULE_ID.test(id)) return 'The name needs a letter or a digit to build an id from.'
+    if (!id) return 'The name needs a letter or a digit to build an id from.'
   }
   // The Go side upserts by id, so two rows on one id would silently drop a
   // schedule; the collision is the user's to resolve before the manifest is written.
@@ -562,18 +564,6 @@ function removeScheduleDraft(): void {
   closeScheduleDraft()
 }
 
-function setDraftRemoving(removing: boolean): void {
-  if (scheduleDraft.value) scheduleDraft.value.removing = removing
-}
-
-function setName(value: string): void {
-  if (scheduleDraft.value) scheduleDraft.value.name = value
-}
-
-function setOnMissed(value: string): void {
-  if (scheduleDraft.value) scheduleDraft.value.onMissed = value
-}
-
 // ── The page's shape controls ───────────────────────────────────────────────
 function shapeClock(shape: ScheduleShape): { hour: number; minute: number } {
   if (shape.kind === 'custom') return { hour: 9, minute: 0 }
@@ -617,12 +607,6 @@ function toggleDay(day: number): void {
   // cron error about the wrong thing.
   if (days.length) queuePreview()
 }
-
-const draftTime = computed(() => {
-  const shape = scheduleDraft.value?.shape
-  if (!shape || shape.kind === 'custom' || shape.kind === 'hourly') return ''
-  return `${pad2(shape.hour)}:${pad2(shape.minute)}`
-})
 
 function onTimeInput(event: Event): void {
   const draft = scheduleDraft.value
@@ -922,25 +906,19 @@ onMounted(async () => {
     @close="cancel"
   >
     <template #header>
-      <div v-if="scheduleDraft" class="flex items-center gap-3">
+      <div class="flex items-center gap-3">
         <button
+          v-if="scheduleDraft"
           type="button"
           class="flex size-[38px] shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-card text-text-2 hover:border-strong hover:text-text"
           aria-label="Back to the workspace"
           data-testid="agent-workspace-editor-schedule-back"
           @click="closeScheduleDraft"
         ><IconArrowLeft class="size-[18px]" /></button>
+        <span v-else class="flex size-[38px] items-center justify-center rounded-[10px] bg-accent text-accent-contrast"><IconFolderCog class="size-[18px]" /></span>
         <div class="min-w-0 flex-1">
-          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ scheduleDraft.key === null ? 'New schedule' : 'Edit schedule' }}</div>
-          <div class="truncate font-mono text-[12px] text-text-3">{{ draftSubtitle }}</div>
-        </div>
-        <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy" @click="closeSheet"><IconX class="size-4" /></button>
-      </div>
-      <div v-else class="flex items-center gap-3">
-        <span class="flex size-[38px] items-center justify-center rounded-[10px] bg-accent text-accent-contrast"><IconFolderCog class="size-[18px]" /></span>
-        <div class="min-w-0 flex-1">
-          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ creating ? 'New workspace' : 'Edit workspace' }}</div>
-          <div class="truncate font-mono text-[12px] text-text-3">{{ creating ? 'A directory an agent works in' : workspace!.dir }}</div>
+          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ headerTitle }}</div>
+          <div class="truncate font-mono text-[12px] text-text-3">{{ headerSubtitle }}</div>
         </div>
         <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy || confirming" @click="closeSheet"><IconX class="size-4" /></button>
       </div>
@@ -957,13 +935,12 @@ onMounted(async () => {
     >
       <TextField
         ref="draftNameField"
-        :model-value="scheduleDraft.name"
+        v-model="scheduleDraft.name"
         label="Name"
         :placeholder="scheduleDraft.saved ? scheduleDraft.id : 'Weekly product summary'"
         :hint="scheduleDraft.saved ? 'Optional. The id is what the schedule is called when this is empty.' : 'The id in agent-workspace.yaml follows the name.'"
         :disabled="busy"
         testid="agent-workspace-editor-schedule-name"
-        @update:model-value="setName"
       />
 
       <div class="grid grid-cols-2 gap-3">
@@ -1002,7 +979,7 @@ onMounted(async () => {
           <input
             type="time"
             step="60"
-            :value="draftTime"
+            :value="clock(scheduleDraft.shape.hour, scheduleDraft.shape.minute)"
             :disabled="busy"
             aria-label="Time"
             class="w-full rounded-lg border border-strong bg-app px-3 py-2.5 text-[13.5px] text-text outline-none focus:border-accent"
@@ -1059,13 +1036,12 @@ onMounted(async () => {
       <p v-if="workspace" class="-mt-2 min-h-5 text-xs leading-relaxed text-text-4" data-testid="agent-workspace-editor-schedule-next-runs">{{ nextRunsLine }}</p>
 
       <SelectField
-        :model-value="scheduleDraft.onMissed"
+        v-model="scheduleDraft.onMissed"
         label="When missed"
         :options="ON_MISSED_OPTIONS"
         :disabled="busy"
         hint="What happens when the app was closed at the scheduled time."
         testid="agent-workspace-editor-schedule-on-missed"
-        @update:model-value="setOnMissed"
       />
 
       <TextareaField
@@ -1468,7 +1444,7 @@ onMounted(async () => {
         confirm-label="Remove"
         testid="agent-workspace-editor-schedule-remove-confirm"
         @confirm="removeScheduleDraft"
-        @cancel="setDraftRemoving(false)"
+        @cancel="scheduleDraft.removing = false"
       />
       <div v-else-if="scheduleDraft" class="flex items-center gap-2.5">
         <button
@@ -1477,7 +1453,7 @@ onMounted(async () => {
           class="cursor-pointer text-[12.5px] text-text-3 hover:text-severity-error disabled:opacity-50"
           :disabled="busy"
           data-testid="agent-workspace-editor-schedule-remove"
-          @click="setDraftRemoving(true)"
+          @click="scheduleDraft.removing = true"
         >Remove schedule</button>
         <div class="flex-1" />
         <BaseButton variant="secondary" size="sm" :disabled="busy" data-testid="agent-workspace-editor-schedule-cancel" @click="closeScheduleDraft">Cancel</BaseButton>

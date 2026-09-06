@@ -136,11 +136,11 @@ function numeric(field: string, min: number, max: number): number | null {
   return value >= min && value <= max ? value : null
 }
 
-function pad(value: number): string {
+export function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-function clock(hour: number, minute: number): string {
+export function clock(hour: number, minute: number): string {
   return `${pad(hour)}:${pad(minute)}`
 }
 

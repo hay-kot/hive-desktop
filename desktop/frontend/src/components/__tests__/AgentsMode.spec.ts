@@ -115,7 +115,7 @@ class FakeResizeObserver {
 }
 
 const weeklySummary = {
-  workspace: 'web-app', id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+  id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
   prompt: 'Summarize the week.', disabled: false, onMissed: 'run' as const,
   nextRunAt: null, lastRun: null,
 }
@@ -163,7 +163,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     canvases: vi.fn().mockResolvedValue([]),
     scheduleRuns: vi.fn().mockResolvedValue([]),
     runSchedule: vi.fn(),
-    previewSchedule: vi.fn().mockResolvedValue({ next: [], prompt: '', cronError: '', promptError: '' }),
+    previewSchedule: vi.fn().mockResolvedValue({ next: [], cronError: '', promptError: '' }),
   }
 }
 
