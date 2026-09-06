@@ -68,7 +68,9 @@ func New(cfg Config, mws ...httpclient.Middleware) *httpclient.Client {
 
 // spanName names a client span after the provider and the method, never the
 // path. A source path carries repository and org names, which would make every
-// repository its own span name and every dashboard over them useless.
+// repository its own span name and every trace search over them useless. The
+// "http." prefix is what makes the name readable on its own: a bare
+// "gitea GET" in a trace list says nothing about which layer produced it.
 func spanName(source string) func(string, *http.Request) string {
-	return func(_ string, r *http.Request) string { return source + " " + r.Method }
+	return func(_ string, r *http.Request) string { return "http." + source + " " + r.Method }
 }

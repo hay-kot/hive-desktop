@@ -9,9 +9,12 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Producer is the poll loop that turns configured source connectors into
@@ -167,6 +170,13 @@ func (pr *Producer) Tick(ctx context.Context) TickSummary { return pr.tick(ctx, 
 func (pr *Producer) Refresh(ctx context.Context) TickSummary { return pr.tick(ctx, true) }
 
 func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
+	// The tick is a trigger, so this is a root span: the poll loop's context
+	// carries none, and this is the cause a person asks questions about. Every
+	// source drain, HTTP round trip and batch write below hangs off it, which is
+	// what makes an orphan client span readable.
+	ctx, span := tracer.Start(ctx, "ingest.tick", trace.WithAttributes(attribute.Bool(attrForced, forced)))
+	defer span.End()
+
 	instances := pr.sources.PullInstances()
 
 	if err := pr.sources.Prefetch(ctx, instances); err != nil {
@@ -176,11 +186,12 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	pr.pruneSchedule(instances)
 
 	summary := TickSummary{Sources: len(instances)}
-	var lastOffset int64
+	var lastOffset, drained int64
 	for _, instance := range instances {
 		if !forced && !pr.claimRun(instance) {
 			continue
 		}
+		drained++
 		rows, err := pr.drain(ctx, instance)
 		if err != nil {
 			summary.Failed++
@@ -191,6 +202,13 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 			lastOffset = rows.lastOffset
 		}
 	}
+
+	span.SetAttributes(
+		attribute.Int(attrSources, summary.Sources),
+		attribute.Int64(attrDrained, drained),
+		attribute.Int(attrFailed, summary.Failed),
+		attribute.Int(attrAppended, summary.Appended),
+	)
 
 	if summary.Appended > 0 && pr.onAppended != nil {
 		pr.onAppended(lastOffset)
@@ -253,15 +271,31 @@ type drained struct {
 // appends the topic's authoritative snapshot. The returned error means the
 // source did not complete — its snapshot is not authoritative, so neither
 // absence confirmation nor the snapshot append may run.
-func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (drained, error) {
-	var out drained
-
+func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out drained, err error) {
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 	meta := instance.Metadata
 	if meta.Policy == "" {
 		meta.Policy = store.ResurfacePolicyStateChanges
 	}
+
+	// Named by connector kind, not by source id: the kind is a bounded set and
+	// the id is not, and a span name is a search key. The id rides as an
+	// attribute.
+	ctx, span := tracer.Start(ctx, "ingest.source "+meta.SourceKind, trace.WithAttributes(
+		attribute.String(attrSourceID, id),
+		attribute.String(attrSourceKnd, meta.SourceKind),
+		attribute.String(attrTopic, topic),
+	))
+	// Named returns exist for this: a source that fails is the question this
+	// span answers, and the tick above it only counts the failure.
+	defer func() {
+		if err != nil {
+			observe.RecordError(span, err)
+		}
+		span.SetAttributes(attribute.Int(attrAppended, out.appended))
+		span.End()
+	}()
 	// A connector that declared no classifier gets the generic one, which
 	// records that something was observed or updated and nothing more.
 	classifier := instance.Classifier
@@ -271,7 +305,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (dra
 
 	items := make([]store.SnapshotItem, 0)
 	observed := make(map[string]struct{})
-	err := instance.Pull.Produce(ctx, func(msg Msg) error {
+	err = instance.Pull.Produce(ctx, func(msg Msg) error {
 		if msg.Topic != topic {
 			return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
 		}
