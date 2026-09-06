@@ -179,7 +179,7 @@ func TestSessionsService_SessionLaunchOptions(t *testing.T) {
 		DefaultAgent:      "claude",
 	}
 	manager, _ := activeSession()
-	svc := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{opts: expected}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}})
+	svc := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{opts: expected}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, DefaultAgentEnv: NopDefaultAgentReader{}})
 	got, err := svc.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
@@ -475,25 +475,30 @@ func TestSessionsService_StartTmuxSessionRefusesASlugItsNameWouldNotSpawn(t *tes
 	assert.Empty(t, manager.spawned)
 }
 
-func TestSessionsService_UnavailableWithoutDependencies(t *testing.T) {
-	svc := newSessionsService(SessionsDeps{Jobs: &fakeJobRunner{}})
-	assert.Equal(t, KindUnavailable, KindOf(svc.StartTmuxSession(t.Context(), "review-81")))
-	_, err := svc.SessionLaunchOptions(t.Context())
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "n"})
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.ListSessions(t.Context())
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.SessionDetail(t.Context(), "s1")
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.SessionRisk(t.Context(), "s1")
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.RenameSession(t.Context(), "s1", "n")
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.DeleteSession(t.Context(), "s1")
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.RecycleSession(t.Context(), "s1")
-	assert.Equal(t, KindUnavailable, KindOf(err))
-	_, err = svc.PruneSessions(t.Context())
-	assert.Equal(t, KindUnavailable, KindOf(err))
+// SessionsDeps no longer has a "dependency missing" state: every
+// construction site supplies a real implementation, or NopDefaultAgentReader
+// / NopEditorCommandReader in place of one. Each no-op must answer the empty
+// value rather than silently succeeding at the real work it stands in for.
+
+func TestNopDefaultAgentReaderAnswersNoPreferredAgent(t *testing.T) {
+	assert.Empty(t, NopDefaultAgentReader{}.DefaultAgent(t.Context()))
+}
+
+func TestNopEditorCommandReaderAnswersNoConfiguredEditor(t *testing.T) {
+	command, err := NopEditorCommandReader{}.Editor(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, command)
+}
+
+// SessionLaunchOptions is the one method a NopDefaultAgentReader actually
+// runs through, so it earns its own end-to-end check: the launcher's own
+// agent choice must survive untouched rather than being blanked out.
+func TestSessionsService_NopDefaultAgentReaderLeavesTheLaunchersChoiceAlone(t *testing.T) {
+	opts := dispatch.SessionLaunchOptions{Agents: []string{"claude"}, DefaultAgent: "claude"}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{opts: opts}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, DefaultAgentEnv: NopDefaultAgentReader{}})
+
+	got, err := svc.SessionLaunchOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, opts, got)
 }

@@ -29,9 +29,6 @@ func (s *SessionsService) TerminalActionViews(_ context.Context, target string) 
 	if err := validateTerminalSurface(target); err != nil {
 		return nil, err
 	}
-	if s.catalog == nil {
-		return nil, Errorf(KindUnavailable, "terminal actions are unavailable")
-	}
 	views := make([]actions.View, 0)
 	for _, action := range s.catalog.List() {
 		if action.HasTarget(target) {
@@ -65,10 +62,6 @@ func (s *SessionsService) InvokeTerminalAction(ctx context.Context, actionID str
 		// not a side effect, so it is copied rather than run.
 		return 0, Errorf(KindInvalid, "action %q is a clipboard action; copy it instead", actionID)
 	}
-	if s.dispatcher == nil || s.jobs == nil {
-		return 0, Errorf(KindUnavailable, "running terminal actions is unavailable")
-	}
-
 	label := terminalActionLabel(action)
 	jobID := s.jobs.Track(ctx, label, action.ID, data.Session.Name, func(bg context.Context) error {
 		result, err := s.dispatcher.Execute(bg, action, data, dispatch.ActionInvocationInput{Inputs: inputs})
@@ -95,9 +88,6 @@ func (s *SessionsService) RenderTerminalClipboardAction(ctx context.Context, act
 	if _, isClipboard := action.Config.(*actions.ClipboardConfig); !isClipboard {
 		return "", Errorf(KindInvalid, "action %q is not a clipboard action", actionID)
 	}
-	if s.dispatcher == nil {
-		return "", Errorf(KindUnavailable, "terminal actions are unavailable")
-	}
 	result, err := s.dispatcher.Execute(ctx, action, data, dispatch.ActionInvocationInput{Inputs: inputs})
 	if err != nil {
 		return "", Wrap(err, KindInvalid, "rendering clipboard action %q", actionID)
@@ -117,9 +107,6 @@ func (s *SessionsService) terminalActionContext(
 	target dispatch.TerminalTarget,
 	inputs map[string]string,
 ) (actions.Action, dispatch.OutputData, error) {
-	if s.catalog == nil || s.manager == nil {
-		return actions.Action{}, dispatch.OutputData{}, Errorf(KindUnavailable, "terminal actions are unavailable")
-	}
 	slug := strings.TrimSpace(target.Slug)
 	if slug == "" {
 		return actions.Action{}, dispatch.OutputData{}, Errorf(KindInvalid, "session slug is required")

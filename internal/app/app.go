@@ -449,7 +449,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
-	// Tasks answering KindUnavailable instead.
+	// Tasks answering unavailable instead.
 	var tasks taskSource
 	if a.honeycomb != nil {
 		tasks = a.honeycomb
@@ -858,9 +858,10 @@ func (a *App) PublishFlowsUpdated(reason string) {
 
 // RefreshSources drops the fetch caches and drives one producer tick, returning
 // its summary. The engine commits on its own goroutine, so a caller reads back
-// with a short retry. Mock modes have no producer and report KindUnavailable.
+// with a short retry. Mock modes have no producer and report the tick unavailable.
 func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
 	if a.producer == nil {
+		// unavailable: mock mode has no fetcher and therefore no producer to tick.
 		return ingest.TickSummary{}, Errorf(KindUnavailable, "source refresh is unavailable in this mode")
 	}
 	if a.fetchers != nil {

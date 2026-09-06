@@ -73,6 +73,7 @@ func (s *ReportService) Preview(_ context.Context) ReportPreview {
 
 func (s *ReportService) Submit(ctx context.Context, req ReportRequest) (ReportResult, error) {
 	if s.uploader == nil {
+		// unavailable: this build carries no report token, so no uploader is wired.
 		return ReportResult{}, Errorf(KindUnavailable, "problem reporting is not available in this build")
 	}
 
@@ -92,6 +93,7 @@ func (s *ReportService) Submit(ctx context.Context, req ReportRequest) (ReportRe
 		meta.Version, meta.OS, meta.Arch = bundle.Build.Version, bundle.Build.OS, bundle.Build.Arch
 	}
 	if err := s.uploader.Upload(ctx, gz, meta); err != nil {
+		// unavailable: the upload itself failed (offline, endpoint down, refused).
 		return ReportResult{}, Wrap(err, KindUnavailable, "sending the report")
 	}
 

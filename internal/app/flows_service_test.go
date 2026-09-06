@@ -379,16 +379,23 @@ func TestFlowsServiceDeleteRemovesAProfileThatDoesNotParse(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("version: 1\nnodes: [\n"), 0o600))
 	flows := flow.NewFlowStore(dir, nil)
-	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	st := stores.New(db, stores.Options{})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
-	err := service.Delete(t.Context(), "broken")
-	assert.Equal(t, KindUnavailable, KindOf(err), "no store is wired, so only the purge is refused")
+	require.NoError(t, service.Delete(t.Context(), "broken"), "the file is gone and there are no rows to purge")
 	assert.NoFileExists(t, filepath.Join(dir, "broken.yaml"))
 }
 
 func TestFlowsServiceDeleteReportsAnUnknownProfileAsNotFound(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	st := stores.New(db, stores.Options{})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	assert.Equal(t, KindNotFound, KindOf(service.Delete(t.Context(), "never-existed")))
 }

@@ -84,9 +84,6 @@ func (s *PopupTerminalsService) Available(ctx context.Context) error {
 // Launchers returns the configured launchers in file order.
 func (s *PopupTerminalsService) Launchers(context.Context) ([]PopupLauncher, error) {
 	out := make([]PopupLauncher, 0)
-	if s.catalog == nil {
-		return out, nil
-	}
 	for _, l := range s.catalog.Launchers() {
 		out = append(out, PopupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon, RequiresSession: l.Cwd == ""})
 	}
@@ -131,9 +128,6 @@ func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupT
 	}
 	if strings.TrimSpace(req.Command) != "" {
 		return req, Errorf(KindInvalid, "a launcher brings its own command, so %q cannot also be given one", id)
-	}
-	if s.catalog == nil {
-		return req, Errorf(KindUnavailable, "launchers are unavailable")
 	}
 	launcher, ok := s.catalog.Launcher(id)
 	if !ok {
@@ -210,17 +204,12 @@ func (s *PopupTerminalsService) resolveDir(ctx context.Context, req OpenPopupTer
 // whose terminal is stopped, and what leaves a stopped terminal with no record
 // behind it reporting that there is no session by that name.
 func (s *PopupTerminalsService) terminalDir(ctx context.Context, slug string) (string, error) {
-	if s.terminals != nil {
-		dir, err := s.terminals.WorkingDirectory(ctx, slug)
-		if err == nil {
-			return dir, nil
-		}
-		if KindOf(err) != KindNotFound {
-			return "", err
-		}
+	dir, err := s.terminals.WorkingDirectory(ctx, slug)
+	if err == nil {
+		return dir, nil
 	}
-	if s.directory == nil {
-		return "", Errorf(KindUnavailable, "reading sessions is unavailable")
+	if KindOf(err) != KindNotFound {
+		return "", err
 	}
 	return s.directory.SessionDirectory(ctx, slug)
 }
@@ -245,6 +234,7 @@ func popupError(err error, format string, args ...any) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, ptyterm.ErrUnavailable):
+		// unavailable: this build or platform has no PTY support.
 		return Wrap(err, KindUnavailable, format, args...)
 	case errors.Is(err, ptyterm.ErrInvalidSize), errors.Is(err, ptyterm.ErrInvalidSpec):
 		return Wrap(err, KindInvalid, format, args...)

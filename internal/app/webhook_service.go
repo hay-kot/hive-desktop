@@ -132,6 +132,7 @@ func (s *WebhookService) SetState(_ context.Context, enabled bool, host string, 
 // persisting it: it is offered as a candidate, and saving is what commits it.
 func (s *WebhookService) GeneratePort(ctx context.Context) (int, error) {
 	port, err := settings.AllocateWebhookPort(ctx)
+	// unavailable: no free port was found in the generation range.
 	return port, Wrap(err, KindUnavailable, "allocating a webhook port")
 }
 

@@ -271,9 +271,6 @@ func (s *CanvasService) ListForWorkspace(_ context.Context, dir string) ([]canva
 }
 
 func (s *CanvasService) resolve(ctx context.Context, session int64) (stores.AgentSession, error) {
-	if s.sessions == nil {
-		return stores.AgentSession{}, Errorf(KindUnavailable, "canvas is not available in this build")
-	}
 	rec, ok, err := s.sessions.Get(ctx, session)
 	if err != nil {
 		return stores.AgentSession{}, Wrap(err, KindInternal, "loading session %d", session)

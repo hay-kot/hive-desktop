@@ -119,14 +119,12 @@ func (s *FlowsService) requireDeletable(ctx context.Context, id string) error {
 	if s.flows.Exists(id) {
 		return nil
 	}
-	if s.stores != nil {
-		items, err := s.inboxItems.ListAll(ctx, id, 1)
-		if err != nil {
-			return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
-		}
-		if len(items) > 0 {
-			return nil
-		}
+	items, err := s.inboxItems.ListAll(ctx, id, 1)
+	if err != nil {
+		return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
+	}
+	if len(items) > 0 {
+		return nil
 	}
 	return Errorf(KindNotFound, "profile %q not found", id)
 }
@@ -239,9 +237,6 @@ func (s *FlowsService) SetEnabled(ctx context.Context, id string, enabled bool) 
 // already ignored when the order is read, and refusing the write would make
 // deleting a profile able to fail an unrelated reorder.
 func (s *FlowsService) SetOrder(ctx context.Context, ids []string) error {
-	if s.settings == nil {
-		return Errorf(KindUnavailable, "settings are unavailable")
-	}
 	if _, err := s.settings.Update(func(current *settings.Settings) error {
 		current.Profiles.Order = ids
 		return nil
@@ -275,9 +270,6 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	// A leftover avatar is orphaned data, never a reason to fail the delete.
 	_ = s.images.Delete(id)
 	s.notifyUpdated(ctx)
-	if s.stores == nil {
-		return Errorf(KindUnavailable, "the desktop store is unavailable")
-	}
 	return Wrap(s.purgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
 }
 

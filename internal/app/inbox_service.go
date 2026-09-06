@@ -227,9 +227,6 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 	if _, err := action.ResolveInputs(req.Input.Inputs); err != nil {
 		return dispatch.ActionRunView{}, Wrap(err, KindInvalid, "invoking action %q", req.ActionID)
 	}
-	if s.worker == nil {
-		return dispatch.ActionRunView{}, Errorf(KindUnavailable, "action execution is unavailable")
-	}
 	// The command's key is the action item's id, which is not enough to find
 	// the row again; the item's own identity rides along so a session this
 	// invocation creates stays reachable from the item that asked for it.

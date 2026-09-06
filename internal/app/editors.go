@@ -45,9 +45,6 @@ func launchEditor(ctx context.Context, env *execenv.Resolver, command, dir strin
 	if command == "" {
 		return Errorf(KindInvalid, "no editor is configured; choose one in Settings › General")
 	}
-	if env == nil {
-		return Errorf(KindUnavailable, "the editor cannot be launched from this build")
-	}
 	path, err := env.LookPath(ctx, command)
 	if err != nil {
 		return Errorf(KindInvalid, "editor %q was not found on PATH; choose another in Settings › General", command)
