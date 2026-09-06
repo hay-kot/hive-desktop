@@ -13,6 +13,11 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// attrSource names the connector a request belongs to. server.address cannot
+// answer that: one host serves several connectors, and under the dev proxy every
+// connector shares one address.
+const attrSource = "source"
+
 const DefaultTimeout = 30 * time.Second
 
 type Config struct {
