@@ -12,8 +12,6 @@ const links = resolved(site.nav);
       <span class="brand__name">{site.brand.name}</span>
     </a>
 
-    {site.betaBadge && <span class="badge">{site.betaBadge}</span>}
-
     <nav class="nav__links" aria-label="Primary">
       {
         links.map((entry) => (
@@ -29,7 +27,7 @@ const links = resolved(site.nav);
       }
     </nav>
 
-    <a class="nav__cta" href={site.navCta.href ?? "#pricing"}>{site.navCta.label}</a>
+    <a class="nav__cta" href={site.navCta.href ?? "/install"}>{site.navCta.label}</a>
   </div>
 </header>
 
@@ -62,20 +60,6 @@ const links = resolved(site.nav);
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--text);
-  }
-
-  .badge {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--amber);
-    background: rgba(245, 158, 11, 0.16);
-    border: 1px solid rgba(245, 158, 11, 0.4);
-    border-radius: 20px;
-    padding: 3px 10px;
-    white-space: nowrap;
   }
 
   .nav__links {
@@ -125,12 +109,6 @@ const links = resolved(site.nav);
 
     .nav__cta {
       margin-left: auto;
-    }
-  }
-
-  @media (max-width: 420px) {
-    .badge {
-      display: none;
     }
   }
 </style>

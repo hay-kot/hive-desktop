@@ -2,16 +2,14 @@
 #
 # Hive desktop installer
 #
-#     curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash
+#     curl -fsSL https://hivedesktop.com/install.sh | bash
 #
-# The path token keeps this out of casual discovery while the beta is private;
-# it is obscurity, not authentication (anyone with the link can fetch it). Drop
-# the `| bash` to read this first.
+# Drop the `| bash` to read this first.
 #
 # Detects your OS + CPU, pulls the channel's latest build, verifies its SHA-256
 # against the published manifest, installs the app, and symlinks `hive` onto
-# your PATH. macOS is the only platform during the private beta; Linux is wired
-# up but only installs once linux builds are published.
+# your PATH. macOS is the only published platform; Linux is wired up but only
+# installs once linux builds are published.
 #
 # Channel defaults to stable. Track another by passing the flag through bash:
 #
@@ -101,7 +99,7 @@ resolve_from_channel() {
       return
     fi
   done
-  die "the $CHANNEL channel has no ${OS}-${ARCH} build yet. macOS is the only platform during the private beta"
+  die "the $CHANNEL channel has no ${OS}-${ARCH} build yet. macOS is the only published platform"
 }
 
 verify_sha() {

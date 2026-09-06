@@ -20,11 +20,9 @@ rendered; filling in the URL is all it takes to bring one back.
 
 ## Worker routes
 
-`web/worker/index.ts` adds three routes on top of the assets:
+`web/worker/index.ts` adds two routes on top of the assets:
 
 - `/api/latest` — proxies the release manifest for the download CTA.
-- `/api/subscribe` — private-beta signups, honeypot-filtered and forwarded to
-  listmonk.
 - `/api/report` — gzipped diagnostic bundles from the app's problem reporter,
   written to the private `hive-desktop-reports` R2 bucket (ADR
   in-app-problem-reporting).

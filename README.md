@@ -1,38 +1,76 @@
 # Hive Desktop
 
-Private product monorepo for the Hive desktop application and its supporting services.
+Hive pulls the work that wants your attention -- pull requests, issues, review
+requests, notifications, firing alerts, and anything that can POST a webhook --
+into one local queue. Flows you own filter it, route it into feeds, hand an item
+to a coding agent, or fire a command. You get one ping per real change instead
+of a dozen browser tabs.
 
-> **Testing the alpha?** The getting-started guide lives on the site: [hivedesktop.com/docs](https://hivedesktop.com/docs) — GitHub sign-in, first items, and how to report a bug. (Your beta invite has the install link.) Source: [`web/src/content/docs/`](web/src/content/docs/).
+Everything runs on your machine. Triaging in Hive never writes back to GitHub,
+and the config is plain YAML you can keep in your dotfiles.
 
-| Component                                     | Path                             | Status                                                                                       |
-| --------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
-| Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/app/` + `internal/adapter/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |
-| Vendored hive core                            | `internal/hivecore/`             | CLI-managed by `cmd/vendorhive` — **read-only**                                              |
-| Admin server (analytics, licenses, purchases) | `server/`                        | Future — nested Go module when built                                                         |
-| Landing page                                  | `web/`                           | Static HTML on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com) |
+macOS today. Linux is wired up in the installer and waiting on published builds.
 
-## Layout & conventions
-
-- Root Go module `github.com/hay-kot/hive-desktop` owns the desktop app and vendored core. `server/` becomes its own nested module (plus a root `go.work`) when it exists — see `AGENTS.md`.
-- Code under `internal/hivecore/` is vendored from `colonyops/hive` at the SHA pinned in `cmd/vendorhive/vendor.lock`. Never edit it here: change hive first, then re-vendor.
-- Releases are signed/notarized in CI and uploaded to Cloudflare R2 behind a stable domain — versioned zips plus a `latest.json` manifest that drives the in-app updater and the landing-page download link. GitHub releases are not user-facing.
-
-## Setup
+## Install
 
 ```sh
-mise trust                         # once per clone, before mise reads mise.toml
-mise install                       # toolchain + git hooks (lefthook)
-cd desktop/frontend && npm ci      # frontend deps, for the desktop app and its tests
+curl -fsSL https://hivedesktop.com/install.sh | bash
 ```
 
-`mise install` also installs the git hooks, so a fresh clone gets the quality gates with no extra step (`mise run setup` re-installs them on demand). `mise tasks` lists every gate and build task. Hooks format staged Go files on commit and run `mise run check` (generated-code drift, tidy, lint, test) on push — see [`docs/decisions/2026-07-23-lefthook-quality-gates.md`](docs/decisions/2026-07-23-lefthook-quality-gates.md).
+The script detects your OS and CPU, resolves the newest build from the same
+channel manifest the in-app updater reads, verifies its SHA-256 before touching
+disk, installs the app, and symlinks `hive` onto your PATH. Drop the `| bash` to
+read it first. [hivedesktop.com/install](https://hivedesktop.com/install) has the
+same command with the per-platform notes.
 
-Installing the hooks sets this clone's `core.hooksPath` to its own `.git/hooks`, which takes precedence over a global `core.hooksPath` — global hooks will not run in this repo.
+## What it does
 
-## Docs
+- **More than GitHub.** Point a source at any GitHub search or notification
+  inbox, across as many accounts as you have. Pair it with Grafana alerts, a
+  PromQL expression, or anything that can POST JSON to a local endpoint.
+- **Rules that are programs.** Wire sources through filters and functions on a
+  canvas. Filters are declarative and their reject branch is wireable. Functions
+  are your own JavaScript with durable per-node memory, so one alert can fan out
+  into one tracked item per firing entity.
+- **One ping per real change.** Re-polling the same PR never re-fires. A cooldown
+  floors how often one item can reach you, stale pings are dropped rather than
+  replayed as a burst, and a restart recomputes every feed without notifying
+  twice.
+- **Your coding agent writes the rules.** Hive renders skill files out of its own
+  node registry into `~/.claude`, `~/.codex`, `~/.pi` and `~/.agents` and keeps
+  them in step. Describe what you want surfaced and your agent writes the flow.
+- **Triage becomes action.** An item can launch a coding-agent session from a
+  prompt template, run a shell command, publish a message for another session, or
+  render to your clipboard.
+- **Config is a file you own.** Flows and actions are YAML in your config
+  directory. Hive validates on save and reloads live; a file that fails to build
+  keeps its last good version in service.
 
-Architecture and infrastructure decisions are recorded as ADRs in [`docs/decisions/`](docs/decisions/); the concrete distribution setup (bucket, domains, layout, runbook) is in [`docs/distribution.md`](docs/distribution.md). Index: [`docs/README.md`](docs/README.md).
+Two further surfaces ship switched off while they settle: **Code**, a tmux-backed
+terminal for the sessions your feeds launch, and **Agents**, named workspaces
+that generate the config your coding agent reads.
 
-## Extraction status
+## Documentation
 
-The desktop app is imported (see the import commit for the source SHA), and the release pipeline is ported: R2 upload + channel manifests (ADR r2-manifest-distribution/0004) via the Go CLI in `cmd/release`, the tag-triggered publish workflow, and the manifest-polling in-app updater. The desktop still needs removal from `colonyops/hive`. The full plan lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
+- [hivedesktop.com/docs](https://hivedesktop.com/docs) -- using the app: sign-in,
+  first feed, notifications, terminal mode, updates. Source in
+  [`web/src/content/docs/`](web/src/content/docs/).
+- [`docs/architecture.md`](docs/architecture.md) -- how the app is structured and
+  how it should grow. Read this before adding a subsystem or an extension point.
+- [`docs/source-pipeline.md`](docs/source-pipeline.md) -- the pipeline at runtime:
+  ingestion, flows, membership replay, retention, actions.
+- [`docs/decisions/`](docs/decisions/) -- architecture decision records.
+- [`docs/development.md`](docs/development.md) -- build it from source.
+- [`docs/distribution.md`](docs/distribution.md) -- release and distribution infra.
+
+## Contributing
+
+[`docs/development.md`](docs/development.md) gets you building.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the writing style commit messages and
+pull requests are held to.
+
+Bugs and ideas go to [issues](https://github.com/hay-kot/hive-desktop/issues).
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

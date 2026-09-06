@@ -5,13 +5,11 @@
  */
 import { z } from "astro/zod";
 
-import betaJson from "./beta.json";
 import featuresJson from "./features.json";
 import heroJson from "./hero.json";
 import onboardingJson from "./onboarding.json";
 import pipelineJson from "./pipeline.json";
 import previewJson from "./preview.json";
-import pricingJson from "./pricing.json";
 import qolJson from "./qol.json";
 import siteJson from "./site.json";
 import surfacesJson from "./surfaces.json";
@@ -34,7 +32,6 @@ const link = z.object({
 const siteSchema = z.object({
   brand: z.object({ name: z.string(), tagline: z.string() }),
   version: z.string(),
-  betaBadge: z.string(),
   description: z.string(),
   nav: z.array(link),
   navCta: link,
@@ -160,53 +157,6 @@ const onboardingSchema = z.object({
   footnote: z.string(),
 });
 
-const betaSchema = z.object({
-  status: z.string(),
-  titleLines: z.array(z.string()),
-  body: z.string(),
-  perks: z.array(z.object({ icon: z.string(), accent, label: z.string() })),
-  /** Copy for the request-access dialog the #beta links open. */
-  dialog: z.object({ title: z.string(), body: z.string() }),
-  form: z.object({
-    label: z.string(),
-    placeholder: z.string(),
-    submit: z.string(),
-    endpoint: z.string(),
-  }),
-  success: z.object({ title: z.string(), body: z.string() }),
-  errors: z.record(z.string(), z.string()),
-});
-
-const pricingSchema = z.object({
-  eyebrow: z.string(),
-  title: z.string(),
-  body: z.string(),
-  tiers: z.array(
-    z.object({
-      name: z.string(),
-      note: z.string(),
-      price: z.string(),
-      priceNote: z.string(),
-      strikePrice: z.string().optional(),
-      badge: z.string().optional(),
-      accent,
-      highlight: z.boolean().optional(),
-      features: z.array(z.object({ label: z.string(), muted: z.boolean().optional() })),
-      cta: z.object({
-        label: z.string(),
-        href: z.string().nullable(),
-        variant: z.enum(["ghost"]).optional(),
-      }),
-      ctaNote: z.string(),
-    }),
-  ),
-  explainer: z.array(
-    z.object({ label: z.string(), accent: accent.optional(), body: z.string() }),
-  ),
-  /** Where buy buttons point until a real checkout exists. */
-  checkoutFallbackHref: z.string(),
-});
-
 /** Item kinds the app colours distinctly (see --hv-kind-* in the app theme). */
 const itemKind = z.enum(["issue", "pr"]);
 
@@ -289,8 +239,6 @@ export const features = parse("features", featuresSchema, featuresJson);
 export const pipeline = parse("pipeline", pipelineSchema, pipelineJson);
 export const surfaces = parse("surfaces", surfacesSchema, surfacesJson);
 export const onboarding = parse("onboarding", onboardingSchema, onboardingJson);
-export const beta = parse("beta", betaSchema, betaJson);
-export const pricing = parse("pricing", pricingSchema, pricingJson);
 export const preview = parse("preview", previewSchema, previewJson);
 
 export type Link = z.infer<typeof link>;

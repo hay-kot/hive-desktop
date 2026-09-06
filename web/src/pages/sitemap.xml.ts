@@ -5,15 +5,14 @@ import { comparisons } from "../data/compare";
 import { docHref } from "../lib/docs";
 
 /**
- * Hand-rolled rather than @astrojs/sitemap: the only route outside the docs
- * collection is the landing page and the invite-gated installer, and that
- * installer must never be listed — robots.txt disallows /install/, and a
- * generated sitemap would publish the obscure path it is hidden behind.
+ * Hand-rolled rather than @astrojs/sitemap: outside the docs collection there
+ * are only the landing page, the install page, and the comparison pages.
  */
 export const GET: APIRoute = async ({ site }) => {
   const docs = await getCollection("docs", ({ data }) => !data.draft);
   const paths = [
     "/",
+    "/install",
     "/compare",
     ...comparisons.map((entry) => `/compare/${entry.slug}`),
     ...docs.map(docHref),

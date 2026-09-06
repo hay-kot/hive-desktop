@@ -9,7 +9,6 @@ Concrete infrastructure and runbook for shipping the desktop app. Decisions behi
 | Cloudflare account | `bce6b95e4e84d92b1972d3b55b6cfaf6` |
 | Zone | `hivedesktop.com` (`654b5078db773efcbf7c73b7c67eae89`) |
 | Landing page worker | `hive-desktop-web` → https://hivedesktop.com (config: `web/wrangler.jsonc`) |
-| Beta signup list | listmonk at https://listmonk.haybytes.com, list `ae24f0b5-c230-4d2e-9fc0-747e9270636e` (Hive Desktop) |
 | Artifact bucket | R2 `hive-desktop-releases` (ENAM, Standard) |
 | Download domain | https://dl.hivedesktop.com (bucket custom domain, public, TLS ≥ 1.2) |
 | Liveness probe | https://dl.hivedesktop.com/healthcheck.txt |
@@ -84,24 +83,22 @@ Platform keys come from `platformKey` in `internal/adapter/wailsui/updater_provi
 
 ## Landing page
 
-The download CTA on hivedesktop.com resolves through the stable manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. If that fetch fails the button keeps its static fallback (`#beta`) rather than breaking.
+The download CTA on hivedesktop.com resolves through the stable manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. If that fetch fails the button keeps its static fallback (`/install`) rather than breaking.
 
-The worker route is live but **no page consumes it yet** — during the private beta every CTA points at the invite form and installs go through the invite's one-liner. When the CTA lands it reads `installer_url`, not `url`: the zip is the updater's artifact, and handing it to a first-time visitor is the problem the DMG exists to solve. The proxy passes the manifest through untouched, so that needs no worker change.
-
-Private-beta signups POST to `/api/subscribe`; the worker validates the address, drops honeypot submissions (the form's hidden `company` field, answered with a fake success), and forwards the rest to listmonk's public form endpoint with the Hive Desktop list UUID. Subscribers are managed in the listmonk admin at https://listmonk.haybytes.com/admin.
+The worker route is live but **no page consumes it yet** — every CTA points at `/install`, and installs go through the one-liner there. When the CTA lands it reads `installer_url`, not `url`: the zip is the updater's artifact, and handing it to a first-time visitor is the problem the DMG exists to solve. The proxy passes the manifest through untouched, so that needs no worker change.
 
 ## Install script
 
 The one-line installer ([ADR install-script](decisions/2026-07-27-install-script.md)) is a static asset served by the same worker and shipped by `deploy-web.yml`:
 
 ```
-curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash
+curl -fsSL https://hivedesktop.com/install.sh | bash
 ```
 
 It detects OS+arch, resolves the channel's latest build from the **same manifest the updater reads** (`channels/<channel>/latest.json`), verifies the artifact's sha256 from the manifest before installing, and on macOS unzips `Hive.app` into `/Applications` (falling back to `~/Applications`) and symlinks `hive` onto the PATH. The channel defaults to stable; pass another with `… | bash -s -- --channel dev` or the `HIVE_CHANNEL` env var, and `HIVE_BIN_DIR` sets the symlink dir. It always installs the channel's latest — no version pin — and re-running upgrades in place.
 
-- **macOS only during the beta.** The Linux branch is wired but inert until Linux artifacts exist (#36).
-- The path token is **obscurity, not authentication** — it keeps the link out of casual discovery while the repo is private, nothing more. `robots.txt` disallows the whole `/install/` prefix, so the token never appears in a public file. Rotating it means renaming both `web/public/install/<token>/install.sh` and the invite page `web/src/pages/install/<token>.astro` to a new token. Re-evaluate before the repo goes public.
+- **macOS is the only published platform.** The Linux branch is wired but inert until Linux artifacts exist (#36).
+- The script and its page are public and crawlable: `web/public/install.sh` and `web/src/pages/install.astro`, listed in `sitemap.xml.ts`. They sat behind a path token while the repo was private; that reversed when it went public (ADR [install-script](decisions/2026-07-27-install-script.md)). The URL is published in the README and the docs, so treat it as stable.
 
 ## Problem reporting
 
@@ -160,7 +157,7 @@ ARCH=arm64 mise run build:linux:image   # optional pre-build, ~5 min per arch
 mise run build:linux                    # binary only → desktop/bin/hive-desktop
 ```
 
-Building the non-host architecture (amd64 on Apple Silicon) works but runs the image build *and* the compile under emulation — budget considerably more time. The Go module cache is mounted **read-only** from the host and `GOPROXY=off` is set, so the container never needs credentials for the private `colonyops/hive` module and the third-party npm code it runs (with lifecycle scripts disabled) cannot poison the cache the host's own builds trust; `node_modules` lives in a per-arch named volume so the host's macOS-native copy is never mounted in.
+Building the non-host architecture (amd64 on Apple Silicon) works but runs the image build *and* the compile under emulation — budget considerably more time. The Go module cache is mounted **read-only** from the host and `GOPROXY=off` is set, so the container resolves every module from that cache and never fetches one itself, and the third-party npm code it runs (with lifecycle scripts disabled) cannot poison the cache the host's own builds trust; `node_modules` lives in a per-arch named volume so the host's macOS-native copy is never mounted in.
 
 The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`npm ci && npm run deploy`) and verifies the worker is live and — when `HIVE_DESKTOP_REPORT_TOKEN` is set — that the release token is accepted (an authenticated non-gzip `POST /api/report` must return `415`, past the `401`/`503` gates, so it never writes a report). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
 

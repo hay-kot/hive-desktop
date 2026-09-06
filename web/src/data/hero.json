@@ -2,7 +2,7 @@
   "eyebrow": "Personal automation for the agent era",
   "titleLines": ["Everything that wants your attention,", "down to one ping per change."],
   "subtitle": "Hive watches GitHub, your Grafana alerts, and anything that can POST a webhook, then routes them through rules your own coding agent wrote. One local queue, one ping per real change, and a config file that lives in your dotfiles.",
-  "primaryCta": { "label": "Request early access", "href": "#beta" },
+  "primaryCta": { "label": "Install Hive", "href": "/install" },
   "secondaryCta": { "label": "Read the docs", "href": "/docs" },
-  "note": "Private beta · macOS and Linux · one-time license, never a subscription"
+  "note": "Free and open source · MIT licensed · macOS and Linux"
 }

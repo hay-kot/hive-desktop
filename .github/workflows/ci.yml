@@ -18,6 +18,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # Fetch hive directly rather than through the module proxy: sum.golang.org
+  # lags freshly pushed commits, and the vendor pin usually is one. This is a
+  # proxy and checksum-database bypass, not a visibility setting. colonyops/hive
+  # is public, so this is not redundant. Removing it fails CI intermittently,
+  # only on the PRs that bump the vendor pin. Same reason as mise.toml.
   GOPRIVATE: github.com/colonyops/hive
 
 jobs:
