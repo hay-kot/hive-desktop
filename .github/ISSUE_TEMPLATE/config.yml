@@ -5,4 +5,4 @@ contact_links:
     about: Setup, sources, flows, terminal mode, and troubleshooting.
   - name: Report a security vulnerability
     url: https://github.com/hay-kot/hive-desktop/security/advisories/new
-    about: Private disclosure. Never open a public issue for a vulnerability.
+    about: Report vulnerabilities privately through a security advisory. Do not open a public issue.
