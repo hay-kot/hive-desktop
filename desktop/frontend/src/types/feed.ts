@@ -68,6 +68,10 @@ export interface Profile {
   unreadCount: number
   feeds: FeedSummary[]
   tree?: FeedTree
+  // empty is true when the flow has no nodes at all, which is the only state
+  // SeedStarter will fill in -- a graph with nodes but no feed node is still
+  // refused. Undefined until the flow has been read, like tree.
+  empty?: boolean
 }
 
 // Feeds are the only primary destinations; Trash is a de-emphasized utility

@@ -339,6 +339,7 @@ export function useFeedState() {
       const profile = profiles.value.find((p) => p.id === flowId)
       if (profile) {
         profile.feeds = feeds
+        profile.empty = nodes.length === 0
         // Rebuild the sidebar tree from current feeds + saved layout on every
         // load so counts stay fresh and added/removed feeds reconcile in.
         profile.tree = buildFeedTree(feeds, sidebar, flowId)
