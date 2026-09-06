@@ -179,9 +179,7 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 
 	instances := pr.sources.PullInstances()
 
-	if err := pr.sources.Prefetch(ctx, instances); err != nil {
-		pr.logger.Debug().Err(err).Msg("pipeline producer: source prefetch failed")
-	}
+	pr.prefetch(ctx, instances)
 
 	pr.pruneSchedule(instances)
 
@@ -214,6 +212,22 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 		pr.onAppended(lastOffset)
 	}
 	return summary
+}
+
+// prefetch is a wait, and a bounded one — a single batched round trip per tick,
+// before any source is drained. It gets its own span because without one its
+// time lands directly under ingest.tick as a bare HTTP call, and on a slow
+// morning it is the majority of the tick.
+func (pr *Producer) prefetch(ctx context.Context, instances []connector.Instance) {
+	ctx, span := tracer.Start(ctx, "ingest.prefetch", trace.WithAttributes(
+		attribute.Int(attrSources, len(instances)),
+	))
+	defer span.End()
+
+	if err := pr.sources.Prefetch(ctx, instances); err != nil {
+		observe.RecordError(span, err)
+		pr.logger.Debug().Ctx(ctx).Err(err).Msg("pipeline producer: source prefetch failed")
+	}
 }
 
 // pruneSchedule drops the per-source state of sources that are no longer
