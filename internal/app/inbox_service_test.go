@@ -448,13 +448,13 @@ actions:
 	assert.Equal(t, map[string]string{"reason": "flapping", "window": "1h"}, executor.data.Inputs)
 }
 
-// TestInboxService_ToggleInboxItemArchivedStaleRevisionIsConflict guards the
+// TestInboxService_ToggleArchivedStaleRevisionIsConflict guards the
 // trap this phase closed: a revision-guarded write's stale-revision error
 // must classify as KindConflict ("re-read and retry"), not KindNotFound.
 // Routing it through the generic not-found transform would make
 // errors.Is(err, sql.ErrNoRows) still match while silently reporting the
 // item as deleted instead.
-func TestInboxService_ToggleInboxItemArchivedStaleRevisionIsConflict(t *testing.T) {
+func TestInboxService_ToggleArchivedStaleRevisionIsConflict(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -464,12 +464,12 @@ func TestInboxService_ToggleInboxItemArchivedStaleRevisionIsConflict(t *testing.
 
 	// The first toggle succeeds against the row's initial revision (1) and
 	// advances it.
-	_, err = service.ToggleInboxItemArchived(t.Context(), itemID, 1)
+	_, err = service.ToggleArchived(t.Context(), itemID, 1)
 	require.NoError(t, err)
 
 	// Retrying with the now-stale revision must classify as a conflict, not
 	// a not-found.
-	_, err = service.ToggleInboxItemArchived(t.Context(), itemID, 1)
+	_, err = service.ToggleArchived(t.Context(), itemID, 1)
 	require.Error(t, err)
 	assert.Equal(t, KindConflict, KindOf(err))
 	assert.False(t, stores.IsNotFound(err))

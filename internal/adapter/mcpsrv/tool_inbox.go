@@ -138,9 +138,9 @@ func (ctrl *Controller) ListInbox(ctx context.Context, _ *mcp.CallToolRequest, i
 	case in.ExternalID != "":
 		items, err = ctrl.core.Inbox.FindItems(ctx, in.Profile, in.ExternalID)
 	case in.Feed != "" && in.Archived:
-		items, err = ctrl.core.Inbox.ListArchivedInboxItemsByFeed(ctx, in.Profile, in.Feed, limit)
+		items, err = ctrl.core.Inbox.ListArchivedByFeed(ctx, in.Profile, in.Feed, limit)
 	case in.Feed != "":
-		items, err = ctrl.core.Inbox.ListInboxItemsByFeed(ctx, in.Profile, in.Feed, limit)
+		items, err = ctrl.core.Inbox.ListByFeed(ctx, in.Profile, in.Feed, limit)
 	default:
 		items, err = ctrl.core.Inbox.ListItems(ctx, in.Profile, limit)
 	}
@@ -205,7 +205,7 @@ func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []stores.InboxI
 	for i, it := range items {
 		ids[i] = it.ID
 	}
-	feeds, err := ctrl.core.Inbox.InboxItemFeeds(ctx, ids)
+	feeds, err := ctrl.core.Inbox.Feeds(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallTool
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
-	events, err := ctrl.core.Inbox.InboxItemEvents(ctx, itemID, cmp.Or(in.Limit, defaultEventLimit))
+	events, err := ctrl.core.Inbox.Events(ctx, itemID, cmp.Or(in.Limit, defaultEventLimit))
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}

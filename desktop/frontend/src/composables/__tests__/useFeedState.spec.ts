@@ -7,14 +7,14 @@ import type { InboxItem } from '../../types/feed'
 
 const mocks = vi.hoisted(() => ({
   ListFlows: vi.fn(), GetFlow: vi.fn(), CreateFlow: vi.fn(), SeedStarterFlow: vi.fn(), RenameFlow: vi.fn(), SetFlowEnabled: vi.fn(), DeleteFlow: vi.fn(), GetSidebar: vi.fn(), SaveSidebar: vi.fn(),
-  ListInboxItemsByFeed: vi.fn(), ListArchivedInboxItemsByFeed: vi.fn(), ListInboxItemsTrash: vi.fn(), FeedCounts: vi.fn(), MarkInboxItemUnread: vi.fn(), MarkInboxItemsRead: vi.fn(), ToggleInboxItemArchived: vi.fn(), ToggleInboxItemIgnored: vi.fn(), InboxItemEvents: vi.fn(),
+  ListByFeed: vi.fn(), ListArchivedByFeed: vi.fn(), ListTrash: vi.fn(), FeedCounts: vi.fn(), SetUnread: vi.fn(), MarkRead: vi.fn(), ToggleArchived: vi.fn(), ToggleIgnored: vi.fn(), Events: vi.fn(),
   ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), RenderClipboardAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(), SetText: vi.fn(),
   notify: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, SeedStarterFlow: mocks.SeedStarterFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
-  ListInboxItemsByFeed: mocks.ListInboxItemsByFeed, ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed, ListInboxItemsTrash: mocks.ListInboxItemsTrash, FeedCounts: mocks.FeedCounts,
-  MarkInboxItemUnread: mocks.MarkInboxItemUnread, MarkInboxItemsRead: mocks.MarkInboxItemsRead, ToggleInboxItemArchived: mocks.ToggleInboxItemArchived, ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored, InboxItemEvents: mocks.InboxItemEvents,
+  ListByFeed: mocks.ListByFeed, ListArchivedByFeed: mocks.ListArchivedByFeed, ListTrash: mocks.ListTrash, FeedCounts: mocks.FeedCounts,
+  SetUnread: mocks.SetUnread, MarkRead: mocks.MarkRead, ToggleArchived: mocks.ToggleArchived, ToggleIgnored: mocks.ToggleIgnored, Events: mocks.Events,
   ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, RenderClipboardAction: mocks.RenderClipboardAction,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({ SessionLaunchOptions: mocks.SessionLaunchOptions }))
@@ -33,11 +33,11 @@ beforeEach(() => {
   mocks.ListFlows.mockResolvedValue([{ id: 'triage', name: 'Frontend Triage', enabled: true, valid: true }])
   mocks.GetFlow.mockResolvedValue(flow); mocks.GetSidebar.mockResolvedValue({ items: [] }); mocks.SaveSidebar.mockResolvedValue(undefined)
   mocks.FeedCounts.mockResolvedValue([{ feedId: 'triage/my-prs', total: 3, unread: 2, archived: 1 }])
-  mocks.ListInboxItemsByFeed.mockResolvedValue([]); mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([]); mocks.ListInboxItemsTrash.mockResolvedValue([]); mocks.ActionViews.mockResolvedValue([]); mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' }); mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', agents: ['claude'], defaultAgent: 'claude' })
-  mocks.MarkInboxItemsRead.mockResolvedValue(0)
-  mocks.MarkInboxItemUnread.mockImplementation(async (id: number, revision: number, unread: boolean) => item(id, { revision: revision + 1, unread }))
-  mocks.ToggleInboxItemArchived.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, archivedAt: Date.now() }))
-  mocks.ToggleInboxItemIgnored.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, ignoredAt: Date.now() }))
+  mocks.ListByFeed.mockResolvedValue([]); mocks.ListArchivedByFeed.mockResolvedValue([]); mocks.ListTrash.mockResolvedValue([]); mocks.ActionViews.mockResolvedValue([]); mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' }); mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', agents: ['claude'], defaultAgent: 'claude' })
+  mocks.MarkRead.mockResolvedValue(0)
+  mocks.SetUnread.mockImplementation(async (id: number, revision: number, unread: boolean) => item(id, { revision: revision + 1, unread }))
+  mocks.ToggleArchived.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, archivedAt: Date.now() }))
+  mocks.ToggleIgnored.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, ignoredAt: Date.now() }))
   mocks.SetFlowEnabled.mockImplementation(async (id: string, enabled: boolean) => ({ id, name: 'Frontend Triage', enabled, valid: true }))
   mocks.On.mockReturnValue(() => {})
 })
@@ -61,16 +61,16 @@ describe('useFeedState', () => {
     // Workspace rollups derive from feed counts; there is no aggregate inbox query.
     expect(get().activeProfile.value).toMatchObject({ totalCount: 3, unreadCount: 2 })
     expect(get().selection.value).toEqual({ type: 'feed', feedId: 'triage/my-prs' })
-    expect(mocks.ListInboxItemsByFeed).toHaveBeenCalledWith('triage', 'triage/my-prs', 500)
+    expect(mocks.ListByFeed).toHaveBeenCalledWith('triage', 'triage/my-prs', 500)
   })
 
   it('routes trash and feed selections to their dedicated queries', async () => {
     const get = mountState(); await flushPromises()
     await get().selectSidebar({ type: 'trash' })
-    expect(mocks.ListInboxItemsTrash).toHaveBeenCalledWith('triage', 500)
+    expect(mocks.ListTrash).toHaveBeenCalledWith('triage', 500)
     expect(get().title.value).toBe('Trash')
     await get().selectSidebar({ type: 'feed', feedId: 'triage/my-prs' })
-    expect(mocks.ListInboxItemsByFeed).toHaveBeenLastCalledWith('triage', 'triage/my-prs', 500)
+    expect(mocks.ListByFeed).toHaveBeenLastCalledWith('triage', 'triage/my-prs', 500)
   })
 
   it('remembers the last selection per profile and restores it on re-entry', async () => {
@@ -82,13 +82,13 @@ describe('useFeedState', () => {
   })
 
   it('lazy-loads the archived section only when expanded and clears it on selection change', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
-    mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([item(9, { archivedAt: 9, archivedReason: 'merged', unread: false })])
+    mocks.ListByFeed.mockResolvedValue([item(1)])
+    mocks.ListArchivedByFeed.mockResolvedValue([item(9, { archivedAt: 9, archivedReason: 'merged', unread: false })])
     const get = mountState(); await flushPromises()
-    expect(mocks.ListArchivedInboxItemsByFeed).not.toHaveBeenCalled()
+    expect(mocks.ListArchivedByFeed).not.toHaveBeenCalled()
     expect(get().archivedCount.value).toBe(1) // divider count comes from feed counts
     await get().toggleArchivedSection()
-    expect(mocks.ListArchivedInboxItemsByFeed).toHaveBeenCalledWith('triage', 'triage/my-prs', 500)
+    expect(mocks.ListArchivedByFeed).toHaveBeenCalledWith('triage', 'triage/my-prs', 500)
     expect(get().visibleArchivedItems.value.map((row) => row.id)).toEqual([9])
     await get().selectSidebar({ type: 'feed', feedId: 'triage/my-prs' })
     expect(get().archivedExpanded.value).toBe(false)
@@ -96,7 +96,7 @@ describe('useFeedState', () => {
   })
 
   it('filters trash to ignored items only when the ignored filter is set', async () => {
-    mocks.ListInboxItemsTrash.mockResolvedValue([item(1), item(2, { ignoredAt: 7, unread: false })])
+    mocks.ListTrash.mockResolvedValue([item(1), item(2, { ignoredAt: 7, unread: false })])
     const get = mountState(); await flushPromises()
     await get().selectSidebar({ type: 'trash' })
     expect(get().visibleItems.value.map((row) => row.id)).toEqual([2, 1])
@@ -144,7 +144,7 @@ describe('useFeedState', () => {
   })
 
   it('filters and navigates loaded feed rows while retaining SQL order', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(3, { title: 'Bravo', unread: false }), item(2, { title: 'Alpha' }), item(1, { title: 'Bravo follow-up' })])
+    mocks.ListByFeed.mockResolvedValue([item(3, { title: 'Bravo', unread: false }), item(2, { title: 'Alpha' }), item(1, { title: 'Bravo follow-up' })])
     const get = mountState(); await flushPromises()
     get().search.value = 'bravo'
     expect(get().visibleItems.value.map(row => row.id)).toEqual([3, 1])
@@ -153,7 +153,7 @@ describe('useFeedState', () => {
   })
 
   it('sorts feed items by newest, oldest, or unread-first recency and persists the choice', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([
+    mocks.ListByFeed.mockResolvedValue([
       item(1, { title: 'Oldest', unread: false, lastEventAt: 100 }),
       item(3, { title: 'Newest', unread: false, lastEventAt: 300 }),
       item(2, { title: 'Unread', unread: true, lastEventAt: 200 }),
@@ -169,60 +169,60 @@ describe('useFeedState', () => {
   })
 
   it('reloads the current selection after an archive toggle moves an item between sections', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ListByFeed.mockResolvedValue([item(1)])
     const get = mountState(); await flushPromises()
-    const before = mocks.ListInboxItemsByFeed.mock.calls.length
+    const before = mocks.ListByFeed.mock.calls.length
     await get().toggleArchive(get().items.value[0]!)
-    expect(mocks.ListInboxItemsByFeed.mock.calls.length).toBeGreaterThan(before)
+    expect(mocks.ListByFeed.mock.calls.length).toBeGreaterThan(before)
 
-    mocks.ListInboxItemsTrash.mockResolvedValue([item(2, { ignoredAt: 5 })])
+    mocks.ListTrash.mockResolvedValue([item(2, { ignoredAt: 5 })])
     await get().selectSidebar({ type: 'trash' })
-    const trashBefore = mocks.ListInboxItemsTrash.mock.calls.length
+    const trashBefore = mocks.ListTrash.mock.calls.length
     await get().toggleArchive(get().items.value[0]!)
-    expect(mocks.ListInboxItemsTrash.mock.calls.length).toBeGreaterThan(trashBefore)
+    expect(mocks.ListTrash.mock.calls.length).toBeGreaterThan(trashBefore)
   })
 
   it('marks reads with item revision and reloads after stale failures', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(5)])
+    mocks.ListByFeed.mockResolvedValue([item(5)])
     const get = mountState(); await flushPromises(); await get().selectItem(5)
-    expect(mocks.MarkInboxItemUnread).toHaveBeenCalledWith(5, 1, false)
+    expect(mocks.SetUnread).toHaveBeenCalledWith(5, 1, false)
     expect(get().items.value[0]?.revision).toBe(2)
-    mocks.MarkInboxItemUnread.mockRejectedValueOnce(new Error('stale'))
+    mocks.SetUnread.mockRejectedValueOnce(new Error('stale'))
     await get().markItemUnread(get().items.value[0]!, true)
-    expect(mocks.ListInboxItemsByFeed).toHaveBeenLastCalledWith('triage', 'triage/my-prs', 500)
+    expect(mocks.ListByFeed).toHaveBeenLastCalledWith('triage', 'triage/my-prs', 500)
   })
 
   it('clears a whole scope in one write and re-reads the list and the sidebar counts', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1), item(2)])
-    mocks.MarkInboxItemsRead.mockResolvedValue(2)
+    mocks.ListByFeed.mockResolvedValue([item(1), item(2)])
+    mocks.MarkRead.mockResolvedValue(2)
     const get = mountState(); await flushPromises()
-    const listsBefore = mocks.ListInboxItemsByFeed.mock.calls.length
+    const listsBefore = mocks.ListByFeed.mock.calls.length
     const countsBefore = mocks.FeedCounts.mock.calls.length
 
     await get().markAllRead('triage/my-prs')
 
-    expect(mocks.MarkInboxItemsRead).toHaveBeenCalledWith('triage', 'triage/my-prs')
-    expect(mocks.MarkInboxItemUnread).not.toHaveBeenCalled() // one bulk write, not one per row
-    expect(mocks.ListInboxItemsByFeed.mock.calls.length).toBeGreaterThan(listsBefore)
+    expect(mocks.MarkRead).toHaveBeenCalledWith('triage', 'triage/my-prs')
+    expect(mocks.SetUnread).not.toHaveBeenCalled() // one bulk write, not one per row
+    expect(mocks.ListByFeed.mock.calls.length).toBeGreaterThan(listsBefore)
     expect(mocks.FeedCounts.mock.calls.length).toBeGreaterThan(countsBefore)
     expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Marked 2 items as read'])
   })
 
   it('marks every feed in the workspace when no feed is named, and reports an empty clear', async () => {
-    mocks.MarkInboxItemsRead.mockResolvedValue(0)
+    mocks.MarkRead.mockResolvedValue(0)
     const get = mountState(); await flushPromises()
     await get().markAllRead(null)
-    expect(mocks.MarkInboxItemsRead).toHaveBeenCalledWith('triage', '')
+    expect(mocks.MarkRead).toHaveBeenCalledWith('triage', '')
     expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Nothing to mark as read'])
   })
 
   it('surfaces a failed bulk clear and still refreshes rather than leaving a half-stale list', async () => {
-    mocks.MarkInboxItemsRead.mockRejectedValue(new Error('locked'))
+    mocks.MarkRead.mockRejectedValue(new Error('locked'))
     const get = mountState(); await flushPromises()
-    const listsBefore = mocks.ListInboxItemsByFeed.mock.calls.length
+    const listsBefore = mocks.ListByFeed.mock.calls.length
     await get().markAllRead('triage/my-prs')
     expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Could not mark items as read'])
-    expect(mocks.ListInboxItemsByFeed.mock.calls.length).toBeGreaterThan(listsBefore)
+    expect(mocks.ListByFeed.mock.calls.length).toBeGreaterThan(listsBefore)
   })
 
   it('reads the scope unread count off the feed counts the sidebar already shows', async () => {
@@ -233,18 +233,18 @@ describe('useFeedState', () => {
   })
 
   it('applies a read write back onto the archived row so its next write is not stale', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
-    mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([item(9, { archivedAt: 9, archivedReason: 'manual' })])
+    mocks.ListByFeed.mockResolvedValue([item(1)])
+    mocks.ListArchivedByFeed.mockResolvedValue([item(9, { archivedAt: 9, archivedReason: 'manual' })])
     const get = mountState(); await flushPromises()
     await get().toggleArchivedSection()
     await get().selectItem(9)
     expect(get().selectedItem.value?.revision).toBe(2)
     await get().toggleArchive(get().selectedItem.value!)
-    expect(mocks.ToggleInboxItemArchived).toHaveBeenCalledWith(9, 2)
+    expect(mocks.ToggleArchived).toHaveBeenCalledWith(9, 2)
   })
 
   it('loads action runs by selected item id and does not let old action responses replace a new selection', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1), item(2)])
+    mocks.ListByFeed.mockResolvedValue([item(1), item(2)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     let resolve!: (value: { commandId: number; status: string }) => void
     mocks.InvokeAction.mockReturnValue(new Promise(r => { resolve = r }))
@@ -254,7 +254,7 @@ describe('useFeedState', () => {
   })
 
   it('loads actions by item id for webhook items now that the GitHub-only guard is gone', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1, { sourceKind: 'webhook', sourceScope: 'hook-source', payload: { id: 'run-1', kind: 'deploy' } })])
+    mocks.ListByFeed.mockResolvedValue([item(1, { sourceKind: 'webhook', sourceScope: 'hook-source', payload: { id: 'run-1', kind: 'deploy' } })])
     mocks.ActionViews.mockResolvedValue([{ id: 'deploy', label: 'Deploy', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     const get = mountState(); await flushPromises()
     expect(mocks.ActionViews).toHaveBeenCalledWith(1)
@@ -262,7 +262,7 @@ describe('useFeedState', () => {
   })
 
   it('opens the selected item URL in the browser', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(3)])
+    mocks.ListByFeed.mockResolvedValue([item(3)])
     const get = mountState(); await flushPromises(); await get().openSelectedInBrowser()
     expect(mocks.OpenURL).toHaveBeenCalledWith('https://example.test/3')
   })
@@ -310,7 +310,7 @@ describe('useFeedState', () => {
   })
 
   it('opens arbitrary URLs and reports a selected item without a URL', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1, { url: '' })])
+    mocks.ListByFeed.mockResolvedValue([item(1, { url: '' })])
     const get = mountState(); await flushPromises()
     await get().openSelectedInBrowser()
     expect(mocks.OpenURL).not.toHaveBeenCalled()
@@ -320,7 +320,7 @@ describe('useFeedState', () => {
   })
 
   it('invokes actions by authoritative numeric item id and preserves success/failure feedback', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     mocks.InvokeAction.mockResolvedValueOnce({ commandId: 17, status: 'done' })
     const get = mountState(); await flushPromises()
@@ -335,7 +335,7 @@ describe('useFeedState', () => {
   })
 
   it('copies a clipboard action through the native clipboard with no durable run', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{ id: 'copy-checkout', label: 'Copy checkout command', type: 'clipboard', showInDetail: true, requiresSessionInput: false }])
     mocks.RenderClipboardAction.mockResolvedValue('gh pr checkout 7 -R acme/app')
     const get = mountState(); await flushPromises()
@@ -348,7 +348,7 @@ describe('useFeedState', () => {
   })
 
   it('asks for confirmation before rerunning an action and preserves the first run', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review PR', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     mocks.InvokeAction
       .mockResolvedValueOnce({ commandId: 7, status: 'done', confirmationRequired: true })
@@ -364,7 +364,7 @@ describe('useFeedState', () => {
   })
 
   it('names published messages and opens interactive session launch actions before invocation', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{ id: 'notify', label: 'Notify', type: 'publish-message', showInDetail: true, requiresSessionInput: false }])
     mocks.InvokeAction.mockResolvedValueOnce({ commandId: 18, status: 'done', result: { message: { topic: 'agent.session.inbox', sender: 'hive-desktop' } } })
     const get = mountState(); await flushPromises()
@@ -382,7 +382,7 @@ describe('useFeedState', () => {
   })
 
   it('collects declared inputs before invoking and sends them with the run', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{
       id: 'silence', label: 'Silence alert', type: 'shell', showInDetail: true, requiresSessionInput: false,
       inputs: [{ name: 'reason', label: 'Reason', type: 'text', required: true, default: '', placeholder: '', options: null }],
@@ -400,7 +400,7 @@ describe('useFeedState', () => {
   })
 
   it('routes a clipboard action with declared inputs through the render path', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{
       id: 'silence', label: 'Silence alert', type: 'clipboard', showInDetail: true, requiresSessionInput: false,
       inputs: [{ name: 'reason', label: 'Reason', type: 'text', required: true, default: '', placeholder: '', options: null }],
@@ -419,7 +419,7 @@ describe('useFeedState', () => {
   // An interactive launch-session action can declare inputs too: one dialog
   // collects both, and both reach the invocation.
   it('sends declared inputs alongside session input from the launch dialog', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ListByFeed.mockResolvedValue([item(7)])
     mocks.ActionViews.mockResolvedValue([{
       id: 'launch', label: 'Launch', type: 'launch-session', showInDetail: true, requiresSessionInput: true,
       inputs: [{ name: 'focus', label: 'Focus', type: 'text', required: false, default: 'tests', placeholder: '', options: null }],
@@ -437,7 +437,7 @@ describe('useFeedState', () => {
 
   it('scopes persisted action runs to the numeric item that owns them', async () => {
     localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1), item(2)])
+    mocks.ListByFeed.mockResolvedValue([item(1), item(2)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     mocks.ActionRun.mockResolvedValue({ commandId: 41, status: 'failed', stderr: 'details' })
     const get = mountState(); await flushPromises()
@@ -460,7 +460,7 @@ describe('useFeedState', () => {
 
   it('drops a stale action run id when the core says not_found', async () => {
     localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ListByFeed.mockResolvedValue([item(1)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     mocks.ActionRun.mockRejectedValue(bindingError('not_found'))
 
@@ -473,7 +473,7 @@ describe('useFeedState', () => {
   it('keeps a run id when the failure is not a missing row', async () => {
     for (const kind of ['internal', 'unavailable', 'unauthenticated']) {
       localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
-      mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+      mocks.ListByFeed.mockResolvedValue([item(1)])
       mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
       mocks.ActionRun.mockRejectedValue(bindingError(kind))
 
@@ -487,7 +487,7 @@ describe('useFeedState', () => {
 
   it('keeps a run id when the failure carries no kind at all', async () => {
     localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ListByFeed.mockResolvedValue([item(1)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     mocks.ActionRun.mockRejectedValue(new Error('the item was not found'))
 
@@ -500,7 +500,7 @@ describe('useFeedState', () => {
 
   it('rejects malformed persisted action run ids without restoring them', async () => {
     localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: '41', zero: 0 }, bad: [] }))
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ListByFeed.mockResolvedValue([item(1)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
     const get = mountState(); await flushPromises()
     expect(get().actionRuns.value).toEqual({})
@@ -511,8 +511,8 @@ describe('useFeedState', () => {
     const get = mountState(); await flushPromises()
     const resolveFeed: Array<(rows: InboxItem[]) => void> = []
     const resolveTrash: Array<(rows: InboxItem[]) => void> = []
-    mocks.ListInboxItemsByFeed.mockImplementation(() => new Promise<InboxItem[]>(done => resolveFeed.push(done)))
-    mocks.ListInboxItemsTrash.mockImplementation(() => new Promise<InboxItem[]>(done => resolveTrash.push(done)))
+    mocks.ListByFeed.mockImplementation(() => new Promise<InboxItem[]>(done => resolveFeed.push(done)))
+    mocks.ListTrash.mockImplementation(() => new Promise<InboxItem[]>(done => resolveTrash.push(done)))
     const feed = get().selectSidebar({ type: 'feed', feedId: 'triage/my-prs' }); await flushPromises()
     const trash = get().selectSidebar({ type: 'trash' }); await flushPromises()
     resolveTrash[0]!([item(2, { ignoredAt: 2 })]); await trash
@@ -522,7 +522,7 @@ describe('useFeedState', () => {
   })
 
   it('renders observed events oldest-to-newest even though the storage read is newest-first', async () => {
-    mocks.InboxItemEvents.mockResolvedValue([
+    mocks.Events.mockResolvedValue([
       { id: 3, itemId: 1, kind: 'closed', transition: 'closed', attention: 'none', summary: 'newest', createdAt: 3 },
       { id: 2, itemId: 1, kind: 'updated', transition: 'updated', attention: 'activity', summary: 'middle', createdAt: 2 },
       { id: 1, itemId: 1, kind: 'created', transition: 'created', attention: 'activity', summary: 'oldest', createdAt: 1 },
@@ -532,19 +532,19 @@ describe('useFeedState', () => {
   })
 
   it('retains load errors, clears stale rows, and retries the current selection on refresh', async () => {
-    mocks.ListInboxItemsByFeed.mockRejectedValueOnce(new Error('offline'))
+    mocks.ListByFeed.mockRejectedValueOnce(new Error('offline'))
     const get = mountState(); await flushPromises()
     expect(get().loadError.value).toBe("Can't load inbox items right now.")
     expect(get().items.value).toEqual([])
-    mocks.ListInboxItemsTrash.mockResolvedValue([item(9, { ignoredAt: 9 })])
+    mocks.ListTrash.mockResolvedValue([item(9, { ignoredAt: 9 })])
     await get().selectSidebar({ type: 'trash' })
     expect(get().items.value[0]).toMatchObject({ id: 9 })
     await get().refresh()
-    expect(mocks.ListInboxItemsTrash).toHaveBeenLastCalledWith('triage', 500)
+    expect(mocks.ListTrash).toHaveBeenLastCalledWith('triage', 500)
   })
 
   it('navigates only across the searched unread subset as selected rows become read', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue([item(3, { title: 'Onboard', unread: true }), item(2, { title: 'Deploy', unread: true }), item(1, { title: 'Onload', unread: true })])
+    mocks.ListByFeed.mockResolvedValue([item(3, { title: 'Onboard', unread: true }), item(2, { title: 'Deploy', unread: true }), item(1, { title: 'Onload', unread: true })])
     const get = mountState(); await flushPromises()
     await get().selectUnreadView()
     get().search.value = 'on'

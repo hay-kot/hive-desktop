@@ -35,40 +35,36 @@ export function ActionViews(itemID: number): $CancellablePromise<actions$0.View[
     return $Call.ByID(3356906731, itemID);
 }
 
+export function Events(itemID: number, limit: number): $CancellablePromise<stores$0.InboxEvent[] | null> {
+    return $Call.ByID(4125924180, itemID, limit);
+}
+
+export function Feed(profileID: string, itemID: number): $CancellablePromise<string> {
+    return $Call.ByID(4173616213, profileID, itemID);
+}
+
 export function FeedCounts(profileID: string): $CancellablePromise<stores$0.FeedCount[] | null> {
     return $Call.ByID(444584149, profileID);
-}
-
-export function InboxItemEvents(itemID: number, limit: number): $CancellablePromise<stores$0.InboxEvent[] | null> {
-    return $Call.ByID(1903831253, itemID, limit);
-}
-
-export function InboxItemFeed(profileID: string, itemID: number): $CancellablePromise<string> {
-    return $Call.ByID(4206645656, profileID, itemID);
 }
 
 export function InvokeAction(actionID: string, itemID: number, input: dispatch$0.ActionInvocationInput): $CancellablePromise<dispatch$0.ActionRunView> {
     return $Call.ByID(1680026695, actionID, itemID, input);
 }
 
-export function ListArchivedInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<stores$0.InboxItem[] | null> {
-    return $Call.ByID(2837386034, profileID, feedID, limit);
+export function ListArchivedByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<stores$0.InboxItem[] | null> {
+    return $Call.ByID(2031154650, profileID, feedID, limit);
 }
 
-export function ListInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<stores$0.InboxItem[] | null> {
-    return $Call.ByID(2653900732, profileID, feedID, limit);
+export function ListByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<stores$0.InboxItem[] | null> {
+    return $Call.ByID(3350169100, profileID, feedID, limit);
 }
 
-export function ListInboxItemsTrash(profileID: string, limit: number): $CancellablePromise<stores$0.InboxItem[] | null> {
-    return $Call.ByID(31725505, profileID, limit);
+export function ListTrash(profileID: string, limit: number): $CancellablePromise<stores$0.InboxItem[] | null> {
+    return $Call.ByID(2143013553, profileID, limit);
 }
 
-export function MarkInboxItemUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<stores$0.InboxItem> {
-    return $Call.ByID(4238206404, itemID, revision, unread);
-}
-
-export function MarkInboxItemsRead(profileID: string, feedID: string): $CancellablePromise<number> {
-    return $Call.ByID(974783704, profileID, feedID);
+export function MarkRead(profileID: string, feedID: string): $CancellablePromise<number> {
+    return $Call.ByID(317389540, profileID, feedID);
 }
 
 export function NewSessionDraft(itemID: number): $CancellablePromise<dispatch$0.SessionDraft> {
@@ -88,10 +84,14 @@ export function RenderClipboardAction(actionID: string, itemID: number, inputs: 
     return $Call.ByID(3812385739, actionID, itemID, inputs);
 }
 
-export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<stores$0.InboxItem> {
-    return $Call.ByID(2209910498, itemID, revision);
+export function SetUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<stores$0.InboxItem> {
+    return $Call.ByID(783512488, itemID, revision, unread);
 }
 
-export function ToggleInboxItemIgnored(itemID: number, revision: number): $CancellablePromise<stores$0.InboxItem> {
-    return $Call.ByID(1906272206, itemID, revision);
+export function ToggleArchived(itemID: number, revision: number): $CancellablePromise<stores$0.InboxItem> {
+    return $Call.ByID(756635811, itemID, revision);
+}
+
+export function ToggleIgnored(itemID: number, revision: number): $CancellablePromise<stores$0.InboxItem> {
+    return $Call.ByID(1613598741, itemID, revision);
 }
