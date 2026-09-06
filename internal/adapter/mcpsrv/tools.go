@@ -198,9 +198,10 @@ func (ctrl *Controller) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:  "put_schedule",
 		Title: "Create or update a scheduled chat",
-		Description: "Create or update one schedule in a workspace's agent-workspace.yaml: an existing id is replaced in place, a new one is appended, " +
-			"and every other key and comment in the file is kept. The cron and the prompt template are validated before anything is written; " +
-			"a rejected edit is invalid and leaves the file as it was. The schedule is live as soon as the call returns. " +
+		Description: "Create or update one schedule in a workspace's agent-workspace.yaml. A new id is appended and needs cron and prompt. " +
+			"An existing id is edited in place, field by field: a field you omit keeps its stored value, so re-timing a paused schedule leaves it paused, " +
+			"and name: \"\" clears the name. Every other key and comment in the file is kept. The cron and the prompt template are validated before " +
+			"anything is written; a rejected edit is invalid and leaves the file as it was. The schedule is live as soon as the call returns. " +
 			"A new or re-timed schedule never fires for a time before it existed.",
 	}, ctrl.PutSchedule)
 
@@ -214,7 +215,8 @@ func (ctrl *Controller) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:  "preview_schedule",
 		Title: "Dry-run a schedule edit",
-		Description: "Report the next occurrences a cron expression produces and the prompt template rendered against sample data, without saving anything. " +
+		Description: "Report the next occurrences a cron expression produces and the prompt template rendered against sample data, both with a previous run " +
+			"behind it and as the first run sees it with .LastRun unset, without saving anything. " +
 			"A cron or template that does not parse comes back in cronError or promptError rather than as a failed call. Use it before put_schedule.",
 	}, ctrl.PreviewSchedule)
 
@@ -222,7 +224,8 @@ func (ctrl *Controller) register(srv *mcp.Server) {
 		Name:  "schedule_runs",
 		Title: "Read a schedule's run history",
 		Description: "List one schedule's runs, newest first: what each honored, why it ran, whether it launched a chat, and any error. " +
-			"History outlives the schedule, so a removed schedule still answers. Running a schedule now is not a tool here: it spawns an agent CLI, " +
-			"which this server never does. That is the Chats area's \"Run now\".",
+			"An empty list means the schedule has not run. History outlives the schedule, so a removed schedule still answers; a workspace that does not exist, " +
+			"or an id that is neither declared nor has ever run, is not_found. A run's session is the chat it launched, gone once that chat has ended. " +
+			"Running a schedule now is not a tool here: it spawns an agent CLI, which this server never does. That is the Chats area's \"Run now\".",
 	}, ctrl.ScheduleRuns)
 }

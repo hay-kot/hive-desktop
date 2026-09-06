@@ -127,14 +127,33 @@ func TestAgentScheduleRunsAppliesTheDefaultLimit(t *testing.T) {
 	assert.Equal(t, int64(inserted-1), body.Runs[0].StartedAt, "newest first")
 	require.NotNil(t, body.Runs[0].SessionID)
 
+	// A declared schedule that has not run is an empty list; a workspace or an
+	// id that does not exist is not_found, never an empty list.
+	declared := h.post(t, AgentWorkspacesPathPrefix+"workspaces/update", testToken, agentWorkspaceEditRequest{
+		Dir: seededWorkspace, Name: "Hive", Agent: "claude", Autonomy: "ask",
+		Schedules: []agentWorkspaceScheduleEdit{{ID: "quiet", Cron: "@daily", Prompt: "hi"}},
+	})
+	_ = declared.Body.Close()
+	require.Equal(t, http.StatusOK, declared.StatusCode)
 	empty := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
-		Workspace: "nothing-here", ID: "weekly",
+		Workspace: seededWorkspace, ID: "quiet",
 	})
 	defer func() { _ = empty.Body.Close() }()
 	require.Equal(t, http.StatusOK, empty.StatusCode)
 	require.NoError(t, json.NewDecoder(empty.Body).Decode(&body))
 	require.NotNil(t, body.Runs, "runs is never null on the wire")
 	assert.Empty(t, body.Runs)
+
+	missingWorkspace := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
+		Workspace: "nothing-here", ID: "weekly",
+	})
+	_ = missingWorkspace.Body.Close()
+	assert.Equal(t, http.StatusNotFound, missingWorkspace.StatusCode)
+	missingID := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
+		Workspace: seededWorkspace, ID: "never-declared",
+	})
+	_ = missingID.Body.Close()
+	assert.Equal(t, http.StatusNotFound, missingID.StatusCode)
 
 	noID := h.post(t, AgentWorkspacesPathPrefix+"schedules/runs", testToken, agentScheduleRunsRequest{
 		Workspace: seededWorkspace,

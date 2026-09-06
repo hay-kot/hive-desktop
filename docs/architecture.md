@@ -1822,9 +1822,15 @@ The `hive-desktop` MCP server carries the same surface for an agent:
 `preview_schedule` and `schedule_runs`. A put or remove is a per-list
 manifest write, `agentws.WriteSchedules`, through
 `AgentWorkspacesService.PutSchedule` and `RemoveSchedule`, which apply
-`UpdateWorkspace`'s refusal of a manifest that does not parse. Running a
-schedule is not on the MCP server: it spawns a process, which that surface
-never does.
+`UpdateWorkspace`'s refusal of a manifest that does not parse. `PutSchedule`
+takes a `SchedulePatch` and lays it over the stored entry: a field the call
+omits keeps its value, so re-timing a paused schedule leaves it paused, and a
+new id needs a cron and a prompt. `Runs` answers not_found for a workspace
+that does not exist and for an id that is neither declared nor has ever run;
+an empty list means only that the schedule has not run. The tools' workspace
+argument also accepts the workspace's absolute path, because that is what
+`HIVE_AGENT_WORKSPACE` hands the agent. Running a schedule is not on the MCP
+server: it spawns a process, which that surface never does.
 
 Schedules are a section of the workspace editor, not a surface of their own.
 The form is a calendar-style one -- hourly, daily, weekly, monthly, or a raw

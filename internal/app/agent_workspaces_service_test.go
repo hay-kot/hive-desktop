@@ -897,8 +897,8 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	changed := 0
 	svc.OnSchedulesChanged = func(string) { changed++ }
 
-	row, err := svc.PutSchedule(t.Context(), "demo", ScheduleEdit{
-		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
+	row, err := svc.PutSchedule(t.Context(), "demo", SchedulePatch{
+		ID: "weekly", Name: new("Weekly summary"), Cron: new("0 9 * * 5"), Prompt: new("Summarize the week."),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "weekly", row.ID)
@@ -906,14 +906,26 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	require.NotNil(t, row.NextRunAt)
 	assert.Equal(t, 1, changed, "a write reaches the scheduler and the UI")
 
-	_, err = svc.PutSchedule(t.Context(), "demo", ScheduleEdit{ID: "daily", Cron: "@daily", Prompt: "Standup."})
+	_, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "daily", Cron: new("@daily"), Prompt: new("Standup.")})
 	require.NoError(t, err)
-	row, err = svc.PutSchedule(t.Context(), "demo", ScheduleEdit{
-		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.", Disabled: true,
-	})
+	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Disabled: new(true), OnMissed: new("skip")})
 	require.NoError(t, err)
 	assert.True(t, row.Disabled)
 	assert.Nil(t, row.NextRunAt)
+	assert.Equal(t, "Weekly summary", row.Name, "a field the patch omits keeps its stored value")
+	assert.Equal(t, "0 9 * * 5", row.Cron)
+
+	// Re-timing a paused schedule leaves it paused: the case an agent hits
+	// when told "move that schedule to 10:00" about one the user switched off.
+	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Cron: new("0 10 * * 5")})
+	require.NoError(t, err)
+	assert.Equal(t, "0 10 * * 5", row.Cron)
+	assert.True(t, row.Disabled)
+	assert.Equal(t, "skip", row.OnMissed)
+	assert.Equal(t, "Weekly summary", row.Name)
+	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Name: new("")})
+	require.NoError(t, err)
+	assert.Empty(t, row.Name, "an explicit empty name clears the stored one")
 
 	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
 	require.NoError(t, err)
@@ -924,13 +936,17 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	require.Len(t, st.Workspace.Schedules, 2, "an existing id is replaced, not appended")
 	assert.Equal(t, "weekly", st.Workspace.Schedules[0].ID)
 
-	_, err = svc.PutSchedule(t.Context(), "demo", ScheduleEdit{ID: "bad", Cron: "not a cron", Prompt: "go"})
+	_, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "bad", Cron: new("not a cron"), Prompt: new("go")})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
-	_, err = svc.PutSchedule(t.Context(), "broken", ScheduleEdit{ID: "weekly", Cron: "@daily", Prompt: "go"})
+	_, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "new", Cron: new("@daily")})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err), "a new schedule needs a cron and a prompt")
+	require.ErrorContains(t, err, "does not exist")
+	_, err = svc.PutSchedule(t.Context(), "broken", SchedulePatch{ID: "weekly", Cron: new("@daily"), Prompt: new("go")})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err), "a broken manifest is fixed in the file, never written over")
-	_, err = svc.PutSchedule(t.Context(), "nope", ScheduleEdit{ID: "weekly", Cron: "@daily", Prompt: "go"})
+	_, err = svc.PutSchedule(t.Context(), "nope", SchedulePatch{ID: "weekly", Cron: new("@daily"), Prompt: new("go")})
 	require.Error(t, err)
 	assert.Equal(t, KindNotFound, KindOf(err))
 
@@ -941,7 +957,7 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	err = svc.RemoveSchedule(t.Context(), "demo", "weekly")
 	require.Error(t, err)
 	assert.Equal(t, KindNotFound, KindOf(err))
-	assert.Equal(t, 4, changed)
+	assert.Equal(t, 6, changed)
 }
 
 // TestSkillPackagesResolveMembers is the editor's read: packages from

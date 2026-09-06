@@ -263,6 +263,30 @@ func TestSchedulesServiceRunsAreOneSchedulesNewestFirst(t *testing.T) {
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
+// An empty list means the schedule has not run, never that the caller named
+// the wrong workspace or id: those are not_found, the way the rest of the
+// surface answers for a thing that does not exist.
+func TestSchedulesServiceRunsTellAMissingScheduleFromOneThatNeverRan(t *testing.T) {
+	f := newTestSchedulesService(t)
+	f.declare(t, schedule.Spec{ID: "alpha", Cron: "@daily", Prompt: "go"})
+
+	fresh, err := f.svc.Runs(t.Context(), "demo", "alpha", 0)
+	require.NoError(t, err)
+	assert.Empty(t, fresh, "a declared schedule that has not run answers with nothing")
+
+	_, err = f.svc.Runs(t.Context(), "demo", "never", 0)
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err), "an id that is neither declared nor has run")
+
+	_, err = f.svc.Runs(t.Context(), "nowhere", "alpha", 0)
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err), "a workspace that does not exist")
+
+	_, err = f.svc.Runs(t.Context(), "../demo", "alpha", 0)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
 // A run points at the chat it launched only while that chat exists: a
 // scheduled chat deletes itself when its task is done, and a history entry
 // must not offer to open a chat nobody can.
@@ -299,13 +323,21 @@ func TestSchedulesServicePreviewReportsErrorsAsFields(t *testing.T) {
 	f := newTestSchedulesService(t)
 
 	preview, err := f.svc.Preview(t.Context(), PreviewRequest{
-		Workspace: "demo", Cron: "0 9 * * 5", Prompt: "Summarize {{ .Workspace.Name }} since {{ date \"2006-01-02\" .LastRun }}.",
+		Workspace: "demo", Cron: "0 9 * * 5", Prompt: "Summarize {{ .Workspace.Name }} since {{ if .LastRun }}{{ date \"2006-01-02\" .LastRun }}{{ else }}the start{{ end }}.",
 	})
 	require.NoError(t, err)
 	assert.Len(t, preview.Next, previewOccurrences)
 	assert.Empty(t, preview.CronError)
 	assert.Empty(t, preview.PromptError)
-	assert.Contains(t, preview.Prompt, "Summarize Demo since ")
+	assert.Contains(t, preview.Prompt, "Summarize Demo since 20")
+	assert.Equal(t, "Summarize Demo since the start.", preview.FirstRunPrompt, "the first run, with no previous one, is previewed too")
+
+	firstRunOnly, err := f.svc.Preview(t.Context(), PreviewRequest{
+		Workspace: "demo", Cron: "0 9 * * 5", Prompt: "Since {{ .LastRun.Format \"2006-01-02\" }}.",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, firstRunOnly.PromptError, "on the first run", "a template that only breaks without a previous run is reported before it is saved")
+	assert.Empty(t, firstRunOnly.Prompt)
 
 	broken, err := f.svc.Preview(t.Context(), PreviewRequest{
 		Workspace: "demo", Cron: "every friday", Prompt: "{{ .Nope }}",

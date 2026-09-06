@@ -70,12 +70,14 @@ type PreviewRequest struct {
 
 // PreviewView is that dry run. A bad cron or template lands in CronError or
 // PromptError rather than failing the call, so the editor can show it beside
-// the field the user is still typing in.
+// the field the user is still typing in. FirstRunPrompt is the same template
+// as the first run sees it, with no previous run to point at.
 type PreviewView struct {
-	Next        []int64
-	Prompt      string
-	CronError   string
-	PromptError string
+	Next           []int64
+	Prompt         string
+	FirstRunPrompt string
+	CronError      string
+	PromptError    string
 }
 
 // SchedulesService is what a user or an agent does to a schedule outside the
@@ -136,12 +138,22 @@ func (s *SchedulesService) RunNow(ctx context.Context, workspace, id string) (Ru
 // Runs returns one schedule's run history newest first. A limit of zero or
 // less takes the default.
 //
-// It does not require the schedule, or its workspace, to still exist: history
-// outlives the manifest entry it came from, and a workspace whose manifest
-// just broke is exactly when a caller wants to read what its schedules did.
+// The workspace has to exist, whatever the state of its manifest: a workspace
+// whose manifest just broke is exactly when a caller wants to read what its
+// schedules did. The schedule has to be declared or to have run. History
+// outlives the manifest entry it came from, so a removed schedule still
+// answers, but an id that is neither is not_found rather than an empty list a
+// caller debugging a schedule would read as "it never fired".
 func (s *SchedulesService) Runs(ctx context.Context, workspace, id string, limit int) ([]RunView, error) {
+	if !validWorkspaceDir(workspace) {
+		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", workspace)
+	}
 	if id == "" {
 		return nil, Errorf(KindInvalid, "a schedule id is required")
+	}
+	st, ok := s.workspaces.Status(workspace)
+	if !ok {
+		return nil, Errorf(KindNotFound, "workspace %q not found", workspace)
 	}
 	if limit <= 0 {
 		limit = defaultRunHistory
@@ -151,12 +163,24 @@ func (s *SchedulesService) Runs(ctx context.Context, workspace, id string, limit
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing runs for schedule %q in workspace %q", id, workspace)
 	}
+	if len(records) == 0 && !declaresSchedule(st.Workspace, id) {
+		return nil, Errorf(KindNotFound, "schedule %q is not declared in workspace %q and has never run there", id, workspace)
+	}
 
 	out := make([]RunView, 0, len(records))
 	for _, rec := range records {
 		out = append(out, withoutDeletedChat(ctx, s.db, runView(scheduleRunFromRecord(rec))))
 	}
 	return out, nil
+}
+
+func declaresSchedule(workspace agentws.Workspace, id string) bool {
+	for _, spec := range workspace.Schedules {
+		if spec.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutDeletedChat drops a run's chat pointer once that chat is gone. A
@@ -193,11 +217,12 @@ func (s *SchedulesService) Preview(_ context.Context, req PreviewRequest) (Previ
 	if name := names.WorkspaceName(req.Workspace); name != "" {
 		data.Workspace.Name = name
 	}
-	prompt, err := schedule.RenderPrompt(req.Prompt, data)
+	rendered, err := schedule.PreviewPrompt(req.Prompt, data)
 	if err != nil {
 		view.PromptError = err.Error()
 	} else {
-		view.Prompt = prompt
+		view.Prompt = rendered.Prompt
+		view.FirstRunPrompt = rendered.FirstRunPrompt
 	}
 	return view, nil
 }

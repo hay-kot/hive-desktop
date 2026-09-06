@@ -77,34 +77,58 @@ func TestScheduleToolsEditOneWorkspaceEntryInPlace(t *testing.T) {
 	assert.Contains(t, string(raw), "id: weekly")
 
 	var preview struct {
-		Next        []string `json:"next"`
-		Prompt      string   `json:"prompt"`
-		CronError   string   `json:"cronError"`
-		PromptError string   `json:"promptError"`
+		Next           []string `json:"next"`
+		Prompt         string   `json:"prompt"`
+		FirstRunPrompt string   `json:"firstRunPrompt"`
+		CronError      string   `json:"cronError"`
+		PromptError    string   `json:"promptError"`
 	}
-	call(t, session, "preview_schedule", map[string]any{"workspace": "demo", "cron": "0 9 * * 5", "prompt": "Summarize {{ .Workspace.Name }}."}, &preview)
+	call(t, session, "preview_schedule", map[string]any{
+		"workspace": "demo", "cron": "0 9 * * 5",
+		"prompt": "Summarize {{ .Workspace.Name }}{{ if .LastRun }} since {{ date \"2006-01-02\" .LastRun }}{{ end }}.",
+	}, &preview)
 	assert.Len(t, preview.Next, 5)
-	assert.Equal(t, "Summarize Demo.", preview.Prompt)
+	assert.Contains(t, preview.Prompt, "Summarize Demo since ")
+	assert.Equal(t, "Summarize Demo.", preview.FirstRunPrompt, "the first run, with no previous one, is previewed too")
 	call(t, session, "preview_schedule", map[string]any{"workspace": "demo", "cron": "every friday", "prompt": "{{ .Nope }}"}, &preview)
 	assert.Empty(t, preview.Next)
 	assert.NotEmpty(t, preview.CronError, "a bad edit is the answer, not a failure")
 	assert.NotEmpty(t, preview.PromptError)
+	call(t, session, "preview_schedule", map[string]any{"workspace": "demo", "cron": "@daily", "prompt": "{{ .LastRun.Format \"2006\" }}"}, &preview)
+	assert.Contains(t, preview.PromptError, "first run", "a template that only breaks without a previous run is reported")
 
 	call(t, session, "put_schedule", map[string]any{"workspace": "demo", "id": "daily", "cron": "@daily", "prompt": "Standup."}, nil)
 	var paused scheduleRow
-	call(t, session, "put_schedule", map[string]any{
-		"workspace": "demo", "id": "weekly", "name": "Weekly summary", "cron": "0 9 * * 5", "prompt": "Summarize the week.", "disabled": true,
-	}, &paused)
+	call(t, session, "put_schedule", map[string]any{"workspace": "demo", "id": "weekly", "disabled": true, "onMissed": "skip"}, &paused)
 	assert.True(t, paused.Disabled)
 	assert.Empty(t, paused.NextRunAt, "a disabled schedule has nothing coming")
+	assert.Equal(t, "Weekly summary", paused.Name, "a field the call omits keeps its stored value")
+	assert.Equal(t, "0 9 * * 5", paused.Cron)
+
+	// Re-timing a paused schedule with only the cron leaves it paused: the
+	// call an agent makes when told to move a schedule the user switched off.
+	var retimed scheduleRow
+	call(t, session, "put_schedule", map[string]any{"workspace": "demo", "id": "weekly", "cron": "0 10 * * 5"}, &retimed)
+	assert.Equal(t, "0 10 * * 5", retimed.Cron)
+	assert.True(t, retimed.Disabled)
+	assert.Equal(t, "skip", retimed.OnMissed)
+	assert.Equal(t, "Weekly summary", retimed.Name)
+	assert.Contains(t, callErr(t, session, "put_schedule", map[string]any{"workspace": "demo", "id": "brand-new", "cron": "@daily"}), "invalid")
 
 	var listed struct {
+		Workspace string        `json:"workspace"`
 		Schedules []scheduleRow `json:"schedules"`
 	}
 	call(t, session, "list_schedules", map[string]any{"workspace": "demo"}, &listed)
 	require.Len(t, listed.Schedules, 2, "an existing id is replaced, not appended")
 	assert.Equal(t, "weekly", listed.Schedules[0].ID)
 	assert.Equal(t, "daily", listed.Schedules[1].ID)
+
+	// HIVE_AGENT_WORKSPACE holds the workspace's absolute path, and the
+	// argument descriptions send an agent to it, so the path is accepted too.
+	call(t, session, "list_schedules", map[string]any{"workspace": filepath.Dir(demoManifest)}, &listed)
+	assert.Equal(t, "demo", listed.Workspace)
+	require.Len(t, listed.Schedules, 2)
 
 	var runs struct {
 		Runs []struct {
@@ -113,7 +137,10 @@ func TestScheduleToolsEditOneWorkspaceEntryInPlace(t *testing.T) {
 	}
 	call(t, session, "schedule_runs", map[string]any{"workspace": "demo", "id": "weekly"}, &runs)
 	require.NotNil(t, runs.Runs, "runs is never null")
-	assert.Empty(t, runs.Runs)
+	assert.Empty(t, runs.Runs, "a declared schedule that has not run answers with nothing")
+	assert.Contains(t, callErr(t, session, "schedule_runs", map[string]any{"workspace": "nowhere", "id": "weekly"}), "not_found")
+	assert.Contains(t, callErr(t, session, "schedule_runs", map[string]any{"workspace": "demo", "id": "never-existed"}), "not_found",
+		"an id that is neither declared nor has run is not an empty history")
 
 	var removed struct {
 		Removed bool `json:"removed"`

@@ -845,6 +845,40 @@ func (e ScheduleEdit) spec() schedule.Spec {
 	}
 }
 
+// SchedulePatch is the MCP tools' write to one schedules: entry: the fields to
+// change, laid over what the entry already says. A nil field keeps its stored
+// value, so an agent told to re-time a paused schedule does not re-enable it.
+// For an id that does not exist yet, Cron and Prompt are required and the rest
+// take their defaults.
+type SchedulePatch struct {
+	ID       string
+	Name     *string
+	Cron     *string
+	Prompt   *string
+	Disabled *bool
+	OnMissed *string
+}
+
+func (p SchedulePatch) apply(base schedule.Spec) schedule.Spec {
+	base.ID = strings.TrimSpace(p.ID)
+	if p.Name != nil {
+		base.Name = strings.TrimSpace(*p.Name)
+	}
+	if p.Cron != nil {
+		base.Cron = strings.TrimSpace(*p.Cron)
+	}
+	if p.Prompt != nil {
+		base.Prompt = *p.Prompt
+	}
+	if p.Disabled != nil {
+		base.Disabled = *p.Disabled
+	}
+	if p.OnMissed != nil {
+		base.OnMissed = schedule.OnMissed(strings.TrimSpace(*p.OnMissed))
+	}
+	return base
+}
+
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
 	return agentws.ManifestEdit{
 		Name: strings.TrimSpace(e.Name), Agent: e.Agent, Autonomy: agentws.Autonomy(e.Autonomy),
@@ -945,26 +979,36 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 
 // PutSchedule upserts one schedules: entry by id and leaves the rest of the
 // manifest alone: the MCP tools' write, where the editor's is the whole
-// manifest at once. An existing id is replaced in place; a new one is
-// appended.
-func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, edit ScheduleEdit) (ScheduleView, error) {
+// manifest at once. An existing entry is edited in place, field by field; a
+// new one is appended.
+func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, patch SchedulePatch) (ScheduleView, error) {
 	st, err := s.editableWorkspace(dir)
 	if err != nil {
 		return ScheduleView{}, err
 	}
-	spec := edit.spec()
+
+	id := strings.TrimSpace(patch.ID)
+	specs := append([]schedule.Spec(nil), st.Workspace.Schedules...)
+	at := -1
+	for i := range specs {
+		if specs[i].ID == id {
+			at = i
+		}
+	}
+	base := schedule.Spec{ID: id}
+	if at >= 0 {
+		base = specs[at]
+	} else if id != "" && (patch.Cron == nil || patch.Prompt == nil) {
+		return ScheduleView{}, Errorf(KindInvalid, "schedule %q does not exist in workspace %q yet; a new schedule needs a cron and a prompt", id, dir)
+	}
+	spec := patch.apply(base)
 	if err := spec.Validate(); err != nil {
 		return ScheduleView{}, Errorf(KindInvalid, "%s", err)
 	}
 
-	specs := append([]schedule.Spec(nil), st.Workspace.Schedules...)
-	replaced := false
-	for i := range specs {
-		if specs[i].ID == spec.ID {
-			specs[i], replaced = spec, true
-		}
-	}
-	if !replaced {
+	if at >= 0 {
+		specs[at] = spec
+	} else {
 		specs = append(specs, spec)
 	}
 	if err := agentws.WriteSchedules(s.store.Root(), dir, specs); err != nil {

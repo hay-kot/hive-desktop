@@ -2,6 +2,7 @@ package mcpsrv
 
 import (
 	"context"
+	"path/filepath"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,7 +38,7 @@ type workspaceSummary struct {
 }
 
 type workspaceInput struct {
-	Workspace string `json:"workspace" jsonschema:"The workspace directory name, as list_workspaces reports it. For the workspace this chat runs in, read this process's HIVE_AGENT_WORKSPACE environment variable."`
+	Workspace string `json:"workspace" jsonschema:"The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment."`
 }
 
 type listSchedulesOutput struct {
@@ -47,7 +48,7 @@ type listSchedulesOutput struct {
 
 type scheduleView struct {
 	ID        string           `json:"id"`
-	Name      string           `json:"name,omitempty"`
+	Name      string           `json:"name,omitempty"      jsonschema:"As stored. Absent when the schedule has none; the UI and the launched chat then use the id."`
 	Cron      string           `json:"cron"`
 	Prompt    string           `json:"prompt"`
 	Disabled  bool             `json:"disabled"`
@@ -64,22 +65,25 @@ type scheduleRunView struct {
 	Reason       string `json:"reason"            jsonschema:"due, catch_up, or manual."`
 	Status       string `json:"status"            jsonschema:"launched, skipped, or failed."`
 	Missed       int    `json:"missed"            jsonschema:"How many earlier occurrences were folded into this run."`
-	Session      *int64 `json:"session,omitempty" jsonschema:"The chat the run launched. Absent when it launched none."`
+	Session      *int64 `json:"session,omitempty" jsonschema:"The chat the run launched. Absent when it launched none, and once that chat has ended: a scheduled chat deletes itself when its task is done."`
 	Error        string `json:"error,omitempty"`
 }
 
+// putScheduleInput's optional fields are pointers so that a field the caller
+// left out can be told from one set to its zero value: omitted keeps what the
+// schedule has, "" or false changes it.
 type putScheduleInput struct {
-	Workspace string `json:"workspace"          jsonschema:"The workspace directory name, as list_workspaces reports it. For the workspace this chat runs in, read this process's HIVE_AGENT_WORKSPACE environment variable."`
-	ID        string `json:"id"                 jsonschema:"[a-z0-9-]+, unique in the workspace. An existing id is updated in place; a new one is appended."`
-	Name      string `json:"name,omitempty"     jsonschema:"Shown in the UI and used to name the launched chat. Defaults to the id."`
-	Cron      string `json:"cron"               jsonschema:"A 5-field cron expression, or @hourly, @daily, @weekly, @monthly, @every 1h. Local time."`
-	Prompt    string `json:"prompt"             jsonschema:"A Go text/template rendered into the agent's opening message. Variables: .Now, .ScheduledFor, .LastRun (unset on the first run), .Reason, .Missed, .Schedule.ID, .Schedule.Name, .Schedule.Cron, .Workspace.Dir, .Workspace.Name; date \"2006-01-02\" .LastRun formats a time. Write the task itself: Hive frames it with what started the chat and how to end the session. Use preview_schedule to check it renders."`
-	Disabled  bool   `json:"disabled,omitempty"`
-	OnMissed  string `json:"onMissed,omitempty" jsonschema:"run (the default) folds occurrences missed while the app was closed into one catch-up launch; skip records them instead of launching."`
+	Workspace string  `json:"workspace"          jsonschema:"The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment."`
+	ID        string  `json:"id"                 jsonschema:"[a-z0-9-]+, unique in the workspace. An existing id is edited in place; a new one is appended."`
+	Name      *string `json:"name,omitempty"     jsonschema:"Optional. Shown in the UI and used to name the launched chat; when empty, both fall back to the id, and list_schedules reports no name. Pass \"\" to clear a stored name."`
+	Cron      *string `json:"cron,omitempty"     jsonschema:"A 5-field cron expression, or @hourly, @daily, @weekly, @monthly, @every 1h. Local time. Required for a new schedule."`
+	Prompt    *string `json:"prompt,omitempty"   jsonschema:"A Go text/template rendered into the agent's opening message. Required for a new schedule. Variables: .Now, .ScheduledFor, .LastRun (unset on the first run: guard it with {{ if .LastRun }}), .Reason, .Missed, .Schedule.ID, .Schedule.Name, .Schedule.Cron, .Workspace.Dir, .Workspace.Name; date \"2006-01-02\" .LastRun formats a time and renders empty when it is unset. Write the task itself: Hive frames it with what started the chat and how to end the session. Use preview_schedule to check both renders."`
+	Disabled  *bool   `json:"disabled,omitempty" jsonschema:"true pauses the schedule, false resumes it. Omitted, an existing schedule keeps its state."`
+	OnMissed  *string `json:"onMissed,omitempty" jsonschema:"run (a new schedule's default) folds occurrences missed while the app was closed into one catch-up launch; skip records them instead of launching. Omitted, an existing schedule keeps its setting."`
 }
 
 type scheduleIDInput struct {
-	Workspace string `json:"workspace" jsonschema:"The workspace directory name, as list_workspaces reports it. For the workspace this chat runs in, read this process's HIVE_AGENT_WORKSPACE environment variable."`
+	Workspace string `json:"workspace" jsonschema:"The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment."`
 	ID        string `json:"id"`
 }
 
@@ -88,20 +92,21 @@ type removeScheduleOutput struct {
 }
 
 type previewScheduleInput struct {
-	Workspace string `json:"workspace" jsonschema:"The workspace directory name, as list_workspaces reports it. For the workspace this chat runs in, read this process's HIVE_AGENT_WORKSPACE environment variable."`
+	Workspace string `json:"workspace" jsonschema:"The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment."`
 	Cron      string `json:"cron"`
 	Prompt    string `json:"prompt"`
 }
 
 type previewScheduleOutput struct {
-	Next        []string `json:"next"                  jsonschema:"The next occurrences the cron produces, RFC 3339 local time. Empty when it does not parse."`
-	Prompt      string   `json:"prompt"                jsonschema:"The template rendered against sample data. Empty when it does not render."`
-	CronError   string   `json:"cronError,omitempty"`
-	PromptError string   `json:"promptError,omitempty"`
+	Next           []string `json:"next"                  jsonschema:"The next occurrences the cron produces, RFC 3339 local time. Empty when it does not parse."`
+	Prompt         string   `json:"prompt"                jsonschema:"The template rendered against sample data with a previous run behind it. Empty when it does not render."`
+	FirstRunPrompt string   `json:"firstRunPrompt"        jsonschema:"The same template as the first run sees it, with .LastRun unset. Empty when it does not render."`
+	CronError      string   `json:"cronError,omitempty"`
+	PromptError    string   `json:"promptError,omitempty" jsonschema:"Why the template does not render. One that only fails on the first run says so."`
 }
 
 type scheduleRunsInput struct {
-	Workspace string `json:"workspace"       jsonschema:"The workspace directory name, as list_workspaces reports it. For the workspace this chat runs in, read this process's HIVE_AGENT_WORKSPACE environment variable."`
+	Workspace string `json:"workspace"       jsonschema:"The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment."`
 	ID        string `json:"id"`
 	Limit     int    `json:"limit,omitempty" jsonschema:"How many newest runs to return. 0 takes the default of 50."`
 }
@@ -129,11 +134,12 @@ func (ctrl *Controller) ListWorkspaces(ctx context.Context, _ *mcp.CallToolReque
 }
 
 func (ctrl *Controller) ListSchedules(ctx context.Context, _ *mcp.CallToolRequest, in workspaceInput) (*mcp.CallToolResult, listSchedulesOutput, error) {
-	rows, err := ctrl.core.Schedules.List(ctx, in.Workspace)
+	workspace := ctrl.workspaceDir(in.Workspace)
+	rows, err := ctrl.core.Schedules.List(ctx, workspace)
 	if err != nil {
 		return nil, listSchedulesOutput{}, ctrl.toolError(err)
 	}
-	out := listSchedulesOutput{Workspace: in.Workspace, Schedules: make([]scheduleView, 0, len(rows))}
+	out := listSchedulesOutput{Workspace: workspace, Schedules: make([]scheduleView, 0, len(rows))}
 	for _, row := range rows {
 		out.Schedules = append(out.Schedules, scheduleViewFrom(row))
 	}
@@ -141,7 +147,7 @@ func (ctrl *Controller) ListSchedules(ctx context.Context, _ *mcp.CallToolReques
 }
 
 func (ctrl *Controller) PutSchedule(ctx context.Context, _ *mcp.CallToolRequest, in putScheduleInput) (*mcp.CallToolResult, scheduleView, error) {
-	row, err := ctrl.core.AgentWorkspaces.PutSchedule(ctx, in.Workspace, app.ScheduleEdit{
+	row, err := ctrl.core.AgentWorkspaces.PutSchedule(ctx, ctrl.workspaceDir(in.Workspace), app.SchedulePatch{
 		ID: in.ID, Name: in.Name, Cron: in.Cron, Prompt: in.Prompt, Disabled: in.Disabled, OnMissed: in.OnMissed,
 	})
 	if err != nil {
@@ -151,19 +157,19 @@ func (ctrl *Controller) PutSchedule(ctx context.Context, _ *mcp.CallToolRequest,
 }
 
 func (ctrl *Controller) RemoveSchedule(ctx context.Context, _ *mcp.CallToolRequest, in scheduleIDInput) (*mcp.CallToolResult, removeScheduleOutput, error) {
-	if err := ctrl.core.AgentWorkspaces.RemoveSchedule(ctx, in.Workspace, in.ID); err != nil {
+	if err := ctrl.core.AgentWorkspaces.RemoveSchedule(ctx, ctrl.workspaceDir(in.Workspace), in.ID); err != nil {
 		return nil, removeScheduleOutput{}, ctrl.toolError(err)
 	}
 	return nil, removeScheduleOutput{Removed: true}, nil
 }
 
 func (ctrl *Controller) PreviewSchedule(ctx context.Context, _ *mcp.CallToolRequest, in previewScheduleInput) (*mcp.CallToolResult, previewScheduleOutput, error) {
-	preview, err := ctrl.core.Schedules.Preview(ctx, app.PreviewRequest{Workspace: in.Workspace, Cron: in.Cron, Prompt: in.Prompt})
+	preview, err := ctrl.core.Schedules.Preview(ctx, app.PreviewRequest{Workspace: ctrl.workspaceDir(in.Workspace), Cron: in.Cron, Prompt: in.Prompt})
 	if err != nil {
 		return nil, previewScheduleOutput{}, ctrl.toolError(err)
 	}
 	out := previewScheduleOutput{
-		Next: make([]string, 0, len(preview.Next)), Prompt: preview.Prompt,
+		Next: make([]string, 0, len(preview.Next)), Prompt: preview.Prompt, FirstRunPrompt: preview.FirstRunPrompt,
 		CronError: preview.CronError, PromptError: preview.PromptError,
 	}
 	for _, at := range preview.Next {
@@ -173,7 +179,7 @@ func (ctrl *Controller) PreviewSchedule(ctx context.Context, _ *mcp.CallToolRequ
 }
 
 func (ctrl *Controller) ScheduleRuns(ctx context.Context, _ *mcp.CallToolRequest, in scheduleRunsInput) (*mcp.CallToolResult, scheduleRunsOutput, error) {
-	runs, err := ctrl.core.Schedules.Runs(ctx, in.Workspace, in.ID, in.Limit)
+	runs, err := ctrl.core.Schedules.Runs(ctx, ctrl.workspaceDir(in.Workspace), in.ID, in.Limit)
 	if err != nil {
 		return nil, scheduleRunsOutput{}, ctrl.toolError(err)
 	}
@@ -182,6 +188,21 @@ func (ctrl *Controller) ScheduleRuns(ctx context.Context, _ *mcp.CallToolRequest
 		out.Runs = append(out.Runs, scheduleRunViewFrom(run))
 	}
 	return nil, out, nil
+}
+
+// workspaceDir accepts a workspace's absolute path where its directory name is
+// expected, because HIVE_AGENT_WORKSPACE, which the argument descriptions send
+// an agent to, holds the path. Only a direct child of the workspace root is
+// reduced; anything else passes through to the app's own validation.
+func (ctrl *Controller) workspaceDir(arg string) string {
+	if !filepath.IsAbs(arg) {
+		return arg
+	}
+	root := ctrl.core.RuntimePaths().AgentWorkspacesDir
+	if root == "" || filepath.Dir(filepath.Clean(arg)) != filepath.Clean(root) {
+		return arg
+	}
+	return filepath.Base(arg)
 }
 
 func scheduleViewFrom(row app.ScheduleView) scheduleView {
