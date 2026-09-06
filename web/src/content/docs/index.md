@@ -30,9 +30,8 @@ full model once you're ready.
 
 ## Start here
 
-You're in the **private beta**, so your invite includes the install link and
-platform steps. Once the app is open, these three pages take you from first
-launch to a live feed:
+Install it with the one-liner on the [install page](/install). Once the app is
+open, these three pages take you from first launch to a live feed:
 
 1. [Sign in to GitHub](/docs/getting-started/sign-in) — the first-run device flow.
 2. [Turn on notifications](/docs/getting-started/notifications) — required for banners on macOS.

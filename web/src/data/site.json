@@ -4,24 +4,20 @@
     "tagline": "one queue, one ping"
   },
   "version": "v0.4 beta",
-  "betaBadge": "Private beta",
   "description": "Hive watches GitHub, Grafana and your webhooks, routes them through rules your coding agent wrote, and interrupts you exactly once per real change.",
   "nav": [
     { "label": "Features", "href": "#features" },
     { "label": "How it works", "href": "#flow" },
     { "label": "The app", "href": "#surfaces" },
     { "label": "Compare", "href": "/compare" },
-    { "label": "Docs", "href": "/docs" },
-    { "label": "Pricing", "href": "#pricing" }
+    { "label": "Docs", "href": "/docs" }
   ],
-  "navCta": { "label": "Request access", "href": "#beta" },
+  "navCta": { "label": "Install", "href": "/install" },
   "footerLinks": [
     { "label": "Docs", "href": "/docs" },
     { "label": "Compare", "href": "/compare" },
-    { "label": "GitHub", "href": null },
-    { "label": "Changelog", "href": null },
-    { "label": "Join beta", "href": "#beta" },
-    { "label": "Get early access", "href": "#beta", "accent": true }
+    { "label": "GitHub", "href": "https://github.com/hay-kot/hive-desktop" },
+    { "label": "Install", "href": "/install", "accent": true }
   ],
   "copyrightSuffix": "Hive · one queue, one ping"
 }
