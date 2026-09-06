@@ -1,9 +1,16 @@
 ---
 title: Report a problem
-description: Send a diagnostic bundle from inside the app, or grab the log file by hand.
+description: Open an issue on GitHub, send a diagnostic bundle from inside the app, or grab the log file by hand.
 group: Help
-order: 0
+order: 1
 ---
+
+## Open an issue
+
+Bugs and ideas go to [GitHub issues](https://github.com/hay-kot/hive-desktop/issues).
+Check [Troubleshooting](/docs/help/troubleshooting) first for the failures that
+already have an answer, and include the build number from **Settings ▸ About**
+and the relevant lines from the log below.
 
 ## In-app reporting
 

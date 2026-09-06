@@ -29,7 +29,9 @@ refresh a feed now.
 Handy feed keys: <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>o</kbd> or <kbd>Enter</kbd>
 opens the item in your browser, <kbd>e</kbd> archives/unarchives,
 <kbd>u</kbd> toggles the unread-only filter, <kbd>Shift</kbd>+<kbd>U</kbd> marks
-unread.
+unread, <kbd>p</kbd> toggles the preview pane, and <kbd>Shift</kbd>+<kbd>A</kbd>
+marks the feed read. <kbd>?</kbd> lists every shortcut and
+[Keyboard shortcuts](/docs/configuration/keybindings) shows how to change them.
 
 ## Run an action
 
@@ -41,17 +43,20 @@ menu, under **Actions**. The app ships examples you can edit in
 - **start-implementation** — launches an agent session on an issue.
 - **open-in-editor** — opens the item in your `$EDITOR`.
 
-See [How Hive works](/docs/concepts/how-it-works) for the full action model.
+See [Actions](/docs/concepts/actions) for the full model and the `actions.yml` schema.
 
 ## Let an agent configure the rest
 
 Hive's config is plain text, so you don't have to hand-write YAML. Open
-**Settings ▸ LLM prompts**: each row is a paste-ready prompt (Flows, Actions,
-Webhook sources, Keyboard shortcuts, App settings) that already includes the
-schema, the rules, a worked example, and *your machine's real file paths*.
+**Chats** (<kbd>g</kbd> then <kbd>a</kbd>) and pick the **Hive** workspace:
+it ships with a skill for each config file — flows, actions, settings, webhook
+sources — that already includes the schema, the rules, a worked example, and
+*your machine's real file paths*.
 
-**Copy** one into a coding agent, tell it what you want — *"watch `owner/repo`
-for review requests and notify me"* — and it writes the correct file.
+Tell it what you want — *"watch `owner/repo` for review requests and notify
+me"* — and it writes the correct file; the app reloads it on save. It needs the
+`claude` CLI on your PATH. [Agent workspaces](/docs/concepts/agent-workspaces)
+covers what else it can do.
 
 ## Build a feed by hand
 
@@ -59,4 +64,5 @@ If you'd rather wire one yourself, open the **Flows** editor, drag a **GitHub
 source** node onto the canvas, set its account and a search **Query** (e.g.
 `is:open is:pr archived:false`), wire it into a **Feed** node, and click
 **Deploy**. Add a **Notify** node in the same graph to get a system notification
-when matching items arrive.
+when matching items arrive. [Flows](/docs/concepts/flows) builds one up node
+by node.

@@ -52,9 +52,11 @@ that generate the config your coding agent reads.
 
 ## Documentation
 
-- [hivedesktop.com/docs](https://hivedesktop.com/docs) -- using the app: sign-in,
-  first feed, notifications, terminal mode, updates. Source in
-  [`web/src/content/docs/`](web/src/content/docs/).
+- [hivedesktop.com/docs](https://hivedesktop.com/docs) -- using the app: first
+  run, flows, sources and webhooks, actions, agent workspaces, terminal mode,
+  the `settings.yaml` reference, keyboard shortcuts, troubleshooting, and
+  building from source. Also served as [llms.txt](https://hivedesktop.com/llms.txt)
+  for an agent to read. Source in [`web/src/content/docs/`](web/src/content/docs/).
 - [`docs/architecture.md`](docs/architecture.md) -- how the app is structured and
   how it should grow. Read this before adding a subsystem or an extension point.
 - [`docs/source-pipeline.md`](docs/source-pipeline.md) -- the pipeline at runtime:

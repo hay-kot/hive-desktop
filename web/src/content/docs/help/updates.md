@@ -2,7 +2,7 @@
 title: Updates & channels
 description: How Hive auto-updates, and how to pick a release channel.
 group: Help
-order: 1
+order: 2
 ---
 
 ## Auto-update

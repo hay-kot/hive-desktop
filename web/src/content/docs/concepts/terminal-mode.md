@@ -1,26 +1,32 @@
 ---
 title: Terminal mode
-description: Attach to a session's tmux windows inside the app — what it does, and which of its rough edges are tmux's rules rather than bugs.
+description: Attach to a session's tmux windows inside the app. What it needs, what it does, and which of its rough edges are tmux's rules rather than bugs.
 group: Concepts
-order: 1
+order: 5
 ---
 
-Terminal mode attaches to the **tmux session** behind a Hive session and lists
-its windows in the sidebar, so the agent you launched from the feed is readable
-without leaving the app.
+Terminal mode — the **Code** area, <kbd>g</kbd> then <kbd>c</kbd> — attaches to
+the **tmux session** behind a Hive session and lists its windows in the sidebar,
+so the agent you launched from the feed is readable without leaving the app.
 
-## What it needs
+## It needs tmux
 
-Two things have to be true for it to work, and the mode says which one is
-missing when it isn't:
+> [!IMPORTANT] tmux 3.2 or newer
+> Hive drives tmux's control mode, which is where the protocol it needs landed.
+> Without tmux the rest of the app works as before — feeds, actions,
+> notifications — and Code shows a notice saying tmux is not installed instead
+> of a session list. Install it (`brew install tmux`) and come back: Hive does
+> not cache the failed lookup, so no relaunch is needed.
 
-- **tmux 3.2 or newer on your `PATH`.** Hive drives tmux's control mode, which
-  is where the protocol it needs landed.
-- **The local HTTP server is on** — `http: {enabled: true}`, the default. The
-  terminal's transport rides that server; with no server there is no terminal.
+Hive finds tmux on your login shell's `PATH` and in the usual Homebrew,
+MacPorts, and Nix prefixes. For an install somewhere else, set `paths.tmux` in
+[settings.yaml](/docs/configuration/settings#paths) to the binary.
 
-The title bar carries an **Inbox | Code** switch. The sidebar lists your
-sessions, and picking one attaches to it.
+One more thing has to be on: **the local HTTP server** — `http: {enabled: true}`,
+the default. The terminal's transport rides that server; with no server there
+is no terminal.
+
+The sidebar lists your sessions, and picking one attaches to it.
 
 ## The scratch terminal
 
@@ -38,6 +44,12 @@ rename it, and fold the whole section away from its heading.
 It outlives the app the way every tmux session does — close Hive, come back, and
 the tabs are still there, still running whatever you left. tmux calls the session
 `Scratch`, so `tmux attach -t Scratch` reaches it from a terminal.
+
+A new tab — the `+` on the heading, or <kbd>⌘T</kbd> — opens in the directory
+the active pane is in, not in the session's start directory. So a tab opened
+after a `cd` deep into a checkout starts there, which is what every terminal
+emulator does and what the scratch terminal needs; the first tab still opens in
+your home directory.
 
 Its ⋯ menu carries **Start terminal** and **Kill terminal…** and nothing else:
 rename, recycle, delete and session details all act on a Hive session, and there
@@ -130,6 +142,18 @@ session's path".
 The one type that cannot target a session or window is **launch-session**: it
 creates a *new* session, which is what the feed and the New Session form are
 for.
+
+## Launchers: a TUI in a pop-up
+
+The `launchers:` list in the same file opens the **pop-up terminal**
+(<kbd>⌘`</kbd>) straight into a program — `lazygit`, `btop`, a test watcher —
+for as long as you want it on screen, and gone afterwards. A launcher without a
+`cwd` follows the terminal you are looking at: it opens in the active pane's
+current directory, so `lazygit` lands on the checkout you are attached to, and
+it is offered only while a session is attached. One with a `cwd` is pinned to
+that directory and reachable from anywhere. Each launcher is a command named
+`launcher.<id>`, bindable in Settings ▸ Keyboard. [Actions](/docs/concepts/actions#launchers)
+has the schema.
 
 ## It is a real attach, not a copy
 
@@ -268,22 +292,32 @@ on the click. What it reads is the pane's own processes rather than anything the
 pane printed, so a script you started counts the same as an agent — and a pane
 it cannot read, it asks about.
 
-## Changing the text size
+## Typography
 
-Settings ▸ Terminal steps the terminal's text through five presets,
-12px to 18px. It writes `appearance.terminal_font_size`, so a change applies to
-every open terminal at once and is still there next launch.
+Settings ▸ Terminal sets the terminal's own text, separately from the rest of
+the app, and every open pane picks a change up at once:
 
-New cell metrics mean a different number of cells fit the pane, so a change
+| Setting | Key in `settings.yaml` | Notes |
+| --- | --- | --- |
+| Size | `appearance.terminal_font_size` | five presets, `small` to `xxl` |
+| Family | `appearance.terminal_font_family` | any installed monospace face; empty is the bundled JetBrains Mono |
+| Weight, bold weight | `appearance.terminal_font_weight`, `…_bold` | 300 to 700; the default normal weight is 350, chosen because the GPU renderer draws heavier than the rest of the app |
+| Line height | `appearance.terminal_line_height` | 1.0 to 1.6 |
+| Letter spacing | `appearance.terminal_letter_spacing` | extra device pixels per cell, 0 to 3 |
+
+Families are enumerated from what is installed, and a Nerd Font counts as
+monospace even though its icon glyphs are double-width. A family with only two
+faces collapses the five weights onto them — that is the font's doing, and the
+hint under the control says so.
+
+New cell metrics mean a different number of cells fit the pane, so any of these
 re-votes the window size — with the same rule as above about who wins that
 vote.
 
 ## Known rough edges
 
-It is off by default for a reason:
-
 - **Splits are not rendered separately.** A window shows its active pane, so a
   split you made elsewhere is only half visible.
-- **A large burst of output can outrun the app's buffer**, which ends the stream
-  and offers **Reconnect**. Reconnecting re-attaches and repaints from the
-  current screen.
+- **A large burst of output can outrun the app's buffer.** The view resyncs from
+  the current screen rather than ending the stream, so what you see after a
+  flood is the pane as it is now, not every line that scrolled past.
