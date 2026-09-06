@@ -74,7 +74,7 @@ func TestWorker_AutomaticRunResolvesDeclaredDefaults(t *testing.T) {
 		actions.InputSpec{Name: "severity", Type: actions.InputTypeSelect, Default: "page", Options: []string{"page", "fyi"}})
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"notify-oncall": action},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"notify-oncall": action},
 		NewDispatcher(map[string]Executor{"publish-message": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 
@@ -91,7 +91,7 @@ func TestWorker_ConfirmThreadsCollectedInputsToTheExecutor(t *testing.T) {
 		actions.InputSpec{Name: "reason", Type: actions.InputTypeText, Required: true})
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"ignore": action},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"ignore": action},
 		NewDispatcher(map[string]Executor{"shell": exec}), 0, zerolog.Nop())
 
 	view, err := worker.Confirm(t.Context(), "ignore", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{},
@@ -111,7 +111,7 @@ func TestWorker_MissingRequiredInputFailsWithoutDispatching(t *testing.T) {
 		actions.InputSpec{Name: "reason", Type: actions.InputTypeText, Required: true})
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"ignore": action},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"ignore": action},
 		NewDispatcher(map[string]Executor{"shell": exec}), 0, zerolog.Nop())
 
 	_, err := worker.Confirm(t.Context(), "ignore", "item-1", []byte(`{}`), models.ItemRef{}, ActionInvocationInput{})

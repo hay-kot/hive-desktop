@@ -9,6 +9,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 )
 
@@ -37,9 +38,9 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	}}}
 	notifier := &notifierTest{}
 	dispatcher := NewDispatcher(map[string]Executor{
-		ActionTypeNotify: NewNotifyExecutor(notifier, openGate(), db, zerolog.Nop()),
+		ActionTypeNotify: NewNotifyExecutor(notifier, openGate(), stores.New(db, stores.Options{}).InboxItems, zerolog.Nop()),
 	})
-	worker := NewWorker(db, NewFlowNotifyActions(flows, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), NewFlowNotifyActions(flows, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
 	// What the graph runtime (internal/app/runtime) commits for a message
 	// reaching a notify terminal.
@@ -88,9 +89,9 @@ func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 
 	notifier := &notifierTest{}
 	dispatcher := NewDispatcher(map[string]Executor{
-		ActionTypeNotify: NewNotifyExecutor(notifier, openGate(), db, zerolog.Nop()),
+		ActionTypeNotify: NewNotifyExecutor(notifier, openGate(), stores.New(db, stores.Options{}).InboxItems, zerolog.Nop()),
 	})
-	worker := NewWorker(db, NewFlowNotifyActions(flowListerTest{}, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), NewFlowNotifyActions(flowListerTest{}, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
 	require.NoError(t, db.CommitBatch(ctx, models.CommitBatch{
 		Consumer: "triage", UpToOffset: 1,

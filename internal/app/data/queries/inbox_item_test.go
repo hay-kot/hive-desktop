@@ -228,12 +228,12 @@ func TestIngestObservation_BackfillsMissingOccurrenceKeyWithOffset(t *testing.T)
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT occurrence_key FROM event_log WHERE "offset" = ?`, result.Offset).Scan(&occurrenceKey))
 	assert.Equal(t, expected, occurrenceKey)
 
-	msgs, next, err := db.ReadFrom(t.Context(), 0, 1)
+	rows, err := db.ReadEventsFrom(t.Context(), ReadEventsFromParams{Offset: 0, Limit: 1})
 	require.NoError(t, err)
-	require.Len(t, msgs, 1)
-	assert.Equal(t, result.Offset, next)
-	assert.NotEmpty(t, msgs[0].OccurrenceKey)
-	assert.Equal(t, expected, msgs[0].OccurrenceKey)
+	require.Len(t, rows, 1)
+	assert.Equal(t, result.Offset, rows[0].Offset)
+	assert.True(t, rows[0].OccurrenceKey.Valid)
+	assert.Equal(t, expected, rows[0].OccurrenceKey.String)
 }
 
 func TestIngestObservation_NullOccurrenceDoesNotDeduplicate(t *testing.T) {

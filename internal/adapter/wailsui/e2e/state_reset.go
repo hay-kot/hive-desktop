@@ -19,6 +19,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
@@ -54,6 +55,7 @@ type pristineFile struct {
 // would.
 type StateReset struct {
 	db       *queries.DB
+	stores   *stores.Stores
 	core     *sql.DB
 	logger   zerolog.Logger
 	mock     string
@@ -69,18 +71,18 @@ type StateReset struct {
 // core is the raw connection to the vendored Hive action database (sessions,
 // messages) — the caller passes app.App.HiveConn() rather than the vendored
 // *coredb.DB itself.
-func NewStateResetHarness(db *queries.DB, core *sql.DB, logger zerolog.Logger) *StateReset {
+func NewStateResetHarness(db *queries.DB, st *stores.Stores, core *sql.DB, logger zerolog.Logger) *StateReset {
 	b, _ := settings.LoadBootstrap()
 	mock := settings.MockMode()
-	return NewStateResetHarnessForInstance(db, core, mock, settings.ResolvePaths(b, settings.ResolveOptions{MockMode: mock}), logger)
+	return NewStateResetHarnessForInstance(db, st, core, mock, settings.ResolvePaths(b, settings.ResolveOptions{MockMode: mock}), logger)
 }
 
 // NewStateResetHarnessForInstance uses the composition-root runtime snapshot.
-func NewStateResetHarnessForInstance(db *queries.DB, core *sql.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
+func NewStateResetHarnessForInstance(db *queries.DB, st *stores.Stores, core *sql.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
 	if mock == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
-	r := &StateReset{db: db, core: core, logger: logger, mock: mock, flowsDir: paths.FlowsDir}
+	r := &StateReset{db: db, stores: st, core: core, logger: logger, mock: mock, flowsDir: paths.FlowsDir}
 	r.capture(paths.ActionsPath)
 	r.capture(paths.SettingsPath)
 	// SaveFlow/SaveLayout/SaveSidebar write per-flow files, so every file
@@ -121,7 +123,7 @@ func (r *StateReset) Reset(ctx context.Context) error {
 	switch r.mock {
 	case "feed", "action-smoke":
 		// The same deterministic fixture path main.go seeds at startup.
-		reseed = mockSeeder{db: r.db}
+		reseed = mockSeeder{db: r.db, logs: r.stores.EventLog}
 	}
 	if err := r.db.ResetAllState(ctx, reseed); err != nil {
 		return fmt.Errorf("reset pipeline database: %w", err)

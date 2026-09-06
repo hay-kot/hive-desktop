@@ -267,12 +267,12 @@ func (t *runTrace) truncated() bool {
 // there is nothing older than the run itself to expire.
 type MemoryKV map[string]map[string]string
 
-func (m MemoryKV) NodeKVGet(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
+func (m MemoryKV) Get(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
 	value, ok := m[nodeID][key]
 	return value, ok, nil
 }
 
-func (m MemoryKV) NodeKVKeys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
+func (m MemoryKV) Keys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
 	var keys []string
 	for key := range m[nodeID] {
 		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {

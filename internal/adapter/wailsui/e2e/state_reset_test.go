@@ -16,6 +16,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	appstores "github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
@@ -36,7 +37,7 @@ func TestStateResetHarnessUnavailableOutsideMockHarness(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(settings.EnvMockMode, tc.mode)
 			t.Setenv(settings.EnvE2EHarness, tc.marker)
-			harness := NewStateResetHarness(nil, nil, zerolog.Nop())
+			harness := NewStateResetHarness(nil, nil, nil, zerolog.Nop())
 			assert.Nil(t, harness)
 			h := stateResetMiddleware(harness)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
 			r := httptest.NewRecorder()
@@ -49,7 +50,7 @@ func TestStateResetHarnessUnavailableOutsideMockHarness(t *testing.T) {
 func TestStateResetPOSTOnly(t *testing.T) {
 	setStateResetEnv(t, "feed")
 	db := openStateResetPipelineDB(t)
-	harness := NewStateResetHarness(db, nil, zerolog.Nop())
+	harness := NewStateResetHarness(db, appstores.New(db, appstores.Options{}), nil, zerolog.Nop())
 	require.NotNil(t, harness)
 	h := stateResetMiddleware(harness)(http.NotFoundHandler())
 	r := httptest.NewRecorder()
@@ -76,27 +77,28 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, core.Close()) })
-	require.NoError(t, seedMockInboxItems(t.Context(), db)) // feed mode's startup seeding
+	st := appstores.New(db, appstores.Options{})
+	require.NoError(t, seedMockInboxItems(t.Context(), db, st.EventLog)) // feed mode's startup seeding
 
-	harness := NewStateResetHarness(db, core.Conn(), zerolog.Nop())
+	harness := NewStateResetHarness(db, appstores.New(db, appstores.Options{}), core.Conn(), zerolog.Nop())
 	require.NotNil(t, harness)
-	h := SmokeMiddleware(db, core.Conn(), harness, nil)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, appstores.New(db, appstores.Options{}), core.Conn(), harness, nil)(http.NotFoundHandler())
 
 	// Mutate durable state the way a test run does: read state, event log,
 	// consumer checkpoint, source head, commands, activity, jobs, node runs.
 	var itemID, revision int64
 	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT id, revision FROM inbox_item WHERE external_id = 'pr2841'`).Scan(&itemID, &revision))
-	_, err = db.SetInboxItemUnread(ctx, itemID, revision, false)
+	_, err = st.InboxItems.SetUnread(ctx, itemID, revision, false)
 	require.NoError(t, err)
-	_, err = db.Append(ctx, "source:"+MockFlowID+"/"+MockSourceNodeID, "extra", []byte(`{"mutated":true}`))
+	_, err = st.EventLog.Append(ctx, "source:"+MockFlowID+"/"+MockSourceNodeID, "extra", []byte(`{"mutated":true}`))
 	require.NoError(t, err)
 	require.NoError(t, db.CommitConsumerOffset(ctx, queries.CommitConsumerOffsetParams{Consumer: "frontend", Offset: 5}))
 	require.NoError(t, db.UpsertSourceHead(ctx, queries.UpsertSourceHeadParams{Topic: "source:x", Key: "k", Payload: []byte(`{}`)}))
-	command, created, err := db.ConfirmOutputCommand(ctx, "smoke-shell", "pr2841", []byte(`{}`), models.ItemRef{})
+	command, created, err := st.OutputCommands.Confirm(ctx, "smoke-shell", "pr2841", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.NoError(t, db.MarkOutputCommandDone(ctx, command.ID, `{"ok":true}`, "out", "err"))
+	require.NoError(t, st.OutputCommands.MarkDone(ctx, command.ID, `{"ok":true}`, "out", "err"))
 	_, err = db.AppendActivityEvent(ctx, queries.ActivityRecord{CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "mutated"})
 	require.NoError(t, err)
 	_, err = db.InsertJob(ctx, queries.JobRecord{CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "done", Label: "mutated"})
@@ -132,7 +134,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	fresh, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, fresh.Close()) })
-	require.NoError(t, seedMockInboxItems(t.Context(), fresh))
+	require.NoError(t, seedMockInboxItems(t.Context(), fresh, appstores.New(fresh, appstores.Options{}).EventLog))
 	assert.Equal(t, dumpStableState(t, fresh), dumpStableState(t, db))
 
 	// The core action tables are empty again, as after a fresh boot.
@@ -159,13 +161,13 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 	// The pipeline smoke fixture's own server-side append plus a command, the
 	// state a source-to-commit run leaves behind.
 	require.NoError(t, appendSourceToCommitSmokeItems(ctx, db, "", nil))
-	_, created, err := db.ConfirmOutputCommand(ctx, "launch", "smoke-pr", []byte(`{}`), models.ItemRef{})
+	_, created, err := appstores.New(db, appstores.Options{}).OutputCommands.Confirm(ctx, "launch", "smoke-pr", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 
-	harness := NewStateResetHarness(db, nil, zerolog.Nop())
+	harness := NewStateResetHarness(db, appstores.New(db, appstores.Options{}), nil, zerolog.Nop())
 	require.NotNil(t, harness)
-	h := SmokeMiddleware(db, nil, harness, nil)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, appstores.New(db, appstores.Options{}), nil, harness, nil)(http.NotFoundHandler())
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodPost, stateResetPath, nil))
 	require.Equal(t, http.StatusNoContent, r.Code, r.Body.String())
@@ -174,7 +176,7 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 	for _, table := range []string{"event_log", "inbox_item", "inbox_event", "feed_membership_claim", "output_command", "consumer_offset"} {
 		assert.Zero(t, countRows(t, db, table), table)
 	}
-	tail, err := db.EventLogTailOffset(ctx)
+	tail, err := appstores.New(db, appstores.Options{}).EventLog.TailOffset(ctx)
 	require.NoError(t, err)
 	assert.Zero(t, tail, "sequence reset must restart event offsets from 1")
 }

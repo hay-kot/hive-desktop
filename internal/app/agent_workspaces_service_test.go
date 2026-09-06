@@ -16,6 +16,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
@@ -41,7 +42,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil,
+	return newAgentWorkspacesService(awStore, manager, stores.New(db, stores.Options{}).AgentSessions, newTestSkillsService(t), commands, "", nil, nil,
 		func(context.Context) string { return testMCPBaseURL })
 }
 
@@ -95,7 +96,7 @@ func newManifestOnlyService(t *testing.T, root string, profileCommands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, nil, db, newTestSkillsService(t), profileCommands, "", nil, nil,
+	return newAgentWorkspacesService(awStore, nil, stores.New(db, stores.Options{}).AgentSessions, newTestSkillsService(t), profileCommands, "", nil, nil,
 		func(context.Context) string { return testMCPBaseURL })
 }
 
@@ -266,7 +267,7 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	before, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	before, ok, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 
@@ -280,7 +281,7 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 	assert.Empty(t, resumed.Notice, "an empty conversation relaunching fresh is a continuation, not a loss to announce")
 	assert.NotEmpty(t, resumed.TerminalID)
 
-	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	after, ok, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.NotEqual(t, before.AgentSessionID, after.AgentSessionID,
@@ -301,7 +302,7 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	rec, ok, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 
@@ -318,7 +319,7 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 	assert.True(t, resumed.ResumeAttempted)
 	assert.Empty(t, resumed.Notice)
 
-	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	after, ok, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, rec.AgentSessionID, after.AgentSessionID, "a real resume keeps addressing the same conversation")
@@ -364,7 +365,7 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
-	_, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), s1.ID)
+	_, ok, err := svc.sessions.Get(t.Context(), s1.ID)
 	require.NoError(t, err)
 	assert.False(t, ok, "the record is gone too")
 	_, ok, err = canvases.Load("demo", "plan")
@@ -373,7 +374,7 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
-	_, ok, err = svc.db.GetAgentWorkspaceSession(t.Context(), s2.ID)
+	_, ok, err = svc.sessions.Get(t.Context(), s2.ID)
 	require.NoError(t, err)
 	assert.False(t, ok)
 	metas, err := canvases.List("demo")
@@ -493,7 +494,7 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 
-	sessions, err := svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	sessions, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
 

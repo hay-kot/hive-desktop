@@ -9,6 +9,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
@@ -33,7 +34,7 @@ func kvTestRunner(t *testing.T, db *queries.DB, script string) *runtime.Runner {
 			{ID: "n", Type: "notify", Config: &flow.NotifyConfig{Title: "Ping"}},
 		},
 		Wires: []flow.Wire{{From: "dedup", To: "n"}},
-	}, runtime.Options{Scripts: registry, KV: db})
+	}, runtime.Options{Scripts: registry, KV: stores.New(db, stores.Options{}).NodeKV})
 	require.NoError(t, err)
 	t.Cleanup(runner.Close)
 	return runner
@@ -125,7 +126,7 @@ func TestRunReplay_IsFullyInert(t *testing.T) {
 
 	// Every item is already marked seen; a live run would suppress them all.
 	seenKey := `["github","notifications","item-1"]`
-	require.NoError(t, db.NodeKVSet(ctx, "f", "dedup", seenKey, `true`, 0))
+	require.NoError(t, stores.New(db, stores.Options{}).NodeKV.Set(ctx, "f", "dedup", seenKey, `true`, 0))
 
 	registry := runtime.NewScriptRegistry()
 	registry.Register(js.New(runtime.NewScriptPool(0)))
@@ -137,7 +138,7 @@ func TestRunReplay_IsFullyInert(t *testing.T) {
 			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
 		},
 		Wires: []flow.Wire{{From: "dedup", To: "inbox"}},
-	}, runtime.Options{Scripts: registry, KV: db})
+	}, runtime.Options{Scripts: registry, KV: stores.New(db, stores.Options{}).NodeKV})
 	require.NoError(t, err)
 	t.Cleanup(runner.Close)
 

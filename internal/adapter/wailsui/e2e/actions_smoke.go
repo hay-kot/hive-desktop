@@ -15,6 +15,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
@@ -64,13 +65,13 @@ type actionSmokeState struct {
 // core is the raw connection to the vendored Hive action database (sessions,
 // messages) — the caller passes app.App.HiveConn() rather than the vendored
 // *coredb.DB itself.
-func SmokeMiddleware(pipeline *queries.DB, core *sql.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
+func SmokeMiddleware(pipeline *queries.DB, st *stores.Stores, core *sql.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
 	mock := ""
 	if reset != nil {
 		mock = reset.mock
 	}
 	return func(next http.Handler) http.Handler {
-		return actionSmokeMiddleware(pipeline, core, mock)(sourceToCommitSmokeMiddleware(pipeline, mock, onAppended)(stateResetMiddleware(reset)(next)))
+		return actionSmokeMiddleware(pipeline, core, mock)(sourceToCommitSmokeMiddleware(pipeline, st, mock, onAppended)(stateResetMiddleware(reset)(next)))
 	}
 }
 

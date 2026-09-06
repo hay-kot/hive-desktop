@@ -185,7 +185,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 	// Built this late deliberately: app.New has seeded actions.yml and mock
 	// seeding has run, so the captured config baseline is the post-boot state
 	// a reset must restore.
-	reset := e2e.NewStateResetHarnessForInstance(core.Store, core.HiveConn(), u.mock, core.RuntimePaths(), u.logger)
+	reset := e2e.NewStateResetHarnessForInstance(core.PipelineDB(), core.Stores, core.HiveConn(), u.mock, core.RuntimePaths(), u.logger)
 
 	return application.Options{
 		Name:        "Hive",
@@ -199,7 +199,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		MarshalError: MarshalError,
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(opts.Assets),
-			Middleware: e2e.SmokeMiddleware(core.Store, core.HiveConn(), reset, core.PublishLogAppended),
+			Middleware: e2e.SmokeMiddleware(core.PipelineDB(), core.Stores, core.HiveConn(), reset, core.PublishLogAppended),
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
@@ -405,5 +405,5 @@ func (u *UI) SeedMock(ctx context.Context, core *app.App) {
 	if u.mock != "feed" && u.mock != "action-smoke" {
 		return
 	}
-	e2e.SeedMockInboxItemsOrWarn(ctx, core.Store, u.logger)
+	e2e.SeedMockInboxItemsOrWarn(ctx, core.PipelineDB(), core.Stores.EventLog, u.logger)
 }

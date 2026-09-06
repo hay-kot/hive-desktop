@@ -173,21 +173,6 @@ func TestActivateReplay_UsesRetentionSafeHighWaterMark(t *testing.T) {
 	require.EqualError(t, err, `activating replay for "other-flow": supplied tail 3 exceeds current event log tail 2`)
 }
 
-func TestListUnarchivedInboxItems_ReturnsWailsSafeView(t *testing.T) {
-	db := openTestDB(t)
-	item := seedReplayItem(t, db, "flow", "item")
-	views, err := db.ListUnarchivedInboxItems(t.Context(), "flow")
-	require.NoError(t, err)
-	require.Equal(t, []InboxItemView{{ID: item.ID, ProfileID: "flow", SourceKind: "github", SourceScope: "scope", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active", Revision: 1}}, views)
-	encoded, err := json.Marshal(views[0])
-	require.NoError(t, err)
-	var wire map[string]any
-	require.NoError(t, json.Unmarshal(encoded, &wire))
-	assert.Equal(t, map[string]any{}, wire["payload"])
-	assert.Equal(t, "flow", wire["profileId"])
-	assert.NotContains(t, wire, "profile_id")
-}
-
 func TestListReplaySourceSnapshots_ReturnsLatestSnapshotPerOwnedSource(t *testing.T) {
 	db := openTestDB(t)
 	_, err := db.AppendSnapshot(t.Context(), "source:flow/a", "github", "scope-a", []models.SnapshotItem{{Key: "old", Payload: []byte(`{"version":1}`)}})

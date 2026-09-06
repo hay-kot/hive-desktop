@@ -190,7 +190,7 @@ type fakeItemSessionLinker struct {
 	err   error
 }
 
-func (f *fakeItemSessionLinker) LinkItemSession(_ context.Context, sessionID string, ref models.ItemRef) error {
+func (f *fakeItemSessionLinker) Link(_ context.Context, sessionID string, ref models.ItemRef) error {
 	if f.err != nil {
 		return f.err
 	}

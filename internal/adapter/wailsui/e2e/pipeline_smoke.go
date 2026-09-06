@@ -11,6 +11,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
 
@@ -47,8 +48,8 @@ var sourceToCommitSmokeItems = []feed.Item{
 }
 
 type sourceToCommitSmokeState struct {
-	Claims   []queries.InboxItemView `json:"claims"`
-	NodeRuns []queries.NodeRunRecord `json:"nodeRuns"`
+	Claims   []stores.InboxItem     `json:"claims"`
+	NodeRuns []stores.NodeRunRecord `json:"nodeRuns"`
 	// NotifyCommands counts the notify node's enqueued output commands: the
 	// observable proof that the KV-backed dedup branch fired once per item
 	// and stayed quiet on a changed re-observation.
@@ -78,7 +79,7 @@ func (sourceToCommitSmokeClassifier) Classify(previous *models.Observation, curr
 // onAppended announces that the event log grew and wakes the engine, exactly
 // as the producer does. It is supplied rather than called directly so this
 // package does not have to import the adapter that mounts it.
-func sourceToCommitSmokeMiddleware(db *queries.DB, mock string, onAppended func(nextOffset int64)) application.Middleware {
+func sourceToCommitSmokeMiddleware(db *queries.DB, st *stores.Stores, mock string, onAppended func(nextOffset int64)) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if mock != "pipeline" {
 			return next
@@ -98,7 +99,7 @@ func sourceToCommitSmokeMiddleware(db *queries.DB, mock string, onAppended func(
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(map[string]int{"appended": len(sourceToCommitSmokeItems)})
 			case http.MethodGet:
-				state, err := readSourceToCommitSmokeState(r.Context(), db)
+				state, err := readSourceToCommitSmokeState(r.Context(), db, st)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
@@ -152,12 +153,12 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *queries.DB, rev str
 	return nil
 }
 
-func readSourceToCommitSmokeState(ctx context.Context, db *queries.DB) (sourceToCommitSmokeState, error) {
-	claims, err := db.ListInboxItemsByFeed(ctx, sourceToCommitSmokeFlowID, sourceToCommitSmokeFeedID, 100)
+func readSourceToCommitSmokeState(ctx context.Context, db *queries.DB, st *stores.Stores) (sourceToCommitSmokeState, error) {
+	claims, err := st.InboxItems.ListByFeed(ctx, sourceToCommitSmokeFlowID, sourceToCommitSmokeFeedID, 100)
 	if err != nil {
 		return sourceToCommitSmokeState{}, fmt.Errorf("read smoke claims: %w", err)
 	}
-	runs, err := db.NodeRuns(ctx, sourceToCommitSmokeFlowID, 100)
+	runs, err := st.NodeRuns.List(ctx, sourceToCommitSmokeFlowID, 100)
 	if err != nil {
 		return sourceToCommitSmokeState{}, fmt.Errorf("read smoke node runs: %w", err)
 	}

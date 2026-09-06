@@ -12,6 +12,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 )
 
 func TestKindOf_WalksAWrappedChain(t *testing.T) {
@@ -78,9 +79,10 @@ func TestRerunOutputCommand_NoPriorRunUnwraps(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	_, err = db.RerunOutputCommand(t.Context(), "review-pr", "item-1", nil, models.ItemRef{})
+	_, err = stores.New(db, stores.Options{}).OutputCommands.Rerun(t.Context(), "review-pr", "item-1", nil, models.ItemRef{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, sql.ErrNoRows)
+	assert.True(t, stores.IsNotFound(err))
 
 	// Which is what lets the boundary classify it.
 	classified := Wrap(err, KindInvalid, "rerunning action")

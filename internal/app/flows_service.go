@@ -6,6 +6,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
@@ -18,18 +19,21 @@ import (
 // the CRUD the editor drives, the layout files the canvas persists, and each
 // profile's sidebar-rail avatar.
 type FlowsService struct {
-	flows     *flow.FlowStore
-	db        *queries.DB
-	creds     credentials.Store
-	images    *profileimg.Store
-	marks     *sourcemark.Store
-	scripts   *runtime.ScriptRegistry
-	settings  *settings.Store
-	onUpdated func()
+	flows *flow.FlowStore
+	// db is only PurgeProfile's, a cross-table write phase 3b re-homes onto
+	// Stores.Tx; inboxItems is every other read this service still makes.
+	db         *queries.DB
+	inboxItems *stores.InboxItemStore
+	creds      credentials.Store
+	images     *profileimg.Store
+	marks      *sourcemark.Store
+	scripts    *runtime.ScriptRegistry
+	settings   *settings.Store
+	onUpdated  func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *queries.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
+func newFlowsService(flows *flow.FlowStore, db *queries.DB, inboxItems *stores.InboxItemStore, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
+	return &FlowsService{flows: flows, db: db, inboxItems: inboxItems, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there
@@ -87,7 +91,7 @@ func (s *FlowsService) requireDeletable(ctx context.Context, id string) error {
 		return nil
 	}
 	if s.db != nil {
-		items, err := s.db.ListAllInboxItems(ctx, id, 1)
+		items, err := s.inboxItems.ListAll(ctx, id, 1)
 		if err != nil {
 			return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
 		}

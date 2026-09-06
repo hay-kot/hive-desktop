@@ -14,7 +14,7 @@
 // import, everything else goes through the names declared here.
 import type { Layout as WireLayoutModel, NodePosition } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/flow/models'
 import type { FlowSummary } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
-import type { NodeRunRecord } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/data/queries/models'
+import type { NodeRunRecord } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/data/stores/models'
 import type { Flow, FlowNode, Wire } from '../types'
 
 export type { FlowSummary, NodeRunRecord, NodePosition }

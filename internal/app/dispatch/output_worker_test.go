@@ -14,6 +14,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 )
 
 // openTestPipelineDB opens a throwaway store on a temp dir, migrated and
@@ -24,6 +25,12 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+// testOutputCommands builds the OutputCommandStore NewWorker takes, over the
+// same database handle a test's fixtures write through.
+func testOutputCommands(db *queries.DB) *stores.OutputCommandStore {
+	return stores.New(db, stores.Options{}).OutputCommands
 }
 
 // enqueueTestCommand enqueues one output_command row via CommitBatch (the
@@ -140,7 +147,7 @@ func TestWorker_AutoApplyAction_ExecutesAndMarksDone(t *testing.T) {
 	enqueueTestCommand(t, db, "spawn-review", "item-1", `{"title":"Fix bug"}`)
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
 	worker.Tick(t.Context())
@@ -149,7 +156,7 @@ func TestWorker_AutoApplyAction_ExecutesAndMarksDone(t *testing.T) {
 	assert.Equal(t, "item-1", exec.calls[0].Key)
 	assert.Equal(t, "Fix bug", exec.calls[0].Payload["title"])
 
-	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "a successfully executed command is no longer runnable")
 }
@@ -160,12 +167,12 @@ func TestWorker_HeadlessActionExecutesAndConsumesQueue(t *testing.T) {
 	enqueueTestCommand(t, db, "headless-action", "item-1", `{"title":"Fix bug"}`)
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"headless-action": launchSessionAction("headless-action", false)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"headless-action": launchSessionAction("headless-action", false)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 
 	assert.Equal(t, 1, exec.callCount())
-	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 	var status string
@@ -179,7 +186,7 @@ func TestWorker_ConfirmRequiresApprovalBeforeRerunningCompletedCommand(t *testin
 	enqueueTestCommand(t, db, "review-action", "item-1", `{"title":"Fix bug"}`)
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"review-action": launchSessionAction("review-action", false)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 
@@ -209,7 +216,7 @@ func TestWorker_ConfirmRecordsJobLifecycleWithoutReplay(t *testing.T) {
 	db := openTestPipelineDB(t)
 	exec := &fakeExecutor{}
 	recorder := &fakeJobRecorder{}
-	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"review-action": launchSessionAction("review-action", false)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
@@ -232,7 +239,7 @@ func TestWorker_ConfirmUnknownActionRecordsQueuedFailure(t *testing.T) {
 	t.Parallel()
 	db := openTestPipelineDB(t)
 	recorder := &fakeJobRecorder{}
-	worker := NewWorker(db, fakeActionLister{}, NewDispatcher(nil), 0, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{}, NewDispatcher(nil), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
 	_, err := worker.Confirm(t.Context(), "missing", "item-1", []byte(`{}`), models.ItemRef{}, ActionInvocationInput{})
@@ -246,7 +253,7 @@ func TestWorker_ConfirmCreatesCommandWhenNoActionNodeProducedOne(t *testing.T) {
 	t.Parallel()
 	db := openTestPipelineDB(t)
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"review-action": launchSessionAction("review-action", false)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
 	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
@@ -270,18 +277,18 @@ func TestWorker_RespectsBatchBoundAndResumesQueue(t *testing.T) {
 	enqueueTestCommand(t, db, "headless-action", "item-after-bound", `{}`)
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"headless-action": launchSessionAction("headless-action", true)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"headless-action": launchSessionAction("headless-action", true)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 	assert.Equal(t, DefaultOutputWorkerBatch, exec.callCount(), "one tick is bounded")
-	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "item-after-bound", rows[0].Key)
 
 	worker.Tick(t.Context())
 	assert.Equal(t, DefaultOutputWorkerBatch+1, exec.callCount())
-	rows, err = db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err = testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -293,7 +300,7 @@ func TestWorker_ActionCatalogChangeStillExecutesHeadlessCommand(t *testing.T) {
 
 	actionsByID := fakeActionLister{"review-action": launchSessionAction("review-action", true)}
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, actionsByID, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), actionsByID, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	actionsByID["review-action"] = launchSessionAction("review-action", false)
 	worker.Tick(t.Context())
 	assert.Equal(t, 1, exec.callCount())
@@ -306,16 +313,16 @@ func TestWorker_UnknownActionRecordsRetryableError(t *testing.T) {
 
 	exec := &fakeExecutor{}
 	recorder := &fakeJobRecorder{}
-	worker := NewWorker(db, fakeActionLister{}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 	worker.Tick(t.Context())
 	assert.Equal(t, 0, exec.callCount())
 	assert.Equal(t, []string{"Begin", "Running"}, recorder.calls)
-	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, int64(1), rows[0].Attempts)
-	assert.Contains(t, rows[0].LastError.String, "unknown action")
+	assert.Contains(t, rows[0].LastError, "unknown action")
 
 	for range MaxOutputCommandAttempts - 1 {
 		worker.Tick(t.Context())
@@ -330,7 +337,7 @@ func TestWorker_FailingExecutor_KeepsOneRunningJobUntilTerminalFailure(t *testin
 
 	exec := &fakeExecutor{err: fmt.Errorf("boom")}
 	recorder := &fakeJobRecorder{}
-	worker := NewWorker(db, fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
@@ -338,7 +345,7 @@ func TestWorker_FailingExecutor_KeepsOneRunningJobUntilTerminalFailure(t *testin
 		worker.Tick(t.Context())
 		assert.Equal(t, []string{"Begin", "Running"}, recorder.calls, "retryable failures leave the existing job running")
 		if attempt == 0 {
-			worker = NewWorker(db, fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
+			worker = NewWorker(testOutputCommands(db), fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
 				NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 			worker.SetJobRecorder(recorder)
 		}
@@ -354,12 +361,12 @@ func TestWorker_FailingExecutor_RetriesThenMarksFailed(t *testing.T) {
 	enqueueTestCommand(t, db, "spawn-review", "item-1", `{"title":"Fix bug"}`)
 
 	exec := &fakeExecutor{err: fmt.Errorf("boom")}
-	worker := NewWorker(db, fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
 	for i := range MaxOutputCommandAttempts - 1 {
 		worker.Tick(t.Context())
-		rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+		rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 		require.NoError(t, err)
 		require.Len(t, rows, 1, "still pending before the retry cap is reached (attempt %d)", i+1)
 		assert.Equal(t, int64(i+1), rows[0].Attempts)
@@ -367,7 +374,7 @@ func TestWorker_FailingExecutor_RetriesThenMarksFailed(t *testing.T) {
 
 	// One more failing tick reaches the cap and marks the command failed.
 	worker.Tick(t.Context())
-	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "command is no longer runnable once marked failed")
 
@@ -387,7 +394,7 @@ func TestWorker_ConfirmFailureReturnsPersistedDiagnostics(t *testing.T) {
 	db := openTestPipelineDB(t)
 	exec := &fakeExecutor{err: fmt.Errorf("boom"), result: ExecutionResult{Attempted: true, Log: ExecutionLog{Stdout: "partial output", Stderr: "failure output"}}}
 	recorder := &fakeJobRecorder{}
-	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err, "an attempted side-effect failure is returned as a persisted view")
@@ -404,7 +411,7 @@ func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.
 	db, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, db, "review-action", "item-1", `{"title":"Fix bug"}`)
-	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`), models.ItemRef{})
+	_, created, err := testOutputCommands(db).Confirm(t.Context(), "review-action", "item-1", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, db.Close())
@@ -413,21 +420,21 @@ func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	exec := &fakeExecutor{}
-	worker := NewWorker(reopened, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(reopened), fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 
 	assert.Zero(t, exec.callCount(), "recovery must never retry an interactive command without its input")
-	row, err := reopened.OutputCommand(t.Context(), 1)
+	row, err := testOutputCommands(reopened).Get(t.Context(), 1)
 	require.NoError(t, err)
 	assert.Equal(t, "failed", row.Status)
-	assert.Contains(t, row.LastError.String, "interrupted")
+	assert.Contains(t, row.LastError, "interrupted")
 }
 
 func TestWorker_BoundsExecutorDiagnosticsBeforePersistence(t *testing.T) {
 	db := openTestPipelineDB(t)
 	noisy := strings.Repeat("x", maxExecutionStreamBytes+1)
 	exec := &fakeExecutor{result: ExecutionResult{Log: ExecutionLog{Stdout: noisy, Stderr: noisy}}}
-	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, view.Stdout, maxExecutionStreamBytes)
@@ -442,13 +449,13 @@ func TestWorker_BadPayload_FailsWithoutCallingExecutor(t *testing.T) {
 	enqueueTestCommand(t, db, "spawn-review", "item-1", `not-json`)
 
 	exec := &fakeExecutor{}
-	worker := NewWorker(db, fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
+	worker := NewWorker(testOutputCommands(db), fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
 	worker.Tick(t.Context())
 
 	assert.Equal(t, 0, exec.callCount())
-	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
+	rows, err := testOutputCommands(db).ListRunnableAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "still retryable, not silently dropped")
 	assert.Equal(t, int64(1), rows[0].Attempts)

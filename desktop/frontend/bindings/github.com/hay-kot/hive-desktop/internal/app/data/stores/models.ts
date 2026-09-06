@@ -5,14 +5,14 @@
 // @ts-ignore: Unused imports
 import * as json$0 from "../../../../../../../encoding/json/models.js";
 
-export interface FeedInboxCount {
+export interface FeedCount {
     "feedId": string;
     "total": number;
     "unread": number;
     "archived": number;
 }
 
-export interface InboxEventView {
+export interface InboxEvent {
     "id": number;
     "itemId": number;
     "kind": string;
@@ -24,9 +24,9 @@ export interface InboxEventView {
 }
 
 /**
- * InboxItemView is the read-side shape used by inbox callers.
+ * InboxItem is the read-side shape used by inbox callers.
  */
-export interface InboxItemView {
+export interface InboxItem {
     "id": number;
     "profileId": string;
     "sourceKind": string;
@@ -50,10 +50,9 @@ export interface InboxItemView {
 /**
  * NodeRunRecord is the JSON/Wails-friendly shape of a persisted node_run
  * row, read back for the flows canvas's live status and RECENT list. It
- * carries the same fields as NodeRunView (commit.go's write-side shape)
- * plus EndedAt, which only exists once a run has actually been persisted —
- * CommitBatch stamps it server-side, so the write-side NodeRunView has no
- * use for it.
+ * carries the same fields as models.NodeRunView (the write-side shape a
+ * commit takes) plus EndedAt, which only exists once a run has actually been
+ * persisted.
  */
 export interface NodeRunRecord {
     "flowId": string;

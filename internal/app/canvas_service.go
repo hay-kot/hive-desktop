@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 )
 
 // maxCanvasBodyBytes caps one markdown or html block's body so a single tool
@@ -25,7 +25,7 @@ const (
 // with: the session record is the authority on which workspace a canvas
 // belongs to, so an agent never names the workspace itself.
 type canvasSessionResolver interface {
-	GetAgentWorkspaceSession(ctx context.Context, id int64) (queries.AgentWorkspaceSession, bool, error)
+	Get(ctx context.Context, id int64) (stores.AgentSession, bool, error)
 }
 
 // CanvasService is the workspace's canvases: named, agent-written artifacts
@@ -265,16 +265,16 @@ func (s *CanvasService) ListForWorkspace(_ context.Context, dir string) ([]canva
 	return metas, nil
 }
 
-func (s *CanvasService) resolve(ctx context.Context, session int64) (queries.AgentWorkspaceSession, error) {
+func (s *CanvasService) resolve(ctx context.Context, session int64) (stores.AgentSession, error) {
 	if s.sessions == nil {
-		return queries.AgentWorkspaceSession{}, Errorf(KindUnavailable, "canvas is not available in this build")
+		return stores.AgentSession{}, Errorf(KindUnavailable, "canvas is not available in this build")
 	}
-	rec, ok, err := s.sessions.GetAgentWorkspaceSession(ctx, session)
+	rec, ok, err := s.sessions.Get(ctx, session)
 	if err != nil {
-		return queries.AgentWorkspaceSession{}, Wrap(err, KindInternal, "loading session %d", session)
+		return stores.AgentSession{}, Wrap(err, KindInternal, "loading session %d", session)
 	}
 	if !ok {
-		return queries.AgentWorkspaceSession{}, Errorf(KindNotFound, "session %d not found", session)
+		return stores.AgentSession{}, Errorf(KindNotFound, "session %d not found", session)
 	}
 	return rec, nil
 }

@@ -136,6 +136,75 @@ func (q *Queries) DeleteUnarchivedFeedMembershipClaimsByProfile(ctx context.Cont
 	return err
 }
 
+const getFeedIDForItem = `-- name: GetFeedIDForItem :one
+SELECT feed_id FROM feed_membership_claim
+WHERE profile_id = ? AND item_id = ?
+ORDER BY feed_id
+LIMIT 1
+`
+
+type GetFeedIDForItemParams struct {
+	ProfileID string `json:"profile_id"`
+	ItemID    int64  `json:"item_id"`
+}
+
+// The lowest feed id is the stable answer when several feeds claim the same
+// item: any of them reveals it, so this just has to agree with itself across
+// calls. Ordering (not the sidebar's own) is a frontend concern this leaves
+// alone.
+func (q *Queries) GetFeedIDForItem(ctx context.Context, arg GetFeedIDForItemParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getFeedIDForItem, arg.ProfileID, arg.ItemID)
+	var feed_id string
+	err := row.Scan(&feed_id)
+	return feed_id, err
+}
+
+const listFeedIDsForItems = `-- name: ListFeedIDsForItems :many
+SELECT item_id, CAST(MIN(feed_id) AS TEXT) AS feed_id FROM feed_membership_claim
+WHERE item_id IN (/*SLICE:item_ids*/?)
+GROUP BY item_id
+`
+
+type ListFeedIDsForItemsRow struct {
+	ItemID int64  `json:"item_id"`
+	FeedID string `json:"feed_id"`
+}
+
+// One row per (item, its lowest feed id), for callers that list items flat
+// and need every item's feed without an N+1 of GetFeedIDForItem.
+func (q *Queries) ListFeedIDsForItems(ctx context.Context, itemIds []int64) ([]ListFeedIDsForItemsRow, error) {
+	query := listFeedIDsForItems
+	var queryParams []interface{}
+	if len(itemIds) > 0 {
+		for _, v := range itemIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:item_ids*/?", strings.Repeat(",?", len(itemIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:item_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListFeedIDsForItemsRow{}
+	for rows.Next() {
+		var i ListFeedIDsForItemsRow
+		if err := rows.Scan(&i.ItemID, &i.FeedID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertFeedMembershipClaim = `-- name: UpsertFeedMembershipClaim :exec
 INSERT INTO feed_membership_claim (profile_id, feed_id, item_id, source_id)
 VALUES (?, ?, ?, ?)

@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
@@ -56,7 +56,7 @@ func (ctrl *Controller) ListFeeds(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, feedsResult{}, ctrl.toolError(err)
 	}
-	byID := make(map[string]queries.FeedInboxCount, len(counts))
+	byID := make(map[string]stores.FeedCount, len(counts))
 	for _, c := range counts {
 		byID[c.FeedID] = c
 	}
@@ -96,14 +96,14 @@ type listInboxInput struct {
 }
 
 // inboxItemView is the store view plus the feed that claims the item, so a flat
-// listing can answer "which feed is this in?" — a queries.InboxItemView carries no
+// listing can answer "which feed is this in?" — a stores.InboxItem carries no
 // feed id of its own.
 //
 // Payload shadows the embedded field so it can be omitted rather than nulled;
 // it is the one field here whose size the source decides, and a listing repeats
 // it per item. Everything else is this app's own vocabulary and is bounded.
 type inboxItemView struct {
-	queries.InboxItemView
+	stores.InboxItem
 	FeedID  string           `json:"feedId"`
 	Payload *json.RawMessage `json:"payload,omitempty"`
 }
@@ -133,7 +133,7 @@ func (ctrl *Controller) ListInbox(ctx context.Context, _ *mcp.CallToolRequest, i
 	}
 	limit := cmp.Or(in.Limit, defaultListLimit)
 
-	var items []queries.InboxItemView
+	var items []stores.InboxItem
 	switch {
 	case in.ExternalID != "":
 		items, err = ctrl.core.Inbox.FindItems(ctx, in.Profile, in.ExternalID)
@@ -200,7 +200,7 @@ func (ctrl *Controller) explainEmptyScope(ctx context.Context, profile, feed str
 
 // itemsWithFeed annotates each item with the feed that claims it (empty when
 // unrouted), resolved in one query so the listing avoids an N+1.
-func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []queries.InboxItemView, detail string) ([]inboxItemView, error) {
+func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []stores.InboxItem, detail string) ([]inboxItemView, error) {
 	ids := make([]int64, len(items))
 	for i, it := range items {
 		ids[i] = it.ID
@@ -211,7 +211,7 @@ func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []queries.Inbox
 	}
 	out := make([]inboxItemView, len(items))
 	for i, it := range items {
-		out[i] = inboxItemView{InboxItemView: it, FeedID: feeds[it.ID]}
+		out[i] = inboxItemView{InboxItem: it, FeedID: feeds[it.ID]}
 		if detail == detailFull {
 			out[i].Payload = &items[i].Payload
 		}
@@ -230,7 +230,7 @@ type listEventsInput struct {
 // eventView drops each event's raw detail at summary, for the reason
 // inboxItemView drops a payload: it is source-supplied and repeats per event.
 type eventView struct {
-	queries.InboxEventView
+	stores.InboxEvent
 	Detail *json.RawMessage `json:"detail,omitempty"`
 }
 
@@ -260,7 +260,7 @@ func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallTool
 	}
 	views := make([]eventView, len(events))
 	for i, event := range events {
-		views[i] = eventView{InboxEventView: event}
+		views[i] = eventView{InboxEvent: event}
 		if detail == detailFull {
 			views[i].Detail = &events[i].Detail
 		}

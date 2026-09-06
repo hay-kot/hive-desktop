@@ -11,6 +11,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	execsource "github.com/hay-kot/hive-desktop/internal/app/sources/exec"
 )
@@ -36,7 +37,8 @@ func execInstance(t *testing.T, command string) connector.Instance {
 
 func execSourceKeys(t *testing.T, db *queries.DB) []string {
 	t.Helper()
-	keys, err := db.ListActiveSourceHeadKeys(t.Context(), queries.SourceIdentity{
+	st := stores.New(db, stores.Options{})
+	keys, err := st.SourceHeads.ListActiveKeys(t.Context(), stores.SourceIdentity{
 		Topic: "source:oncall/src", ProfileID: "oncall", SourceKind: "exec", SourceScope: "src",
 	})
 	require.NoError(t, err)
@@ -51,7 +53,7 @@ func TestExecSource_IngestsItsSnapshot(t *testing.T) {
 		execInstance(t, `echo '[{"id":"a","title":"Alpha"},{"id":"b","title":"Beta"}]'`),
 	}}
 
-	summary := NewProducer(db, sources, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
+	summary := newTestProducer(db, sources, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
 
 	assert.Zero(t, summary.Failed)
 	assert.ElementsMatch(t, []string{"a", "b"}, execSourceKeys(t, db))
@@ -64,12 +66,12 @@ func TestExecSource_BrokenCommandKeepsThePreviousSnapshot(t *testing.T) {
 
 	db := openTestPipelineDB(t)
 	good := stubSources{instances: []connector.Instance{execInstance(t, `echo '[{"id":"a","title":"Alpha"}]'`)}}
-	NewProducer(db, good, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
+	newTestProducer(db, good, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
 	require.Equal(t, []string{"a"}, execSourceKeys(t, db))
 
 	broken := stubSources{instances: []connector.Instance{execInstance(t, `echo "not logged in" >&2; exit 1`)}}
 	recorder := &activityRecorder{}
-	producer := NewProducer(db, broken, time.Hour, nil, zerolog.Nop())
+	producer := newTestProducer(db, broken, time.Hour, nil, zerolog.Nop())
 	producer.SetRecorder(recorder)
 
 	summary := producer.Tick(t.Context())
@@ -87,11 +89,11 @@ func TestExecSource_EmptyArrayResolvesEveryItem(t *testing.T) {
 
 	db := openTestPipelineDB(t)
 	good := stubSources{instances: []connector.Instance{execInstance(t, `echo '[{"id":"a","title":"Alpha"}]'`)}}
-	NewProducer(db, good, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
+	newTestProducer(db, good, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
 	require.Equal(t, []string{"a"}, execSourceKeys(t, db))
 
 	empty := stubSources{instances: []connector.Instance{execInstance(t, `echo '[]'`)}}
-	NewProducer(db, empty, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
+	newTestProducer(db, empty, time.Hour, nil, zerolog.Nop()).Tick(t.Context())
 
 	assert.Empty(t, execSourceKeys(t, db), "an item that left an authoritative snapshot is gone")
 }

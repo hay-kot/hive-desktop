@@ -12,11 +12,12 @@ import (
 
 // KVReader is a driven port: read access to durable node-scoped KV during a
 // tick. Writes are buffered and flushed by the commit, so this is read-only.
-// *queries.DB satisfies it. Both methods take an explicit `now` cutoff (unix
-// ms) so expiry is deterministic; the buffer pins one `now` per Run.
+// *stores.NodeKVStore satisfies it. Both methods take an explicit `now`
+// cutoff (unix ms) so expiry is deterministic; the buffer pins one `now` per
+// Run.
 type KVReader interface {
-	NodeKVGet(ctx context.Context, flowID, nodeID, key string, now int64) (value string, found bool, err error)
-	NodeKVKeys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
+	Get(ctx context.Context, flowID, nodeID, key string, now int64) (value string, found bool, err error)
+	Keys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
 }
 
 // NodeKV is the node-scoped surface a function node's `kv` object is bound
@@ -148,7 +149,7 @@ func (s *nodeStaging) Get(ctx context.Context, key string) (string, bool, error)
 	if merged {
 		return s.resolve(op)
 	}
-	return s.buf.reader.NodeKVGet(ctx, s.buf.flowID, s.nodeID, key, s.buf.now)
+	return s.buf.reader.Get(ctx, s.buf.flowID, s.nodeID, key, s.buf.now)
 }
 
 func (s *nodeStaging) Has(ctx context.Context, key string) (bool, error) {
@@ -191,7 +192,7 @@ func (s *nodeStaging) Keys(ctx context.Context, prefix string) ([]string, error)
 	if s.buf.inert {
 		return nil, nil
 	}
-	durable, err := s.buf.reader.NodeKVKeys(ctx, s.buf.flowID, s.nodeID, prefix, s.buf.now)
+	durable, err := s.buf.reader.Keys(ctx, s.buf.flowID, s.nodeID, prefix, s.buf.now)
 	if err != nil {
 		return nil, err
 	}
@@ -237,10 +238,10 @@ func (s *nodeStaging) expired(op kvOp) bool {
 
 type noopKVReader struct{}
 
-func (noopKVReader) NodeKVGet(context.Context, string, string, string, int64) (string, bool, error) {
+func (noopKVReader) Get(context.Context, string, string, string, int64) (string, bool, error) {
 	return "", false, nil
 }
 
-func (noopKVReader) NodeKVKeys(context.Context, string, string, string, int64) ([]string, error) {
+func (noopKVReader) Keys(context.Context, string, string, string, int64) ([]string, error) {
 	return nil, nil
 }

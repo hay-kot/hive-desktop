@@ -9,6 +9,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 )
@@ -32,7 +33,7 @@ func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T
 		require.NoError(t, err)
 	}
 
-	checker := newActionUsage(flows, db)
+	checker := newActionUsage(flows, stores.New(db, stores.Options{}).OutputCommands)
 	usage, err := checker.Usage(t.Context(), "used")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"flow-a"}, usage.FlowIDs)

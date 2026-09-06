@@ -8,15 +8,15 @@ import (
 	"testing"
 
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type fakeCanvasSessions map[int64]queries.AgentWorkspaceSession
+type fakeCanvasSessions map[int64]stores.AgentSession
 
-func (f fakeCanvasSessions) GetAgentWorkspaceSession(_ context.Context, id int64) (queries.AgentWorkspaceSession, bool, error) {
+func (f fakeCanvasSessions) Get(_ context.Context, id int64) (stores.AgentSession, bool, error) {
 	rec, ok := f[id]
 	return rec, ok, nil
 }

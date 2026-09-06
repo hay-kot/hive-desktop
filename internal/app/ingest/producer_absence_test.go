@@ -94,7 +94,7 @@ func TestProducerAbsenceIsScopedToExactSourceTopic(t *testing.T) {
 	_, err := db.IngestObservation(t.Context(), classifier, queries.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: models.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
 	require.NoError(t, err)
 	absence := &countingAbsence{}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "first", &fakeSource{}, classifier, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 	producer.Tick(t.Context())
@@ -110,7 +110,7 @@ func TestProducerAbsenceHydrationPreservesInboxMetadata(t *testing.T) {
 		Topic: "source:profile/source", Key: item.ID, Payload: payload,
 	}}}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: true}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -138,7 +138,7 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 		Topic: "source:profile/source", Key: item.ID, Payload: payload,
 	}}}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, activeAbsenceClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -167,7 +167,7 @@ func TestProducerConfirmsAbsentItemsInOneCall(t *testing.T) {
 	}
 	src := &fakeSource{batches: [][]Msg{batch}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -205,7 +205,7 @@ func TestProducerIngestsPartialAbsenceBatch(t *testing.T) {
 		itemA.ID: {Current: &currentA},
 		itemB.ID: {Current: &currentB},
 	}}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -231,7 +231,7 @@ func TestProducerKeepsNotFoundItems(t *testing.T) {
 	src := &fakeSource{batches: [][]Msg{{
 		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
 	}}}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, emptyAbsence{}),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -286,7 +286,7 @@ func TestProducerConfirmsActiveAbsentItem(t *testing.T) {
 		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
 	}}}
 	absence := &recordingAbsence{}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -307,7 +307,7 @@ func TestProducerSkipsArchivedItemsInAbsence(t *testing.T) {
 		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
 	}}}
 	absence := &recordingAbsence{}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -332,7 +332,7 @@ func TestProducerStopsConfirmingTerminalItems(t *testing.T) {
 
 	src := &fakeSource{} // never emits: every tick treats the seeded item as absent
 	absence := &recordingAbsence{answer: true, terminal: true}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 

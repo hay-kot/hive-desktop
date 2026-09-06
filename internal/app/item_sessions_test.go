@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
@@ -19,24 +19,24 @@ import (
 // external id, which is enough to tell one item's sessions from another's here.
 type fakeItemSessionStore struct {
 	refs      map[int64]models.ItemRef
-	links     map[string][]queries.ItemSession
+	links     map[string][]stores.ItemSession
 	unlinked  []string
 	unlinkErr error
 }
 
-func (f *fakeItemSessionStore) ItemRefByID(_ context.Context, itemID int64) (models.ItemRef, error) {
+func (f *fakeItemSessionStore) RefByID(_ context.Context, itemID int64) (models.ItemRef, error) {
 	ref, ok := f.refs[itemID]
 	if !ok {
-		return models.ItemRef{}, sql.ErrNoRows
+		return models.ItemRef{}, stores.NotFoundError{Entity: "inbox_item", Key: fmt.Sprint(itemID)}
 	}
 	return ref, nil
 }
 
-func (f *fakeItemSessionStore) ItemSessions(_ context.Context, ref models.ItemRef) ([]queries.ItemSession, error) {
+func (f *fakeItemSessionStore) List(_ context.Context, ref models.ItemRef) ([]stores.ItemSession, error) {
 	return f.links[ref.ExternalID], nil
 }
 
-func (f *fakeItemSessionStore) UnlinkItemSessions(_ context.Context, sessionIDs []string) error {
+func (f *fakeItemSessionStore) Unlink(_ context.Context, sessionIDs []string) error {
 	if f.unlinkErr != nil {
 		return f.unlinkErr
 	}
@@ -47,7 +47,7 @@ func (f *fakeItemSessionStore) UnlinkItemSessions(_ context.Context, sessionIDs 
 func itemSessionsService(manager *fakeSessionManager, links *fakeItemSessionStore) *SessionsService {
 	return &sessionsDeps{
 		launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager,
-		tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}, links: links, logger: zerolog.Nop(),
+		tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}, items: links, links: links, logger: zerolog.Nop(),
 	}
 }
 
@@ -61,7 +61,7 @@ func TestSessionsService_ItemSessionsJoinsLinksToLiveHiveState(t *testing.T) {
 	}
 	links := &fakeItemSessionStore{
 		refs: map[int64]models.ItemRef{7: {ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}},
-		links: map[string][]queries.ItemSession{"acme/site#81": {
+		links: map[string][]stores.ItemSession{"acme/site#81": {
 			{SessionID: "s2", CreatedAt: 200},
 			{SessionID: "s1", CreatedAt: 100},
 		}},
@@ -91,7 +91,7 @@ func TestSessionsService_ItemSessionsPrunesLinksHiveCannotAccountFor(t *testing.
 	}
 	links := &fakeItemSessionStore{
 		refs: map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]queries.ItemSession{"acme/site#81": {
+		links: map[string][]stores.ItemSession{"acme/site#81": {
 			{SessionID: "s1", CreatedAt: 100},
 			{SessionID: "deleted-elsewhere", CreatedAt: 90},
 		}},
@@ -110,7 +110,7 @@ func TestSessionsService_ItemSessionsKeepsLinksWhenHiveCannotBeRead(t *testing.T
 	manager := &fakeSessionManager{err: errors.New("hive.db locked")}
 	links := &fakeItemSessionStore{
 		refs:  map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]queries.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
+		links: map[string][]stores.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
 	}
 
 	_, err := itemSessionsService(manager, links).ItemSessions(t.Context(), 7)
@@ -126,7 +126,7 @@ func TestSessionsService_ItemSessionsSurvivesAFailedPrune(t *testing.T) {
 	}
 	links := &fakeItemSessionStore{
 		refs: map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]queries.ItemSession{"acme/site#81": {
+		links: map[string][]stores.ItemSession{"acme/site#81": {
 			{SessionID: "s1", CreatedAt: 100},
 			{SessionID: "gone", CreatedAt: 90},
 		}},
@@ -149,7 +149,7 @@ func TestSessionsService_ItemSessionsKeepsSessionsWhenLivenessCannotBeRead(t *te
 	}
 	links := &fakeItemSessionStore{
 		refs:  map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]queries.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
+		links: map[string][]stores.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
 	}
 
 	views, err := itemSessionsService(manager, links).ItemSessions(t.Context(), 7)
@@ -173,9 +173,10 @@ func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
 	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
+	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{7: ref}}
 	svc := &sessionsDeps{
 		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
-		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]models.ItemRef{7: ref}},
+		jobs: &fakeJobRunner{}, items: fake, links: fake,
 		logger: zerolog.Nop(),
 	}
 
@@ -190,9 +191,10 @@ func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
 func TestSessionsService_CreateSessionLaunchesUnlinkedWhenTheItemHasGone(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
+	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{}}
 	svc := &sessionsDeps{
 		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
-		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]models.ItemRef{}},
+		jobs: &fakeJobRunner{}, items: fake, links: fake,
 		logger: zerolog.Nop(),
 	}
 

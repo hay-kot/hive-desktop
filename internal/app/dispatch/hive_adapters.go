@@ -225,9 +225,10 @@ type SessionPullRequest struct {
 
 // ItemSessionLinker persists the association between an inbox item and a
 // session created for it, so the item can find the session again after a
-// restart. Consumer-defined: the launcher needs one write, not a queries.
+// restart. Consumer-defined: the launcher needs one write, not a store.
+// Satisfied by *stores.ItemSessionStore.
 type ItemSessionLinker interface {
-	LinkItemSession(ctx context.Context, sessionID string, ref models.ItemRef) error
+	Link(ctx context.Context, sessionID string, ref models.ItemRef) error
 }
 
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
@@ -283,7 +284,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	// returned: reporting the launch as failed would be a lie, and would
 	// invite a retry that creates a second session.
 	if l.links != nil && linked {
-		if linkErr := l.links.LinkItemSession(ctx, s.ID, req.Origin); linkErr != nil {
+		if linkErr := l.links.Link(ctx, s.ID, req.Origin); linkErr != nil {
 			l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Msg("linking session to its inbox item")
 		}
 	}

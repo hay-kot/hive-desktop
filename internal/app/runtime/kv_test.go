@@ -16,12 +16,12 @@ type fakeKVReader struct {
 	rows map[string]string // "nodeID/key" -> value
 }
 
-func (f fakeKVReader) NodeKVGet(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
+func (f fakeKVReader) Get(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
 	value, ok := f.rows[nodeID+"/"+key]
 	return value, ok, nil
 }
 
-func (f fakeKVReader) NodeKVKeys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
+func (f fakeKVReader) Keys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
 	var keys []string
 	for row := range f.rows {
 		id, key, _ := cutRow(row)

@@ -19,8 +19,37 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
+
+// Ingester is the subset of the pipeline database a webhook delivery needs to
+// record an observation. *queries.DB satisfies it until phase 3b moves
+// IngestObservation onto a store.
+type Ingester interface {
+	IngestObservation(ctx context.Context, classifier models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error)
+}
+
+// SnapshotAppender appends a source's authoritative item set after a
+// delivery changes something, so startup/deploy replay resolves this
+// source's feed claims. Satisfied by *stores.EventLogStore.
+type SnapshotAppender interface {
+	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (offset int64, err error)
+}
+
+// CaptureStore records the last request body delivered to a webhook source
+// node, for the flow editor's capture affordance. Satisfied by
+// *stores.WebhookCaptureStore.
+type CaptureStore interface {
+	Upsert(ctx context.Context, topic string, receivedAt int64, body []byte) error
+}
+
+// InboxItemLister lists the unarchived items behind one connector instance,
+// for building the snapshot a delivery appends. Satisfied by
+// *stores.InboxItemStore.
+type InboxItemLister interface {
+	ListUnarchivedBySource(ctx context.Context, profileID, sourceKind, sourceScope string) ([]stores.InboxItem, error)
+}
 
 // maxBodyBytes caps a webhook request body. Payloads are stored verbatim as
 // the inbox item payload and in webhook_capture, so the cap bounds both.
@@ -43,7 +72,10 @@ type Instances func() []connector.Instance
 // so membership replay keeps webhook-fed feeds intact across deploys and
 // restarts.
 type Listener struct {
-	db         *queries.DB
+	ingester   Ingester
+	snapshots  SnapshotAppender
+	captures   CaptureStore
+	items      InboxItemLister
 	instances  Instances
 	onAppended func(nextOffset int64)
 	logger     zerolog.Logger
@@ -68,8 +100,11 @@ type mount struct {
 // NewListener builds a listener bound to host:port at Start. Configuration
 // validation limits host to loopback. onAppended fires after a delivery
 // appends event-log rows so the core can wake the flow engine.
-func NewListener(db *queries.DB, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
-	return &Listener{db: db, instances: instances, host: host, port: port, onAppended: onAppended, logger: logger}
+func NewListener(ingester Ingester, snapshots SnapshotAppender, captures CaptureStore, items InboxItemLister, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
+	return &Listener{
+		ingester: ingester, snapshots: snapshots, captures: captures, items: items,
+		instances: instances, host: host, port: port, onAppended: onAppended, logger: logger,
+	}
 }
 
 // SetRecorder attaches an activity recorder so ingest failures surface in the
@@ -271,7 +306,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 	topic := inst.Node.Topic()
 	meta := inst.Metadata
 
-	result, err := l.db.IngestObservation(ctx, inst.Classifier, queries.IngestObservationParams{
+	result, err := l.ingester.IngestObservation(ctx, inst.Classifier, queries.IngestObservationParams{
 		ProfileID: meta.ProfileID,
 		Topic:     topic,
 		Policy:    meta.Policy,
@@ -289,9 +324,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 		return 0, fmt.Errorf("ingesting webhook observation %q: %w", key, err)
 	}
 
-	if err := l.db.UpsertWebhookCapture(ctx, queries.UpsertWebhookCaptureParams{
-		Topic: topic, ReceivedAt: now, Body: body,
-	}); err != nil {
+	if err := l.captures.Upsert(ctx, topic, now, body); err != nil {
 		// The capture only powers editor affordances; losing it must not
 		// fail a delivery that already ingested.
 		l.logger.Warn().Err(err).Str("topic", topic).Msg("webhook capture write failed")
@@ -301,9 +334,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 		return 0, nil
 	}
 
-	rows, err := l.db.ListUnarchivedInboxItemsBySource(ctx, queries.ListUnarchivedInboxItemsBySourceParams{
-		ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope,
-	})
+	rows, err := l.items.ListUnarchivedBySource(ctx, meta.ProfileID, meta.SourceKind, meta.SourceScope)
 	if err != nil {
 		return result.Offset, fmt.Errorf("listing webhook snapshot items for %q: %w", topic, err)
 	}
@@ -311,7 +342,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 	for _, row := range rows {
 		items = append(items, models.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
 	}
-	offset, err := l.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
+	offset, err := l.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	if err != nil {
 		return result.Offset, fmt.Errorf("appending webhook snapshot for %q: %w", topic, err)
 	}

@@ -2,65 +2,9 @@ package queries
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
-
-	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
-
-// EventLogTailOffset returns the current append-only log tail.
-func (db *DB) EventLogTailOffset(ctx context.Context) (int64, error) {
-	tail, err := db.GetEventLogTailOffset(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("getting event log tail: %w", err)
-	}
-	return tail, nil
-}
-
-// ListUnarchivedInboxItems returns exactly the Wails-safe items eligible for
-// synthetic replay. Archived memberships are deliberately frozen and never
-// returned.
-func (db *DB) ListUnarchivedInboxItems(ctx context.Context, profileID string) ([]InboxItemView, error) {
-	rows, err := db.ListUnarchivedInboxItemsByProfile(ctx, profileID)
-	if err != nil {
-		return nil, fmt.Errorf("listing unarchived inbox items for %q: %w", profileID, err)
-	}
-	return inboxItemViews(rows), nil
-}
-
-// ListReplaySourceSnapshots returns each profile source's newest authoritative
-// snapshot at or before throughOffset. Keeping the source topic on each message
-// preserves provenance when a deployed graph recomputes feed memberships.
-func (db *DB) ListReplaySourceSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]models.Msg, error) {
-	if throughOffset < 0 {
-		return nil, fmt.Errorf("listing replay source snapshots for %q: negative offset", profileID)
-	}
-	prefix := "source:" + profileID + "/"
-	rows, err := db.ListLatestSourceSnapshotsByTopicPrefix(ctx, ListLatestSourceSnapshotsByTopicPrefixParams{ThroughOffset: throughOffset, TopicPrefix: prefix})
-	if err != nil {
-		return nil, fmt.Errorf("listing replay source snapshots for %q: %w", profileID, err)
-	}
-
-	messages := make([]models.Msg, 0, len(rows))
-	for _, row := range rows {
-		var snapshot []models.SnapshotItem
-		if err := json.Unmarshal(row.Payload, &snapshot); err != nil {
-			return nil, fmt.Errorf("decoding replay source snapshot at offset %d: %w", row.Offset, err)
-		}
-		messages = append(messages, models.Msg{
-			ID:          strconv.FormatInt(row.Offset, 10),
-			Topic:       row.Topic,
-			Ts:          row.CreatedAt,
-			Payload:     json.RawMessage(row.Payload),
-			Snapshot:    snapshot,
-			SourceKind:  row.SourceKind,
-			SourceScope: row.SourceScope,
-		})
-	}
-	return messages, nil
-}
 
 // ActivateReplay atomically installs a prepared synthetic replay: it advances
 // the consumer past stale action-bound events, replaces unarchived feed

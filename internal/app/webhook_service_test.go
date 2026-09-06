@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
@@ -35,7 +36,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	service := newWebhookService(testSettingsStore(t), db, nil, "127.0.0.1", 24483)
+	service := newWebhookService(testSettingsStore(t), stores.New(db, stores.Options{}).WebhookCaptures, nil, "127.0.0.1", 24483)
 
 	view, err := service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -16,7 +15,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 )
@@ -73,12 +72,18 @@ type sessionJobRunner interface {
 	Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64
 }
 
+// inboxItemRefReader resolves an inbox row to the ref an association is
+// keyed on. Satisfied by *stores.InboxItemStore.
+type inboxItemRefReader interface {
+	RefByID(ctx context.Context, itemID int64) (models.ItemRef, error)
+}
+
 // itemSessionStore is the durable item↔session association: which sessions an
-// inbox item spawned, and the removal of links to sessions hive no longer has.
+// inbox item spawned, and the removal of links to sessions hive no longer
+// has. Satisfied by *stores.ItemSessionStore.
 type itemSessionStore interface {
-	ItemRefByID(ctx context.Context, itemID int64) (models.ItemRef, error)
-	ItemSessions(ctx context.Context, ref models.ItemRef) ([]queries.ItemSession, error)
-	UnlinkItemSessions(ctx context.Context, sessionIDs []string) error
+	List(ctx context.Context, ref models.ItemRef) ([]stores.ItemSession, error)
+	Unlink(ctx context.Context, sessionIDs []string) error
 }
 
 // SessionsService is the desktop's session surface: the New Session form's
@@ -91,6 +96,7 @@ type SessionsService struct {
 	git        sessionGitSource
 	tmux       sessionTmux
 	jobs       sessionJobRunner
+	items      inboxItemRefReader
 	links      itemSessionStore
 	catalog    *actions.ActionStore
 	dispatcher *dispatch.Dispatcher
@@ -177,17 +183,17 @@ func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.Session
 // joined to the state hive reports for them now. The read is also what
 // reconciles (ADR macos-dmg-installer).
 func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
-	if s.manager == nil || s.links == nil {
+	if s.manager == nil || s.items == nil || s.links == nil {
 		return nil, Errorf(KindUnavailable, "session links are unavailable")
 	}
-	ref, err := s.links.ItemRefByID(ctx, itemID)
+	ref, err := s.items.RefByID(ctx, itemID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if stores.IsNotFound(err) {
 			return nil, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
 		}
 		return nil, Wrap(err, KindInternal, "reading inbox item %d", itemID)
 	}
-	links, err := s.links.ItemSessions(ctx, ref)
+	links, err := s.links.List(ctx, ref)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for item %d", itemID)
 	}
@@ -223,7 +229,7 @@ func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dis
 			CreatedAt: time.UnixMilli(link.CreatedAt),
 		})
 	}
-	if err := s.links.UnlinkItemSessions(ctx, gone); err != nil {
+	if err := s.links.Unlink(ctx, gone); err != nil {
 		// The view above is already correct without the prune; failing the read
 		// over a cleanup would hide the sessions that do still exist.
 		s.logger.Warn().Err(err).Int64("item_id", itemID).Msg("dropping links to deleted sessions")
@@ -372,9 +378,9 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	// has gone (pruned between opening the form and submitting it) launches
 	// unlinked rather than refusing the session the user asked for.
 	var origin models.ItemRef
-	if req.ItemID != 0 && s.links != nil {
-		resolved, err := s.links.ItemRefByID(ctx, req.ItemID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if req.ItemID != 0 && s.items != nil {
+		resolved, err := s.items.RefByID(ctx, req.ItemID)
+		if err != nil && !stores.IsNotFound(err) {
 			return 0, Wrap(err, KindInternal, "reading inbox item %d", req.ItemID)
 		}
 		origin = resolved

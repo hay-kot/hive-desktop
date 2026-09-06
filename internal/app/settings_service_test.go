@@ -13,6 +13,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -147,7 +148,8 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
-		producer := ingest.NewProducer(db, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
+		st := stores.New(db, stores.Options{})
+		producer := ingest.NewProducer(db, st.EventLog, st.SourceHeads, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
 		service := newSettingsService(settings.NewStore(settings.SettingsPath()), producer, fetchers, nil)
 
 		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))

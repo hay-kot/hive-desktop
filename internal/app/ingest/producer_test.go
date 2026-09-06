@@ -17,6 +17,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
@@ -122,14 +123,14 @@ func (a *fakeAppender) IngestObservation(_ context.Context, _ models.Classifier,
 	return queries.IngestResult{Wrote: true, Offset: a.nextOff}, nil
 }
 
-func (a *fakeAppender) ListActiveSourceHeadKeys(context.Context, queries.SourceIdentity) ([]string, error) {
+func (a *fakeAppender) ListActiveKeys(context.Context, stores.SourceIdentity) ([]string, error) {
 	return nil, nil
 }
 
-func (a *fakeAppender) SourceHeadPayload(context.Context, string, string) ([]byte, error) {
+func (a *fakeAppender) Payload(context.Context, string, string) ([]byte, error) {
 	return nil, nil
 }
-func (a *fakeAppender) DeleteSourceHead(context.Context, string, string) error { return nil }
+func (a *fakeAppender) Delete(context.Context, string, string) error { return nil }
 
 func (a *fakeAppender) AppendSnapshot(_ context.Context, _, _, _ string, _ []models.SnapshotItem) (int64, error) {
 	a.mu.Lock()
@@ -161,6 +162,20 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
+// newTestProducer wires a Producer's three still-*queries.DB-adjacent
+// dependencies over one database handle, mirroring how app.go's
+// buildProducer wires the real Stores.
+func newTestProducer(db *queries.DB, sources Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *Producer {
+	st := stores.New(db, stores.Options{})
+	return NewProducer(db, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
+}
+
+// readFrom is ReadFrom's test-side equivalent, now that it lives on
+// stores.EventLogStore rather than *queries.DB.
+func readFrom(db *queries.DB, ctx context.Context, offset int64, limit int) ([]models.Msg, int64, error) {
+	return stores.New(db, stores.Options{}).EventLog.ReadFrom(ctx, offset, limit)
+}
+
 func TestProducer_Tick_AppendsMonotonicOffsets(t *testing.T) {
 	t.Parallel()
 
@@ -173,7 +188,7 @@ func TestProducer_Tick_AppendsMonotonicOffsets(t *testing.T) {
 	}}
 
 	var appendedOffsets []int64
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, func(offset int64) {
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, func(offset int64) {
 		appendedOffsets = append(appendedOffsets, offset)
 	}, zerolog.Nop())
 
@@ -181,7 +196,7 @@ func TestProducer_Tick_AppendsMonotonicOffsets(t *testing.T) {
 
 	require.Len(t, appendedOffsets, 1, "one wake-up per tick that appended something")
 
-	msgs, next, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, next, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 3)
 	assert.Equal(t, "a", msgs[0].Key)
@@ -210,7 +225,7 @@ func TestProducer_Tick_SummaryReportsSourcesAppendedFailed(t *testing.T) {
 	ok := &fakeSource{batches: [][]Msg{{{Topic: "source:flow/s1", Key: "a", Payload: []byte(`{"v":1}`)}}}}
 	bad := &fakeSource{err: fmt.Errorf("fetch failed")}
 
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{
 		"flow/s1": ok, "flow/s2": bad,
 	}), time.Hour, func(int64) {}, zerolog.Nop())
 
@@ -227,14 +242,14 @@ func TestProducer_Tick_EmptySnapshot_WakesConsumer(t *testing.T) {
 	src := &fakeSource{} // no batches configured: Produce emits nothing
 
 	woke := false
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, func(int64) {
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, func(int64) {
 		woke = true
 	}, zerolog.Nop())
 
 	producer.Tick(t.Context())
 	assert.True(t, woke, "an empty successful snapshot must wake the frontend for reconciliation")
 
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Empty(t, msgs[0].Snapshot)
@@ -249,7 +264,7 @@ func TestProducer_Tick_SourceErrorDoesNotBlockOthers(t *testing.T) {
 
 	var appendedOffsets []int64
 	recorder := &activityRecorder{}
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{
 		"flow/failing": failing,
 		"flow/ok":      ok,
 	}), time.Hour, func(offset int64) {
@@ -260,7 +275,7 @@ func TestProducer_Tick_SourceErrorDoesNotBlockOthers(t *testing.T) {
 	producer.Tick(t.Context())
 
 	require.Len(t, appendedOffsets, 1, "the healthy source's append still wakes the frontend")
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "x", msgs[0].Key)
@@ -285,7 +300,7 @@ func TestProducer_DedupesUnchangedPayload(t *testing.T) {
 	}}
 
 	var wakeCount int
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, func(int64) {
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, func(int64) {
 		wakeCount++
 	}, zerolog.Nop())
 
@@ -293,7 +308,7 @@ func TestProducer_DedupesUnchangedPayload(t *testing.T) {
 	producer.Tick(t.Context())
 	producer.Tick(t.Context())
 
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 5, "every successful source tick appends its authoritative snapshot")
 	assert.Equal(t, []byte(`{"v":1}`), []byte(msgs[0].Payload))
@@ -316,11 +331,11 @@ func TestProducer_EmptyKeyNeverDeduped(t *testing.T) {
 		{{Topic: "source:flow/s1", Key: "", Payload: []byte(`{"v":1}`)}},
 	}}
 
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, nil, zerolog.Nop())
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), time.Hour, nil, zerolog.Nop())
 
 	producer.Tick(t.Context())
 	producer.Tick(t.Context())
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, msgs, 2, "empty-key messages have no inbox identity; snapshots remain authoritative")
 }
@@ -332,7 +347,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	firstDB, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 
-	first := NewProducer(firstDB, sourcesOf(map[string]connector.PullSource{
+	first := newTestProducer(firstDB, sourcesOf(map[string]connector.PullSource{
 		"flow/s1": &fakeSource{batches: [][]Msg{{{Topic: "source:flow/s1", Key: "a", Payload: []byte(`{"v":1}`)}}}},
 	}), time.Hour, nil, zerolog.Nop())
 	first.Tick(t.Context())
@@ -341,12 +356,12 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	secondDB, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = secondDB.Close() })
-	second := NewProducer(secondDB, sourcesOf(map[string]connector.PullSource{
+	second := newTestProducer(secondDB, sourcesOf(map[string]connector.PullSource{
 		"flow/s1": &fakeSource{batches: [][]Msg{{{Topic: "source:flow/s1", Key: "a", Payload: []byte(`{"v":1}`)}}}},
 	}), time.Hour, nil, zerolog.Nop())
 	second.Tick(t.Context())
 
-	msgs, _, err := secondDB.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(secondDB, t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, msgs, 3, "a restarted producer retains source heads while still appending snapshots")
 }
@@ -361,7 +376,7 @@ func TestProducer_NoSourcesAppendsNothingAndDoesNotWake(t *testing.T) {
 
 	appender := &fakeAppender{}
 	woke := false
-	producer := NewProducer(appender, stubSources{}, time.Hour, func(int64) { woke = true }, zerolog.Nop())
+	producer := NewProducer(appender, appender, appender, stubSources{}, time.Hour, func(int64) { woke = true }, zerolog.Nop())
 
 	producer.Tick(t.Context())
 	assert.Equal(t, 0, appender.callCount())
@@ -380,11 +395,11 @@ func TestProducer_PrefetchFailureStillDrains(t *testing.T) {
 	sources.prefetch = func(context.Context, []connector.Instance) error {
 		return fmt.Errorf("batch request failed")
 	}
-	producer := NewProducer(db, sources, time.Hour, nil, zerolog.Nop())
+	producer := newTestProducer(db, sources, time.Hour, nil, zerolog.Nop())
 
 	producer.Tick(t.Context())
 
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2, "the item and its snapshot should still be appended")
 	assert.Equal(t, "a", msgs[0].Key)
@@ -403,7 +418,7 @@ func TestProducer_StartStop(t *testing.T) {
 		}}
 		var wakeCount int
 		var mu sync.Mutex
-		producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), 10*time.Millisecond, func(int64) {
+		producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": src}), 10*time.Millisecond, func(int64) {
 			mu.Lock()
 			wakeCount++
 			mu.Unlock()
@@ -442,7 +457,7 @@ func TestProducer_MinInterval_SkipsUntilDue(t *testing.T) {
 	}}
 
 	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
-	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer := newTestProducer(db, sources, time.Minute, nil, zerolog.Nop())
 	producer.now = func() time.Time { return now }
 
 	producer.Tick(t.Context())
@@ -465,17 +480,17 @@ func TestProducer_MinInterval_SkippingAppendsNoSnapshot(t *testing.T) {
 	sources := stubSources{instances: []connector.Instance{pullInstanceEvery("flow", "s1", time.Hour, src)}}
 
 	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
-	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer := newTestProducer(db, sources, time.Minute, nil, zerolog.Nop())
 	producer.now = func() time.Time { return now }
 
 	producer.Tick(t.Context())
-	before, _, err := db.ReadFrom(t.Context(), 0, 10)
+	before, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 
 	now = now.Add(time.Minute)
 	producer.Tick(t.Context())
 
-	after, _, err := db.ReadFrom(t.Context(), 0, 10)
+	after, _, err := readFrom(db, t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, after, len(before), "a skipped tick writes nothing at all")
 }
@@ -488,7 +503,7 @@ func TestProducer_Refresh_IgnoresTheCadenceFloor(t *testing.T) {
 	sources := stubSources{instances: []connector.Instance{pullInstanceEvery("flow", "hourly", time.Hour, src)}}
 
 	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
-	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer := newTestProducer(db, sources, time.Minute, nil, zerolog.Nop())
 	producer.now = func() time.Time { return now }
 
 	producer.Tick(t.Context())
@@ -509,7 +524,7 @@ func TestProducer_RepeatedFailureIsAnnouncedOnceAnHour(t *testing.T) {
 
 	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
 	recorder := &activityRecorder{}
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": broken}), time.Minute, nil, zerolog.Nop())
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": broken}), time.Minute, nil, zerolog.Nop())
 	producer.now = func() time.Time { return now }
 	producer.SetRecorder(recorder)
 
@@ -535,7 +550,7 @@ func TestProducer_FailureAfterRecoveryIsAnnouncedImmediately(t *testing.T) {
 
 	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
 	recorder := &activityRecorder{}
-	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": flaky}), time.Minute, nil, zerolog.Nop())
+	producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": flaky}), time.Minute, nil, zerolog.Nop())
 	producer.now = func() time.Time { return now }
 	producer.SetRecorder(recorder)
 
@@ -574,7 +589,7 @@ func TestProducer_ForgetsSourcesThatAreNoLongerConfigured(t *testing.T) {
 	broken := &fakeSource{err: fmt.Errorf("boom")}
 	sources := stubSources{instances: []connector.Instance{pullInstanceEvery("flow", "s1", time.Hour, broken)}}
 
-	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer := newTestProducer(db, sources, time.Minute, nil, zerolog.Nop())
 	producer.SetRecorder(&activityRecorder{})
 	producer.Tick(t.Context())
 

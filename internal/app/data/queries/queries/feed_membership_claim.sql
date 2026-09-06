@@ -31,3 +31,20 @@ WHERE feed_membership_claim.profile_id = ?
 -- name: DeleteUnarchivedFeedMembershipClaimsByProfile :exec
 DELETE FROM feed_membership_claim
 WHERE feed_membership_claim.profile_id = ? AND item_id IN (SELECT id FROM inbox_item WHERE archived_at IS NULL);
+
+-- name: GetFeedIDForItem :one
+-- The lowest feed id is the stable answer when several feeds claim the same
+-- item: any of them reveals it, so this just has to agree with itself across
+-- calls. Ordering (not the sidebar's own) is a frontend concern this leaves
+-- alone.
+SELECT feed_id FROM feed_membership_claim
+WHERE profile_id = ? AND item_id = ?
+ORDER BY feed_id
+LIMIT 1;
+
+-- name: ListFeedIDsForItems :many
+-- One row per (item, its lowest feed id), for callers that list items flat
+-- and need every item's feed without an N+1 of GetFeedIDForItem.
+SELECT item_id, CAST(MIN(feed_id) AS TEXT) AS feed_id FROM feed_membership_claim
+WHERE item_id IN (sqlc.slice(item_ids))
+GROUP BY item_id;

@@ -168,7 +168,7 @@ linters:
         - ruleguard
     interfacebloat:
       # Not the default 10 and not 6. Consumer-defined interfaces here are
-      # narrow — ingest.Appender is four methods, flow.Refs is two — but
+      # narrow — flow.Refs is two methods, ingest.SourceHeads three — but
       # dispatch.OutputCommandStore has seven that are the complete lifecycle
       # of one entity, and the worker calls all seven. Splitting it to satisfy
       # a linter is the opposite of the rule's intent.

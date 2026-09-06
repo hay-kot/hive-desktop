@@ -35,7 +35,7 @@ type itemLocatorTest struct {
 	err error
 }
 
-func (l itemLocatorTest) InboxItemID(context.Context, string, string, string, string) (int64, error) {
+func (l itemLocatorTest) IDByExternalID(context.Context, string, string, string, string) (int64, error) {
 	return l.id, l.err
 }
 

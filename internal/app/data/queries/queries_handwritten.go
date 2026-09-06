@@ -2,35 +2,7 @@ package queries
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"fmt"
-	"time"
-
-	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
-
-// AppendSnapshot is the Queries-level form of DB.AppendSnapshot, so
-// transactional callers can append a snapshot atomically with other
-// writes.
-func (q *Queries) AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (int64, error) {
-	payload, err := json.Marshal(items)
-	if err != nil {
-		return 0, fmt.Errorf("encoding source snapshot for topic %q: %w", topic, err)
-	}
-	offset, err := q.AppendEvent(ctx, AppendEventParams{
-		Topic:      topic,
-		Key:        "",
-		Payload:    payload,
-		CreatedAt:  time.Now().UnixMilli(),
-		Snapshot:   1,
-		SourceKind: sourceKind, SourceScope: sourceScope, OccurrenceKey: sql.NullString{},
-	})
-	if err != nil {
-		return 0, fmt.Errorf("appending source snapshot for topic %q: %w", topic, err)
-	}
-	return offset, nil
-}
 
 const getEventLogTailOffset = `
 SELECT CAST(COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'event_log'), 0) AS INTEGER)

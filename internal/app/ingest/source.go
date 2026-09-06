@@ -11,6 +11,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
@@ -40,11 +41,22 @@ type FlowLister interface {
 	List() []flow.Flow
 }
 
-// Appender is the subset of *queries.DB a Producer needs.
-type Appender interface {
+// Ingester is the cross-table write a Producer drives every tick. It stays
+// on *queries.DB until phase 3b moves IngestObservation onto a store.
+type Ingester interface {
 	IngestObservation(ctx context.Context, classifier models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error)
+}
+
+// SnapshotAppender appends a source's authoritative item set after a
+// successful poll. Satisfied by *stores.EventLogStore.
+type SnapshotAppender interface {
 	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (offset int64, err error)
-	ListActiveSourceHeadKeys(ctx context.Context, id queries.SourceIdentity) ([]string, error)
-	SourceHeadPayload(ctx context.Context, topic, key string) ([]byte, error)
-	DeleteSourceHead(ctx context.Context, topic, key string) error
+}
+
+// SourceHeads is what a Producer needs to detect and evict absent items.
+// Satisfied by *stores.SourceHeadStore.
+type SourceHeads interface {
+	ListActiveKeys(ctx context.Context, id stores.SourceIdentity) ([]string, error)
+	Payload(ctx context.Context, topic, key string) ([]byte, error)
+	Delete(ctx context.Context, topic, key string) error
 }

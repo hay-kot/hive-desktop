@@ -15,6 +15,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
@@ -47,7 +48,9 @@ import (
 // ingestion, and generic ingestion of a GitHub item is wrong rather than
 // merely plain.
 type Producer struct {
-	db          Appender
+	ingester    Ingester
+	snapshots   SnapshotAppender
+	heads       SourceHeads
 	sources     Sources
 	intervalMu  sync.Mutex
 	interval    time.Duration
@@ -81,9 +84,11 @@ func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = dur
 // choice of default (App passes feed.DefaultPollInterval); Producer itself
 // has no opinion on the default so this package does not need to import feed
 // just for a constant.
-func NewProducer(db Appender, sources Sources, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
+func NewProducer(ingester Ingester, snapshots SnapshotAppender, heads SourceHeads, sources Sources, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
 	return &Producer{
-		db:          db,
+		ingester:    ingester,
+		snapshots:   snapshots,
+		heads:       heads,
 		sources:     sources,
 		interval:    interval,
 		intervalCh:  make(chan time.Duration, 1),
@@ -336,7 +341,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		if msg.SourceKind != "" {
 			kind = msg.SourceKind
 		}
-		result, err := pr.db.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+		result, err := pr.ingester.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
 		if err != nil {
 			return err
 		}
@@ -356,7 +361,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		pr.confirmAbsent(ctx, instance, meta, classifier, observed, &out)
 	}
 
-	offset, err := pr.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
+	offset, err := pr.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
 		pr.recordFailure(ctx, id, err)
@@ -376,7 +381,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 
-	keys, err := pr.db.ListActiveSourceHeadKeys(ctx, queries.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
+	keys, err := pr.heads.ListActiveKeys(ctx, stores.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
@@ -387,7 +392,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if _, present := observed[key]; present {
 			continue
 		}
-		payload, err := pr.db.SourceHeadPayload(ctx, topic, key)
+		payload, err := pr.heads.Payload(ctx, topic, key)
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: reading source head failed")
 			continue
@@ -414,7 +419,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if !ok || v.Current == nil {
 			continue
 		}
-		result, err := pr.db.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
+		result, err := pr.ingester.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
@@ -427,7 +432,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// short-circuit still leaves the head row in place, and deleting
 		// before the ingest would be undone by its UpsertSourceHead.
 		if v.Terminal {
-			if err := pr.db.DeleteSourceHead(ctx, topic, prev.ExternalID); err != nil {
+			if err := pr.heads.Delete(ctx, topic, prev.ExternalID); err != nil {
 				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
 			}
 		}

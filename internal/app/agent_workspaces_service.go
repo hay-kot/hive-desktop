@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
@@ -51,14 +51,14 @@ const (
 // AgentWorkspacesService opens agent workspaces and drives the sessions run
 // inside them: an agent CLI in a tmux session named agentws-<record id>,
 // resolved through the launch table in agentws (autonomy flags, MCP wiring,
-// session/resume args) and addressed by a durable queries.AgentWorkspaceSession
+// session/resume args) and addressed by a durable stores.AgentSession
 // record. Sessions are tmux's, not this process's -- they outlive App.Close
 // by design, which is what makes reopening a codex session (no resume form)
 // a real reattach instead of a fresh relaunch.
 type AgentWorkspacesService struct {
 	store     *agentws.Store
 	terminals *tmuxcc.Manager
-	db        *queries.DB
+	sessions  *stores.AgentSessionStore
 	skills    *SkillsService
 	// profileCommands is agentCommands' result (app.go): hive's configured
 	// agent profiles projected onto a full command line, flags included. It
@@ -84,8 +84,8 @@ type AgentWorkspacesService struct {
 	mcpBase func(context.Context) string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *queries.DB, skills *SkillsService, profileCommands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, profileCommands: profileCommands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, sessions *stores.AgentSessionStore, skills *SkillsService, profileCommands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, sessions: sessions, skills: skills, profileCommands: profileCommands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
 }
 
 // catalogue is the merged catalogue with this install's own entries resolved.
@@ -292,7 +292,7 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 		return OpenResult{}, Wrap(err, KindInternal, "generating workspace %q", dir)
 	}
 
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return OpenResult{}, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
@@ -320,7 +320,7 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	if !validWorkspaceDir(dir) {
 		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 	}
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
@@ -341,10 +341,10 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 // live tmux session is omitted rather than reported dead -- a row's
 // TerminalID already carries that.
 func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string) ([]SessionActivityItem, error) {
-	var records []queries.AgentWorkspaceSession
+	var records []stores.AgentSession
 	var err error
 	if dir == "" {
-		records, err = s.db.ListAllAgentWorkspaceSessions(ctx)
+		records, err = s.sessions.ListAll(ctx)
 		if err != nil {
 			return nil, Wrap(err, KindInternal, "listing all sessions")
 		}
@@ -352,7 +352,7 @@ func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string
 		if !validWorkspaceDir(dir) {
 			return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 		}
-		records, err = s.db.ListAgentWorkspaceSessions(ctx, dir)
+		records, err = s.sessions.List(ctx, dir)
 		if err != nil {
 			return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 		}
@@ -388,10 +388,8 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
 
-	now := time.Now().UnixMilli()
-	rec, err := s.db.CreateAgentWorkspaceSession(ctx, queries.AgentWorkspaceSession{
+	rec, err := s.sessions.Create(ctx, stores.AgentSessionCreate{
 		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
-		CreatedAt: now, LastOpenedAt: now,
 	})
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "creating session %q", req.Name)
@@ -409,7 +407,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 // relaunches fresh, silently, instead of dying on the agent's own
 // unknown-session error.
 func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, ok, err := s.sessions.Get(ctx, id)
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "loading session %d", id)
 	}
@@ -427,7 +425,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		if err != nil {
 			return SessionView{}, err
 		}
-		if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
+		if err := s.sessions.Touch(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
 			return SessionView{}, Wrap(err, KindInternal, "recording session %q as opened", rec.Name)
 		}
 		return SessionView{
@@ -472,7 +470,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 
 	if sessionID != rec.AgentSessionID {
-		if err := s.db.SetAgentWorkspaceSessionAgentID(ctx, rec.ID, sessionID); err != nil {
+		if err := s.sessions.SetAgentID(ctx, rec.ID, sessionID); err != nil {
 			return SessionView{}, Wrap(err, KindInternal, "recording session %q", rec.Name)
 		}
 		rec.AgentSessionID = sessionID
@@ -484,7 +482,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 // CloseSession ends a session's live tmux session and reports whether there
 // was one running. The record is untouched, so it still lists afterward.
 func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bool, error) {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, ok, err := s.sessions.Get(ctx, id)
 	if err != nil {
 		return false, Wrap(err, KindInternal, "loading session %d", id)
 	}
@@ -506,14 +504,14 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 	if name == "" {
 		return Errorf(KindInvalid, "a session needs a name")
 	}
-	_, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	_, ok, err := s.sessions.Get(ctx, id)
 	if err != nil {
 		return Wrap(err, KindInternal, "loading session %d", id)
 	}
 	if !ok {
 		return Errorf(KindNotFound, "session %d not found", id)
 	}
-	return Wrap(s.db.RenameAgentWorkspaceSession(ctx, id, name), KindInternal, "renaming session %d", id)
+	return Wrap(s.sessions.Rename(ctx, id, name), KindInternal, "renaming session %d", id)
 }
 
 // DeleteSession ends any live tmux session, then removes the record. The
@@ -521,7 +519,7 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 // the record around a live one would orphan a running agent no UI could
 // address again until it happened to be found by name.
 func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) error {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, ok, err := s.sessions.Get(ctx, id)
 	if err != nil {
 		return Wrap(err, KindInternal, "loading session %d", id)
 	}
@@ -531,7 +529,7 @@ func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) er
 	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
 		return terminalError(err, "closing session %q", rec.Name)
 	}
-	if err := s.db.DeleteAgentWorkspaceSession(ctx, id); err != nil {
+	if err := s.sessions.Delete(ctx, id); err != nil {
 		return Wrap(err, KindInternal, "deleting session %q", rec.Name)
 	}
 	return nil
@@ -550,7 +548,7 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if _, err := s.knownWorkspaceDir(dir); err != nil {
 		return err
 	}
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
@@ -562,7 +560,7 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if err := agentws.RemoveWorkspace(s.store.Root(), dir); err != nil {
 		return Wrap(err, KindInternal, "deleting workspace %q", dir)
 	}
-	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
+	if err := s.sessions.DeleteByWorkspace(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
 	}
 	if err := s.store.Reload(); err != nil {
@@ -969,7 +967,7 @@ func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (Wo
 // stream with a window 'resized' event, which is what actually sets the
 // pane's grid; see AgentsMode's resize wiring.
 func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, cols, rows int) error {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, ok, err := s.sessions.Get(ctx, id)
 	if err != nil {
 		return Wrap(err, KindInternal, "loading session %d", id)
 	}
@@ -990,7 +988,7 @@ func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, co
 // StartSession and ResumeSession's relaunch branch always want a fresh
 // session here — ResumeSession's still-alive branch attaches directly
 // instead, without going through this method.
-func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec queries.AgentWorkspaceSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
+func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.AgentSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
 	count, err := s.liveSessionCount(ctx)
 	if err != nil {
 		return SessionView{}, terminalError(err, "counting live agent sessions")
@@ -1011,7 +1009,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec queries
 		return SessionView{}, terminalError(err, "launching session %q", rec.Name)
 	}
 
-	if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
+	if err := s.sessions.Touch(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "recording session %q as opened", rec.Name)
 	}
 
@@ -1188,7 +1186,7 @@ func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceS
 // sessionView reports a session record's current, read-only state -- unlike
 // launchTerminal's view, this never launches or attaches anything, so
 // WindowID, ResumeAttempted and Notice stay zero-valued.
-func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec queries.AgentWorkspaceSession) SessionView {
+func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec stores.AgentSession) SessionView {
 	name := sessionName(rec.ID)
 	live := ""
 	if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
@@ -1276,7 +1274,7 @@ func skillIDFromSlug(slug string) (id string, ok bool) {
 // first — the sidebar's cross-workspace read, unlike Sessions which scopes
 // to one workspace.
 func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView, error) {
-	records, err := s.db.ListAllAgentWorkspaceSessions(ctx)
+	records, err := s.sessions.ListAll(ctx)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing all sessions")
 	}

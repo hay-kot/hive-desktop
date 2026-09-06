@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
@@ -43,9 +46,17 @@ func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *quer
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
+	st := stores.New(db, stores.Options{})
+
 	var lastOffset int64
-	listener := NewListener(db, instances, "127.0.0.1", 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
+	listener := NewListener(db, st.EventLog, st.WebhookCaptures, st.InboxItems, instances, "127.0.0.1", 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
 	return listener, db, &lastOffset
+}
+
+// readForConsumer is ReadForConsumer's test-side equivalent, now that it
+// lives on stores.EventLogStore rather than *queries.DB.
+func readForConsumer(db *queries.DB, ctx context.Context, consumer string, limit int) ([]models.Msg, error) {
+	return stores.New(db, stores.Options{}).EventLog.ReadForConsumer(ctx, consumer, limit)
 }
 
 func postHook(t *testing.T, handler http.Handler, path, body string, headers map[string]string) *httptest.ResponseRecorder {
@@ -78,7 +89,7 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 	assert.JSONEq(t, body, string(item.Payload))
 
 	// One routed observation row plus one authoritative snapshot row.
-	msgs, err := db.ReadForConsumer(ctx, "triage", 10)
+	msgs, err := readForConsumer(db, ctx, "triage", 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "source:triage/hook", msgs[0].Topic)
@@ -145,7 +156,7 @@ func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", body, nil).Code)
 
 	ctx := t.Context()
-	msgs, err := db.ReadForConsumer(ctx, "triage", 10)
+	msgs, err := readForConsumer(db, ctx, "triage", 10)
 	require.NoError(t, err)
 	assert.Len(t, msgs, 2, "an unchanged re-delivery must not append new event rows")
 
@@ -171,7 +182,7 @@ func TestWebhookListenerUpdatesChangedBodySameID(t *testing.T) {
 	assert.JSONEq(t, `{"id":"x","n":2}`, string(item.Payload))
 
 	// Snapshot still contains exactly one item for the key.
-	msgs, err := db.ReadForConsumer(ctx, "triage", 10)
+	msgs, err := readForConsumer(db, ctx, "triage", 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 4)
 	assert.Len(t, msgs[3].Snapshot, 1)

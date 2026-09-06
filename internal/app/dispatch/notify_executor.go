@@ -78,9 +78,9 @@ type NotificationGate interface {
 }
 
 // InboxItemLocator resolves the durable inbox row a notification came from,
-// so a click can select that item. Implemented by *queries.DB.
+// so a click can select that item. Satisfied by *stores.InboxItemStore.
 type InboxItemLocator interface {
-	InboxItemID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
+	IDByExternalID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
 }
 
 // NotifyExecutor delivers a notify terminal's queued command as a native
@@ -218,7 +218,7 @@ func (e *NotifyExecutor) clickData(ctx context.Context, cmd models.NotifyCommand
 	if e.items == nil {
 		return data
 	}
-	itemID, err := e.items.InboxItemID(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID)
+	itemID, err := e.items.IDByExternalID(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID)
 	if err != nil {
 		e.logger.Warn().Err(err).Str("profile_id", cmd.ProfileID).Msg("notify: resolving notification item failed")
 		return data

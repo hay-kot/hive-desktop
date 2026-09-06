@@ -10,6 +10,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
 
@@ -97,14 +98,18 @@ var mockInboxItems = []feed.Item{
 
 // seedMockInboxItems writes deterministic inbox rows directly rather than
 // using the ingestion transaction. This is intentionally fixture-only.
-func seedMockInboxItems(ctx context.Context, db *queries.DB) error {
-	return db.WithinTx(ctx, seedMockInboxItemsTx)
+func seedMockInboxItems(ctx context.Context, db *queries.DB, logs *stores.EventLogStore) error {
+	return db.WithinTx(ctx, func(ctx context.Context, tx *queries.DB) error {
+		return seedMockInboxItemsTx(ctx, tx, logs)
+	})
 }
 
 // seedMockInboxItemsTx is the transaction-scoped seed body. Startup seeding
 // wraps it in its own transaction; the /_e2e/reset harness reuses it inside
 // ResetAllState's wipe transaction so the delete and reseed commit atomically.
-func seedMockInboxItemsTx(ctx context.Context, db *queries.DB) error {
+// logs.AppendSnapshot joins the same transaction through the ambient context
+// WithinTx set up, regardless of which *queries.DB backs it.
+func seedMockInboxItemsTx(ctx context.Context, db *queries.DB, logs *stores.EventLogStore) error {
 	if len(mockItemAges) != len(mockInboxItems) {
 		return fmt.Errorf("mock seed: %d ages for %d items", len(mockItemAges), len(mockInboxItems))
 	}
@@ -142,7 +147,7 @@ func seedMockInboxItemsTx(ctx context.Context, db *queries.DB) error {
 		}
 		snapshot = append(snapshot, models.SnapshotItem{Key: item.ID, Payload: payload})
 	}
-	if _, err := q.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
+	if _, err := logs.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
 		return fmt.Errorf("mock seed: append source snapshot: %w", err)
 	}
 	return nil
@@ -156,14 +161,17 @@ func boolToInt64(b bool) int64 {
 }
 
 // mockSeeder adapts the fixture body to queries.Seeder.
-type mockSeeder struct{ db *queries.DB }
-
-func (s mockSeeder) Seed(ctx context.Context) error {
-	return seedMockInboxItemsTx(ctx, s.db)
+type mockSeeder struct {
+	db   *queries.DB
+	logs *stores.EventLogStore
 }
 
-func SeedMockInboxItemsOrWarn(ctx context.Context, db *queries.DB, logger zerolog.Logger) {
-	if err := seedMockInboxItems(ctx, db); err != nil {
+func (s mockSeeder) Seed(ctx context.Context) error {
+	return seedMockInboxItemsTx(ctx, s.db, s.logs)
+}
+
+func SeedMockInboxItemsOrWarn(ctx context.Context, db *queries.DB, logs *stores.EventLogStore, logger zerolog.Logger) {
+	if err := seedMockInboxItems(ctx, db, logs); err != nil {
 		logger.Warn().Err(err).Msg("mock inbox seed failed")
 	}
 }

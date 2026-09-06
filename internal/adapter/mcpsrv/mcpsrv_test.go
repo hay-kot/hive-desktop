@@ -82,7 +82,7 @@ func testSession(t *testing.T, seedConfig ...func(t *testing.T, configDir string
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
 	t.Helper()
-	item, err := core.Store.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
+	item, err := core.PipelineDB().InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: profile, SourceKind: "github", SourceScope: "s", ExternalID: external,
 		Payload: []byte(payload), Lifecycle: "active",
 	})
@@ -169,16 +169,16 @@ func TestInboxToolsMatchGolden(t *testing.T) {
 	core, session := testSession(t)
 	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
 
-	item, err := core.Store.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
+	item, err := core.PipelineDB().InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: "hooks", SourceKind: "webhook", SourceScope: "ci", ExternalID: "golden-1",
 		Title: "Golden item", Url: "https://example.test/items/golden-1", Payload: []byte(`{"number":1}`),
 		Unread: 1, Lifecycle: "active", FirstSeenAt: 1_700_000_000_000, LastEventAt: 1_700_000_001_000,
 	})
 	require.NoError(t, err)
-	require.NoError(t, core.Store.UpsertFeedMembershipClaim(t.Context(), queries.UpsertFeedMembershipClaimParams{
+	require.NoError(t, core.PipelineDB().UpsertFeedMembershipClaim(t.Context(), queries.UpsertFeedMembershipClaimParams{
 		ProfileID: "hooks", FeedID: "hooks/inbox", ItemID: item.ID, SourceID: "source:hooks/hook",
 	}))
-	_, err = core.Store.InsertInboxEvent(t.Context(), queries.InsertInboxEventParams{
+	_, err = core.PipelineDB().InsertInboxEvent(t.Context(), queries.InsertInboxEventParams{
 		ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Summary: sql.NullString{String: "Golden event", Valid: true},
 		Detail: []byte(`{"changed":"title"}`), CreatedAt: 1_700_000_002_000,
 	})
@@ -456,9 +456,9 @@ func TestListItemSessionsResolvesAnItemAndReconcilesOnRead(t *testing.T) {
 	assert.Contains(t, callErr(t, session, "list_item_sessions", map[string]any{"externalId": "PR_1"}),
 		string(app.KindConflict), "one external id matched two items")
 
-	ref, err := core.Store.ItemRefByID(t.Context(), id)
+	ref, err := core.Stores.InboxItems.RefByID(t.Context(), id)
 	require.NoError(t, err)
-	require.NoError(t, core.Store.LinkItemSession(t.Context(), "sess-a", ref))
+	require.NoError(t, core.Stores.ItemSessions.Link(t.Context(), "sess-a", ref))
 
 	var got struct {
 		Sessions []struct {
@@ -468,7 +468,7 @@ func TestListItemSessionsResolvesAnItemAndReconcilesOnRead(t *testing.T) {
 	call(t, session, "list_item_sessions", map[string]any{"itemId": id}, &got)
 	assert.Empty(t, got.Sessions, "a link hive cannot account for is dropped rather than reported as a ghost")
 
-	links, err := core.Store.ItemSessions(t.Context(), ref)
+	links, err := core.Stores.ItemSessions.List(t.Context(), ref)
 	require.NoError(t, err)
 	assert.Empty(t, links)
 }
