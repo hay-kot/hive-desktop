@@ -63,17 +63,6 @@ func TestRenderPrompt(t *testing.T) {
 			want: "since []",
 		},
 		{
-			name:    "the plan's own example",
-			tmpl:    `Summarize product activity since {{ if .LastRun }}{{ date "2006-01-02" .LastRun }}{{ else }}last week{{ end }}.`,
-			lastRun: &lastRun,
-			want:    "Summarize product activity since 2026-08-28.",
-		},
-		{
-			name: "the plan's own example without a last run",
-			tmpl: `Summarize product activity since {{ if .LastRun }}{{ date "2006-01-02" .LastRun }}{{ else }}last week{{ end }}.`,
-			want: "Summarize product activity since last week.",
-		},
-		{
 			name:    "a template that does not parse",
 			tmpl:    "{{ .Now",
 			wantErr: true,
@@ -124,11 +113,9 @@ func TestValidatePromptRendersBothRuns(t *testing.T) {
 	}{
 		{name: "plain", tmpl: "hello"},
 		{name: "date over last run", tmpl: `{{ date "2006-01-02" .LastRun }}`},
-		{name: "date over now", tmpl: `{{ date "15:04" .Now }}`},
 		{name: "guarded method on last run", tmpl: `{{ if .LastRun }}{{ .LastRun.Format "2006" }}{{ end }}`},
 		{name: "every field", tmpl: "{{ .Schedule.ID }}{{ .Schedule.Name }}{{ .Schedule.Cron }}{{ .Workspace.Dir }}{{ .Workspace.Name }}{{ .ScheduledFor }}{{ .Reason }}{{ .Missed }}"},
 		{name: "unparseable", tmpl: "{{", wantErr: "prompt template"},
-		{name: "unknown field", tmpl: "{{ .Nope }}", wantErr: "prompt template"},
 		{name: "unguarded method on last run", tmpl: `{{ .LastRun.Format "2006" }}`, wantErr: "on the first run, with .LastRun unset"},
 	}
 

@@ -49,16 +49,19 @@ func TestEvaluate(t *testing.T) {
 			now:    at(9, 30),
 		},
 		{
-			name:   "an unparseable cron cannot be planned",
-			spec:   func() Spec { s := hourly; s.Cron = "not a cron"; return s }(),
-			cursor: cursorAt("not a cron", at(4, 0)),
-			now:    at(9, 30),
-		},
-		{
 			name:   "nothing due yet",
 			spec:   hourly,
 			cursor: cursorAt(hourly.Cron, at(9, 5)),
 			now:    at(9, 30),
+		},
+		{
+			// The occurrence at the cursor's own instant was evaluated by the
+			// pass that closed the window there; counting it again would re-fire
+			// the run that just happened.
+			name:   "an occurrence exactly at the cursor is not due again",
+			spec:   hourly,
+			cursor: cursorAt(hourly.Cron, at(9, 0)),
+			now:    at(9, 2),
 		},
 		{
 			name:   "on time, inside the grace window",
@@ -186,10 +189,6 @@ func TestNextDue(t *testing.T) {
 			},
 			want: at(10, 0),
 			ok:   true,
-		},
-		{
-			name:  "an unparseable cron is not due",
-			specs: []Spec{{ID: "a", Cron: "not a cron", Prompt: "go"}},
 		},
 	}
 

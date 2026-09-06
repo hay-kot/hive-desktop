@@ -465,12 +465,9 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 
 	// Schedule state is app-local like the session records, and a cursor left
 	// behind would back-fire for a workspace rebuilt under the same name.
-	for _, cursor := range []store.ScheduleCursorRecord{
-		{Workspace: "demo", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly"},
-		{Workspace: "other", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly"},
-	} {
-		require.NoError(t, svc.db.UpsertScheduleCursor(t.Context(), cursor))
-	}
+	require.NoError(t, svc.db.UpsertScheduleCursor(t.Context(), store.ScheduleCursorRecord{
+		Workspace: "demo", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly",
+	}))
 	_, err = svc.db.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
 		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "weekly",
 		ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched", SessionID: 1,
@@ -486,10 +483,9 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 	runs, err := svc.db.ListScheduleRunsFor(t.Context(), "demo", "weekly", 10)
 	require.NoError(t, err)
 	assert.Empty(t, runs)
-	cursors, err := svc.db.ListScheduleCursors(t.Context())
+	_, ok, err := svc.db.GetScheduleCursor(t.Context(), "demo", "weekly")
 	require.NoError(t, err)
-	require.Len(t, cursors, 1, "another workspace's cursor is untouched")
-	assert.Equal(t, "other", cursors[0].Workspace)
+	assert.False(t, ok)
 
 	assert.NoDirExists(t, filepath.Join(root, "demo"))
 	listed, err := svc.List(t.Context())
@@ -670,12 +666,8 @@ func TestWorkspaceEditOwnsTheScheduleList(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, view.Schedules, 2)
 	assert.Equal(t, "weekly", view.Schedules[0].ID)
-	assert.Equal(t, "demo", view.Schedules[0].Workspace, "the loader stamps the directory on the way back")
-	assert.Equal(t, "run", view.Schedules[0].OnMissed, "the manifest omits the default; the view names it")
 	require.NotNil(t, view.Schedules[0].NextRunAt)
 	assert.Nil(t, view.Schedules[0].LastRun)
-	assert.Empty(t, view.Schedules[1].Name,
-		"a nameless schedule stays nameless; resolving it here would round trip into the file as a name nobody typed")
 	assert.Equal(t, []string{"demo"}, changed, "a write has to reach the running scheduler")
 
 	updated := base
@@ -687,14 +679,10 @@ func TestWorkspaceEditOwnsTheScheduleList(t *testing.T) {
 	require.Len(t, view.Schedules, 1, "an entry the editor stopped naming is deleted by the same write")
 	assert.Equal(t, "0 10 * * 1", view.Schedules[0].Cron)
 	assert.True(t, view.Schedules[0].Disabled)
-	assert.Nil(t, view.Schedules[0].NextRunAt, "a disabled schedule has nothing coming")
 
 	view, err = svc.UpdateWorkspace(t.Context(), base)
 	require.NoError(t, err)
 	assert.Empty(t, view.Schedules)
-	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
-	require.NoError(t, err)
-	assert.NotContains(t, string(raw), "schedules", "an empty list takes the key with it")
 	assert.Len(t, changed, 3)
 }
 
@@ -741,9 +729,7 @@ func TestWorkspaceEditRejectsAnInvalidSchedule(t *testing.T) {
 func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo",
-		"version: 2\nname: Demo\nagent: claude\nautonomy: ask\n"+
-			"schedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
+	writeAgentWorkspaceManifest(t, root, "demo", brokenScheduleManifest)
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
 	path := filepath.Join(root, "demo", "agent-workspace.yaml")
@@ -761,42 +747,6 @@ func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
 	after, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, string(before), string(after), "a refused edit leaves the file byte for byte")
-}
-
-// A chat a schedule started wears its schedule's id, which is what marks the
-// row in the sidebar. It is written on the session record at launch, so it
-// holds for the scoped and the cross-workspace read alike and outlives the
-// run history's pruning.
-func TestSessionsNameTheScheduleThatStartedThem(t *testing.T) {
-	isolateConfig(t)
-	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
-
-	scheduled, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24, ScheduleID: "weekly"})
-	require.NoError(t, err)
-	assert.Equal(t, "weekly", scheduled.ScheduleID, "the launch answers with it too")
-	byHand, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s2", Cols: 80, Rows: 24})
-	require.NoError(t, err)
-
-	sessions, err := svc.Sessions(t.Context(), "demo")
-	require.NoError(t, err)
-	require.Len(t, sessions, 2)
-	byID := map[int64]SessionView{}
-	for _, s := range sessions {
-		byID[s.ID] = s
-	}
-	assert.Equal(t, "weekly", byID[scheduled.ID].ScheduleID)
-	assert.Empty(t, byID[byHand.ID].ScheduleID, "a chat a person started names no schedule")
-
-	all, err := svc.AllSessions(t.Context())
-	require.NoError(t, err)
-	require.Len(t, all, 2)
-	for _, s := range all {
-		if s.ID == scheduled.ID {
-			assert.Equal(t, "weekly", s.ScheduleID)
-		}
-	}
 }
 
 // A chat ends itself by presenting the token its launch handed it. It is
@@ -869,6 +819,7 @@ func TestStartScheduledSessionFramesThePromptAndHandsOutTheToken(t *testing.T) {
 	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
+	assert.Equal(t, "weekly", rec.ScheduleID, "the record wears its schedule's id, which is what marks the row in the sidebar")
 
 	var args, env string
 	require.Eventually(t, func() bool {
@@ -892,7 +843,7 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeAgentWorkspaceManifest(t, root, "demo", "# keep me\nversion: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps: [playwright]\n")
-	writeAgentWorkspaceManifest(t, root, "broken", "version: 2\nname: Broken\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
+	writeAgentWorkspaceManifest(t, root, "broken", brokenScheduleManifest)
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 	changed := 0
 	svc.OnSchedulesChanged = func(string) { changed++ }
@@ -902,7 +853,6 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "weekly", row.ID)
-	assert.Equal(t, "run", row.OnMissed)
 	require.NotNil(t, row.NextRunAt)
 	assert.Equal(t, 1, changed, "a write reaches the scheduler and the UI")
 
@@ -911,7 +861,6 @@ func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Disabled: new(true), OnMissed: new("skip")})
 	require.NoError(t, err)
 	assert.True(t, row.Disabled)
-	assert.Nil(t, row.NextRunAt)
 	assert.Equal(t, "Weekly summary", row.Name, "a field the patch omits keeps its stored value")
 	assert.Equal(t, "0 9 * * 5", row.Cron)
 

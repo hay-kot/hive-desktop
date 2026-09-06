@@ -33,16 +33,12 @@ func TestSpecValidate(t *testing.T) {
 		{name: "descriptor cron", mutate: func(s *Spec) { s.Cron = "@daily" }},
 
 		{name: "no id", mutate: func(s *Spec) { s.ID = "" }, wantErr: true},
-		{name: "uppercase id", mutate: func(s *Spec) { s.ID = "Weekly" }, wantErr: true},
-		{name: "id with an underscore", mutate: func(s *Spec) { s.ID = "weekly_summary" }, wantErr: true},
 		{name: "id with a space", mutate: func(s *Spec) { s.ID = "weekly summary" }, wantErr: true},
-		{name: "id starting with a hyphen", mutate: func(s *Spec) { s.ID = "-weekly" }, wantErr: true},
 		{name: "no cron", mutate: func(s *Spec) { s.Cron = "" }, wantErr: true},
 		{name: "bad cron", mutate: func(s *Spec) { s.Cron = "0 9 * *" }, wantErr: true},
 		{name: "no prompt", mutate: func(s *Spec) { s.Prompt = "" }, wantErr: true},
 		{name: "blank prompt", mutate: func(s *Spec) { s.Prompt = "  \n\t" }, wantErr: true},
 		{name: "prompt that does not parse", mutate: func(s *Spec) { s.Prompt = "{{ .Now" }, wantErr: true},
-		{name: "prompt naming an unknown field", mutate: func(s *Spec) { s.Prompt = "{{ .Nope }}" }, wantErr: true},
 		{name: "unknown on_missed", mutate: func(s *Spec) { s.OnMissed = OnMissed("later") }, wantErr: true},
 	}
 

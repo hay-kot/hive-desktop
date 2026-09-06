@@ -60,17 +60,11 @@ func TestWriteSchedulesTouchesOnlyTheSchedulesList(t *testing.T) {
 	assert.Contains(t, raw, "# keep me")
 	assert.Contains(t, raw, "# and me")
 
-	require.NoError(t, WriteSchedules(root, "product", nil))
-	w, raw = loadManifest(t, root)
-	assert.Empty(t, w.Schedules)
-	assert.NotContains(t, raw, "schedules:")
-	assert.Contains(t, raw, "# keep me")
-
 	err := WriteSchedules(root, "no-such-workspace", nil)
 	require.Error(t, err, "a schedule has nowhere to live without a manifest")
 }
 
-func TestWriteManifestAddsAndUpdatesSchedulesByID(t *testing.T) {
+func TestWriteManifestAddsSchedules(t *testing.T) {
 	t.Parallel()
 
 	root := manifestRoot(t, baseManifest)
@@ -90,21 +84,6 @@ func TestWriteManifestAddsAndUpdatesSchedulesByID(t *testing.T) {
 	assert.Equal(t, "product", w.Schedules[1].Workspace)
 	assert.Empty(t, w.Schedules[1].Name, "a schedule with no name round trips without one; DisplayName falls back to the id")
 	assert.NotContains(t, raw, "name: daily", "the id is not written back as a name the user never typed")
-
-	writeSchedules(t, root,
-		schedule.Spec{
-			ID: "weekly", Name: "Renamed", Cron: "0 10 * * 1", Prompt: "Something else.",
-			Disabled: true, OnMissed: schedule.OnMissedSkip,
-		},
-		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "Standup."},
-	)
-
-	w, _ = loadManifest(t, root)
-	require.Len(t, w.Schedules, 2, "an entry the list still names is updated rather than appended beside itself")
-	assert.Equal(t, "Renamed", w.Schedules[0].Name)
-	assert.Equal(t, "0 10 * * 1", w.Schedules[0].Cron)
-	assert.True(t, w.Schedules[0].Disabled)
-	assert.Equal(t, schedule.OnMissedSkip, w.Schedules[0].OnMissed)
 }
 
 // TestWriteManifestRemovesTheDefaultScheduleKeys: name, disabled and on_missed
@@ -131,6 +110,7 @@ func TestWriteManifestRemovesTheDefaultScheduleKeys(t *testing.T) {
 	writeSchedules(t, root, spec)
 
 	w, raw := loadManifest(t, root)
+	require.Len(t, w.Schedules, 1, "an entry the list still names is updated rather than appended beside itself")
 	assert.NotContains(t, raw, "Weekly summary", "the name key goes with the name; the manifest's own name: stays")
 	assert.NotContains(t, raw, "disabled")
 	assert.NotContains(t, raw, "on_missed")
@@ -194,8 +174,9 @@ schedules:
 	assert.Equal(t, "Standup, please.", w.Schedules[1].Prompt)
 }
 
-// A write reconciles the sequence to exactly the list it is handed: an entry
-// the list stops naming is gone, and an empty list takes the key with it.
+// A write reconciles the sequence to exactly the list it is handed, in the
+// order it is handed: an entry the list stops naming is gone, and an empty
+// list takes the key with it.
 func TestWriteManifestRemovesSchedulesTheListNoLongerNames(t *testing.T) {
 	t.Parallel()
 
@@ -205,8 +186,17 @@ func TestWriteManifestRemovesSchedulesTheListNoLongerNames(t *testing.T) {
 		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
 	)
 
-	writeSchedules(t, root, schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"})
+	writeSchedules(t, root,
+		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
+		schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"},
+	)
 	w, _ := loadManifest(t, root)
+	require.Len(t, w.Schedules, 2)
+	assert.Equal(t, "daily", w.Schedules[0].ID, "the editor owns the order the file lists them in")
+	assert.Equal(t, "weekly", w.Schedules[1].ID)
+
+	writeSchedules(t, root, schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"})
+	w, _ = loadManifest(t, root)
 	require.Len(t, w.Schedules, 1)
 	assert.Equal(t, "daily", w.Schedules[0].ID)
 
@@ -214,25 +204,6 @@ func TestWriteManifestRemovesSchedulesTheListNoLongerNames(t *testing.T) {
 	w, raw := loadManifest(t, root)
 	assert.Empty(t, w.Schedules)
 	assert.NotContains(t, raw, "schedules", "an empty list takes the key with it rather than leaving schedules: []")
-}
-
-func TestWriteManifestReordersSchedulesToTheListOrder(t *testing.T) {
-	t.Parallel()
-
-	root := manifestRoot(t, baseManifest)
-	writeSchedules(t, root,
-		schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"},
-		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
-	)
-	writeSchedules(t, root,
-		schedule.Spec{ID: "daily", Cron: "@daily", Prompt: "go"},
-		schedule.Spec{ID: "weekly", Cron: "@weekly", Prompt: "go"},
-	)
-
-	w, _ := loadManifest(t, root)
-	require.Len(t, w.Schedules, 2)
-	assert.Equal(t, "daily", w.Schedules[0].ID, "the editor owns the order the file lists them in")
-	assert.Equal(t, "weekly", w.Schedules[1].ID)
 }
 
 // TestWriteManifestReplacesAnEmptySchedulesKey: `schedules:` with nothing

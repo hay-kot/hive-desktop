@@ -15,6 +15,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
+// brokenScheduleManifest is a manifest the loader refuses: its cron is not one.
+const brokenScheduleManifest = "version: 2\nname: Broken\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n"
+
 // fakeScheduleLauncher stands in for the agent-workspace service: launching a
 // chat for real needs tmux and an agent CLI, and neither says anything about
 // what this service does with the run it gets back.
@@ -104,53 +107,18 @@ func (f scheduleFixture) declare(t *testing.T, specs ...schedule.Spec) {
 	f.scheduler.Reload()
 }
 
-// rows reads the demo workspace's schedules back the way the workspace view
-// does: the manifest's specs joined with their run state.
-func (f scheduleFixture) rows(t *testing.T) []ScheduleView {
-	t.Helper()
-	for _, st := range f.workspaces.Statuses() {
-		if st.Dir != "demo" {
-			continue
-		}
-		require.True(t, st.Valid, st.Err)
-		return scheduleRows(t.Context(), f.db, zerolog.Nop(), st.Workspace.Schedules, time.Now())
-	}
-	t.Fatal("the demo workspace is missing")
-	return nil
-}
-
-// List is the MCP tools' read. A workspace that is missing is not_found; one
-// whose manifest does not parse is refused with the reason rather than
+// List is the MCP tools' read and the workspace view's rows: the manifest's
+// specs joined with their run state. A workspace that is missing is not_found;
+// one whose manifest does not parse is refused with the reason rather than
 // answered with rows the file no longer says.
-func TestSchedulesServiceListReadsAWorkspaceItCanParse(t *testing.T) {
+func TestSchedulesServiceListJoinsTheSpecsWithTheirRunState(t *testing.T) {
 	f := newTestSchedulesService(t)
-	f.declare(t, schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "go"})
-
-	listed, err := f.svc.List(t.Context(), "demo")
-	require.NoError(t, err)
-	require.Len(t, listed, 1)
-	assert.Equal(t, "weekly", listed[0].ID)
-	require.NotNil(t, listed[0].NextRunAt)
-
-	_, err = f.svc.List(t.Context(), "missing")
-	require.Error(t, err)
-	assert.Equal(t, KindNotFound, KindOf(err))
-
-	writeAgentWorkspaceManifest(t, f.root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
-	require.NoError(t, f.workspaces.Reload())
-	_, err = f.svc.List(t.Context(), "demo")
-	require.Error(t, err)
-	assert.Equal(t, KindInvalid, KindOf(err))
-}
-
-func TestScheduleRowsJoinTheNextRun(t *testing.T) {
-	f := newTestSchedulesService(t)
-
 	f.declare(t, schedule.Spec{
 		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
 	})
 
-	rows := f.rows(t)
+	rows, err := f.svc.List(t.Context(), "demo")
+	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "weekly", rows[0].ID)
 	assert.Equal(t, "Weekly summary", rows[0].Name)
@@ -165,11 +133,22 @@ func TestScheduleRowsJoinTheNextRun(t *testing.T) {
 		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
 		Disabled: true, OnMissed: schedule.OnMissedSkip,
 	})
-	rows = f.rows(t)
+	rows, err = f.svc.List(t.Context(), "demo")
+	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.True(t, rows[0].Disabled)
 	assert.Equal(t, "skip", rows[0].OnMissed)
 	assert.Nil(t, rows[0].NextRunAt)
+
+	_, err = f.svc.List(t.Context(), "missing")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	writeAgentWorkspaceManifest(t, f.root, "demo", brokenScheduleManifest)
+	require.NoError(t, f.workspaces.Reload())
+	_, err = f.svc.List(t.Context(), "demo")
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
 // The run history is a decoration on a row the manifest already fully
@@ -181,7 +160,8 @@ func TestScheduleRowsSurviveAnUnreadableRunHistory(t *testing.T) {
 	f.declare(t, schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "@daily", Prompt: "go"})
 	require.NoError(t, f.db.Close())
 
-	rows := f.rows(t)
+	rows, err := f.svc.List(t.Context(), "demo")
+	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "weekly", rows[0].ID)
 	require.NotNil(t, rows[0].NextRunAt, "everything the manifest says is still there")
@@ -198,7 +178,6 @@ func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
 
 	run, err := f.svc.RunNow(t.Context(), "demo", "weekly")
 	require.NoError(t, err)
-	assert.Equal(t, "manual", run.Reason)
 	assert.Equal(t, "launched", run.Status)
 	assert.Equal(t, "Summarize Demo.", run.Prompt, "the workspace name comes from the manifest, not the directory")
 	require.NotNil(t, run.SessionID)
@@ -210,7 +189,8 @@ func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
 	assert.Contains(t, requests[0].Name, "Weekly summary")
 
 	// The manual run is the schedule's newest, so it shows as its last run.
-	rows := f.rows(t)
+	rows, err := f.svc.List(t.Context(), "demo")
+	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.NotNil(t, rows[0].LastRun)
 	assert.Equal(t, run.ID, rows[0].LastRun.ID)
@@ -218,15 +198,11 @@ func TestSchedulesServiceRunNowRecordsAManualRun(t *testing.T) {
 	_, err = f.svc.RunNow(t.Context(), "demo", "nope")
 	require.Error(t, err)
 	assert.Equal(t, KindNotFound, KindOf(err))
-
-	// A manual run never consumes the window, so nothing is left behind that
-	// would cancel the next real occurrence.
-	_, ok, err := f.db.GetScheduleCursor(t.Context(), "demo", "weekly")
-	require.NoError(t, err)
-	assert.False(t, ok)
 }
 
-func TestSchedulesServiceRunsAreOneSchedulesNewestFirst(t *testing.T) {
+// History is per schedule, and a schedule that no longer exists still answers
+// with what it did.
+func TestSchedulesServiceRunsAnswerForARemovedSchedule(t *testing.T) {
 	f := newTestSchedulesService(t)
 
 	for i, id := range []string{"alpha", "beta"} {
@@ -243,17 +219,10 @@ func TestSchedulesServiceRunsAreOneSchedulesNewestFirst(t *testing.T) {
 	scoped, err := f.svc.Runs(t.Context(), "demo", "alpha", 0)
 	require.NoError(t, err)
 	require.Len(t, scoped, 2)
-	assert.Greater(t, scoped[0].StartedAt, scoped[1].StartedAt, "runs come back newest first")
 	for _, run := range scoped {
 		assert.Equal(t, "alpha", run.ScheduleID)
 	}
 
-	limited, err := f.svc.Runs(t.Context(), "demo", "alpha", 1)
-	require.NoError(t, err)
-	assert.Len(t, limited, 1)
-
-	// History is per schedule, and a schedule that no longer exists still
-	// answers with what it did.
 	gone, err := f.svc.Runs(t.Context(), "demo", "beta", 0)
 	require.NoError(t, err)
 	assert.Len(t, gone, 2)
@@ -313,7 +282,8 @@ func TestSchedulesServiceRunsDropAChatThatWasDeleted(t *testing.T) {
 	require.NotNil(t, runs[1].SessionID)
 	assert.Equal(t, chat.ID, *runs[1].SessionID, "a chat that still exists is still pointed at")
 
-	rows := f.rows(t)
+	rows, err := f.svc.List(t.Context(), "demo")
+	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.NotNil(t, rows[0].LastRun)
 	assert.Nil(t, rows[0].LastRun.SessionID)

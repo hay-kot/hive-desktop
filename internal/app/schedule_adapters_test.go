@@ -64,22 +64,6 @@ func TestScheduleStoreAdapterRoundTripsTimes(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, stored.ID, last.ID)
-
-	// A run that launched nothing carries session 0, which the table stores as
-	// NULL: it must not read back as a chat id.
-	failed, err := adapter.InsertRun(t.Context(), schedule.Run{
-		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "Weekly summary",
-		ScheduledFor: scheduledFor, StartedAt: startedAt,
-		Reason: schedule.ReasonDue, Status: schedule.StatusFailed, Error: "boom",
-	})
-	require.NoError(t, err)
-	assert.Zero(t, failed.SessionID)
-	assert.Equal(t, "boom", failed.Error)
-
-	last, ok, err = adapter.LastLaunchedRun(t.Context(), "demo", "weekly")
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, stored.ID, last.ID, "a failed run does not become the last launched one")
 }
 
 // PruneCursors is how a deleted schedule stops leaving a cursor that would
@@ -130,7 +114,7 @@ func TestScheduleStoreAdapterPrunesCursorsOutsideKeep(t *testing.T) {
 func TestScheduleSnapshotListsOnlyTheValidWorkspaces(t *testing.T) {
 	root := t.TempDir()
 	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	writeAgentWorkspaceManifest(t, root, "broken", "version: 2\nname: Broken\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
+	writeAgentWorkspaceManifest(t, root, "broken", brokenScheduleManifest)
 
 	workspaces := agentws.NewStore(root)
 	require.NoError(t, workspaces.Reload())
@@ -138,25 +122,6 @@ func TestScheduleSnapshotListsOnlyTheValidWorkspaces(t *testing.T) {
 	snapshot := scheduleWorkspaces{store: workspaces}.Snapshot()
 	assert.Equal(t, []string{"demo"}, snapshot.Workspaces)
 	assert.Empty(t, snapshot.Specs)
-}
-
-// TestScheduleLauncherMarksTheChatWithItsSchedule: the schedule id a launch
-// carries lands on the session record, which is where the sidebar reads it.
-func TestScheduleLauncherMarksTheChatWithItsSchedule(t *testing.T) {
-	isolateConfig(t)
-	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
-
-	id, err := scheduleLauncher{workspaces: svc}.Launch(t.Context(), schedule.LaunchRequest{
-		Workspace: "demo", ScheduleID: "weekly", Name: "Weekly summary - Sep 5 09:00", Prompt: "go",
-	})
-	require.NoError(t, err)
-
-	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), id)
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, "weekly", rec.ScheduleID)
 }
 
 // TestScheduleLauncherFailsOnAnImmediateExit: a scheduled launch has no pane

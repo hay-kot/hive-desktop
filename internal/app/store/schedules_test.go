@@ -98,45 +98,45 @@ func TestDeleteScheduleCursors_RemovesOnlyTheWorkspace(t *testing.T) {
 	assert.Equal(t, "ws-2", cursors[0].Workspace)
 }
 
-func TestInsertScheduleRun_ReturnsAssignedID(t *testing.T) {
-	db := openTestDB(t)
-	ctx := t.Context()
+func TestInsertScheduleRun_RoundTripsWithTheAssignedID(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    string
+		sessionID int64
+		wantNull  bool
+	}{
+		{name: "a launched run keeps its chat id", status: "launched", sessionID: 7},
+		{name: "a run with no chat stores NULL, not 0", status: "skipped", wantNull: true},
+	}
 
-	run, err := db.InsertScheduleRun(ctx, ScheduleRunRecord{
-		Workspace: "ws-1", ScheduleID: "weekly", ScheduleName: "Weekly summary",
-		ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched",
-		SessionID: 7, Prompt: "Summarize.",
-	})
-	require.NoError(t, err)
-	assert.NotZero(t, run.ID)
-	assert.Equal(t, int64(7), run.SessionID)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := openTestDB(t)
+			ctx := t.Context()
 
-	stored, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 10)
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-	assert.Equal(t, run, stored[0])
-}
+			run, err := db.InsertScheduleRun(ctx, ScheduleRunRecord{
+				Workspace: "ws-1", ScheduleID: "weekly", ScheduleName: "Weekly summary",
+				ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: tt.status,
+				SessionID: tt.sessionID, Prompt: "Summarize.",
+			})
+			require.NoError(t, err)
+			assert.NotZero(t, run.ID)
+			assert.Equal(t, tt.sessionID, run.SessionID)
 
-func TestInsertScheduleRun_NullSessionIDRoundTripsAsZero(t *testing.T) {
-	db := openTestDB(t)
-	ctx := t.Context()
+			stored, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 10)
+			require.NoError(t, err)
+			require.Len(t, stored, 1)
+			assert.Equal(t, run, stored[0])
 
-	run, err := db.InsertScheduleRun(ctx, ScheduleRunRecord{
-		Workspace: "ws-1", ScheduleID: "weekly", ScheduleName: "Weekly summary",
-		ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "skipped",
-		Error: "the previous run's chat is still running",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, int64(0), run.SessionID)
-
-	stored, err := db.ListScheduleRunsFor(ctx, "ws-1", "weekly", 10)
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-	assert.Equal(t, int64(0), stored[0].SessionID)
-
-	var raw any
-	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT session_id FROM schedule_run WHERE id = ?`, run.ID).Scan(&raw))
-	assert.Nil(t, raw, "session_id should be stored as NULL, not 0")
+			var raw any
+			require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT session_id FROM schedule_run WHERE id = ?`, run.ID).Scan(&raw))
+			if tt.wantNull {
+				assert.Nil(t, raw, "session 0 must not read back as a chat id")
+			} else {
+				assert.NotNil(t, raw)
+			}
+		})
+	}
 }
 
 func TestListScheduleRunsFor_ScopedToOneScheduleNewestFirst(t *testing.T) {

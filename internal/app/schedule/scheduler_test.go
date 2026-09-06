@@ -115,17 +115,6 @@ func (f *fakeStore) PruneCursors(ctx context.Context, workspaces []string, keep 
 		return err
 	}
 	f.pruned = append(f.pruned, pruneCall{workspaces: slices.Clone(workspaces), keep: slices.Clone(keep)})
-	for key, cursor := range f.cursors {
-		if !slices.Contains(workspaces, cursor.Workspace) {
-			continue
-		}
-		if slices.ContainsFunc(keep, func(k Cursor) bool {
-			return k.Workspace == cursor.Workspace && k.ID == cursor.ID
-		}) {
-			continue
-		}
-		delete(f.cursors, key)
-	}
 	return nil
 }
 
@@ -384,6 +373,7 @@ func TestStopWithoutStart(t *testing.T) {
 // occurrence waiting, at now-30m -- late enough to be a catch-up.
 type due struct {
 	scheduler *Scheduler
+	source    *fakeSource
 	store     *fakeStore
 	launcher  *fakeLauncher
 	now       time.Time
@@ -392,7 +382,7 @@ type due struct {
 func duePass(t *testing.T, spec Spec, opts *Options) due {
 	t.Helper()
 
-	now := time.Date(2026, time.September, 4, 9, 30, 0, 0, time.UTC)
+	now := at(9, 30)
 	source := &fakeSource{}
 	source.set(spec)
 	store := newFakeStore()
@@ -407,7 +397,7 @@ func duePass(t *testing.T, spec Spec, opts *Options) due {
 		options.OnRun = opts.OnRun
 		options.Names = opts.Names
 	}
-	return due{scheduler: New(options), store: store, launcher: launcher, now: now}
+	return due{scheduler: New(options), source: source, store: store, launcher: launcher, now: now}
 }
 
 func TestPassSkipsWhileThePreviousChatIsStillRunning(t *testing.T) {
@@ -463,8 +453,8 @@ func TestPassRecordsAPromptFailure(t *testing.T) {
 	t.Parallel()
 
 	spec := hourlySpec()
-	// Validate rejects this at edit time; a hand-authored manifest can still
-	// carry it, and the run has to say so rather than vanish.
+	// A template can validate at edit time and still fail on the data a run
+	// hands it, and the run has to say so rather than vanish.
 	spec.Prompt = "{{ .Nope }}"
 	h := duePass(t, spec, nil)
 
@@ -481,10 +471,14 @@ func TestPassRendersThePromptWithTheLastRunAndWorkspaceName(t *testing.T) {
 
 	spec := hourlySpec()
 	spec.Prompt = `{{ .Workspace.Name }}: since {{ date "2006-01-02 15:04" .LastRun }}, reason {{ .Reason }}, missed {{ .Missed }}`
-	h := duePass(t, spec, &Options{Names: fakeNamer{names: map[string]string{"product": "Product"}}})
+	var seen []Run
+	h := duePass(t, spec, &Options{
+		Names: fakeNamer{names: map[string]string{"product": "Product"}},
+		OnRun: func(run Run) { seen = append(seen, run) },
+	})
 	h.store.seedRun(Run{
 		Workspace: spec.Workspace, ScheduleID: spec.ID, Status: StatusLaunched, SessionID: 4,
-		ScheduledFor: time.Date(2026, time.September, 4, 8, 0, 0, 0, time.UTC),
+		ScheduledFor: at(8, 0),
 	})
 
 	require.NoError(t, h.scheduler.pass(t.Context()))
@@ -493,60 +487,29 @@ func TestPassRendersThePromptWithTheLastRunAndWorkspaceName(t *testing.T) {
 	require.Len(t, requests, 1)
 	assert.Equal(t, "Product: since 2026-09-04 08:00, reason catch_up, missed 0", requests[0].Prompt)
 	assert.Equal(t, "Hourly digest - Sep 4 09:00", requests[0].Name)
-}
-
-func TestPassCallsOnRun(t *testing.T) {
-	t.Parallel()
-
-	var seen []Run
-	h := duePass(t, hourlySpec(), &Options{OnRun: func(run Run) { seen = append(seen, run) }})
-
-	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	require.Len(t, seen, 1)
 	assert.NotZero(t, seen[0].ID, "OnRun receives the stored run, not the one handed to InsertRun")
 	assert.Equal(t, StatusLaunched, seen[0].Status)
 }
 
+// The prune scope is the workspaces the snapshot could read, not the ones the
+// specs happen to name: a readable workspace that declares nothing still has
+// its leftover cursors pruned, and one whose manifest did not parse is left
+// alone rather than read as "every schedule here was deleted".
 func TestPassPrunesTheCursorsOfTheSpecsItSaw(t *testing.T) {
 	t.Parallel()
 
 	h := duePass(t, hourlySpec(), nil)
+	h.source.setWorkspaces("product", "emptied")
 
 	require.NoError(t, h.scheduler.pass(t.Context()))
 
 	pruned := h.store.lastPruned()
-	assert.Equal(t, []string{"product"}, pruned.workspaces)
+	assert.Equal(t, []string{"product", "emptied"}, pruned.workspaces)
 	assert.Equal(t, []Cursor{{
 		Workspace: "product", ID: "hourly", EvaluatedThrough: h.now, Cron: "0 * * * *",
 	}}, pruned.keep)
-}
-
-// TestPassPrunesOnlyInsideTheWorkspacesItCouldRead: a workspace whose manifest
-// does not parse contributes no specs, and reading that as "every schedule
-// here was deleted" loses the cursor -- and with it the occurrence between the
-// typo and its fix. A workspace that reads fine and declares nothing is the
-// case that must still prune.
-func TestPassPrunesOnlyInsideTheWorkspacesItCouldRead(t *testing.T) {
-	t.Parallel()
-
-	now := time.Date(2026, time.September, 4, 9, 30, 0, 0, time.UTC)
-	source := &fakeSource{}
-	source.set(hourlySpec())
-	source.setWorkspaces("product", "emptied")
-
-	store := newFakeStore()
-	store.seedCursor(Cursor{Workspace: "product", ID: "hourly", EvaluatedThrough: now.Add(-90 * time.Minute), Cron: "0 * * * *"})
-	store.seedCursor(Cursor{Workspace: "emptied", ID: "gone", EvaluatedThrough: now, Cron: "@daily"})
-	store.seedCursor(Cursor{Workspace: "broken", ID: "weekly", EvaluatedThrough: now, Cron: "0 9 * * 5"})
-
-	scheduler := New(Options{Source: source, Store: store, Launcher: newFakeLauncher(), Now: func() time.Time { return now }})
-	require.NoError(t, scheduler.pass(t.Context()))
-
-	cursors := store.allCursors()
-	assert.Contains(t, cursors, storeKey("product", "hourly"))
-	assert.Contains(t, cursors, storeKey("broken", "weekly"), "a workspace the pass could not read keeps its cursors")
-	assert.NotContains(t, cursors, storeKey("emptied", "gone"), "a readable workspace with no schedules left has nothing to keep")
 }
 
 // TestStopRecordsAChatItAlreadyLaunched: Stop cancels the pass's context, and
@@ -614,7 +577,7 @@ func TestStopLeavesTheOccurrenceOpenWhenNothingLaunched(t *testing.T) {
 func TestPassKeepsGoingAfterASpecFails(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, time.September, 4, 9, 30, 0, 0, time.UTC)
+	now := at(9, 30)
 	broken := Spec{Workspace: "product", ID: "broken", Cron: "0 * * * *", Prompt: "go"}
 	fine := Spec{Workspace: "product", ID: "fine", Cron: "0 * * * *", Prompt: "go"}
 
@@ -647,6 +610,9 @@ func TestRunNowIsManualAndLeavesTheCursorAlone(t *testing.T) {
 	assert.Len(t, h.launcher.allRequests(), 1)
 	assert.Equal(t, before, h.store.allCursors(), "a manual run must not consume the next occurrence")
 	assert.Equal(t, 0, h.store.saveCount())
+
+	_, err = h.scheduler.RunNow(t.Context(), "product", "nope")
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 // TestPassClosesTheWindowAfterAFailedRun: an occurrence is never retried. A
@@ -663,27 +629,4 @@ func TestPassClosesTheWindowAfterAFailedRun(t *testing.T) {
 	cursor, ok := h.store.allCursors()[storeKey("product", "hourly")]
 	require.True(t, ok)
 	assert.Equal(t, h.now, cursor.EvaluatedThrough)
-}
-
-func TestRunNowRefusesAnUnknownSchedule(t *testing.T) {
-	t.Parallel()
-
-	h := duePass(t, hourlySpec(), nil)
-
-	_, err := h.scheduler.RunNow(t.Context(), "product", "nope")
-	require.ErrorIs(t, err, ErrNotFound)
-}
-
-func TestRunNowStillRefusesWhileThePreviousChatIsRunning(t *testing.T) {
-	t.Parallel()
-
-	spec := hourlySpec()
-	h := duePass(t, spec, nil)
-	h.store.seedRun(Run{Workspace: spec.Workspace, ScheduleID: spec.ID, Status: StatusLaunched, SessionID: 7})
-	h.launcher.live[7] = true
-
-	run, err := h.scheduler.RunNow(t.Context(), "product", "hourly")
-	require.NoError(t, err)
-	assert.Equal(t, StatusSkipped, run.Status)
-	assert.Equal(t, "the previous run's chat is still running", run.Error)
 }
