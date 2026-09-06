@@ -126,8 +126,7 @@ func (s *SchedulesService) RunNow(ctx context.Context, workspace, id string) (Ru
 		// (tmux down, the session cap reached) reclassified as internal would
 		// tell the caller to retry something that will keep failing until they
 		// act on it.
-		var classified *Error
-		if errors.As(err, &classified) {
+		if _, ok := errors.AsType[*Error](err); ok {
 			return RunView{}, err
 		}
 		return RunView{}, Wrap(err, KindInternal, "running schedule %q", id)
