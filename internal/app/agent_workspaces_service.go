@@ -528,10 +528,11 @@ func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
 	return strings.TrimSuffix(base, "/") + AgentSessionEndPath
 }
 
-// EndOwnSession ends the session whose launch handed out token. It answers as
-// soon as the token is matched, naming when the session will be ended, and
-// ends the tmux session after that delay in the background. The record stays,
-// so the chat still lists and resumes.
+// EndOwnSession ends the chat whose launch handed out token. It answers as
+// soon as the token is matched, naming when the chat will be gone, and
+// deletes it after that delay in the background: the tmux session and the
+// record both. A schedule that runs hourly must not leave a row per run in
+// the sidebar; the run history is where the outcome lives.
 func (s *AgentWorkspacesService) EndOwnSession(ctx context.Context, token string) (SessionEnding, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -560,13 +561,16 @@ func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Durati
 	time.Sleep(delay)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	closed, err := s.terminals.KillSession(ctx, sessionName(view.ID))
-	if err != nil {
-		s.logger.Warn().Err(err).Int64("session", view.ID).Msg("a chat asked to end itself but its session could not be closed")
+	switch err := s.DeleteSession(ctx, view.ID); {
+	case KindOf(err) == KindNotFound:
+		// Deleted by hand in the meantime; there is nothing left to do.
+		return
+	case err != nil:
+		s.logger.Warn().Err(err).Int64("session", view.ID).Msg("a chat asked to end itself but could not be deleted")
 		return
 	}
-	s.logger.Info().Int64("session", view.ID).Bool("closed", closed).Msg("a chat ended its own session")
-	if closed && s.OnSessionEnded != nil {
+	s.logger.Info().Int64("session", view.ID).Msg("a chat ended itself")
+	if s.OnSessionEnded != nil {
 		s.OnSessionEnded(view)
 	}
 }
@@ -930,18 +934,99 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
 	}
-	st, ok := s.store.Status(req.Dir)
-	if !ok {
-		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
-	}
-	if !st.Valid {
-		return WorkspaceView{}, Errorf(KindInvalid,
-			"agent-workspace.yaml has a problem (%s); fix the file before editing it here", st.Err)
+	if _, err := s.editableWorkspace(req.Dir); err != nil {
+		return WorkspaceView{}, err
 	}
 	if err := agentws.WriteManifest(s.store.Root(), req.Dir, req.manifest()); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInvalid, "updating workspace %q", req.Dir)
 	}
 	return s.savedView(ctx, req.Dir)
+}
+
+// PutSchedule upserts one schedules: entry by id and leaves the rest of the
+// manifest alone: the MCP tools' write, where the editor's is the whole
+// manifest at once. An existing id is replaced in place; a new one is
+// appended.
+func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, edit ScheduleEdit) (ScheduleView, error) {
+	st, err := s.editableWorkspace(dir)
+	if err != nil {
+		return ScheduleView{}, err
+	}
+	spec := edit.spec()
+	if err := spec.Validate(); err != nil {
+		return ScheduleView{}, Errorf(KindInvalid, "%s", err)
+	}
+
+	specs := append([]schedule.Spec(nil), st.Workspace.Schedules...)
+	replaced := false
+	for i := range specs {
+		if specs[i].ID == spec.ID {
+			specs[i], replaced = spec, true
+		}
+	}
+	if !replaced {
+		specs = append(specs, spec)
+	}
+	if err := agentws.WriteSchedules(s.store.Root(), dir, specs); err != nil {
+		return ScheduleView{}, Wrap(err, KindInvalid, "writing schedule %q in workspace %q", spec.ID, dir)
+	}
+
+	view, err := s.savedView(ctx, dir)
+	if err != nil {
+		return ScheduleView{}, err
+	}
+	for _, row := range view.Schedules {
+		if row.ID == spec.ID {
+			return row, nil
+		}
+	}
+	return ScheduleView{}, Errorf(KindInternal, "schedule %q vanished after writing it", spec.ID)
+}
+
+// RemoveSchedule deletes one schedules: entry by id. Its run history stays,
+// because history outlives the entry it came from on purpose, and its cursor
+// is pruned by the scheduler's next pass.
+func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id string) error {
+	st, err := s.editableWorkspace(dir)
+	if err != nil {
+		return err
+	}
+	kept := make([]schedule.Spec, 0, len(st.Workspace.Schedules))
+	found := false
+	for _, spec := range st.Workspace.Schedules {
+		if spec.ID == id {
+			found = true
+			continue
+		}
+		kept = append(kept, spec)
+	}
+	if !found {
+		return Errorf(KindNotFound, "schedule %q not found in workspace %q", id, dir)
+	}
+	if err := agentws.WriteSchedules(s.store.Root(), dir, kept); err != nil {
+		return Wrap(err, KindInvalid, "removing schedule %q from workspace %q", id, dir)
+	}
+	_, err = s.savedView(ctx, dir)
+	return err
+}
+
+// editableWorkspace is the status of a workspace a write may land in: the
+// directory exists and its manifest parses. On the first load of a run there
+// is no last-good snapshot behind a broken file, so a write over one would
+// reconcile every list to nothing; a broken manifest is fixed in the file.
+func (s *AgentWorkspacesService) editableWorkspace(dir string) (agentws.WorkspaceStatus, error) {
+	if !validWorkspaceDir(dir) {
+		return agentws.WorkspaceStatus{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	st, ok := s.store.Status(dir)
+	if !ok {
+		return agentws.WorkspaceStatus{}, Errorf(KindNotFound, "workspace %q not found", dir)
+	}
+	if !st.Valid {
+		return agentws.WorkspaceStatus{}, Errorf(KindInvalid,
+			"agent-workspace.yaml has a problem (%s); fix the file before editing it here", st.Err)
+	}
+	return st, nil
 }
 
 // MCPCatalogueItem is one row of the merged MCP catalogue as the UI shows it:

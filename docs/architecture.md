@@ -1817,6 +1817,15 @@ like every other call on that prefix. Writing belongs to
 the Wails boundary to the coalesced `schedules:updated` wake-up the frontend
 re-reads on. A run publishes the same event.
 
+The `hive-desktop` MCP server carries the same surface for an agent:
+`list_workspaces`, `list_schedules`, `put_schedule`, `remove_schedule`,
+`preview_schedule` and `schedule_runs`. A put or remove is a per-list
+manifest write, `agentws.WriteSchedules`, through
+`AgentWorkspacesService.PutSchedule` and `RemoveSchedule`, which apply
+`UpdateWorkspace`'s refusal of a manifest that does not parse. Running a
+schedule is not on the MCP server: it spawns a process, which that surface
+never does.
+
 Schedules are a section of the workspace editor, not a surface of their own.
 The form is a calendar-style one -- hourly, daily, weekly, monthly, or a raw
 expression -- that compiles to cron on the way out; cron is still what the
@@ -1835,9 +1844,11 @@ run history is pruned, so a derivation would mislabel or lose it.
 
 A scheduled chat ends itself. Every launch mints a capability token, stores
 it on the session row, and hands the process `HIVE_AGENT_SESSION_TOKEN` and
-`HIVE_AGENT_SESSION_END_URL`; `POST /api/sessions/end` with that bearer ends
-that session and no other, after the `agent_workspaces.session_end_delay`
-grace, and answers 202 with when. It is a base route with its own guard, not
+`HIVE_AGENT_SESSION_END_URL`; `POST /api/sessions/end` with that bearer
+deletes that chat and no other, tmux session and record both, after the
+`agent_workspaces.session_end_delay` grace, and answers 202 with when. A
+schedule therefore leaves no row per run, and a run-history entry drops its
+chat pointer once the chat is gone. It is a base route with its own guard, not
 a `/api/terminal/` one, because a chat must not hold the frontend's token,
 and not an MCP tool, because a workspace need not declare the app's MCP
 server for its schedules to work. `prompts.ScheduledRun` frames the scheduled

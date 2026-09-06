@@ -56,7 +56,10 @@ for a different schedule. Changing a schedule's `cron` restarts its cursor, so
 nothing back-fires: Hive only ever measures missed occurrences since the last
 time this exact `cron` ran, never since the schedule was first created. An
 edit to `schedules:` -- yours or the agent's -- takes effect the next time this
-workspace opens; no restart needed.
+workspace opens; no restart needed. With the `hive-desktop` MCP server
+declared in `mcps:`, `put_schedule`, `remove_schedule`, `list_schedules` and
+`preview_schedule` make the same edit in place, one entry at a time, without
+touching the rest of the file.
 
 ### Prompt template variables
 

@@ -799,11 +799,11 @@ func TestSessionsNameTheScheduleThatStartedThem(t *testing.T) {
 	}
 }
 
-// A chat ends itself by presenting the token its launch handed it. The session
-// is ended after the configured grace rather than inside the call, so the tool
-// call that made the request returns first; the record stays, so the chat
-// still lists.
-func TestEndOwnSessionEndsTheChatAfterTheDelay(t *testing.T) {
+// A chat ends itself by presenting the token its launch handed it. It is
+// deleted after the configured grace rather than inside the call, so the tool
+// call that made the request returns first, and the record goes with the tmux
+// session: a schedule must not leave a row per run in the sidebar.
+func TestEndOwnSessionDeletesTheChatAfterTheDelay(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
@@ -845,8 +845,7 @@ func TestEndOwnSessionEndsTheChatAfterTheDelay(t *testing.T) {
 
 	sessions, err := svc.Sessions(t.Context(), "demo")
 	require.NoError(t, err)
-	require.Len(t, sessions, 1, "the record outlives the tmux session")
-	assert.Empty(t, sessions[0].TerminalID)
+	assert.Empty(t, sessions, "the record goes with the tmux session")
 }
 
 // A scheduled launch hands the agent the framed prompt and the means to end
@@ -884,6 +883,65 @@ func TestStartScheduledSessionFramesThePromptAndHandsOutTheToken(t *testing.T) {
 	assert.Contains(t, args, "you MUST end this session")
 	assert.Contains(t, env, "HIVE_AGENT_SESSION_TOKEN="+rec.EndToken+"\n")
 	assert.Contains(t, env, "HIVE_AGENT_SESSION_END_URL=http://127.0.0.1:4321"+AgentSessionEndPath+"\n")
+}
+
+// PutSchedule and RemoveSchedule are the MCP tools' writes: one entry at a
+// time, in place, with the rest of the manifest and its comments untouched,
+// and the same refusal of a broken manifest the editor's write has.
+func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "# keep me\nversion: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps: [playwright]\n")
+	writeAgentWorkspaceManifest(t, root, "broken", "version: 2\nname: Broken\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	changed := 0
+	svc.OnSchedulesChanged = func(string) { changed++ }
+
+	row, err := svc.PutSchedule(t.Context(), "demo", ScheduleEdit{
+		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "weekly", row.ID)
+	assert.Equal(t, "run", row.OnMissed)
+	require.NotNil(t, row.NextRunAt)
+	assert.Equal(t, 1, changed, "a write reaches the scheduler and the UI")
+
+	_, err = svc.PutSchedule(t.Context(), "demo", ScheduleEdit{ID: "daily", Cron: "@daily", Prompt: "Standup."})
+	require.NoError(t, err)
+	row, err = svc.PutSchedule(t.Context(), "demo", ScheduleEdit{
+		ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week.", Disabled: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, row.Disabled)
+	assert.Nil(t, row.NextRunAt)
+
+	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "# keep me")
+	assert.Contains(t, string(raw), "playwright")
+	st, ok := svc.store.Status("demo")
+	require.True(t, ok)
+	require.Len(t, st.Workspace.Schedules, 2, "an existing id is replaced, not appended")
+	assert.Equal(t, "weekly", st.Workspace.Schedules[0].ID)
+
+	_, err = svc.PutSchedule(t.Context(), "demo", ScheduleEdit{ID: "bad", Cron: "not a cron", Prompt: "go"})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	_, err = svc.PutSchedule(t.Context(), "broken", ScheduleEdit{ID: "weekly", Cron: "@daily", Prompt: "go"})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err), "a broken manifest is fixed in the file, never written over")
+	_, err = svc.PutSchedule(t.Context(), "nope", ScheduleEdit{ID: "weekly", Cron: "@daily", Prompt: "go"})
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	require.NoError(t, svc.RemoveSchedule(t.Context(), "demo", "weekly"))
+	st, _ = svc.store.Status("demo")
+	require.Len(t, st.Workspace.Schedules, 1)
+	assert.Equal(t, "daily", st.Workspace.Schedules[0].ID)
+	err = svc.RemoveSchedule(t.Context(), "demo", "weekly")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+	assert.Equal(t, 4, changed)
 }
 
 // TestSkillPackagesResolveMembers is the editor's read: packages from

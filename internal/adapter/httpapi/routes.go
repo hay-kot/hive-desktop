@@ -288,7 +288,7 @@ func (ctrl *Controller) baseOperations() []Op {
 			Response: statusResponse{}, Handler: ctrl.Status,
 		},
 		{
-			Method: "POST", Path: app.AgentSessionEndPath, Summary: "End the calling chat's own session. The bearer is the HIVE_AGENT_SESSION_TOKEN the launch handed that process, so a chat can end itself and nothing else; a scheduled chat is told to call this when its task is done. Answers 202 with when the session will be ended: the request arrives from inside the agent's own tool call, and the grace (agent_workspaces.session_end_delay) lets that call return first. The record stays, so the chat still lists and resumes.",
+			Method: "POST", Path: app.AgentSessionEndPath, Summary: "End the calling chat's own session. The bearer is the HIVE_AGENT_SESSION_TOKEN the launch handed that process, so a chat can end itself and nothing else; a scheduled chat is told to call this when its task is done. Answers 202 with when the chat will be gone: the request arrives from inside the agent's own tool call, and the grace (agent_workspaces.session_end_delay) lets that call return first. The chat is deleted with its session, so a schedule leaves no row per run; its run history keeps the outcome.",
 			Response: agentSessionEndResponse{}, Handler: ctrl.AgentSessionEnd,
 			Errors: []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or is not a session's"}},
 		},

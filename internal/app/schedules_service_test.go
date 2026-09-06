@@ -119,6 +119,30 @@ func (f scheduleFixture) rows(t *testing.T) []ScheduleView {
 	return nil
 }
 
+// List is the MCP tools' read. A workspace that is missing is not_found; one
+// whose manifest does not parse is refused with the reason rather than
+// answered with rows the file no longer says.
+func TestSchedulesServiceListReadsAWorkspaceItCanParse(t *testing.T) {
+	f := newTestSchedulesService(t)
+	f.declare(t, schedule.Spec{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "go"})
+
+	listed, err := f.svc.List(t.Context(), "demo")
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, "weekly", listed[0].ID)
+	require.NotNil(t, listed[0].NextRunAt)
+
+	_, err = f.svc.List(t.Context(), "missing")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	writeAgentWorkspaceManifest(t, f.root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n")
+	require.NoError(t, f.workspaces.Reload())
+	_, err = f.svc.List(t.Context(), "demo")
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
 func TestScheduleRowsJoinTheNextRun(t *testing.T) {
 	f := newTestSchedulesService(t)
 
@@ -237,6 +261,38 @@ func TestSchedulesServiceRunsAreOneSchedulesNewestFirst(t *testing.T) {
 	_, err = f.svc.Runs(t.Context(), "demo", "", 0)
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+// A run points at the chat it launched only while that chat exists: a
+// scheduled chat deletes itself when its task is done, and a history entry
+// must not offer to open a chat nobody can.
+func TestSchedulesServiceRunsDropAChatThatWasDeleted(t *testing.T) {
+	f := newTestSchedulesService(t)
+	f.declare(t, schedule.Spec{ID: "alpha", Cron: "@daily", Prompt: "go"})
+
+	chat, err := f.db.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
+		Workspace: "demo", Name: "s1", Agent: "claude", AgentSessionID: "a", CreatedAt: 1, LastOpenedAt: 1,
+	})
+	require.NoError(t, err)
+	for _, run := range []store.ScheduleRunRecord{
+		{Workspace: "demo", ScheduleID: "alpha", ScheduleName: "alpha", ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched", SessionID: chat.ID},
+		{Workspace: "demo", ScheduleID: "alpha", ScheduleName: "alpha", ScheduledFor: 200, StartedAt: 200, Reason: "due", Status: "launched", SessionID: chat.ID + 1000},
+	} {
+		_, err := f.db.InsertScheduleRun(t.Context(), run)
+		require.NoError(t, err)
+	}
+
+	runs, err := f.svc.Runs(t.Context(), "demo", "alpha", 0)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	assert.Nil(t, runs[0].SessionID, "the newest run's chat is gone")
+	require.NotNil(t, runs[1].SessionID)
+	assert.Equal(t, chat.ID, *runs[1].SessionID, "a chat that still exists is still pointed at")
+
+	rows := f.rows(t)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].LastRun)
+	assert.Nil(t, rows[0].LastRun.SessionID)
 }
 
 func TestSchedulesServicePreviewReportsErrorsAsFields(t *testing.T) {

@@ -1,6 +1,9 @@
 package agentws
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -9,6 +12,32 @@ import (
 )
 
 const schedulesKey = "schedules"
+
+// WriteSchedules makes the manifest's schedules: list say exactly specs and
+// touches nothing else in the file. It is the per-list write the MCP tools
+// use; the editor writes schedules with the rest of the manifest through
+// WriteManifest. A workspace with no manifest is an error: a schedule has
+// nowhere to live.
+func WriteSchedules(root, dir string, specs []schedule.Spec) error {
+	path := filepath.Join(root, dir, manifestFileName)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("agent-workspace.yaml: %w", err)
+	}
+	doc, mapping, err := parseManifestNode(raw)
+	if err != nil {
+		return err
+	}
+	reconcileSchedules(mapping, specs)
+	out, err := encodeManifestDoc(doc)
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(path, out); err != nil {
+		return fmt.Errorf("agent-workspace.yaml: %w", err)
+	}
+	return nil
+}
 
 // reconcileSchedules makes the schedules: sequence say exactly specs, in that
 // order: each entry upserted by id, entries whose id specs no longer names

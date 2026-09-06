@@ -22,7 +22,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
 - **Scheduled chats** (experimental): a workspace can declare `schedules:` in
   its manifest, a cron expression and a prompt template, and Hive starts the
   chat when it comes due, once more for anything missed while the app was
-  closed, and tells the agent to end the session when its task is done.
+  closed, and tells the agent to end the session when its task is done. An
+  agent can manage a workspace's schedules through the `hive-desktop` MCP
+  server.
 - **Grafana connector** for metrics, alerts, and IRM alert groups, with
   Alertmanager filtering pushed server-side so large instances stay
   responsive.

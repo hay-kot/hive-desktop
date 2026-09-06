@@ -43,6 +43,33 @@ func writeSchedules(t *testing.T, root string, specs ...schedule.Spec) {
 	}))
 }
 
+// WriteSchedules is the per-list write: the schedules: sequence says exactly
+// what it is handed, and every other key, comment included, is untouched.
+func TestWriteSchedulesTouchesOnlyTheSchedulesList(t *testing.T) {
+	t.Parallel()
+
+	root := manifestRoot(t, "# keep me\n"+baseManifest+"mcps: [playwright] # and me\n")
+
+	require.NoError(t, WriteSchedules(root, "product", []schedule.Spec{
+		{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
+	}))
+	w, raw := loadManifest(t, root)
+	require.Len(t, w.Schedules, 1)
+	assert.Equal(t, "weekly", w.Schedules[0].ID)
+	assert.Equal(t, []string{"playwright"}, w.MCPs)
+	assert.Contains(t, raw, "# keep me")
+	assert.Contains(t, raw, "# and me")
+
+	require.NoError(t, WriteSchedules(root, "product", nil))
+	w, raw = loadManifest(t, root)
+	assert.Empty(t, w.Schedules)
+	assert.NotContains(t, raw, "schedules:")
+	assert.Contains(t, raw, "# keep me")
+
+	err := WriteSchedules(root, "no-such-workspace", nil)
+	require.Error(t, err, "a schedule has nowhere to live without a manifest")
+}
+
 func TestWriteManifestAddsAndUpdatesSchedulesByID(t *testing.T) {
 	t.Parallel()
 

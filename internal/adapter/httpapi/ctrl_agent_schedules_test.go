@@ -100,12 +100,18 @@ func TestAgentWorkspaceUpdateMapsScheduleFailuresToStatuses(t *testing.T) {
 func TestAgentScheduleRunsAppliesTheDefaultLimit(t *testing.T) {
 	h := newAgentHarness(t)
 
+	// A run points at its chat only while the chat exists, so the runs here
+	// share one real session record.
+	chat, err := h.core.Store.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
+		Workspace: seededWorkspace, Name: "s1", Agent: "claude", AgentSessionID: "a", CreatedAt: 1, LastOpenedAt: 1,
+	})
+	require.NoError(t, err)
 	const inserted = 55
 	for i := range inserted {
 		_, err := h.core.Store.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
 			Workspace: seededWorkspace, ScheduleID: "weekly", ScheduleName: "Weekly summary",
 			ScheduledFor: int64(i), StartedAt: int64(i),
-			Reason: "due", Status: "launched", SessionID: int64(i + 1),
+			Reason: "due", Status: "launched", SessionID: chat.ID,
 		})
 		require.NoError(t, err)
 	}

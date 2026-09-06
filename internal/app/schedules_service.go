@@ -78,11 +78,11 @@ type PreviewView struct {
 	PromptError string
 }
 
-// SchedulesService is what a user does to a schedule outside the editor: fire
-// it now, read what it did, and dry-run an edit before saving it. The
-// definitions themselves ride the workspace view, and writing one is
-// AgentWorkspacesService's, because a schedule is a manifest key saved with
-// the rest of the manifest.
+// SchedulesService is what a user or an agent does to a schedule outside the
+// editor: list them with their run state, fire one now, read what it did, and
+// dry-run an edit before saving it. Writing one is AgentWorkspacesService's,
+// because a schedule is a manifest key: the editor saves it with the rest of
+// the manifest, and the MCP tools upsert one entry in place.
 type SchedulesService struct {
 	workspaces *agentws.Store
 	db         *store.DB
@@ -92,6 +92,24 @@ type SchedulesService struct {
 
 func newSchedulesService(workspaces *agentws.Store, db *store.DB, scheduler *schedule.Scheduler, logger zerolog.Logger) *SchedulesService {
 	return &SchedulesService{workspaces: workspaces, db: db, scheduler: scheduler, logger: logger}
+}
+
+// List returns a workspace's schedules in manifest order, joined with their
+// run state: the MCP tools' read, where the editor reads the workspace view.
+// A manifest that does not parse is refused with its reason rather than
+// answered with last-good rows the file no longer says.
+func (s *SchedulesService) List(ctx context.Context, workspace string) ([]ScheduleView, error) {
+	if !validWorkspaceDir(workspace) {
+		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", workspace)
+	}
+	st, ok := s.workspaces.Status(workspace)
+	if !ok {
+		return nil, Errorf(KindNotFound, "workspace %q not found", workspace)
+	}
+	if !st.Valid {
+		return nil, Errorf(KindInvalid, "agent-workspace.yaml has a problem (%s)", st.Err)
+	}
+	return scheduleRows(ctx, s.db, s.logger, st.Workspace.Schedules, time.Now()), nil
 }
 
 // RunNow fires a schedule outside its timetable. The cursor is untouched, so
@@ -136,9 +154,23 @@ func (s *SchedulesService) Runs(ctx context.Context, workspace, id string, limit
 
 	out := make([]RunView, 0, len(records))
 	for _, rec := range records {
-		out = append(out, runView(scheduleRunFromRecord(rec)))
+		out = append(out, withoutDeletedChat(ctx, s.db, runView(scheduleRunFromRecord(rec))))
 	}
 	return out, nil
+}
+
+// withoutDeletedChat drops a run's chat pointer once that chat is gone. A
+// scheduled chat deletes itself when its task is done, and a history entry
+// must not offer to open a chat nobody can. A lookup that fails leaves the
+// pointer as recorded: the history is still worth answering with.
+func withoutDeletedChat(ctx context.Context, db *store.DB, run RunView) RunView {
+	if run.SessionID == nil {
+		return run
+	}
+	if _, ok, err := db.GetAgentWorkspaceSession(ctx, *run.SessionID); err == nil && !ok {
+		run.SessionID = nil
+	}
+	return run
 }
 
 // Preview dry-runs an unsaved edit. It never fails on the edit itself: a cron
@@ -203,7 +235,7 @@ func scheduleRows(ctx context.Context, db *store.DB, logger zerolog.Logger, spec
 				Str("workspace", spec.Workspace).Str("schedule", spec.ID).
 				Msg("reading a schedule's last run")
 		case len(records) > 0:
-			last := runView(scheduleRunFromRecord(records[0]))
+			last := withoutDeletedChat(ctx, db, runView(scheduleRunFromRecord(records[0])))
 			view.LastRun = &last
 		}
 		out = append(out, view)

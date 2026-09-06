@@ -34,13 +34,19 @@ environment variables and carries no JSON, so there is nothing for the agent
 to quote. The run history keeps the unframed prompt. The frame is Go-owned
 prompt text in `internal/app/prompts/templates`.
 
-**The session ends after a grace, not inside the call.** The request arrives
-from inside the agent's own tool call; killing the pane there would cut the
-tool result, and any closing message, out of the transcript. The route answers
-202 with when the session will be ended, and ends it after
+**The chat is deleted after a grace, not inside the call.** The request
+arrives from inside the agent's own tool call; killing the pane there would
+cut the tool result, and any closing message, out of the transcript. The route
+answers 202 with when the chat will be gone, and deletes it after
 `agent_workspaces.session_end_delay` (10 seconds shipped). Waiting for the
 agent to read as idle was considered and rejected as more machinery than the
 problem needs.
+
+**Deleted, not closed.** The record goes with the tmux session. A schedule
+that runs hourly would otherwise leave a row per run in the sidebar, and the
+run history already keeps what a person wants afterwards: the prompt, the
+outcome and any error. A history entry drops its chat pointer once the chat is
+gone, so nothing offers to open a chat nobody can.
 
 **Interactive mode stays.** Launching scheduled runs headless (`claude -p`,
 `codex exec`) would end the process by itself, but loses the pane while it
@@ -53,7 +59,10 @@ conversation are the point of a scheduled chat.
   provided the agent obeys the frame. An agent that does not call the route
   leaves the chat open exactly as before, and the run history shows the skip.
 - A hand-started chat can end itself too, if told to: every launch is handed
-  the token and the URL.
+  the token and the URL. Ending is deleting, for that chat as well.
+- The conversation itself is not kept by Hive once the chat is gone; anything
+  a scheduled run produces that is worth keeping belongs in a canvas or a
+  file, and the frame says so.
 - `agent_workspace_session` gains `end_token`, in the unreleased migration
   0008.
 - When the loopback HTTP server is off there is no URL to hand out, and the
