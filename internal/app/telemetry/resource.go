@@ -3,8 +3,6 @@ package telemetry
 import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-
-	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 )
 
 const ServiceName = "hive-desktop"
@@ -35,5 +33,3 @@ func newResource(opts Options) (*resource.Resource, error) {
 	}
 	return resource.Merge(resource.Default(), resource.NewSchemaless(attrs...))
 }
-
-func tokenEnvName() string { return credentials.EnvOverrideName(CredentialProvider) }

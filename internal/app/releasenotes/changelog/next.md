@@ -44,12 +44,17 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   with search on the landing page.
 - **Send the app's own metrics, logs and traces to your OpenTelemetry
   backend.** Turn on `telemetry` in `settings.yaml` with an OTLP endpoint and
-  instance id, put the token in `HIVE_GRAFANACLOUD_TOKEN`, and Hive exports
-  Go runtime metrics, its log stream, and a startup trace over OTLP — no
-  collector to run. Every signal is tagged with the build's version and
-  release channel, so a dev build's data never mixes with a release's.
-  `development.metrics` serves the same metrics at `/metrics` on the local
-  server for a scrape, with or without an endpoint configured.
+  instance id, and Hive exports Go runtime metrics, its log stream, and a
+  startup trace over OTLP — no collector to run. Every signal is tagged with
+  the build's version and release channel, so a dev build's data never mixes
+  with a release's. `development.metrics` serves the same metrics at
+  `/metrics` on the local server for a scrape, with or without an endpoint
+  configured.
+- **Secrets in settings are references, not secrets.** `telemetry.token` takes
+  `env:NAME`, `file:/path`, or a 1Password `op://vault/item/field` reference —
+  the same string 1Password's **Copy Secret Reference** gives you — and Hive
+  reads the value at launch. Pasting a credential in is rejected, so a
+  dotfiles-managed `settings.yaml` stays safe to commit.
 - **`!` in the command palette runs a shell command** in the Code view — the
   rest of the line opens a window on the attached session and types it there,
   so it runs in that checkout and the shell outlives it.

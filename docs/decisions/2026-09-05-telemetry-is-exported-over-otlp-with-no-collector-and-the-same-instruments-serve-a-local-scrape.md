@@ -57,11 +57,11 @@ exporters already pulled in.
    pretty-print. `NewLogger` therefore takes extra writers. The arm never fails
    a write: an error there would be an error about an error.
 
-5. **The token is not a setting.** `settings.yaml` carries the endpoint and
-   instance id, which name a destination and are safe to commit. The token
-   comes from `HIVE_GRAFANACLOUD_TOKEN`, the name `credentials.EnvOverrideName`
-   derives for the `grafanacloud` provider, so a keychain-backed credential can
-   replace it later without a rename.
+5. **`telemetry.token` is a reference, not a token** — `env:NAME`,
+   `file:/path`, or `op://vault/item/field`, resolved through
+   `internal/app/secrets` and rejected if it is a literal
+   (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources). `settings.yaml` therefore names where the
+   credential lives without carrying it, and stays safe to commit.
 
 6. **The endpoint is validated for https, deliberately not for loopback.**
    `development.github.api_base` is pinned to loopback precisely so a persisted
@@ -84,14 +84,6 @@ exporters already pulled in.
   `app.startup`. `tmuxcc.MetricsSink` stays on `NopMetrics`: it is the
   interface that keeps the SDK out of `tmuxcc`, and a real implementation is
   the next change.
-- **The environment is the wrong place to read the token from in a shipped
-  build.** macOS starts an `.app` with a minimal environment, and the app reads
-  no env files — `launch.env` and `overrides.env` are loaded by mise for the
-  `dev` task only. So this path works under `mise run dev` and from a terminal,
-  and not from the Dock. Resolving through `execenv.Resolver.Getenv`
-  (ADR hive-env-overrides-resolve-through-the-login-shell), the keychain, or a
-  secret manager all require the token to be read per request rather than once
-  at construction, which is the follow-up.
 - `internal/app/perf` is untouched and still the only way to read UI spans
   without a backend. Replacing it with a JSONL `SpanExporter` beside the OTLP
   one is a separate decision.

@@ -188,7 +188,7 @@ column is the section that specifies it.
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **metric, span, or log field** | Consumer-defined interface in the emitting package; the SDK stays in `app/telemetry` | [Telemetry](#telemetry) |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
-| A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
+| A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing. A secret-bearing field holds an `internal/app/secrets` reference, never a value | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
@@ -357,6 +357,9 @@ internal/
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
                                   #   and no dependencies (ADR ui-performance-spans-are-recorded-to-jsonl)
+    secrets/                      # config holds a reference (env:, file:,
+                                  #   op://) and this resolves it; a literal is
+                                  #   rejected (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources)
     telemetry/                    # the app's own metrics, logs and traces over
                                   #   OTLP, and the local /metrics scrape; the
                                   #   only package that imports the OTel SDK

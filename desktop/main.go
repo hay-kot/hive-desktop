@@ -25,9 +25,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
-	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
+	"github.com/hay-kot/hive-desktop/internal/app/secrets"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/telemetry"
 )
@@ -96,7 +96,7 @@ func main() {
 		Export:      cfg.Telemetry.Enabled,
 		Endpoint:    cfg.Telemetry.Endpoint,
 		User:        cfg.Telemetry.InstanceID,
-		Token:       os.Getenv(credentials.EnvOverrideName(telemetry.CredentialProvider)),
+		Token:       telemetryToken(cfg.Telemetry, &logger),
 		Scrape:      cfg.Development.Metrics.Enabled,
 		Version:     version,
 		Environment: environment,
@@ -308,6 +308,21 @@ func main() {
 // telemetryFlushGrace is short on purpose: an unreachable backend must not be
 // able to hold up quitting, and losing the last batch costs less than a hang.
 const telemetryFlushGrace = 2 * time.Second
+
+// telemetryToken resolves telemetry.token, which is a reference rather than a
+// credential. A failure here reports as no token, so telemetry disables itself
+// with the reason logged instead of failing startup.
+func telemetryToken(cfg settings.TelemetrySettings, logger *zerolog.Logger) string {
+	if !cfg.Enabled || cfg.Token == "" {
+		return ""
+	}
+	token, err := secrets.Resolve(cfg.Token)
+	if err != nil {
+		logger.Error().Err(err).Msg("telemetry.token could not be resolved")
+		return ""
+	}
+	return token
+}
 
 // telemetryEnvironment separates a working tree's signals from a release's. A
 // published build reports its release channel; a plain `go build`, a dev-task

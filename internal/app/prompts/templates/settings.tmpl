@@ -61,8 +61,9 @@ agent_workspaces:
 telemetry:
   enabled: false           # export the app's own metrics, logs and traces over OTLP
   endpoint: ""             # signal-less OTLP base, https only; no collector needed
-  instance_id: ""          # the endpoint's basic-auth username. The token is never
-                           # a setting: it is read from HIVE_GRAFANACLOUD_TOKEN
+  instance_id: ""          # the endpoint's basic-auth username
+  token: ""                # a REFERENCE, never a token: env:NAME, file:/path, or
+                           # op://vault/item/field. A literal is rejected.
 
 development:
   mocks:
@@ -91,7 +92,8 @@ development:
 - `polling.interval` below 60s is rejected.
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
-- `telemetry.enabled` requires `telemetry.endpoint` and `telemetry.instance_id`, and the endpoint must be https. It is the one URL setting that is deliberately not loopback-only; the token is never a setting.
+- `telemetry.enabled` requires `telemetry.endpoint`, `telemetry.instance_id` and `telemetry.token`, and the endpoint must be https. It is the one URL setting that is deliberately not loopback-only.
+- `telemetry.token` must be a reference (`env:`, `file:`, `op://`), never a pasted credential; a literal is a validation error. Prefer `file:` or `op://` for an installed app, since a launched .app inherits almost no environment.
 - `profiles.order` never has to be exhaustive: name only the profiles whose position matters. Dragging a tile in the rail rewrites the whole key; editing it here takes effect on the next launch.
 - `keybindings` has its own command-id vocabulary. Read the ids off Settings ▸ Keyboard rather than guessing them. A binding can be a single combo (`j`) or a space-separated sequence of combos pressed in order (`g i`).
 {{template "task" .}}

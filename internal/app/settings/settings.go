@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/secrets"
 )
 
 const settingsFileName = "settings.yaml"
@@ -158,13 +159,17 @@ type EditorSettings struct {
 //
 // Endpoint is the signal-less OTLP base; on Grafana Cloud InstanceID is the
 // OTLP instance id from the stack's OpenTelemetry tile, not the stack id.
-// There is deliberately no token field — a token in settings.yaml is a token
-// in a dotfiles repo — so it comes from the credential provider's environment
-// override.
+//
+// Token is a reference, never a token — "env:NAME", "file:/path", or
+// "op://vault/item/field" — so a dotfiles-managed settings.yaml names where
+// the credential lives without carrying it. A literal is rejected rather than
+// passed through, which is what makes that rule enforceable instead of
+// advisory. See internal/app/secrets.
 type TelemetrySettings struct {
 	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
 	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
 	InstanceID string `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID"`
+	Token      string `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
@@ -411,6 +416,12 @@ func validateTelemetry(t TelemetrySettings) error {
 	}
 	if strings.TrimSpace(t.InstanceID) == "" {
 		return fmt.Errorf("telemetry.instance_id is required when telemetry.enabled is true")
+	}
+	if strings.TrimSpace(t.Token) == "" {
+		return fmt.Errorf("telemetry.token is required when telemetry.enabled is true")
+	}
+	if !secrets.HasKnownPrefix(t.Token) {
+		return fmt.Errorf("telemetry.token must be a reference (env:NAME, file:/path, or op://vault/item/field), not a literal secret")
 	}
 	return nil
 }

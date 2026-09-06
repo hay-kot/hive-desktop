@@ -34,10 +34,6 @@ import (
 const (
 	MetricsPath = "/metrics"
 
-	// CredentialProvider derives the token's environment name, so the variable
-	// read today is the one a stored credential would use.
-	CredentialProvider = "grafanacloud"
-
 	ScopeName = "github.com/hay-kot/hive-desktop"
 )
 
@@ -69,7 +65,7 @@ func (o Options) validate() error {
 		return errors.New("telemetry: user is required to export")
 	}
 	if strings.TrimSpace(o.Token) == "" {
-		return fmt.Errorf("telemetry: no token; set %s", tokenEnvName())
+		return errors.New("telemetry: token is required to export")
 	}
 	parsed, err := url.Parse(o.Endpoint)
 	if err != nil {

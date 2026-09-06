@@ -47,7 +47,7 @@ func TestNewRejectsUnusableExportConfig(t *testing.T) {
 	}{
 		{"no endpoint", func(o *Options) { o.Endpoint = "" }, "endpoint is required"},
 		{"no user", func(o *Options) { o.User = "" }, "user is required"},
-		{"no token", func(o *Options) { o.Token = "" }, tokenEnvName()},
+		{"no token", func(o *Options) { o.Token = "" }, "token is required"},
 		{"plaintext endpoint", func(o *Options) { o.Endpoint = "http://gateway.example.com/otlp" }, "must use https"},
 		{"endpoint has no host", func(o *Options) { o.Endpoint = "https:///otlp" }, "no host"},
 	}

@@ -185,6 +185,7 @@ telemetry:
   enabled: false # export this app's own metrics, logs and traces over OTLP
   endpoint: "" # the signal-less OTLP base, https only
   instance_id: "" # the endpoint's basic-auth username
+  token: "" # a reference, never a token: env:NAME, file:/path, or op://vault/item/field
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
                  # A binding is a single combo ("j") or a space-separated
                  # sequence of combos pressed in order ("g i").
@@ -227,13 +228,26 @@ collector in between; `development.metrics` serves the same instruments at
 `/metrics` on the loopback server for a local scrape. The two are independent —
 either, both, or neither — because one MeterProvider feeds both readers.
 
-There is no token field. `telemetry.endpoint` and `telemetry.instance_id`
-identify a destination and are safe to commit; the token is read from
-`HIVE_GRAFANACLOUD_TOKEN`, so a settings file that is under version control
-never carries a credential. For Grafana Cloud the endpoint is
-`https://otlp-gateway-<zone>.grafana.net/otlp` and `instance_id` is the OTLP
-instance id printed on the stack's OpenTelemetry tile, which is **not** the
-stack id.
+`telemetry.token` holds a **reference**, not a credential, and a literal is
+rejected rather than accepted (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources). Three sources are
+recognized:
+
+```yaml
+token: env:HIVE_GRAFANACLOUD_TOKEN          # headless and CI
+token: file:~/.config/hive/otlp-token       # works however the app was launched
+token: op://Private/Grafana Cloud/credential # 1Password, via the op CLI
+```
+
+Prefer `file:` or `op://` for an installed app. A launched `.app` inherits
+almost no environment and the app reads no env files, so `env:` resolves only
+when a shell or `mise run dev` put the variable there. The `op://` value is
+what 1Password's own **Copy Secret Reference** puts on the clipboard; `op` is
+found through the same package-manager prefixes tmux discovery searches, and a
+locked vault can raise an approval prompt on the first read.
+
+For Grafana Cloud the endpoint is `https://otlp-gateway-<zone>.grafana.net/otlp`
+and `instance_id` is the OTLP instance id printed on the stack's OpenTelemetry
+tile, which is **not** the stack id.
 
 Every scalar override mirrors its YAML path, for example
 `updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `http.port` →
