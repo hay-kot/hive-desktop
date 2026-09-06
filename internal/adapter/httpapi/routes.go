@@ -270,7 +270,10 @@ func agentErrors(notFound string, extra ...ErrResp) []ErrResp {
 // build. Both stay HTTP because they answer the question "is the app up, and
 // which build is it?" — one a shell script or a health check asks with a plain
 // GET, and a JSON-RPC handshake is the wrong shape for it. Everything an agent
-// drives is a tool on the MCP server now.
+// drives is a tool on the MCP server now, with one exception: the call a chat
+// makes about itself, ending its own session, which is a curl from inside the
+// agent's shell with the token its launch handed it
+// (ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 func (ctrl *Controller) baseOperations() []Op {
 	return []Op{
 		{
@@ -283,6 +286,11 @@ func (ctrl *Controller) baseOperations() []Op {
 		{
 			Method: "GET", Path: "/api/status", Summary: "Report whether the webhook listener is running and on which host and port.",
 			Response: statusResponse{}, Handler: ctrl.Status,
+		},
+		{
+			Method: "POST", Path: app.AgentSessionEndPath, Summary: "End the calling chat's own session. The bearer is the HIVE_AGENT_SESSION_TOKEN the launch handed that process, so a chat can end itself and nothing else; a scheduled chat is told to call this when its task is done. Answers 202 with when the session will be ended: the request arrives from inside the agent's own tool call, and the grace (agent_workspaces.session_end_delay) lets that call return first. The record stays, so the chat still lists and resumes.",
+			Response: agentSessionEndResponse{}, Handler: ctrl.AgentSessionEnd,
+			Errors: []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or is not a session's"}},
 		},
 	}
 }

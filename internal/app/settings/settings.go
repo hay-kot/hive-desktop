@@ -135,6 +135,12 @@ type ProfileSettings struct {
 // configurable because iCloud Drive is an expected destination (spec §4.4).
 type AgentWorkspacesSettings struct {
 	Dir string `yaml:"dir,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_DIR"`
+	// SessionEndDelay is the grace between a chat asking to end its own
+	// session and the session being ended. The request arrives from inside
+	// the agent's own tool call, so the delay is what lets that call return
+	// and the agent finish its closing message first. Zero or unset takes the
+	// shipped value.
+	SessionEndDelay Duration `yaml:"session_end_delay,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_SESSION_END_DELAY"`
 }
 
 // PathsSettings locates the external binaries the app execs. Each is the escape
@@ -284,13 +290,14 @@ type Settings struct {
 
 func DefaultSettings() Settings {
 	return Settings{
-		Version:       configmigrate.SettingsSet.Current,
-		Polling:       PollingSettings{Interval: Duration(5 * time.Minute)},
-		Updates:       UpdateSettings{Enabled: true},
-		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
-		Appearance:    Appearance{TerminalShowWindows: true, TerminalPoolSize: 3},
-		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
-		Telemetry:     TelemetrySettings{Enabled: false},
+		Version:         configmigrate.SettingsSet.Current,
+		Polling:         PollingSettings{Interval: Duration(5 * time.Minute)},
+		Updates:         UpdateSettings{Enabled: true},
+		Notifications:   NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
+		Appearance:      Appearance{TerminalShowWindows: true, TerminalPoolSize: 3},
+		HTTP:            HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
+		Telemetry:       TelemetrySettings{Enabled: false},
+		AgentWorkspaces: AgentWorkspacesSettings{SessionEndDelay: Duration(10 * time.Second)},
 		Development: DevelopmentSettings{
 			Mocks:    MockSettings{Mode: MockLive},
 			Vite:     ServerSettings{Host: "127.0.0.1", Port: 0},

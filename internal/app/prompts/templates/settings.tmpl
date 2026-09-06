@@ -57,6 +57,9 @@ editor:
 agent_workspaces:
   dir: ""                  # workspace root; empty is the config dir's workspaces/.
                            # A leading ~ is expanded at read time.
+  session_end_delay: 10s   # grace between a chat asking to end its own session
+                           # (a scheduled chat does when its task is done) and
+                           # the session being ended
 
 telemetry:
   enabled: false           # export the app's own metrics, logs and traces over OTLP

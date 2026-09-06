@@ -609,9 +609,14 @@ ORDER BY id DESC;
 SELECT * FROM agent_workspace_session WHERE id = ?;
 
 -- name: InsertAgentWorkspaceSession :one
-INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
+
+-- name: GetAgentWorkspaceSessionByEndToken :one
+-- The session a launch handed this token to. An empty token matches nothing:
+-- a row from before the column existed must not answer for a blank bearer.
+SELECT * FROM agent_workspace_session WHERE end_token = ? AND end_token <> '';
 
 -- name: TouchAgentWorkspaceSession :exec
 UPDATE agent_workspace_session SET last_opened_at = ? WHERE id = ?;

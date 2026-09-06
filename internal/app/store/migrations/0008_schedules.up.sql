@@ -34,3 +34,7 @@ CREATE INDEX schedule_run_by_schedule ON schedule_run (workspace, schedule_id, s
 -- schedule_run: session ids are reused after a delete and runs are pruned, so
 -- a derivation would mislabel or lose it.
 ALTER TABLE agent_workspace_session ADD COLUMN schedule_id TEXT NOT NULL DEFAULT '';
+
+-- The capability a launch hands its own process: presenting it is what lets a
+-- chat end its own session without the frontend's terminal token.
+ALTER TABLE agent_workspace_session ADD COLUMN end_token TEXT NOT NULL DEFAULT '';

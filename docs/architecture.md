@@ -1833,6 +1833,18 @@ what marks a scheduled chat's row with a clock glyph. It is stored rather
 than derived from `schedule_run`: session ids are reused after a delete and
 run history is pruned, so a derivation would mislabel or lose it.
 
+A scheduled chat ends itself. Every launch mints a capability token, stores
+it on the session row, and hands the process `HIVE_AGENT_SESSION_TOKEN` and
+`HIVE_AGENT_SESSION_END_URL`; `POST /api/sessions/end` with that bearer ends
+that session and no other, after the `agent_workspaces.session_end_delay`
+grace, and answers 202 with when. It is a base route with its own guard, not
+a `/api/terminal/` one, because a chat must not hold the frontend's token,
+and not an MCP tool, because a workspace need not declare the app's MCP
+server for its schedules to work. `prompts.ScheduledRun` frames the scheduled
+prompt before launch: what started it, that nobody is watching, the
+schedule's own rendered prompt, and the exact `curl` to run when done
+(ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
+
 ## Execution model
 
 The flow engine runs **in Go**, in-process. Source polling, graph routing,

@@ -294,6 +294,17 @@ func (s *SettingsService) Editor(context.Context) (string, error) {
 	return cfg.Editor.Command, nil
 }
 
+// SessionEndDelay is the grace between a chat asking to end its own session
+// and the session being ended; zero when settings cannot be read, which the
+// caller treats as the shipped value.
+func (s *SettingsService) SessionEndDelay(context.Context) time.Duration {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return 0
+	}
+	return cfg.AgentWorkspaces.SessionEndDelay.Duration()
+}
+
 // EditorTitle is the display title a configured command is labelled with, and
 // "" for no command at all.
 func (s *SettingsService) EditorTitle(command string) string {

@@ -19,6 +19,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
+	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -90,7 +91,14 @@ type AgentWorkspacesService struct {
 	// constructor argument because the scheduler is built after this service,
 	// over it.
 	OnSchedulesChanged func(workspace string)
-	logger             zerolog.Logger
+	// OnSessionEnded is called after a chat that asked to end itself is gone,
+	// so the area showing it can re-read.
+	OnSessionEnded func(SessionView)
+	// endDelay reads how long EndOwnSession waits after answering before the
+	// tmux session is ended: the agent_workspaces.session_end_delay setting.
+	// nil or a non-positive answer takes the shipped value.
+	endDelay func(context.Context) time.Duration
+	logger   zerolog.Logger
 }
 
 func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string, logger zerolog.Logger) *AgentWorkspacesService {
@@ -238,13 +246,34 @@ type StartSession struct {
 	ScheduleID string
 }
 
+// AgentSessionEndPath is the route a chat calls to end its own session,
+// presenting the token its launch handed it. It lives here so the URL a
+// launch writes into the agent's environment and the route httpapi serves
+// cannot drift apart.
+const AgentSessionEndPath = "/api/sessions/end"
+
+// defaultEndDelay is the grace between answering a chat that asked to end
+// itself and ending its session when settings name none: the request arrives
+// from inside the agent's own tool call, and killing the pane before that
+// call returns would cut the tool result out of the transcript.
+const defaultEndDelay = 10 * time.Second
+
+// SessionEnding is EndOwnSession's answer: the chat that asked, and when its
+// session will be ended.
+type SessionEnding struct {
+	Session SessionView
+	EndsAt  time.Time
+}
+
 // StartScheduledSession is one schedule's launch. It has no cols/rows because
-// it is always detached.
+// it is always detached. Prompt is the schedule's own template, rendered; the
+// launch frames it.
 type StartScheduledSession struct {
-	Workspace  string
-	ScheduleID string
-	Name       string
-	Prompt     string
+	Workspace    string
+	ScheduleID   string
+	ScheduleName string
+	Name         string
+	Prompt       string
 }
 
 // OpenResult is what opening a workspace reports back to the UI.
@@ -445,6 +474,9 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	rec, err := s.db.CreateAgentWorkspaceSession(ctx, store.AgentWorkspaceSession{
 		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent, AgentSessionID: agentSessionID,
 		CreatedAt: now, LastOpenedAt: now, ScheduleID: req.ScheduleID,
+		// The token is minted once and reused by every resume, so the
+		// process's environment is the same across launches.
+		EndToken: uuid.NewString(),
 	})
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "creating session %q", req.Name)
@@ -461,14 +493,82 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 // Open: without it a scheduled run would drive an agent whose .mcp.json and
 // skills were never regenerated for the manifest as it stands now. Open's
 // read half, the session list and the view, has no reader here.
+//
+// The prompt the agent receives is the schedule's rendered prompt inside the
+// scheduled-run frame: what started it, that nobody is watching, and how to
+// end the session when done. The run history keeps the unframed prompt.
 func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req StartScheduledSession) (SessionView, error) {
-	if _, err := s.regenerate(ctx, req.Workspace); err != nil {
+	regen, err := s.regenerate(ctx, req.Workspace)
+	if err != nil {
 		return SessionView{}, err
 	}
+	prompt, err := prompts.ScheduledRun(prompts.ScheduledRunData{
+		ScheduleName: req.ScheduleName, WorkspaceName: regen.status.Workspace.Name,
+		Prompt: req.Prompt, CanEnd: s.sessionEndURL(ctx) != "",
+	})
+	if err != nil {
+		return SessionView{}, Wrap(err, KindInternal, "framing the scheduled prompt")
+	}
 	return s.StartSession(ctx, StartSession{
-		Workspace: req.Workspace, Name: req.Name, Prompt: req.Prompt, Detached: true,
+		Workspace: req.Workspace, Name: req.Name, Prompt: prompt, Detached: true,
 		ScheduleID: req.ScheduleID,
 	})
+}
+
+// sessionEndURL is the address a chat ends itself at, empty when the loopback
+// server has no port to answer on.
+func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
+	if s.mcpBase == nil {
+		return ""
+	}
+	base := s.mcpBase(ctx)
+	if base == "" {
+		return ""
+	}
+	return strings.TrimSuffix(base, "/") + AgentSessionEndPath
+}
+
+// EndOwnSession ends the session whose launch handed out token. It answers as
+// soon as the token is matched, naming when the session will be ended, and
+// ends the tmux session after that delay in the background. The record stays,
+// so the chat still lists and resumes.
+func (s *AgentWorkspacesService) EndOwnSession(ctx context.Context, token string) (SessionEnding, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return SessionEnding{}, Errorf(KindUnauthenticated, "a session token is required")
+	}
+	rec, ok, err := s.db.GetAgentWorkspaceSessionByEndToken(ctx, token)
+	if err != nil {
+		return SessionEnding{}, Wrap(err, KindInternal, "looking up the session a token names")
+	}
+	if !ok {
+		return SessionEnding{}, Errorf(KindUnauthenticated, "no session holds that token")
+	}
+
+	delay := defaultEndDelay
+	if s.endDelay != nil {
+		if configured := s.endDelay(ctx); configured > 0 {
+			delay = configured
+		}
+	}
+	view := s.sessionViews(ctx, []store.AgentWorkspaceSession{rec})[0]
+	go s.endAfter(context.WithoutCancel(ctx), delay, view)
+	return SessionEnding{Session: view, EndsAt: time.Now().Add(delay)}, nil
+}
+
+func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Duration, view SessionView) {
+	time.Sleep(delay)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	closed, err := s.terminals.KillSession(ctx, sessionName(view.ID))
+	if err != nil {
+		s.logger.Warn().Err(err).Int64("session", view.ID).Msg("a chat asked to end itself but its session could not be closed")
+		return
+	}
+	s.logger.Info().Int64("session", view.ID).Bool("closed", closed).Msg("a chat ended its own session")
+	if closed && s.OnSessionEnded != nil {
+		s.OnSessionEnded(view)
+	}
 }
 
 // SessionLive reports whether a session's tmux session still exists. The
@@ -1169,9 +1269,17 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	// The record id is the canvas tools' session argument; handing it to the
 	// process at launch is what lets the agent name its own chat without
 	// guessing (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+	// The token and the URL are what let it end its own chat
+	// (ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 	env := []string{
 		fmt.Sprintf("HIVE_AGENT_SESSION=%d", rec.ID),
 		"HIVE_AGENT_WORKSPACE=" + opts.dir,
+	}
+	if rec.EndToken != "" {
+		env = append(env, "HIVE_AGENT_SESSION_TOKEN="+rec.EndToken)
+		if endURL := s.sessionEndURL(ctx); endURL != "" {
+			env = append(env, "HIVE_AGENT_SESSION_END_URL="+endURL)
+		}
 	}
 	if err := s.terminals.NewSession(ctx, name, opts.dir, opts.line, env); err != nil {
 		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "launching session %q", rec.Name))

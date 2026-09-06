@@ -37,8 +37,22 @@ func (db *DB) CreateAgentWorkspaceSession(ctx context.Context, s AgentWorkspaceS
 		CreatedAt:      s.CreatedAt,
 		LastOpenedAt:   s.LastOpenedAt,
 		ScheduleID:     s.ScheduleID,
+		EndToken:       s.EndToken,
 	})
 	return row, wrap("creating agent workspace session", err)
+}
+
+// GetAgentWorkspaceSessionByEndToken reads the session whose launch handed
+// out token. ok reports whether one exists; an empty token never matches.
+func (db *DB) GetAgentWorkspaceSessionByEndToken(ctx context.Context, token string) (AgentWorkspaceSession, bool, error) {
+	row, err := db.queries.GetAgentWorkspaceSessionByEndToken(ctx, token)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentWorkspaceSession{}, false, nil
+	}
+	if err != nil {
+		return AgentWorkspaceSession{}, false, wrap("getting agent workspace session by token", err)
+	}
+	return row, true, nil
 }
 
 // TouchAgentWorkspaceSession advances a session's last_opened_at, the signal

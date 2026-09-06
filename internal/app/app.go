@@ -458,6 +458,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.scheduler.Reload()
 		a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: workspace})
 	}
+	// A scheduled chat that ended itself is what the Chats area is showing as
+	// live; the same wake-up makes it re-read the chat list.
+	a.AgentWorkspaces.OnSessionEnded = func(session SessionView) {
+		if session.ScheduleID != "" {
+			a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: session.Workspace})
+		}
+	}
+	a.AgentWorkspaces.endDelay = a.Settings.SessionEndDelay
 
 	return a, nil
 }

@@ -55,6 +55,30 @@ func TestEveryDefinitionRenders(t *testing.T) {
 	}
 }
 
+// The frame names what started the chat, carries the user's prompt through
+// untouched, and gives the exact command that ends the session: two
+// environment variables and no JSON, so there is nothing for the agent to
+// quote. Without an end URL the closing instruction is absent rather than
+// pointing at nothing.
+func TestScheduledRunFramesThePrompt(t *testing.T) {
+	text, err := ScheduledRun(ScheduledRunData{
+		ScheduleName: "Weekly summary", WorkspaceName: "Product",
+		Prompt: "Summarize the week since 2026-08-28.\n- include open PRs", CanEnd: true,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, text, `scheduled task "Weekly summary" in the "Product" workspace`)
+	assert.Contains(t, text, "Summarize the week since 2026-08-28.\n- include open PRs")
+	assert.Contains(t, text, "you MUST end this session")
+	assert.Contains(t, text, `curl -fsS -X POST "$HIVE_AGENT_SESSION_END_URL" -H "Authorization: Bearer $HIVE_AGENT_SESSION_TOKEN"`)
+	assert.NotContains(t, text, "<no value>")
+
+	quiet, err := ScheduledRun(ScheduledRunData{ScheduleName: "w", WorkspaceName: "p", Prompt: "go"})
+	require.NoError(t, err)
+	assert.Contains(t, quiet, "go")
+	assert.NotContains(t, quiet, "end this session")
+	assert.NotContains(t, quiet, "curl")
+}
+
 func TestRenderRejectsUnknownID(t *testing.T) {
 	_, err := newTestService(t).Render("not-a-prompt", testInput())
 	require.Error(t, err)

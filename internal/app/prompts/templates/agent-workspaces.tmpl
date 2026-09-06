@@ -44,6 +44,13 @@ Recurring chats this workspace launches on its own. Each entry in the
 - `disabled` - optional; `true` skips this schedule. Omitted means enabled.
 - `on_missed` - optional, `run` (default) or `skip`. `run` folds every occurrence Hive missed while it was closed into one catch-up launch; `skip` records a missed occurrence instead of launching.
 
+Hive frames a scheduled chat before it starts: it tells the agent which
+schedule and workspace started it, that nobody is watching, and how to end the
+session when the task is done (a `curl` to Hive's loopback server with a token
+the launch handed the process). The agent MUST end the session; a chat left
+open blocks the schedule's next run. Write `prompt` as the task itself and
+leave that framing to Hive.
+
 An id is `[a-z0-9-]+` and must be unique in the workspace, so do not reuse one
 for a different schedule. Changing a schedule's `cron` restarts its cursor, so
 nothing back-fires: Hive only ever measures missed occurrences since the last

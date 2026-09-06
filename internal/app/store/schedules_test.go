@@ -50,6 +50,34 @@ func TestScheduleCursor_UpsertGetListDelete(t *testing.T) {
 	assert.Equal(t, "ws-2", cursors[0].Workspace)
 }
 
+func TestGetAgentWorkspaceSessionByEndToken(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	minted, err := db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
+		Workspace: "ws-1", Name: "s1", Agent: "claude", AgentSessionID: "a", EndToken: "tok-1",
+	})
+	require.NoError(t, err)
+	// A row from before the column existed carries no token.
+	_, err = db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
+		Workspace: "ws-1", Name: "s2", Agent: "claude", AgentSessionID: "b",
+	})
+	require.NoError(t, err)
+
+	found, ok, err := db.GetAgentWorkspaceSessionByEndToken(ctx, "tok-1")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, minted.ID, found.ID)
+
+	_, ok, err = db.GetAgentWorkspaceSessionByEndToken(ctx, "tok-2")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	_, ok, err = db.GetAgentWorkspaceSessionByEndToken(ctx, "")
+	require.NoError(t, err)
+	assert.False(t, ok, "a blank bearer must not match a row that has no token")
+}
+
 func TestDeleteScheduleCursors_RemovesOnlyTheWorkspace(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()

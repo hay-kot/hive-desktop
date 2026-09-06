@@ -81,12 +81,14 @@ type Store interface {
 }
 
 // LaunchRequest is one chat to start. ScheduleID is the schedule it belongs
-// to, which the launcher records on the chat.
+// to, which the launcher records on the chat; ScheduleName is what the chat is
+// told started it.
 type LaunchRequest struct {
-	Workspace  string
-	ScheduleID string
-	Name       string
-	Prompt     string
+	Workspace    string
+	ScheduleID   string
+	ScheduleName string
+	Name         string
+	Prompt       string
 }
 
 // Launcher starts chats and reports whether one is still running.
@@ -364,7 +366,8 @@ func (s *Scheduler) execute(ctx context.Context, spec Spec, decision Decision, n
 
 		name := fmt.Sprintf("%s - %s", spec.DisplayName(), decision.ScheduledFor.Format("Jan 2 15:04"))
 		sessionID, err := s.opts.Launcher.Launch(ctx, LaunchRequest{
-			Workspace: spec.Workspace, ScheduleID: spec.ID, Name: name, Prompt: prompt,
+			Workspace: spec.Workspace, ScheduleID: spec.ID, ScheduleName: spec.DisplayName(),
+			Name: name, Prompt: prompt,
 		})
 		if err != nil {
 			// A launch the quit itself stopped is not the schedule failing.

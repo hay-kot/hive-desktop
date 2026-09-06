@@ -799,6 +799,93 @@ func TestSessionsNameTheScheduleThatStartedThem(t *testing.T) {
 	}
 }
 
+// A chat ends itself by presenting the token its launch handed it. The session
+// is ended after the configured grace rather than inside the call, so the tool
+// call that made the request returns first; the record stays, so the chat
+// still lists.
+func TestEndOwnSessionEndsTheChatAfterTheDelay(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	svc.endDelay = func(context.Context) time.Duration { return 100 * time.Millisecond }
+	ended := make(chan SessionView, 1)
+	svc.OnSessionEnded = func(view SessionView) { ended <- view }
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24, ScheduleID: "weekly"})
+	require.NoError(t, err)
+	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NotEmpty(t, rec.EndToken, "every launch mints a token")
+
+	_, err = svc.EndOwnSession(t.Context(), "not-a-token")
+	require.Error(t, err)
+	assert.Equal(t, KindUnauthenticated, KindOf(err))
+
+	ending, err := svc.EndOwnSession(t.Context(), rec.EndToken)
+	require.NoError(t, err)
+	assert.Equal(t, started.ID, ending.Session.ID)
+	assert.WithinDuration(t, time.Now().Add(100*time.Millisecond), ending.EndsAt, time.Second)
+
+	live, err := svc.SessionLive(t.Context(), started.ID)
+	require.NoError(t, err)
+	assert.True(t, live, "the session outlives the call itself")
+
+	select {
+	case view := <-ended:
+		assert.Equal(t, started.ID, view.ID)
+		assert.Equal(t, "weekly", view.ScheduleID)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session was not ended after the delay")
+	}
+	live, err = svc.SessionLive(t.Context(), started.ID)
+	require.NoError(t, err)
+	assert.False(t, live)
+
+	sessions, err := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, err)
+	require.Len(t, sessions, 1, "the record outlives the tmux session")
+	assert.Empty(t, sessions[0].TerminalID)
+}
+
+// A scheduled launch hands the agent the framed prompt and the means to end
+// itself: the frame names the schedule and carries the curl, and the process
+// environment carries the token and the URL the curl reads.
+func TestStartScheduledSessionFramesThePromptAndHandsOutTheToken(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	captured := filepath.Join(t.TempDir(), "launch")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{
+		"claude": fakeAgentBinary(t, `sh -c 'printf "%s\n" "$@" > "$0.args"; env > "$0.env"; exec cat' `+captured+` "$@"`),
+	})
+	svc.mcpBase = func(context.Context) string { return "http://127.0.0.1:4321" }
+
+	started, err := svc.StartScheduledSession(t.Context(), StartScheduledSession{
+		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "Weekly summary",
+		Name: "Weekly summary - Sep 6 09:00", Prompt: "Summarize the week.",
+	})
+	require.NoError(t, err)
+	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	var args, env string
+	require.Eventually(t, func() bool {
+		a, errA := os.ReadFile(captured + ".args")
+		e, errE := os.ReadFile(captured + ".env")
+		args, env = string(a), string(e)
+		return errA == nil && errE == nil
+	}, 5*time.Second, 25*time.Millisecond, "the fake agent records what it was launched with")
+
+	assert.Contains(t, args, `scheduled task "Weekly summary" in the "Demo" workspace`)
+	assert.Contains(t, args, "Summarize the week.")
+	assert.Contains(t, args, "you MUST end this session")
+	assert.Contains(t, env, "HIVE_AGENT_SESSION_TOKEN="+rec.EndToken+"\n")
+	assert.Contains(t, env, "HIVE_AGENT_SESSION_END_URL=http://127.0.0.1:4321"+AgentSessionEndPath+"\n")
+}
+
 // TestSkillPackagesResolveMembers is the editor's read: packages from
 // skills.yml, each carrying the skills its patterns currently select across
 // both sources.
