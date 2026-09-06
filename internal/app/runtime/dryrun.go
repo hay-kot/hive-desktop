@@ -188,8 +188,7 @@ func portEmissions(byPort map[int][]store.Msg) []PortEmission {
 }
 
 func nodeErrorOf(err error) *NodeError {
-	var scriptErr *ScriptError
-	if errors.As(err, &scriptErr) {
+	if scriptErr, ok := errors.AsType[*ScriptError](err); ok {
 		return &NodeError{
 			Message: scriptErr.Message,
 			Kind:    scriptErr.Kind,

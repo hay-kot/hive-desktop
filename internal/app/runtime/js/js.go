@@ -467,8 +467,7 @@ func syntaxError(err error, srcLines int) *runtime.ScriptError {
 
 // evaluationError classifies a failure goja reported while running.
 func evaluationError(err error) error {
-	var interrupted *goja.InterruptedError
-	if errors.As(err, &interrupted) {
+	if interrupted, ok := errors.AsType[*goja.InterruptedError](err); ok {
 		return &runtime.ScriptError{Kind: runtime.ScriptErrorTimeout, Message: "script did not complete within its timeout", Stack: interrupted.String()}
 	}
 	return scriptError(runtime.ScriptErrorRuntime, err)
@@ -479,8 +478,7 @@ func evaluationError(err error) error {
 func scriptError(kind runtime.ScriptErrorKind, err error) *runtime.ScriptError {
 	out := &runtime.ScriptError{Kind: kind, Message: err.Error()}
 
-	var compilerErr *goja.CompilerSyntaxError
-	if errors.As(err, &compilerErr) {
+	if compilerErr, ok := errors.AsType[*goja.CompilerSyntaxError](err); ok {
 		out.Message = compilerErr.Message
 		if compilerErr.File != nil {
 			position := compilerErr.File.Position(compilerErr.Offset)
@@ -490,8 +488,7 @@ func scriptError(kind runtime.ScriptErrorKind, err error) *runtime.ScriptError {
 		return out
 	}
 
-	var exception *goja.Exception
-	if errors.As(err, &exception) {
+	if exception, ok := errors.AsType[*goja.Exception](err); ok {
 		out.Message = rebasePositions(strings.TrimPrefix(exception.Error(), "Uncaught "))
 		out.Stack = rebasePositions(exception.String())
 		for _, frame := range exception.Stack() {

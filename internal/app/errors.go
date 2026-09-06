@@ -92,8 +92,7 @@ func Wrap(err error, kind Kind, format string, args ...any) error {
 // KindOf returns the Kind of the first *Error in err's chain, or KindInternal.
 // An unclassified error is internal by definition: nobody decided otherwise.
 func KindOf(err error) Kind {
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Kind
 	}
 	return KindInternal

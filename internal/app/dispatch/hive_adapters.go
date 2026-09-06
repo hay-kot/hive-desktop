@@ -340,7 +340,7 @@ type sessionGit interface {
 	DiffStats(ctx context.Context, dir string) (additions, deletions int, err error)
 }
 
-var _ sessionGit = (git.Git)(nil)
+var _ sessionGit = git.Git(nil)
 
 func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, gitExec sessionGit, statusPollInterval time.Duration) *HiveSessionManager {
 	return &HiveSessionManager{sessions: sessions, statuses: statuses, git: gitExec, statusPollInterval: statusPollInterval}

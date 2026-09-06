@@ -128,9 +128,8 @@ func (p *LiveProvider) noteRateLimit(ctx context.Context, err error) {
 	if !errors.Is(err, sourcehttp.ErrRateLimited) {
 		return
 	}
-	var rateErr *sourcehttp.RateLimitError
 	until := time.Time{}
-	if errors.As(err, &rateErr) {
+	if rateErr, ok := errors.AsType[*sourcehttp.RateLimitError](err); ok {
 		until = rateErr.ResetAt
 	}
 

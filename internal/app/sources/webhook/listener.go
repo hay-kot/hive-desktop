@@ -205,8 +205,7 @@ func (l *Listener) handleHook(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			http.Error(w, "request body exceeds 1 MiB", http.StatusRequestEntityTooLarge)
 			return
 		}

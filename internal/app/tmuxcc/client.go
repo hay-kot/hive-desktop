@@ -826,8 +826,7 @@ func (c *Client) snapshotCmd(ctx context.Context, pane, cmd string) ([]string, e
 	if err == nil {
 		return lines, nil
 	}
-	var cmdErr *CommandError
-	if !errors.As(err, &cmdErr) {
+	if _, ok := errors.AsType[*CommandError](err); !ok {
 		return nil, err
 	}
 	c.log.Warn().Err(err).Str("pane", pane).Str("command", cmd).Msg("snapshot command skipped")

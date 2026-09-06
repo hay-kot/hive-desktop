@@ -34,8 +34,7 @@ func toolError(log zerolog.Logger, err error) error {
 	if err == nil {
 		return nil
 	}
-	var appErr *app.Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*app.Error](err); ok {
 		if appErr.Err != nil {
 			log.Debug().Err(err).Str("kind", string(appErr.Kind)).Msg("mcp tool refused a call")
 			// Rendered, not wrapped: what crosses is text for a model to read,

@@ -759,8 +759,7 @@ func (ctrl *Controller) AgentSessionsAll(w http.ResponseWriter, r *http.Request)
 // agentErrorMessage takes the user-facing message off a core error, matching
 // wailsui's reasonFor: anything not an *app.Error is reported verbatim.
 func agentErrorMessage(err error) string {
-	var appErr *app.Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*app.Error](err); ok {
 		return appErr.Msg
 	}
 	return err.Error()

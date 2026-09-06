@@ -253,8 +253,7 @@ func runnerExit(err error) error {
 	if err == nil {
 		return nil
 	}
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
+	if exit, ok := errors.AsType[*exec.ExitError](err); ok {
 		return cli.Exit(fmt.Sprintf("dev runner exited with status %d", exit.ExitCode()), exit.ExitCode())
 	}
 	return err

@@ -85,8 +85,7 @@ func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error
 // reasonFor takes the user-facing message off a core error; anything else is
 // reported verbatim rather than swallowed.
 func reasonFor(err error) string {
-	var appErr *app.Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*app.Error](err); ok {
 		return appErr.Msg
 	}
 	return err.Error()

@@ -478,8 +478,7 @@ func (s *ActionStore) writeDocumentLocked(doc *yaml.Node) error {
 		return fmt.Errorf("validate action change: %w", err)
 	}
 	if err := atomicWrite(s.path, data); err != nil {
-		var installed *installedWriteError
-		if errors.As(err, &installed) {
+		if _, ok := errors.AsType[*installedWriteError](err); ok {
 			// Rename already made the valid candidate visible. Reload despite a
 			// durability-sync error so this store never keeps serving stale data.
 			if reloadErr := s.reloadLocked(); reloadErr != nil {

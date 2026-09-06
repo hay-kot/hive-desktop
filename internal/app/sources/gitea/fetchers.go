@@ -230,8 +230,7 @@ func (fx *fetcher) prepare() (*giteaclient.Client, error) {
 // noteError arms the cooldown when the failure was a rate limit, so the next
 // tick waits out the server's reset instead of hammering it.
 func (fx *fetcher) noteError(err error) {
-	var rateLimit *sourcehttp.RateLimitError
-	if errors.As(err, &rateLimit) {
+	if rateLimit, ok := errors.AsType[*sourcehttp.RateLimitError](err); ok {
 		fx.enterCooldown(rateLimit.ResetAt)
 	}
 }
