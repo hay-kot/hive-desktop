@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
@@ -91,7 +91,7 @@ func (activeAbsenceClassifier) Classify(_ *models.Observation, current models.Ob
 func TestProducerAbsenceIsScopedToExactSourceTopic(t *testing.T) {
 	db := openTestPipelineDB(t)
 	classifier := genericClassifier{}
-	_, err := db.IngestObservation(t.Context(), classifier, queries.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: models.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
+	_, err := stores.New(db, stores.Options{}).InboxItems.IngestObservation(t.Context(), classifier, stores.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: models.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
 	require.NoError(t, err)
 	absence := &countingAbsence{}
 	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
@@ -324,7 +324,7 @@ func TestProducerSkipsArchivedItemsInAbsence(t *testing.T) {
 func TestProducerStopsConfirmingTerminalItems(t *testing.T) {
 	db := openTestPipelineDB(t)
 	payload := []byte(`{"id":"acme/repo#1","title":"A"}`)
-	_, err := db.IngestObservation(t.Context(), genericClassifier{}, queries.IngestObservationParams{
+	_, err := stores.New(db, stores.Options{}).InboxItems.IngestObservation(t.Context(), genericClassifier{}, stores.IngestObservationParams{
 		ProfileID: "profile", Topic: "source:profile/source",
 		Current: models.Observation{ExternalID: "acme/repo#1", Title: "A", SourceKind: "github", ObservedAt: 100, Payload: payload},
 	})

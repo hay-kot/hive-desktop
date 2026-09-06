@@ -18,16 +18,14 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
-// Ingester is the subset of the pipeline database a webhook delivery needs to
-// record an observation. *queries.DB satisfies it until phase 3b moves
-// IngestObservation onto a store.
+// Ingester is the subset of InboxItemStore a webhook delivery needs to
+// record an observation. Satisfied by *stores.InboxItemStore.
 type Ingester interface {
-	IngestObservation(ctx context.Context, classifier models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error)
+	IngestObservation(ctx context.Context, classifier models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error)
 }
 
 // SnapshotAppender appends a source's authoritative item set after a
@@ -306,7 +304,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 	topic := inst.Node.Topic()
 	meta := inst.Metadata
 
-	result, err := l.ingester.IngestObservation(ctx, inst.Classifier, queries.IngestObservationParams{
+	result, err := l.ingester.IngestObservation(ctx, inst.Classifier, stores.IngestObservationParams{
 		ProfileID: meta.ProfileID,
 		Topic:     topic,
 		Policy:    meta.Policy,

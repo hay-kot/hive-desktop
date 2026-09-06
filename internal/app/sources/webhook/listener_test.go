@@ -49,7 +49,7 @@ func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *quer
 	st := stores.New(db, stores.Options{})
 
 	var lastOffset int64
-	listener := NewListener(db, st.EventLog, st.WebhookCaptures, st.InboxItems, instances, "127.0.0.1", 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
+	listener := NewListener(st.InboxItems, st.EventLog, st.WebhookCaptures, st.InboxItems, instances, "127.0.0.1", 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
 	return listener, db, &lastOffset
 }
 

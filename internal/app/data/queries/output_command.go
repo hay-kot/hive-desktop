@@ -2,12 +2,10 @@ package queries
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"time"
 )
 
-func null(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }
 func wrap(msg string, err error) error {
 	if err == nil {
 		return nil

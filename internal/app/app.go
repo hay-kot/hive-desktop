@@ -124,11 +124,11 @@ type App struct {
 	Events *events.Bus
 	Stores *datastores.Stores
 
-	// db is the database itself, for the three operations that address the
-	// file rather than an entity in it (Prune, Compact, ResetAllState) and
-	// the four cross-table operations phase 3b re-homes. PipelineDB exposes
-	// it to driving adapters that need it directly (the e2e harness), the
-	// same seam HiveConn gives the vendored action database.
+	// db is the database itself, for the three whole-database operations
+	// that address the file rather than an entity in it: Prune, Compact,
+	// ResetAllState. PipelineDB exposes it to driving adapters that need it
+	// directly (the e2e harness), the same seam HiveConn gives the vendored
+	// action database.
 	db *queries.DB
 
 	// Domain stores. Nothing outside this package holds these — a bypass
@@ -408,7 +408,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
-	a.Flows = newFlowsService(a.flowStore, db, a.Stores.InboxItems, a.credentials, profileImages, sourceMarks, a.scripts, a.settingsStore, func() { a.PublishFlowsUpdated("save") })
+	a.Flows = newFlowsService(a.flowStore, a.Stores, a.Stores.InboxItems, a.credentials, profileImages, sourceMarks, a.scripts, a.settingsStore, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
@@ -881,7 +881,7 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 	return runtime.NewEngine(runtime.EngineOptions{
 		Log:     a.Stores.EventLog,
 		Items:   a.Stores.InboxItems,
-		Commits: queriesCommitStore{db: a.db},
+		Commits: a.Stores.EventLog,
 		KV:      a.Stores.NodeKV,
 		Flows:   a.flowStore,
 		Scripts: a.scripts,
@@ -945,7 +945,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	if a.fetchers == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(a.db, a.Stores.EventLog, a.Stores.SourceHeads, a.sources, a.pollInterval, a.PublishLogAppended, logger)
+	producer := ingest.NewProducer(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.SourceHeads, a.sources, a.pollInterval, a.PublishLogAppended, logger)
 	producer.SetRecorder(a.activityStore)
 	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
 	return producer
@@ -1028,7 +1028,7 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 		return
 	}
 
-	a.webhook = webhook.NewListener(a.db, a.Stores.EventLog, a.Stores.WebhookCaptures, a.Stores.InboxItems, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
+	a.webhook = webhook.NewListener(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.WebhookCaptures, a.Stores.InboxItems, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
 	a.webhook.SetRecorder(a.activityStore)
 }
 

@@ -152,7 +152,7 @@ func TestWithinTx_ReadSeesEarlierWrite(t *testing.T) {
 	db := extTestDB(t)
 	require.NoError(t, db.WithinTx(t.Context(), func(ctx context.Context, tx *DB) error {
 		require.NoError(t, insertItem(ctx, tx, "item-1"))
-		items, err := tx.ListUnarchivedInboxItems(ctx, "flow-1")
+		items, err := tx.ListUnarchivedInboxItemsByProfile(ctx, "flow-1")
 		require.NoError(t, err)
 		require.Len(t, items, 1)
 		assert.Equal(t, "item-1", items[0].ExternalID)

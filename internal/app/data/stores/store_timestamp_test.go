@@ -1,4 +1,4 @@
-package queries
+package stores
 
 import (
 	"testing"
@@ -17,20 +17,20 @@ func requireUnixMilliNow(t *testing.T, timestamp, before, after int64) {
 }
 
 func TestEventLogWritesUseUnixMilliseconds(t *testing.T) {
-	database := openTestDB(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 	before := time.Now().UnixMilli()
 
-	_, err := database.Append(ctx, "source:test", "append", []byte(`{}`))
+	_, err := st.EventLog.Append(ctx, "source:test", "append", []byte(`{}`))
 	require.NoError(t, err)
-	_, err = database.Append(ctx, "source:test", "changed", []byte(`{}`))
+	_, err = st.EventLog.Append(ctx, "source:test", "changed", []byte(`{}`))
 	require.NoError(t, err)
-	require.NoError(t, database.UpsertSourceHead(ctx, UpsertSourceHeadParams{Topic: "source:test", Key: "changed", Payload: []byte(`{}`)}))
-	_, err = database.AppendSnapshot(ctx, "source:test", "test", "scope", nil)
+	require.NoError(t, st.SourceHeads.Upsert(ctx, "source:test", "changed", []byte(`{}`)))
+	_, err = st.EventLog.AppendSnapshot(ctx, "source:test", "test", "scope", nil)
 	require.NoError(t, err)
 	after := time.Now().UnixMilli()
 
-	msgs, _, err := database.ReadFrom(ctx, 0, 10)
+	msgs, _, err := st.EventLog.ReadFrom(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 3)
 	for _, msg := range msgs {
@@ -38,12 +38,12 @@ func TestEventLogWritesUseUnixMilliseconds(t *testing.T) {
 	}
 }
 
-func TestCommitBatchWritesUseUnixMilliseconds(t *testing.T) {
-	database := openTestDB(t)
+func TestCommitWritesUseUnixMilliseconds(t *testing.T) {
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 	before := time.Now().UnixMilli()
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer:   "flow-1",
 		UpToOffset: 1,
 		Outputs: []models.Output{{
@@ -55,19 +55,19 @@ func TestCommitBatchWritesUseUnixMilliseconds(t *testing.T) {
 	}))
 	after := time.Now().UnixMilli()
 
-	command, err := database.OutputCommand(ctx, 1)
+	command, err := st.OutputCommands.Get(ctx, 1)
 	require.NoError(t, err)
 	requireUnixMilliNow(t, command.CreatedAt, before, after)
-	runs, err := database.NodeRuns(ctx, "flow-1", 1)
+	runs, err := st.NodeRuns.List(ctx, "flow-1", 1)
 	require.NoError(t, err)
 	require.Len(t, runs, 1)
 	requireUnixMilliNow(t, runs[0].EndedAt, before, after)
 }
 
 func TestConfirmOutputCommandWritesUnixMilliseconds(t *testing.T) {
-	database := openTestDB(t)
+	st, _ := openTestStores(t)
 	before := time.Now().UnixMilli()
-	command, created, err := database.ConfirmOutputCommand(t.Context(), "action-a", "item-1", []byte(`{}`), models.ItemRef{})
+	command, created, err := st.OutputCommands.Confirm(t.Context(), "action-a", "item-1", []byte(`{}`), models.ItemRef{})
 	after := time.Now().UnixMilli()
 	require.NoError(t, err)
 	require.True(t, created)

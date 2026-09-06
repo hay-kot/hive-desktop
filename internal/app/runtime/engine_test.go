@@ -1,7 +1,6 @@
 package runtime_test
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -17,23 +16,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 )
-
-// queriesCommitStore adapts *queries.DB's still-cross-table CommitBatch and
-// ActivateReplay to runtime.CommitStore, the same shim app.go's production
-// wiring uses until phase 3b moves both onto stores.EventLogStore.
-type queriesCommitStore struct{ db *queries.DB }
-
-func (a queriesCommitStore) Commit(ctx context.Context, batch models.CommitBatch) error {
-	return a.db.CommitBatch(ctx, batch)
-}
-
-func (a queriesCommitStore) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []stores.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error {
-	converted := make([]queries.FeedMembershipClaim, len(claims))
-	for i, c := range claims {
-		converted[i] = queries.FeedMembershipClaim{ProfileID: c.ProfileID, FeedID: c.FeedID, ItemID: c.ItemID, SourceID: c.SourceID}
-	}
-	return a.db.ActivateReplay(ctx, profileID, tail, converted, feedIDs, sourceIDs, kvNodeIDs)
-}
 
 // The engine is tested against a real SQLite store, like everything else that
 // touches the commit protocol. Its whole job is what happens between a read
@@ -98,7 +80,7 @@ func ingest(t *testing.T, db *queries.DB, flowID string, obs ...observation) int
 	for _, o := range obs {
 		payload, err := json.Marshal(map[string]string{"title": o.title, "repo": "acme/app"})
 		require.NoError(t, err)
-		result, err := db.IngestObservation(t.Context(), passthroughClassifier{}, queries.IngestObservationParams{
+		result, err := testStores(db).InboxItems.IngestObservation(t.Context(), passthroughClassifier{}, stores.IngestObservationParams{
 			ProfileID: flowID,
 			Topic:     "source:" + flowID + "/src",
 			Current: models.Observation{
@@ -201,7 +183,7 @@ func startEngine(t *testing.T, db *queries.DB, flows *flowSet, onCommit func()) 
 	engine := runtime.NewEngine(runtime.EngineOptions{
 		Log:         st.EventLog,
 		Items:       st.InboxItems,
-		Commits:     queriesCommitStore{db: db},
+		Commits:     st.EventLog,
 		KV:          st.NodeKV,
 		Flows:       flows,
 		Scripts:     testScripts(),
@@ -348,7 +330,7 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 	engine := runtime.NewEngine(runtime.EngineOptions{
 		Log:         st.EventLog,
 		Items:       st.InboxItems,
-		Commits:     queriesCommitStore{db: db},
+		Commits:     st.EventLog,
 		KV:          st.NodeKV,
 		Flows:       flows,
 		Scripts:     testScripts(),
@@ -432,7 +414,7 @@ func TestEngineStopWithoutStart(t *testing.T) {
 	db := openTestStore(t)
 	st := testStores(db)
 	engine := runtime.NewEngine(runtime.EngineOptions{
-		Log: st.EventLog, Items: st.InboxItems, Commits: queriesCommitStore{db: db}, KV: st.NodeKV,
+		Log: st.EventLog, Items: st.InboxItems, Commits: st.EventLog, KV: st.NodeKV,
 		Flows: &flowSet{}, Scripts: testScripts(), Logger: zerolog.Nop(),
 	})
 	require.NotPanics(t, engine.Stop)

@@ -14,7 +14,6 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -35,7 +34,7 @@ import (
 // Source deduplication: a connector re-emits every current item on every
 // tick, even when nothing changed upstream (the GitHub fetch layer may itself
 // be cache-hit, but the cached items are still emitted). Producer delegates
-// to queries.IngestObservation, which stores the last payload by (topic, key)
+// to InboxItemStore.IngestObservation, which stores the last payload by (topic, key)
 // in the database and atomically appends a changed event with its new head,
 // so deduplication survives restarts and a failed append never suppresses a
 // retry. Successful ticks also append a source snapshot event for downstream
@@ -341,7 +340,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		if msg.SourceKind != "" {
 			kind = msg.SourceKind
 		}
-		result, err := pr.ingester.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
 		if err != nil {
 			return err
 		}
@@ -419,7 +418,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if !ok || v.Current == nil {
 			continue
 		}
-		result, err := pr.ingester.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
+		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue

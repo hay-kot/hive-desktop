@@ -48,7 +48,7 @@ func (s *SourceHeadStore) Delete(ctx context.Context, topic, key string) error {
 }
 
 // DeleteByTopicPrefix removes every source_head row under prefix. It is the
-// per-store half of FlowsService.PurgeProfile (3b): a profile's topics are
+// per-store half of FlowsService.purgeProfile: a profile's topics are
 // escaped-LIKE prefixed, so the caller supplies an already-escaped prefix.
 func (s *SourceHeadStore) DeleteByTopicPrefix(ctx context.Context, prefix string) error {
 	return wrap("deleting source heads by topic prefix", s.q.Ctx(ctx).DeleteSourceHeadByTopicPrefix(ctx, prefix))

@@ -11,9 +11,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-func enqueueTestCommand(t *testing.T, db *queries.DB, actionID, key string) {
+func enqueueTestCommand(t *testing.T, st *Stores, actionID, key string) {
 	t.Helper()
-	require.NoError(t, db.CommitBatch(t.Context(), models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(t.Context(), models.CommitBatch{
 		Consumer:   "flow-" + actionID + "-" + key,
 		UpToOffset: 1,
 		Outputs: []models.Output{
@@ -53,11 +53,11 @@ func TestRecoverInterruptedOutputCommands_JoinsTransaction(t *testing.T) {
 }
 
 func TestListRunnableOutputCommands_ReturnsOldestIDFirst(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
-	enqueueTestCommand(t, db, "action-a", "k2")
+	enqueueTestCommand(t, st, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k2")
 
 	rows, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
 	require.NoError(t, err)
@@ -70,11 +70,11 @@ func TestListRunnableOutputCommands_ReturnsOldestIDFirst(t *testing.T) {
 }
 
 func TestListRunnableOutputCommands_RespectsLimit(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
-	enqueueTestCommand(t, db, "action-a", "k2")
+	enqueueTestCommand(t, st, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k2")
 
 	rows, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 1)
 	require.NoError(t, err)
@@ -87,10 +87,10 @@ func TestListRunnableOutputCommands_RespectsLimit(t *testing.T) {
 // UPDATE falls back to the latest existing command with created=false, which
 // is what stops an already-run action re-firing.
 func TestConfirmOutputCommandDeduplicatesExistingCommand(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k1")
 	row, created, err := st.OutputCommands.Confirm(ctx, "action-a", "k1", []byte(`{"v":2}`), models.ItemRef{})
 	require.NoError(t, err)
 	assert.True(t, created, "confirmation atomically claims the pending command")
@@ -123,8 +123,8 @@ func TestRerunOutputCommandRequiresPriorRun(t *testing.T) {
 }
 
 func TestRerunOutputCommandRejectsActivePriorRun(t *testing.T) {
-	st, db := openTestStores(t)
-	enqueueTestCommand(t, db, "action-a", "active")
+	st, _ := openTestStores(t)
+	enqueueTestCommand(t, st, "action-a", "active")
 
 	_, err := st.OutputCommands.Rerun(t.Context(), "action-a", "active", []byte(`{}`), models.ItemRef{})
 	require.Error(t, err)
@@ -132,10 +132,10 @@ func TestRerunOutputCommandRejectsActivePriorRun(t *testing.T) {
 }
 
 func TestMarkOutputCommandDone_ExcludesFromRunnable(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k1")
 	rows, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -148,10 +148,10 @@ func TestMarkOutputCommandDone_ExcludesFromRunnable(t *testing.T) {
 }
 
 func TestRetryOutputCommand_IncrementsAttemptsAndStaysRunnable(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k1")
 	rows, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -173,8 +173,8 @@ func TestRetryOutputCommand_IncrementsAttemptsAndStaysRunnable(t *testing.T) {
 }
 
 func TestMarkOutputCommandDoneClearsPreviousFailure(t *testing.T) {
-	st, db := openTestStores(t)
-	enqueueTestCommand(t, db, "action-a", "k1")
+	st, _ := openTestStores(t)
+	enqueueTestCommand(t, st, "action-a", "k1")
 	rows, err := st.OutputCommands.ListRunnableAfter(t.Context(), 0, 1)
 	require.NoError(t, err)
 	require.NoError(t, st.OutputCommands.Retry(t.Context(), rows[0].ID, "first failure", "old stdout", "old stderr"))
@@ -190,8 +190,8 @@ func TestMarkOutputCommandDoneClearsPreviousFailure(t *testing.T) {
 }
 
 func TestOutputCommandPersistenceBoundsStreams(t *testing.T) {
-	st, db := openTestStores(t)
-	enqueueTestCommand(t, db, "action-a", "k1")
+	st, _ := openTestStores(t)
+	enqueueTestCommand(t, st, "action-a", "k1")
 	rows, err := st.OutputCommands.ListRunnableAfter(t.Context(), 0, 1)
 	require.NoError(t, err)
 	noisy := strings.Repeat("x", maxOutputCommandStreamBytes+1)
@@ -210,7 +210,7 @@ func TestExecutionResultAndLogsPersistAcrossReopenBeforeDone(t *testing.T) {
 	db, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	st := New(db, Options{})
-	enqueueTestCommand(t, db, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k1")
 	rows, err := st.OutputCommands.ListRunnableAfter(t.Context(), 0, 1)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -233,7 +233,7 @@ func TestMarkOutputCommandFailed_ExcludesFromRunnable(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k1")
 	rows, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -255,12 +255,12 @@ func TestMarkOutputCommandFailed_ExcludesFromRunnable(t *testing.T) {
 }
 
 func TestOutputCommandStore_CountNonterminalForAction(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	enqueueTestCommand(t, db, "action-a", "k1")
-	enqueueTestCommand(t, db, "action-a", "k2")
-	enqueueTestCommand(t, db, "action-b", "k3")
+	enqueueTestCommand(t, st, "action-a", "k1")
+	enqueueTestCommand(t, st, "action-a", "k2")
+	enqueueTestCommand(t, st, "action-b", "k3")
 
 	count, err := st.OutputCommands.CountNonterminalForAction(ctx, "action-a")
 	require.NoError(t, err)

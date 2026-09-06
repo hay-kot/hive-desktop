@@ -46,7 +46,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	// reaching a notify terminal.
 	commit := func(offset int64, occurrence string) {
 		t.Helper()
-		require.NoError(t, db.CommitBatch(ctx, models.CommitBatch{
+		require.NoError(t, stores.New(db, stores.Options{}).EventLog.Commit(ctx, models.CommitBatch{
 			Consumer: "triage", UpToOffset: offset,
 			Outputs: []models.Output{{
 				Sink:          models.Sink{Kind: models.SinkKindNotify, TargetID: "triage/tell-me"},
@@ -93,7 +93,7 @@ func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	})
 	worker := NewWorker(testOutputCommands(db), NewFlowNotifyActions(flowListerTest{}, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
-	require.NoError(t, db.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, stores.New(db, stores.Options{}).EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "triage", UpToOffset: 1,
 		Outputs: []models.Output{{
 			Sink:          models.Sink{Kind: models.SinkKindNotify, TargetID: "triage/deleted"},

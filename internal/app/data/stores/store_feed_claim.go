@@ -7,9 +7,9 @@ import (
 )
 
 // FeedClaimStore owns feed_membership_claim: which items each feed claims,
-// and from which source. Commit and ActivateReplay -- the operations that
-// write this alongside other aggregates -- call these methods from
-// EventLogStore in phase 3b; this store is the leaf half.
+// and from which source. EventLogStore.Commit and .ActivateReplay call
+// these methods as siblings inside their own transaction; this store is the
+// leaf half.
 type FeedClaimStore struct {
 	q *queries.DB
 }
@@ -71,8 +71,8 @@ func (s *FeedClaimStore) DeleteForRemovedSources(ctx context.Context, profileID 
 }
 
 // DeleteUnarchivedByProfile clears every unarchived-item claim profileID
-// holds, the first step of an ActivateReplay activation (3b) and of
-// FlowsService.PurgeProfile (3b).
+// holds, the first step of an ActivateReplay activation and of
+// FlowsService.purgeProfile.
 func (s *FeedClaimStore) DeleteUnarchivedByProfile(ctx context.Context, profileID string) error {
 	return wrap("clearing replayable memberships", s.q.Ctx(ctx).DeleteUnarchivedFeedMembershipClaimsByProfile(ctx, profileID))
 }

@@ -157,7 +157,7 @@ type KVMutation struct {
 // CommitBatch is the graph runtime's (internal/app/runtime) atomic write: it
 // advances a consumer's committed offset and persists the outputs/node-run
 // metrics produced while processing up to that offset, all in one transaction
-// (see queries.DB.CommitBatch).
+// (see stores.EventLogStore.Commit).
 type CommitBatch struct {
 	Consumer      string         `json:"consumer"` // event_log consumer key (flow id / consumer id)
 	UpToOffset    int64          `json:"upToOffset"`

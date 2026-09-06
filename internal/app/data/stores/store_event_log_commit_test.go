@@ -1,4 +1,4 @@
-package queries
+package stores
 
 import (
 	"context"
@@ -9,18 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
-	item, err := database.InsertInboxItem(ctx, InsertInboxItemParams{
+	item, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: "flow-1", SourceKind: "github", SourceScope: "source-a", ExternalID: "item-1",
 		Payload: []byte(`{"v":1}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []models.Output{{
 			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "item-1",
@@ -29,7 +30,7 @@ func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
 	}))
 
 	var claims int
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim WHERE item_id = ? AND source_id = ?`, item.ID, "source:flow-1/source-a").Scan(&claims))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim WHERE item_id = ? AND source_id = ?`, item.ID, "source:flow-1/source-a").Scan(&claims))
 	assert.Equal(t, 1, claims)
 }
 
@@ -37,16 +38,16 @@ func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
 // account scope, so the direct lookup misses; the commit must heal the row
 // onto that scope, claim membership, and leave exactly one row — not wedge and
 // not fork a duplicate. See issue #95.
-func TestCommitBatch_FeedOutput_HealsLegacyEmptyScopeItem(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_FeedOutput_HealsLegacyEmptyScopeItem(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
-	legacy, err := database.InsertInboxItem(ctx, InsertInboxItemParams{
+	legacy, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: "flow-1", SourceKind: "github", SourceScope: "", ExternalID: "colonyops/hive#199",
 		Payload: []byte(`{"v":1}`), Lifecycle: "active", Unread: 1,
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []models.Output{{
 			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "colonyops/hive#199",
@@ -56,13 +57,13 @@ func TestCommitBatch_FeedOutput_HealsLegacyEmptyScopeItem(t *testing.T) {
 
 	var scope string
 	var rows int
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT source_scope FROM inbox_item WHERE id = ?`, legacy.ID).Scan(&scope))
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item WHERE external_id = ?`, "colonyops/hive#199").Scan(&rows))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT source_scope FROM inbox_item WHERE id = ?`, legacy.ID).Scan(&scope))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item WHERE external_id = ?`, "colonyops/hive#199").Scan(&rows))
 	assert.Equal(t, "hay-kot", scope, "the legacy row is rewritten to the current scope")
 	assert.Equal(t, 1, rows, "healing rewrites the row rather than forking a duplicate")
 
 	var claims int
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim WHERE item_id = ?`, legacy.ID).Scan(&claims))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim WHERE item_id = ?`, legacy.ID).Scan(&claims))
 	assert.Equal(t, 1, claims)
 }
 
@@ -70,11 +71,11 @@ func TestCommitBatch_FeedOutput_HealsLegacyEmptyScopeItem(t *testing.T) {
 // while splitting a source message into per-entity items. The commit mints the
 // row from the payload it carried and claims membership, so the item appears in
 // the feed rather than being dropped.
-func TestCommitBatch_FeedOutput_MintsSynthesizedItem(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_FeedOutput_MintsSynthesizedItem(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 7,
 		Outputs: []models.Output{{
 			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "prod/flux/kustomization/apps",
@@ -83,7 +84,7 @@ func TestCommitBatch_FeedOutput_MintsSynthesizedItem(t *testing.T) {
 		}},
 	}))
 
-	offset, err := database.ConsumerOffset(ctx, "flow-1")
+	offset, err := st.EventLog.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), offset, "the offset advances")
 
@@ -92,7 +93,7 @@ func TestCommitBatch_FeedOutput_MintsSynthesizedItem(t *testing.T) {
 		payload string
 		unread  int
 	)
-	require.NoError(t, database.Conn().QueryRowContext(ctx,
+	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT title, payload, unread FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").
 		Scan(&title, &payload, &unread))
 	assert.Equal(t, "apps ignored", title, "the minted item takes its title from the payload")
@@ -100,17 +101,17 @@ func TestCommitBatch_FeedOutput_MintsSynthesizedItem(t *testing.T) {
 	assert.Equal(t, 1, unread, "a freshly synthesized item is unread")
 
 	var claims int
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
 	assert.Equal(t, 1, claims, "the minted item claims feed membership")
 }
 
 // A payload with no title falls back to the key, so a synthesized item is never
 // blank in the feed.
-func TestCommitBatch_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []models.Output{{
 			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "prod/flux/kustomization/apps",
@@ -120,7 +121,7 @@ func TestCommitBatch_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
 	}))
 
 	var title string
-	require.NoError(t, database.Conn().QueryRowContext(ctx,
+	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT title FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").Scan(&title))
 	assert.Equal(t, "prod/flux/kustomization/apps", title)
 }
@@ -128,11 +129,11 @@ func TestCommitBatch_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
 // A feed output with no key has no identity to mint under (the omitempty
 // snapshot-boundary row of issue #95). It is skipped, not fatal: the offset has
 // to advance so the consumer cannot be wedged at one such row forever.
-func TestCommitBatch_FeedOutput_SkipsKeylessItem(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_FeedOutput_SkipsKeylessItem(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 7,
 		Outputs: []models.Output{{
 			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "",
@@ -140,7 +141,7 @@ func TestCommitBatch_FeedOutput_SkipsKeylessItem(t *testing.T) {
 		}},
 	}))
 
-	offset, err := database.ConsumerOffset(ctx, "flow-1")
+	offset, err := st.EventLog.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), offset, "a keyless item is skipped, not fatal — the offset still advances")
 
@@ -148,20 +149,20 @@ func TestCommitBatch_FeedOutput_SkipsKeylessItem(t *testing.T) {
 		items  int
 		claims int
 	)
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item`).Scan(&items))
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item`).Scan(&items))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
 	assert.Zero(t, items, "nothing is minted for a keyless output")
 	assert.Zero(t, claims)
 }
 
-func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_ActionOutput_EnqueuesOnce(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
 	countPending := func(t *testing.T) int {
 		t.Helper()
 		var count int
-		require.NoError(t, database.Conn().QueryRowContext(
+		require.NoError(t, db.Conn().QueryRowContext(
 			ctx,
 			`SELECT COUNT(*) FROM output_command WHERE action_id = ? AND key = ?`,
 			"action-a", "item-1",
@@ -180,7 +181,7 @@ func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, database.CommitBatch(ctx, batch))
+	require.NoError(t, st.EventLog.Commit(ctx, batch))
 	assert.Equal(t, 1, countPending(t))
 
 	// A duplicate (action_id, key) from a later batch is a no-op: the
@@ -196,12 +197,12 @@ func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, database.CommitBatch(ctx, batch2))
+	require.NoError(t, st.EventLog.Commit(ctx, batch2))
 	assert.Equal(t, 1, countPending(t), "duplicate (action_id, key) must not enqueue a second command")
 }
 
-func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
 	notifyOutput := func(occurrence string, payload string) models.Output {
@@ -216,14 +217,14 @@ func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []models.Output{notifyOutput("item-1@2", `{"repo":"acme/api"}`)},
 	}))
 
 	var actionID, key string
 	var payload []byte
-	require.NoError(t, database.Conn().QueryRowContext(ctx,
+	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT action_id, key, payload FROM output_command`).Scan(&actionID, &key, &payload))
 	assert.Equal(t, models.NotifyActionID("flow-1/tell-me"), actionID)
 	assert.Equal(t, "item-1@2", key)
@@ -240,25 +241,25 @@ func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 
 	// The same occurrence arriving again — a re-emitted, unchanged item —
 	// must not interrupt the user a second time.
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 2,
 		Outputs: []models.Output{notifyOutput("item-1@2", `{"repo":"acme/api"}`)},
 	}))
-	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
+	assert.Equal(t, 1, countOutputCommands(t, db, ctx))
 
 	// A new occurrence for the same item is new information and enqueues.
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 3,
 		Outputs: []models.Output{notifyOutput("item-1@3", `{"repo":"acme/api"}`)},
 	}))
-	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
+	assert.Equal(t, 2, countOutputCommands(t, db, ctx))
 }
 
 // Without an occurrence key the dedup key falls back to the payload digest,
 // so an identical message still collapses while a changed one gets through —
 // rather than the node notifying once and then going silent forever.
-func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
 	notifyOutput := func(payload string) models.Output {
@@ -269,44 +270,44 @@ func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *test
 		}
 	}
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1, Outputs: []models.Output{notifyOutput(`{"v":1}`)},
 	}))
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 2, Outputs: []models.Output{notifyOutput(`{"v":1}`)},
 	}))
-	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
+	assert.Equal(t, 1, countOutputCommands(t, db, ctx))
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 3, Outputs: []models.Output{notifyOutput(`{"v":2}`)},
 	}))
-	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
+	assert.Equal(t, 2, countOutputCommands(t, db, ctx))
 }
 
 // Two notify nodes fed by the same message are independent destinations.
-func TestCommitBatch_NotifyOutput_IsPerNode(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_NotifyOutput_IsPerNode(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []models.Output{
 			{Sink: models.Sink{Kind: models.SinkKindNotify, TargetID: "flow-1/tell-me"}, Key: "item-1", OccurrenceKey: "occ", Payload: []byte(`{}`)},
 			{Sink: models.Sink{Kind: models.SinkKindNotify, TargetID: "flow-1/also-tell-me"}, Key: "item-1", OccurrenceKey: "occ", Payload: []byte(`{}`)},
 		},
 	}))
-	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
+	assert.Equal(t, 2, countOutputCommands(t, db, ctx))
 }
 
-func countOutputCommands(t *testing.T, database *DB, ctx context.Context) int {
+func countOutputCommands(t *testing.T, db *queries.DB, ctx context.Context) int {
 	t.Helper()
 	var count int
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM output_command`).Scan(&count))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM output_command`).Scan(&count))
 	return count
 }
 
-func TestCommitBatch_InsertsNodeRuns(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_InsertsNodeRuns(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
 	batch := models.CommitBatch{
@@ -332,9 +333,9 @@ func TestCommitBatch_InsertsNodeRuns(t *testing.T) {
 			},
 		},
 	}
-	require.NoError(t, database.CommitBatch(ctx, batch))
+	require.NoError(t, st.EventLog.Commit(ctx, batch))
 
-	rows, err := database.Conn().QueryContext(ctx,
+	rows, err := db.Conn().QueryContext(ctx,
 		`SELECT node_id, ok, in_count, out_count, drop_count, err, dur_ms FROM node_run ORDER BY node_id`)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rows.Close()) }()
@@ -371,8 +372,8 @@ func TestCommitBatch_InsertsNodeRuns(t *testing.T) {
 	assert.Equal(t, "boom", *got[1].err)
 }
 
-func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
 	batch := models.CommitBatch{
@@ -382,25 +383,25 @@ func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 			{FlowID: "flow-1", NodeID: "node-a", OK: true},
 		},
 	}
-	require.NoError(t, database.CommitBatch(ctx, batch))
+	require.NoError(t, st.EventLog.Commit(ctx, batch))
 
-	offset, err := database.ConsumerOffset(ctx, "flow-1")
+	offset, err := st.EventLog.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), offset)
 
 	countRows := func(t *testing.T, table string) int {
 		t.Helper()
 		var count int
-		require.NoError(t, database.Conn().QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count))
+		require.NoError(t, db.Conn().QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&count))
 		return count
 	}
 	nodeRunsBefore := countRows(t, "node_run")
 
 	// Replaying the exact same batch (UpToOffset <= current) must be a
 	// full no-op: no new node_run rows, offset unchanged.
-	require.NoError(t, database.CommitBatch(ctx, batch))
+	require.NoError(t, st.EventLog.Commit(ctx, batch))
 
-	offset, err = database.ConsumerOffset(ctx, "flow-1")
+	offset, err = st.EventLog.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), offset, "replaying an already-applied batch must not change the offset")
 	assert.Equal(t, nodeRunsBefore, countRows(t, "node_run"), "replay must not insert duplicate node_run rows")
@@ -416,17 +417,17 @@ func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 			Payload:       []byte(`{"v":"new"}`),
 		}},
 	}
-	require.NoError(t, database.CommitBatch(ctx, staleBatch))
+	require.NoError(t, st.EventLog.Commit(ctx, staleBatch))
 
-	offset, err = database.ConsumerOffset(ctx, "flow-1")
+	offset, err = st.EventLog.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), offset, "a stale UpToOffset must not regress the committed offset")
 
 	assert.Zero(t, countRows(t, "output_command"), "a no-op stale batch must not apply its outputs")
 }
 
-func TestCommitBatch_UnknownSinkKind_Errors(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_UnknownSinkKind_Errors(t *testing.T) {
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
 	batch := models.CommitBatch{
@@ -436,21 +437,21 @@ func TestCommitBatch_UnknownSinkKind_Errors(t *testing.T) {
 			{Sink: models.Sink{Kind: "bogus", TargetID: "x"}, Key: "k", Payload: []byte(`{}`)},
 		},
 	}
-	err := database.CommitBatch(ctx, batch)
+	err := st.EventLog.Commit(ctx, batch)
 	require.Error(t, err)
 
 	// The whole batch must roll back: the offset must not advance either.
-	offset, offsetErr := database.ConsumerOffset(ctx, "flow-1")
+	offset, offsetErr := st.EventLog.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, offsetErr)
 	assert.Equal(t, int64(0), offset)
 }
 
-func TestCommitBatch_KVMutations_FlushInTheSameTransaction(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_KVMutations_FlushInTheSameTransaction(t *testing.T) {
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	require.NoError(t, database.NodeKVSet(ctx, "flow-1", "dedup", "stale", `1`, 0))
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.NodeKV.Set(ctx, "flow-1", "dedup", "stale", `1`, 0))
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		KVMutations: []models.KVMutation{
 			{NodeID: "dedup", Key: "seen", Value: `true`, ExpiresAt: 9000},
@@ -458,25 +459,25 @@ func TestCommitBatch_KVMutations_FlushInTheSameTransaction(t *testing.T) {
 		},
 	}))
 
-	value, found, err := database.NodeKVGet(ctx, "flow-1", "dedup", "seen", 1000)
+	value, found, err := st.NodeKV.Get(ctx, "flow-1", "dedup", "seen", 1000)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, `true`, value)
 
-	_, found, err = database.NodeKVGet(ctx, "flow-1", "dedup", "stale", 1000)
+	_, found, err = st.NodeKV.Get(ctx, "flow-1", "dedup", "stale", 1000)
 	require.NoError(t, err)
 	assert.False(t, found)
 
-	_, found, err = database.NodeKVGet(ctx, "flow-1", "dedup", "seen", 9000)
+	_, found, err = st.NodeKV.Get(ctx, "flow-1", "dedup", "seen", 9000)
 	require.NoError(t, err)
 	assert.False(t, found, "the flushed expiry is honored by reads")
 }
 
-func TestCommitBatch_KVMutations_RollBackWithOutputsAndOffset(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_KVMutations_RollBackWithOutputsAndOffset(t *testing.T) {
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
-	err := database.CommitBatch(ctx, models.CommitBatch{
+	err := st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []models.Output{
 			{Sink: models.Sink{Kind: models.SinkKindAction, TargetID: "action-a"}, OccurrenceKey: "item-1", Payload: []byte(`{}`)},
@@ -487,27 +488,27 @@ func TestCommitBatch_KVMutations_RollBackWithOutputsAndOffset(t *testing.T) {
 	require.Error(t, err)
 
 	var kvRows int
-	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&kvRows))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&kvRows))
 	assert.Zero(t, kvRows)
-	assert.Zero(t, countOutputCommands(t, database, ctx))
-	_, err = database.GetConsumerOffset(ctx, "flow-1")
+	assert.Zero(t, countOutputCommands(t, db, ctx))
+	_, err = db.GetConsumerOffset(ctx, "flow-1")
 	require.Error(t, err, "the offset must not have advanced")
 }
 
-func TestCommitBatch_KVMutations_SkippedByTheIdempotencyGuard(t *testing.T) {
-	database := openTestDB(t)
+func TestCommit_KVMutations_SkippedByTheIdempotencyGuard(t *testing.T) {
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 2,
 		KVMutations: []models.KVMutation{{NodeID: "dedup", Key: "seen", Value: `"first"`}},
 	}))
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
 		Consumer: "flow-1", UpToOffset: 2,
 		KVMutations: []models.KVMutation{{NodeID: "dedup", Key: "seen", Value: `"replayed"`}},
 	}))
 
-	value, found, err := database.NodeKVGet(ctx, "flow-1", "dedup", "seen", 1000)
+	value, found, err := st.NodeKV.Get(ctx, "flow-1", "dedup", "seen", 1000)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.JSONEq(t, `"first"`, value)

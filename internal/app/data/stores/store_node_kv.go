@@ -69,11 +69,28 @@ func (s *NodeKVStore) Set(ctx context.Context, flowID, nodeID, key, value string
 	}))
 }
 
+// Delete removes one key. Used by EventLogStore.Commit for a KVMutation
+// marked Delete.
+func (s *NodeKVStore) Delete(ctx context.Context, flowID, nodeID, key string) error {
+	return wrap("deleting node kv", s.q.Ctx(ctx).DeleteNodeKV(ctx, queries.DeleteNodeKVParams{
+		FlowID: flowID, NodeID: nodeID, Scope: KVScopeNode, Key: key,
+	}))
+}
+
 // DeleteByFlow removes every node_kv row for flowID. Used by
-// FlowsService.PurgeProfile (3b) when a workspace is deleted, and by
-// EventLogStore.ActivateReplay (3b) when a flow's KV-capable nodes changed.
+// FlowsService.purgeProfile when a workspace is deleted, and by
+// EventLogStore.ActivateReplay when a flow has no KV-capable nodes left.
 func (s *NodeKVStore) DeleteByFlow(ctx context.Context, flowID string) error {
 	return wrap("deleting node kv by flow", s.q.Ctx(ctx).DeleteNodeKVByFlow(ctx, flowID))
+}
+
+// DeleteForFlowExceptNodes removes flowID's node kv except rows owned by
+// keepNodeIDs. Used by EventLogStore.ActivateReplay to reconcile a flow's KV
+// against the node ids that survived a reload.
+func (s *NodeKVStore) DeleteForFlowExceptNodes(ctx context.Context, flowID string, keepNodeIDs []string) error {
+	return wrap("removing obsolete node kv", s.q.Ctx(ctx).DeleteNodeKVForFlowExceptNodes(ctx, queries.DeleteNodeKVForFlowExceptNodesParams{
+		FlowID: flowID, NodeIds: keepNodeIDs,
+	}))
 }
 
 // escapeGlob neutralizes GLOB metacharacters so a stored key's literal

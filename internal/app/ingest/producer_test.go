@@ -115,12 +115,12 @@ type fakeAppender struct {
 	snapshots int
 }
 
-func (a *fakeAppender) IngestObservation(_ context.Context, _ models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error) {
+func (a *fakeAppender) IngestObservation(_ context.Context, _ models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.nextOff++
 	a.calls = append(a.calls, models.Msg{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload})
-	return queries.IngestResult{Wrote: true, Offset: a.nextOff}, nil
+	return stores.IngestResult{Wrote: true, Offset: a.nextOff}, nil
 }
 
 func (a *fakeAppender) ListActiveKeys(context.Context, stores.SourceIdentity) ([]string, error) {
@@ -162,12 +162,12 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
-// newTestProducer wires a Producer's three still-*queries.DB-adjacent
-// dependencies over one database handle, mirroring how app.go's
-// buildProducer wires the real Stores.
+// newTestProducer wires a Producer's three store dependencies over one
+// database handle, mirroring how app.go's buildProducer wires the real
+// Stores.
 func newTestProducer(db *queries.DB, sources Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *Producer {
 	st := stores.New(db, stores.Options{})
-	return NewProducer(db, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
+	return NewProducer(st.InboxItems, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
 }
 
 // readFrom is ReadFrom's test-side equivalent, now that it lives on

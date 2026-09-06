@@ -20,8 +20,8 @@ func TestPrune_EventLogIsNotGatedByConsumerOffsets(t *testing.T) {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
 		require.NoError(t, err)
 	}
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{Consumer: "fast-flow", UpToOffset: 5}))
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{Consumer: "slow-flow", UpToOffset: 2}))
+	require.NoError(t, database.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{Consumer: "fast-flow", Offset: 5}))
+	require.NoError(t, database.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{Consumer: "slow-flow", Offset: 2}))
 
 	require.NoError(t, database.Prune(ctx, DefaultRetentionPolicy()))
 
@@ -59,7 +59,7 @@ func TestPrune_EventLogUsesPerTopicCountWithoutConsumers(t *testing.T) {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
 		require.NoError(t, err)
 	}
-	require.NoError(t, database.CommitBatch(ctx, models.CommitBatch{Consumer: "committed", UpToOffset: 3}))
+	require.NoError(t, database.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{Consumer: "committed", Offset: 3}))
 
 	err := database.Prune(ctx, RetentionPolicy{EventLogPerTopicLimit: 1})
 	require.NoError(t, err)
@@ -207,7 +207,7 @@ func TestPrune_RejectsNegativeJobLimit(t *testing.T) {
 func TestPrune_PrunesExpiredArchivedInboxItemsAndCascades(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()
-	item := seedReplayItem(t, database, "flow", "expired")
+	item := seedInboxItem(t, database, "flow", "expired")
 	_, err := database.InsertInboxEvent(ctx, InsertInboxEventParams{
 		ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Detail: []byte(`{}`), CreatedAt: 1,
 	})
@@ -235,18 +235,18 @@ func TestRunRetentionReclaimsOrphanedSourceHeads(t *testing.T) {
 	ctx := t.Context()
 
 	const topic = "source:flow/source"
-	classifier := activityClassifier("")
-	_, err := database.IngestObservation(ctx, classifier, IngestObservationParams{
-		ProfileID: "flow", Topic: topic,
-		Current: models.Observation{ExternalID: "expired", Title: "expired", SourceKind: "github", SourceScope: "scope", ObservedAt: 1, Payload: []byte(`{"v":1}`)},
-	})
-	require.NoError(t, err)
-	_, err = database.IngestObservation(ctx, classifier, IngestObservationParams{
-		ProfileID: "flow", Topic: topic,
-		Current: models.Observation{ExternalID: "live", Title: "live", SourceKind: "github", SourceScope: "scope", ObservedAt: 1, Payload: []byte(`{"v":1}`)},
-	})
-	require.NoError(t, err)
-	_, err = database.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = ?, archived_actor = 'manual' WHERE external_id = 'expired'`, time.Now().Add(-91*24*time.Hour).UnixMilli())
+	seedSourceHeadItem := func(externalID string) {
+		t.Helper()
+		_, err := database.InsertInboxItem(ctx, InsertInboxItemParams{
+			ProfileID: "flow", SourceKind: "github", SourceScope: "scope", ExternalID: externalID,
+			Title: externalID, Payload: []byte(`{"v":1}`), Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 1,
+		})
+		require.NoError(t, err)
+		require.NoError(t, database.UpsertSourceHead(ctx, UpsertSourceHeadParams{Topic: topic, Key: externalID, Payload: []byte(`{"v":1}`)}))
+	}
+	seedSourceHeadItem("expired")
+	seedSourceHeadItem("live")
+	_, err := database.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = ?, archived_actor = 'manual' WHERE external_id = 'expired'`, time.Now().Add(-91*24*time.Hour).UnixMilli())
 	require.NoError(t, err)
 
 	err = database.Prune(ctx, RetentionPolicy{ArchivedItemRetention: 90 * 24 * time.Hour})
@@ -262,8 +262,8 @@ func TestRunRetentionReclaimsOrphanedSourceHeads(t *testing.T) {
 func TestPrune_TrimsInboxEventsPerItem(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()
-	item := seedReplayItem(t, database, "flow", "many-events")
-	other := seedReplayItem(t, database, "flow", "other-events")
+	item := seedInboxItem(t, database, "flow", "many-events")
+	other := seedInboxItem(t, database, "flow", "other-events")
 	for i := range 5 {
 		_, err := database.InsertInboxEvent(ctx, InsertInboxEventParams{
 			ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Detail: []byte(`{}`), CreatedAt: int64(i),
@@ -326,6 +326,18 @@ func TestOpen_FreshDB_HasRetentionIndexes(t *testing.T) {
 		).Scan(&count))
 		assert.Equal(t, 1, count, "%s should exist", index)
 	}
+}
+
+// seedInboxItem inserts one inbox_item row, the fixture Prune's retention
+// tests build events, claims and archival state on top of.
+func seedInboxItem(t *testing.T, db *DB, profile, external string) InboxItem {
+	t.Helper()
+	item, err := db.InsertInboxItem(t.Context(), InsertInboxItemParams{
+		ProfileID: profile, SourceKind: "github", SourceScope: "scope", ExternalID: external,
+		Payload: []byte(`{}`), Lifecycle: "active",
+	})
+	require.NoError(t, err)
+	return item
 }
 
 // inboxEventIDs reads one item's surviving event ids. It is a function rather

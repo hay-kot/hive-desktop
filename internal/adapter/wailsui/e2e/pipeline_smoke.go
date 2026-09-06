@@ -92,7 +92,7 @@ func sourceToCommitSmokeMiddleware(db *queries.DB, st *stores.Stores, mock strin
 
 			switch r.Method {
 			case http.MethodPost:
-				if err := appendSourceToCommitSmokeItems(r.Context(), db, r.URL.Query().Get("rev"), onAppended); err != nil {
+				if err := appendSourceToCommitSmokeItems(r.Context(), st, r.URL.Query().Get("rev"), onAppended); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -117,7 +117,7 @@ func sourceToCommitSmokeMiddleware(db *queries.DB, st *stores.Stores, mock strin
 // appendSourceToCommitSmokeItems ingests the fixture items. A non-empty rev
 // beyond "1" varies each title, so the re-observation is a genuine change
 // that appends and routes — the case KV dedup exists to suppress.
-func appendSourceToCommitSmokeItems(ctx context.Context, db *queries.DB, rev string, onAppended func(nextOffset int64)) error {
+func appendSourceToCommitSmokeItems(ctx context.Context, st *stores.Stores, rev string, onAppended func(nextOffset int64)) error {
 	var lastOffset int64
 	for _, item := range sourceToCommitSmokeItems {
 		if rev != "" && rev != "1" {
@@ -130,7 +130,7 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *queries.DB, rev str
 		// IngestObservation is the production source boundary. It creates the
 		// inbox identity and appends the event log record; the graph still has to
 		// traverse all nodes and Commit has to create the feed claim.
-		result, err := db.IngestObservation(ctx, sourceToCommitSmokeClassifier{}, queries.IngestObservationParams{
+		result, err := st.InboxItems.IngestObservation(ctx, sourceToCommitSmokeClassifier{}, stores.IngestObservationParams{
 			ProfileID: sourceToCommitSmokeFlowID,
 			Topic:     "source:" + sourceToCommitSmokeFlowID + "/" + sourceToCommitSmokeSourceID,
 			Policy:    models.ResurfacePolicyStateChanges,

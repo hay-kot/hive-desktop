@@ -204,14 +204,15 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	service := newFlowsService(flows, db, stores.New(db, stores.Options{}).InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
+	st := stores.New(db, stores.Options{})
+	service := newFlowsService(flows, st, st.InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
 	_, err = db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
-	_, err = stores.New(db, stores.Options{}).EventLog.Append(t.Context(), "source:"+created.ID+"/source", "item", []byte(`{}`))
+	_, err = st.EventLog.Append(t.Context(), "source:"+created.ID+"/source", "item", []byte(`{}`))
 	require.NoError(t, err)
 
 	require.NoError(t, service.Delete(t.Context(), created.ID))
@@ -233,7 +234,8 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	service := newFlowsService(flows, db, stores.New(db, stores.Options{}).InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
+	st := stores.New(db, stores.Options{})
+	service := newFlowsService(flows, st, st.InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
 	_, err = db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
@@ -248,6 +250,112 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	var count int
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM inbox_item").Scan(&count))
 	assert.Zero(t, count)
+}
+
+// purgeProfileFixture is one row seeded into every table purgeProfile
+// touches, keyed so a later assertion can tell a purged profile's rows from
+// an untouched one's.
+type purgeProfileFixture struct {
+	itemID int64
+	topic  string
+}
+
+func seedPurgeProfileRows(t *testing.T, db *queries.DB, profileID string) purgeProfileFixture {
+	t.Helper()
+	ctx := t.Context()
+	topic := "source:" + profileID + "/src"
+
+	item, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
+		ProfileID: profileID, SourceKind: "github", SourceScope: "s", ExternalID: profileID + "-item",
+		Payload: []byte(`{}`), Lifecycle: "active",
+	})
+	require.NoError(t, err)
+	_, err = db.InsertInboxEvent(ctx, queries.InsertInboxEventParams{
+		ItemID: item.ID, Kind: "observed", Transition: "none", Attention: "trivial", Detail: []byte(`{}`), CreatedAt: 1,
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.UpsertFeedMembershipClaim(ctx, queries.UpsertFeedMembershipClaimParams{
+		ProfileID: profileID, FeedID: profileID + "/feed", ItemID: item.ID, SourceID: topic,
+	}))
+	require.NoError(t, db.LinkItemSession(ctx, queries.LinkItemSessionParams{
+		SessionID: profileID + "-sess", ProfileID: profileID, SourceKind: "github", SourceScope: "s",
+		ExternalID: profileID + "-item", CreatedAt: 1,
+	}))
+	_, err = db.AppendEvent(ctx, queries.AppendEventParams{Topic: topic, Key: profileID + "-item", Payload: []byte(`{}`), CreatedAt: 1})
+	require.NoError(t, err)
+	require.NoError(t, db.CommitConsumerOffset(ctx, queries.CommitConsumerOffsetParams{Consumer: profileID, Offset: 1}))
+	require.NoError(t, db.UpsertSourceHead(ctx, queries.UpsertSourceHeadParams{Topic: topic, Key: profileID + "-item", Payload: []byte(`{}`)}))
+	require.NoError(t, db.UpsertNodeKV(ctx, queries.UpsertNodeKVParams{
+		FlowID: profileID, NodeID: "node-a", Scope: stores.KVScopeNode, Key: "k", Value: "v", UpdatedAt: 1,
+	}))
+	return purgeProfileFixture{itemID: item.ID, topic: topic}
+}
+
+// assertPurgeProfileRowCounts checks all eight tables purgeProfile touches
+// (inbox_event and feed_membership_claim indirectly, through inbox_item's
+// cascade) against want, for the profile fx was seeded under.
+func assertPurgeProfileRowCounts(t *testing.T, db *queries.DB, profileID string, fx purgeProfileFixture, want int) {
+	t.Helper()
+	ctx := t.Context()
+	assertCount := func(table, query string, args ...any) {
+		t.Helper()
+		var n int
+		require.NoError(t, db.Conn().QueryRowContext(ctx, query, args...).Scan(&n))
+		assert.Equal(t, want, n, "%s for profile %q", table, profileID)
+	}
+	assertCount("inbox_item", `SELECT COUNT(*) FROM inbox_item WHERE profile_id = ?`, profileID)
+	assertCount("inbox_event", `SELECT COUNT(*) FROM inbox_event WHERE item_id = ?`, fx.itemID)
+	assertCount("feed_membership_claim", `SELECT COUNT(*) FROM feed_membership_claim WHERE profile_id = ?`, profileID)
+	assertCount("item_session", `SELECT COUNT(*) FROM item_session WHERE profile_id = ?`, profileID)
+	assertCount("event_log", `SELECT COUNT(*) FROM event_log WHERE topic = ?`, fx.topic)
+	assertCount("consumer_offset", `SELECT COUNT(*) FROM consumer_offset WHERE consumer = ?`, profileID)
+	assertCount("source_head", `SELECT COUNT(*) FROM source_head WHERE topic = ?`, fx.topic)
+	assertCount("node_kv", `SELECT COUNT(*) FROM node_kv WHERE flow_id = ?`, profileID)
+}
+
+// FlowsService.purgeProfile is the worked example of clause 3: deleting a
+// profile spans eight tables no aggregate owns together, so it is a service
+// operation opening Stores.Tx rather than a store method.
+func TestFlowsServicePurgeProfile_DeletesEveryOwnedRowAndLeavesOtherProfilesIntact(t *testing.T) {
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	st := stores.New(db, stores.Options{})
+	service := newFlowsService(flow.NewFlowStore(t.TempDir(), nil), st, st.InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
+
+	target := seedPurgeProfileRows(t, db, "p")
+	other := seedPurgeProfileRows(t, db, "other")
+
+	require.NoError(t, service.purgeProfile(t.Context(), "p"))
+
+	assertPurgeProfileRowCounts(t, db, "p", target, 0)
+	assertPurgeProfileRowCounts(t, db, "other", other, 1)
+}
+
+// A mid-purge failure must leave every table the earlier deletes already
+// touched exactly as it was: node_kv is purgeProfile's last delete, so
+// dropping it forces a real error after the other six ran inside the same
+// transaction, and only a rollback keeps this profile's inbox_item row from
+// being half-purged.
+func TestFlowsServicePurgeProfile_RollsBackTheWholeTransactionOnFailure(t *testing.T) {
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	st := stores.New(db, stores.Options{})
+	service := newFlowsService(flow.NewFlowStore(t.TempDir(), nil), st, st.InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
+
+	target := seedPurgeProfileRows(t, db, "p")
+
+	_, err = db.Conn().ExecContext(t.Context(), `DROP TABLE node_kv`)
+	require.NoError(t, err)
+
+	require.Error(t, service.purgeProfile(t.Context(), "p"))
+
+	var count int
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM inbox_item WHERE id = ?`, target.itemID).Scan(&count))
+	assert.Equal(t, 1, count, "a failed purge must roll back every delete already made in the same transaction")
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM event_log WHERE topic = ?`, target.topic).Scan(&count))
+	assert.Equal(t, 1, count, "the event log delete that ran before the failure must also roll back")
 }
 
 // A profile whose flow file does not parse still exists — deleting it is how

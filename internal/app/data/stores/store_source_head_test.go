@@ -7,12 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-func ingestActiveSourceHead(t *testing.T, db *queries.DB, topic, profileID, sourceScope, externalID string) {
+func ingestActiveSourceHead(t *testing.T, st *Stores, topic, profileID, sourceScope, externalID string) {
 	t.Helper()
-	_, err := db.IngestObservation(t.Context(), activityClassifier(externalID), queries.IngestObservationParams{
+	_, err := st.InboxItems.IngestObservation(t.Context(), activityClassifier(externalID), IngestObservationParams{
 		ProfileID: profileID,
 		Topic:     topic,
 		Current: models.Observation{
@@ -28,17 +27,17 @@ func TestSourceHeadStore_ListActiveKeys(t *testing.T) {
 	ctx := t.Context()
 	const topic = "source:profile/source"
 
-	ingestActiveSourceHead(t, db, topic, "profile", "main", "active-item")
+	ingestActiveSourceHead(t, st, topic, "profile", "main", "active-item")
 
-	ingestActiveSourceHead(t, db, topic, "profile", "main", "archived-item")
+	ingestActiveSourceHead(t, st, topic, "profile", "main", "archived-item")
 	_, err := db.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = 1, archived_actor = 'manual' WHERE external_id = ?`, "archived-item")
 	require.NoError(t, err)
 
-	ingestActiveSourceHead(t, db, topic, "profile", "main", "orphaned-item")
+	ingestActiveSourceHead(t, st, topic, "profile", "main", "orphaned-item")
 	_, err = db.Conn().ExecContext(ctx, `DELETE FROM inbox_item WHERE external_id = ?`, "orphaned-item")
 	require.NoError(t, err)
 
-	ingestActiveSourceHead(t, db, topic, "profile", "other-scope", "wrong-scope-item")
+	ingestActiveSourceHead(t, st, topic, "profile", "other-scope", "wrong-scope-item")
 
 	keys, err := st.SourceHeads.ListActiveKeys(ctx, SourceIdentity{
 		Topic: topic, ProfileID: "profile", SourceKind: "github", SourceScope: "main",

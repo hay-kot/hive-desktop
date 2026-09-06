@@ -149,7 +149,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
 		st := stores.New(db, stores.Options{})
-		producer := ingest.NewProducer(db, st.EventLog, st.SourceHeads, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
+		producer := ingest.NewProducer(st.InboxItems, st.EventLog, st.SourceHeads, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
 		service := newSettingsService(settings.NewStore(settings.SettingsPath()), producer, fetchers, nil)
 
 		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))

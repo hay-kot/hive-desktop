@@ -1,4 +1,4 @@
-package queries
+package stores
 
 import (
 	"fmt"
@@ -9,34 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
-
-type testClassifier struct {
-	classify func(*models.Observation, models.Observation) models.Classification
-}
-
-func (c testClassifier) Classify(prev *models.Observation, current models.Observation) models.Classification {
-	return c.classify(prev, current)
-}
 
 func observation(payload string) models.Observation {
 	return models.Observation{ExternalID: "acme/repo#1", Title: "one", URL: "https://example.test/1", SourceKind: "test", ObservedAt: 100, Payload: []byte(payload)}
 }
 
-func activityClassifier(key string) testClassifier {
-	return testClassifier{func(_ *models.Observation, _ models.Observation) models.Classification {
-		return models.Classification{Kind: "activity", Attention: models.AttentionActivity, Transition: models.TransitionNone, Lifecycle: models.LifecycleActive, OccurrenceKey: key, Summary: "activity"}
-	}}
-}
-
 func TestIngestObservation_DuplicatePayloadWritesNothing(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 	current := observation(`{"v":1}`)
-	first, err := db.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	first, err := st.InboxItems.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 	require.True(t, first.Wrote)
-	second, err := db.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	second, err := st.InboxItems.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 	assert.False(t, second.Wrote)
 	var revision, events int
@@ -51,16 +38,16 @@ func TestIngestObservation_DuplicatePayloadWritesNothing(t *testing.T) {
 // original — which would strand the row that carries the user's triage
 // decisions. See issue #95.
 func TestIngestObservation_HealsChangedLegacyEmptyScopeItemInPlace(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
-	legacy, err := db.InsertInboxItem(ctx, InsertInboxItemParams{
+	legacy, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: "p", SourceKind: "github", SourceScope: "", ExternalID: "acme/repo#1",
 		Payload: []byte(`{"v":1}`), Lifecycle: "active", Unread: 1,
 	})
 	require.NoError(t, err)
 
 	current := models.Observation{ExternalID: "acme/repo#1", Title: "one", SourceKind: "github", SourceScope: "acct", ObservedAt: 100, Payload: []byte(`{"v":2}`)}
-	result, err := db.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	result, err := st.InboxItems.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 	require.True(t, result.Wrote)
 	assert.Equal(t, legacy.ID, result.ItemID, "the changed item heals the existing row rather than inserting a new one")
@@ -74,16 +61,16 @@ func TestIngestObservation_HealsChangedLegacyEmptyScopeItemInPlace(t *testing.T)
 }
 
 func TestIngestObservation_TrivialChangeUpdatesItemWithoutEvent(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
-	first, err := db.IngestObservation(ctx, activityClassifier("initial"), IngestObservationParams{
+	first, err := st.InboxItems.IngestObservation(ctx, activityClassifier("initial"), IngestObservationParams{
 		ProfileID: "p", Topic: "source:p/a", Current: observation(`{"v":1}`),
 	})
 	require.NoError(t, err)
 
 	current := observation(`{"v":2}`)
 	current.ObservedAt = 101
-	result, err := db.IngestObservation(ctx, testClassifier{func(_ *models.Observation, _ models.Observation) models.Classification {
+	result, err := st.InboxItems.IngestObservation(ctx, testClassifier{func(_ *models.Observation, _ models.Observation) models.Classification {
 		return models.Classification{Kind: "updated", Attention: models.AttentionTrivial, Transition: models.TransitionNone, Lifecycle: models.LifecycleActive, SourceState: "open"}
 	}}, IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
@@ -102,7 +89,7 @@ func TestIngestObservation_TrivialChangeUpdatesItemWithoutEvent(t *testing.T) {
 }
 
 func TestIngestObservation_ConcurrentRevisionsAreMonotonic(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 	var wg sync.WaitGroup
 	errs := make(chan error, 12)
@@ -112,7 +99,7 @@ func TestIngestObservation_ConcurrentRevisionsAreMonotonic(t *testing.T) {
 			defer wg.Done()
 			cur := observation(fmt.Sprintf(`{"v":%d}`, i))
 			cur.ObservedAt = int64(i + 1)
-			_, err := db.IngestObservation(ctx, activityClassifier(fmt.Sprintf("%d", i)), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: cur})
+			_, err := st.InboxItems.IngestObservation(ctx, activityClassifier(fmt.Sprintf("%d", i)), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: cur})
 			errs <- err
 		}(i)
 	}
@@ -149,10 +136,10 @@ func TestApplyTransitionResurfacePolicies(t *testing.T) {
 }
 
 func TestIngestObservation_ManualArchiveIsNotClobberedByTerminalIngest(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 	active := observation(`{"state":"open"}`)
-	_, err := db.IngestObservation(ctx, activityClassifier("active"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: active})
+	_, err := st.InboxItems.IngestObservation(ctx, activityClassifier("active"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: active})
 	require.NoError(t, err)
 	var id, revision int64
 	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT id, revision FROM inbox_item`).Scan(&id, &revision))
@@ -160,7 +147,7 @@ func TestIngestObservation_ManualArchiveIsNotClobberedByTerminalIngest(t *testin
 	require.NoError(t, err)
 	terminal := active
 	terminal.Payload = []byte(`{"state":"closed"}`)
-	_, err = db.IngestObservation(ctx, testClassifier{func(*models.Observation, models.Observation) models.Classification {
+	_, err = st.InboxItems.IngestObservation(ctx, testClassifier{func(*models.Observation, models.Observation) models.Classification {
 		return models.Classification{Kind: "closed", Transition: models.TransitionEnteredTerminal, Attention: models.AttentionActivity, Lifecycle: models.LifecycleTerminal}
 	}}, IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: terminal})
 	require.NoError(t, err)
@@ -170,17 +157,17 @@ func TestIngestObservation_ManualArchiveIsNotClobberedByTerminalIngest(t *testin
 }
 
 func TestIngestObservation_RetainedManualArchiveGetsManualReason(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 	current := observation(`{"v":1}`)
-	_, err := db.IngestObservation(ctx, activityClassifier("initial"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	_, err := st.InboxItems.IngestObservation(ctx, activityClassifier("initial"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 	_, err = db.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = 99, archived_actor = 'manual', archived_reason = NULL`)
 	require.NoError(t, err)
 
 	current.Payload = []byte(`{"v":2}`)
 	current.ObservedAt = 101
-	_, err = db.IngestObservation(ctx, activityClassifier("later"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	_, err = st.InboxItems.IngestObservation(ctx, activityClassifier("later"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 
 	var archivedAt int64
@@ -192,17 +179,17 @@ func TestIngestObservation_RetainedManualArchiveGetsManualReason(t *testing.T) {
 }
 
 func TestIngestObservation_RetainedSystemArchivePreservesReason(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 	current := observation(`{"state":"closed","v":1}`)
-	_, err := db.IngestObservation(ctx, testClassifier{func(*models.Observation, models.Observation) models.Classification {
+	_, err := st.InboxItems.IngestObservation(ctx, testClassifier{func(*models.Observation, models.Observation) models.Classification {
 		return models.Classification{Kind: "closed", Transition: models.TransitionEnteredTerminal, Attention: models.AttentionActivity, Lifecycle: models.LifecycleTerminal, ArchivedReason: "closed"}
 	}}, IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 
 	current.Payload = []byte(`{"state":"closed","v":2}`)
 	current.ObservedAt = 101
-	_, err = db.IngestObservation(ctx, testClassifier{func(*models.Observation, models.Observation) models.Classification {
+	_, err = st.InboxItems.IngestObservation(ctx, testClassifier{func(*models.Observation, models.Observation) models.Classification {
 		return models.Classification{Kind: "updated", Attention: models.AttentionTrivial, Lifecycle: models.LifecycleTerminal}
 	}}, IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
@@ -214,8 +201,8 @@ func TestIngestObservation_RetainedSystemArchivePreservesReason(t *testing.T) {
 }
 
 func TestIngestObservation_BackfillsMissingOccurrenceKeyWithOffset(t *testing.T) {
-	db := openTestDB(t)
-	result, err := db.IngestObservation(t.Context(), activityClassifier(""), IngestObservationParams{
+	st, db := openTestStores(t)
+	result, err := st.InboxItems.IngestObservation(t.Context(), activityClassifier(""), IngestObservationParams{
 		ProfileID: "p",
 		Topic:     "source:p/a",
 		Current:   observation(`{"v":1}`),
@@ -228,7 +215,7 @@ func TestIngestObservation_BackfillsMissingOccurrenceKeyWithOffset(t *testing.T)
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT occurrence_key FROM event_log WHERE "offset" = ?`, result.Offset).Scan(&occurrenceKey))
 	assert.Equal(t, expected, occurrenceKey)
 
-	rows, err := db.ReadEventsFrom(t.Context(), ReadEventsFromParams{Offset: 0, Limit: 1})
+	rows, err := db.ReadEventsFrom(t.Context(), queries.ReadEventsFromParams{Offset: 0, Limit: 1})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, result.Offset, rows[0].Offset)
@@ -237,12 +224,12 @@ func TestIngestObservation_BackfillsMissingOccurrenceKeyWithOffset(t *testing.T)
 }
 
 func TestIngestObservation_NullOccurrenceDoesNotDeduplicate(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 	for i := range 2 {
 		cur := observation(fmt.Sprintf(`{"v":%d}`, i))
 		cur.ObservedAt = int64(i + 1)
-		_, err := db.IngestObservation(ctx, activityClassifier(""), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: cur})
+		_, err := st.InboxItems.IngestObservation(ctx, activityClassifier(""), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: cur})
 		require.NoError(t, err)
 	}
 	var events int
@@ -251,9 +238,9 @@ func TestIngestObservation_NullOccurrenceDoesNotDeduplicate(t *testing.T) {
 }
 
 func TestIngestObservationBoundsDetail(t *testing.T) {
-	db := openTestDB(t)
+	st, db := openTestStores(t)
 	detail := make([]byte, maxEventDetailBytes+100)
-	_, err := db.IngestObservation(t.Context(), testClassifier{func(*models.Observation, models.Observation) models.Classification {
+	_, err := st.InboxItems.IngestObservation(t.Context(), testClassifier{func(*models.Observation, models.Observation) models.Classification {
 		return models.Classification{Kind: "activity", Attention: models.AttentionActivity, Lifecycle: models.LifecycleActive, Detail: detail}
 	}}, IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: observation(`{"v":1}`)})
 	require.NoError(t, err)

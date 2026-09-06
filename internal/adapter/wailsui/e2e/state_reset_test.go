@@ -160,7 +160,7 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 
 	// The pipeline smoke fixture's own server-side append plus a command, the
 	// state a source-to-commit run leaves behind.
-	require.NoError(t, appendSourceToCommitSmokeItems(ctx, db, "", nil))
+	require.NoError(t, appendSourceToCommitSmokeItems(ctx, appstores.New(db, appstores.Options{}), "", nil))
 	_, created, err := appstores.New(db, appstores.Options{}).OutputCommands.Confirm(ctx, "launch", "smoke-pr", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)

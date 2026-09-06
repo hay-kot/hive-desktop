@@ -176,6 +176,26 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		{"EventLogStore.DeleteByTopicPrefix", func(ctx context.Context) error {
 			return st.EventLog.DeleteByTopicPrefix(ctx, "source:no-such-flow/%")
 		}},
+		{"EventLogStore.DeleteConsumerOffset", func(ctx context.Context) error {
+			return st.EventLog.DeleteConsumerOffset(ctx, "no-such-consumer")
+		}},
+		{"EventLogStore.AppendObservation", func(ctx context.Context) error {
+			_, err := st.EventLog.AppendObservation(ctx, "source:flow-1/ctx", "k-ctx", []byte(`{}`), "github", "s", "occ-ctx", time.Now().UnixMilli())
+			return err
+		}},
+		{"EventLogStore.BackfillOccurrenceKey", func(ctx context.Context) error {
+			offset, err := st.EventLog.AppendObservation(ctx, "source:flow-1/ctx2", "k-ctx2", []byte(`{}`), "github", "s", "", time.Now().UnixMilli())
+			if err != nil {
+				return err
+			}
+			return st.EventLog.BackfillOccurrenceKey(ctx, offset, "backfilled")
+		}},
+		{"EventLogStore.Commit", func(ctx context.Context) error {
+			return st.EventLog.Commit(ctx, models.CommitBatch{Consumer: "no-such-consumer", UpToOffset: 0})
+		}},
+		{"EventLogStore.ActivateReplay", func(ctx context.Context) error {
+			return st.EventLog.ActivateReplay(ctx, "no-such-profile", 0, nil, nil, nil, nil)
+		}},
 
 		// FeedClaimStore
 		{"FeedClaimStore.Upsert", func(ctx context.Context) error {
@@ -277,6 +297,24 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		{"InboxItemStore.DeleteByProfile", func(ctx context.Context) error {
 			return st.InboxItems.DeleteByProfile(ctx, "no-such-profile")
 		}},
+		{"InboxItemStore.GetUnarchivedByID", func(ctx context.Context) error {
+			_, err := st.InboxItems.GetUnarchivedByID(ctx, fx.itemID, "p")
+			return err
+		}},
+		{"InboxItemStore.CreateSynthesized", func(ctx context.Context) error {
+			_, err := st.InboxItems.CreateSynthesized(ctx, InboxItemSynthesize{
+				ProfileID: "p", SourceKind: "github", SourceScope: "s", ExternalID: "ctx-synth",
+				Payload: []byte(`{}`), Now: time.Now().UnixMilli(),
+			})
+			return err
+		}},
+		{"InboxItemStore.IngestObservation", func(ctx context.Context) error {
+			_, err := st.InboxItems.IngestObservation(ctx, activityClassifier("ctx-ingest"), IngestObservationParams{
+				ProfileID: "p", Topic: "source:p/ctx-ingest",
+				Current: models.Observation{ExternalID: "ctx-ingest-item", SourceKind: "github", SourceScope: "s", ObservedAt: 1, Payload: []byte(`{"v":1}`)},
+			})
+			return err
+		}},
 
 		// ItemSessionStore
 		{"ItemSessionStore.Link", func(ctx context.Context) error {
@@ -348,11 +386,17 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			_, err := st.NodeRuns.List(ctx, "flow-1", 10)
 			return err
 		}},
+		{"NodeRunStore.Insert", func(ctx context.Context) error {
+			return st.NodeRuns.Insert(ctx, models.NodeRunView{FlowID: "flow-1", NodeID: "node-ctx", OK: true}, time.Now().UnixMilli())
+		}},
 
 		// OutputCommandStore
 		{"OutputCommandStore.ListRunnableAfter", func(ctx context.Context) error {
 			_, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
 			return err
+		}},
+		{"OutputCommandStore.Enqueue", func(ctx context.Context) error {
+			return st.OutputCommands.Enqueue(ctx, "action-ctx", "key-ctx", []byte(`{}`), time.Now().UnixMilli(), models.ItemRef{})
 		}},
 		{"OutputCommandStore.Confirm", func(ctx context.Context) error {
 			_, _, err := st.OutputCommands.Confirm(ctx, "action-b", "item-1", []byte(`{}`), models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "s", ExternalID: "item-1"})

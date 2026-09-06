@@ -2,8 +2,10 @@ package stores
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -44,4 +46,26 @@ func (s *NodeRunStore) List(ctx context.Context, flowID string, limit int) ([]No
 		})
 	}
 	return runs, nil
+}
+
+// Insert records one node's per-tick execution metrics, stamped with
+// endedAt. Used by EventLogStore.Commit inside its transaction; endedAt is
+// the caller's clock reading rather than this store's, so every node run in
+// one commit shares the same timestamp.
+func (s *NodeRunStore) Insert(ctx context.Context, run models.NodeRunView, endedAt int64) error {
+	var errCol sql.NullString
+	if run.Err != "" {
+		errCol = sql.NullString{String: run.Err, Valid: true}
+	}
+	return wrap("inserting node run", s.q.Ctx(ctx).InsertNodeRun(ctx, queries.InsertNodeRunParams{
+		FlowID:    run.FlowID,
+		NodeID:    run.NodeID,
+		Ok:        boolToInt64(run.OK),
+		InCount:   int64(run.InCount),
+		OutCount:  int64(run.OutCount),
+		DropCount: int64(run.DropCount),
+		Err:       errCol,
+		EndedAt:   endedAt,
+		DurMs:     run.DurMs,
+	}))
 }

@@ -1,10 +1,10 @@
-package queries
+package stores
 
 import (
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
-var tracer = observe.Tracer("/internal/app/data/queries")
+var tracer = observe.Tracer("/internal/app/data/stores")
 
 // Batch boundaries only, never individual statements: a per-statement span
 // scaled with how much data arrived, not with configuration, and one tick

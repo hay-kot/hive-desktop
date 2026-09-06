@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/migrate"
 )
 
@@ -48,10 +47,8 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	ctx := t.Context()
 	first, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
-	enqueueTestCommand(t, first, "review", "item-1")
-	command, created, err := first.ConfirmOutputCommand(ctx, "review", "item-1", []byte(`{}`), models.ItemRef{})
+	command, err := first.ConfirmOutputCommand(ctx, ConfirmOutputCommandParams{ActionID: "review", Key: "item-1", Payload: []byte(`{}`), CreatedAt: 1})
 	require.NoError(t, err)
-	require.True(t, created)
 	job, err := first.InsertJob(ctx, JobRecord{CreatedAt: 1, UpdatedAt: 1, Status: "queued", Label: "Review"})
 	require.NoError(t, err)
 	_, err = first.SetJobRunning(ctx, job.ID, 2, "Running…", command.ID)
@@ -63,12 +60,12 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	reopened, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
-	row, err := reopened.OutputCommand(ctx, 1)
+	row, err := reopened.GetOutputCommand(ctx, command.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "failed", row.Status)
 	assert.Equal(t, int64(1), row.Attempts)
 	assert.Contains(t, row.LastError.String, "interrupted")
-	rows, err := reopened.ListRunnableOutputCommandsAfter(ctx, 0, 10)
+	rows, err := reopened.ListRunnableOutputCommandsAfter(ctx, ListRunnableOutputCommandsAfterParams{ID: 0, Limit: 10})
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 	jobs, err := reopened.ListJobs(ctx, 0, 10)

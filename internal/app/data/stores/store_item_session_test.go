@@ -101,7 +101,7 @@ func TestItemSessions_SurviveAnItemRowBeingRebuilt(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()
 	current := models.Observation{ExternalID: "acme/repo#1", Title: "one", SourceKind: "github", SourceScope: "acct", ObservedAt: 100, Payload: []byte(`{"v":1}`)}
-	first, err := db.IngestObservation(ctx, activityClassifier("one"), queries.IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	first, err := st.InboxItems.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 
 	ref, err := st.InboxItems.RefByID(ctx, first.ItemID)
@@ -113,7 +113,7 @@ func TestItemSessions_SurviveAnItemRowBeingRebuilt(t *testing.T) {
 	// A rebuild re-observes the item; the payload has moved on, or the ingest
 	// would match the source head and write nothing.
 	current.Payload = []byte(`{"v":2}`)
-	rebuilt, err := db.IngestObservation(ctx, activityClassifier("two"), queries.IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	rebuilt, err := st.InboxItems.IngestObservation(ctx, activityClassifier("two"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 	require.NotEqual(t, first.ItemID, rebuilt.ItemID)
 
@@ -142,7 +142,7 @@ func TestItemSessions_FollowALegacyRowOntoItsHealedScope(t *testing.T) {
 	require.NoError(t, st.ItemSessions.Link(ctx, "sess-a", legacyRef))
 
 	current := models.Observation{ExternalID: "acme/repo#1", Title: "one", SourceKind: "github", SourceScope: "acct", ObservedAt: 100, Payload: []byte(`{"v":2}`)}
-	_, err = db.IngestObservation(ctx, activityClassifier("one"), queries.IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	_, err = st.InboxItems.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
 
 	links, err := st.ItemSessions.List(ctx, itemRef())
@@ -151,25 +151,8 @@ func TestItemSessions_FollowALegacyRowOntoItsHealedScope(t *testing.T) {
 	assert.Equal(t, "sess-a", links[0].SessionID)
 }
 
-func TestPurgeProfile_DropsItsItemSessionLinks(t *testing.T) {
-	st, db := openTestStores(t)
-	ctx := t.Context()
-	ref := itemRef()
-	other := ref
-	other.ProfileID = "q"
-
-	require.NoError(t, st.ItemSessions.Link(ctx, "purged", ref))
-	require.NoError(t, st.ItemSessions.Link(ctx, "kept", other))
-	require.NoError(t, db.PurgeProfile(ctx, "p"))
-
-	links, err := st.ItemSessions.List(ctx, ref)
-	require.NoError(t, err)
-	assert.Empty(t, links)
-	links, err = st.ItemSessions.List(ctx, other)
-	require.NoError(t, err)
-	assert.Len(t, links, 1)
-}
-
+// FlowsService's purge test (internal/app/flows_service_test.go) covers the
+// cross-store composition; this exercises the store method it calls.
 func TestItemSessionStore_DeleteByProfile(t *testing.T) {
 	st, _ := openTestStores(t)
 	ctx := t.Context()

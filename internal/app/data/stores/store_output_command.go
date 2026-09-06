@@ -41,6 +41,17 @@ func (s *OutputCommandStore) ListRunnableAfter(ctx context.Context, afterID int6
 	return out, nil
 }
 
+// Enqueue records a flow-produced action or notify invocation, deduplicated
+// on (actionID, key) by the unique index a replayed commit relies on so the
+// same batch replayed twice never fires an action twice. Used by
+// EventLogStore.Commit.
+func (s *OutputCommandStore) Enqueue(ctx context.Context, actionID, key string, payload []byte, createdAt int64, ref models.ItemRef) error {
+	return wrap("enqueuing output command", s.q.Ctx(ctx).EnqueueOutputCommand(ctx, queries.EnqueueOutputCommandParams{
+		ActionID: actionID, Key: key, Payload: payload, CreatedAt: createdAt,
+		ProfileID: ref.ProfileID, SourceKind: ref.SourceKind, SourceScope: ref.SourceScope, ExternalID: ref.ExternalID,
+	}))
+}
+
 // Confirm claims a queued command or enqueues a fresh one for an explicit
 // detail-pane invocation. When the action is already terminal for this key,
 // the sql.ErrNoRows the guarded UPDATE produces falls back to the latest

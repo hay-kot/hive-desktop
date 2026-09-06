@@ -3,6 +3,7 @@ package stores
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,19 +56,58 @@ func TestAppend_ReadFrom_Monotonic(t *testing.T) {
 }
 
 func TestReadForConsumer_ResumesFromPersistedOffset(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
 	for i := range 3 {
 		_, err := st.EventLog.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
 		require.NoError(t, err)
 	}
-	require.NoError(t, db.CommitBatch(ctx, models.CommitBatch{Consumer: "flow-1", UpToOffset: 2}))
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{Consumer: "flow-1", UpToOffset: 2}))
 
 	msgs, err := st.EventLog.ReadForConsumer(ctx, "flow-1", 500)
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "3", msgs[0].ID)
+}
+
+func TestListLatestSnapshots_ReturnsLatestSnapshotPerOwnedSource(t *testing.T) {
+	st, _ := openTestStores(t)
+	ctx := t.Context()
+
+	_, err := st.EventLog.AppendSnapshot(ctx, "source:flow/a", "github", "scope-a", []models.SnapshotItem{{Key: "old", Payload: []byte(`{"version":1}`)}})
+	require.NoError(t, err)
+	latestA, err := st.EventLog.AppendSnapshot(ctx, "source:flow/a", "github", "scope-a", []models.SnapshotItem{{Key: "new", Payload: []byte(`{"version":2}`)}})
+	require.NoError(t, err)
+	latestB, err := st.EventLog.AppendSnapshot(ctx, "source:flow/b", "github", "scope-b", []models.SnapshotItem{})
+	require.NoError(t, err)
+	_, err = st.EventLog.AppendSnapshot(ctx, "source:flow-other/a", "github", "other", []models.SnapshotItem{{Key: "wrong-profile", Payload: []byte(`{}`)}})
+	require.NoError(t, err)
+
+	tail, err := st.EventLog.TailOffset(ctx)
+	require.NoError(t, err)
+	messages, err := st.EventLog.ListLatestSnapshots(ctx, "flow", tail)
+	require.NoError(t, err)
+	require.Len(t, messages, 2)
+	assert.Equal(t, models.Msg{ID: strconv.FormatInt(latestA, 10), Topic: "source:flow/a", Ts: messages[0].Ts, Payload: json.RawMessage(`[{"key":"new","payload":{"version":2}}]`), Snapshot: []models.SnapshotItem{{Key: "new", Payload: json.RawMessage(`{"version":2}`)}}, SourceKind: "github", SourceScope: "scope-a"}, messages[0])
+	assert.Equal(t, models.Msg{ID: strconv.FormatInt(latestB, 10), Topic: "source:flow/b", Ts: messages[1].Ts, Payload: json.RawMessage(`[]`), Snapshot: []models.SnapshotItem{}, SourceKind: "github", SourceScope: "scope-b"}, messages[1])
+}
+
+func TestListLatestSnapshots_HonorsCapturedTail(t *testing.T) {
+	st, _ := openTestStores(t)
+	ctx := t.Context()
+
+	capturedTail, err := st.EventLog.AppendSnapshot(ctx, "source:flow/a", "github", "scope", []models.SnapshotItem{{Key: "old", Payload: []byte(`{}`)}})
+	require.NoError(t, err)
+	_, err = st.EventLog.AppendSnapshot(ctx, "source:flow/a", "github", "scope", []models.SnapshotItem{{Key: "new", Payload: []byte(`{}`)}})
+	require.NoError(t, err)
+
+	messages, err := st.EventLog.ListLatestSnapshots(ctx, "flow", capturedTail)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	assert.Equal(t, "old", messages[0].Snapshot[0].Key)
+	assert.Equal(t, "github", messages[0].SourceKind)
+	assert.Equal(t, "scope", messages[0].SourceScope)
 }
 
 func TestReadFrom_EmptySnapshotSurvivesJSON(t *testing.T) {

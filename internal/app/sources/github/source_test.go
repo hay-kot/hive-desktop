@@ -71,12 +71,12 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
-// newTestProducer wires a Producer's three still-*queries.DB-adjacent
-// dependencies over one database handle, mirroring how app.go's
-// buildProducer wires the real Stores.
+// newTestProducer wires a Producer's three store dependencies over one
+// database handle, mirroring how app.go's buildProducer wires the real
+// Stores.
 func newTestProducer(db *queries.DB, sources ingest.Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *ingest.Producer {
 	st := stores.New(db, stores.Options{})
-	return ingest.NewProducer(db, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
+	return ingest.NewProducer(st.InboxItems, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
 }
 
 // readFrom is ReadFrom's test-side equivalent, now that it lives on

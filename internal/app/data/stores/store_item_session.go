@@ -72,7 +72,7 @@ func (s *ItemSessionStore) Unlink(ctx context.Context, sessionIDs []string) erro
 }
 
 // DeleteByProfile removes every item_session row for profileID. Used by
-// FlowsService.PurgeProfile (3b) when a workspace is deleted; the sessions
+// FlowsService.purgeProfile when a workspace is deleted; the sessions
 // themselves are hive's and survive, only the links go.
 func (s *ItemSessionStore) DeleteByProfile(ctx context.Context, profileID string) error {
 	return wrap("deleting item sessions by profile", s.q.Ctx(ctx).DeleteItemSessionsByProfile(ctx, profileID))

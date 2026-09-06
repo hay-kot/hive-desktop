@@ -3,9 +3,10 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
@@ -20,9 +21,11 @@ import (
 // profile's sidebar-rail avatar.
 type FlowsService struct {
 	flows *flow.FlowStore
-	// db is only PurgeProfile's, a cross-table write phase 3b re-homes onto
-	// Stores.Tx; inboxItems is every other read this service still makes.
-	db         *queries.DB
+	// stores is only purgeProfile's: deleting a profile's rows spans
+	// aggregates, so it is the one operation in this service allowed to open
+	// Stores.Tx (clause 3). inboxItems is every other read this service
+	// makes and must not go through the aggregate.
+	stores     *stores.Stores
 	inboxItems *stores.InboxItemStore
 	creds      credentials.Store
 	images     *profileimg.Store
@@ -32,8 +35,8 @@ type FlowsService struct {
 	onUpdated  func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *queries.DB, inboxItems *stores.InboxItemStore, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, inboxItems: inboxItems, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
+func newFlowsService(flows *flow.FlowStore, st *stores.Stores, inboxItems *stores.InboxItemStore, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
+	return &FlowsService{flows: flows, stores: st, inboxItems: inboxItems, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there
@@ -90,7 +93,7 @@ func (s *FlowsService) requireDeletable(ctx context.Context, id string) error {
 	if s.flows.Exists(id) {
 		return nil
 	}
-	if s.db != nil {
+	if s.stores != nil {
 		items, err := s.inboxItems.ListAll(ctx, id, 1)
 		if err != nil {
 			return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
@@ -246,10 +249,74 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	// A leftover avatar is orphaned data, never a reason to fail the delete.
 	_ = s.images.Delete(id)
 	s.notifyUpdated()
-	if s.db == nil {
+	if s.stores == nil {
 		return Errorf(KindUnavailable, "the desktop store is unavailable")
 	}
-	return Wrap(s.db.PurgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
+	return Wrap(s.purgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
+}
+
+// purgeProfile removes every row a deleted profile owns, across the eight
+// tables no aggregate owns together: inbox_item, inbox_event and
+// feed_membership_claim cascade from InboxItemStore.DeleteByProfile's
+// delete, and this composes the rest -- item_session, event_log,
+// consumer_offset, source_head and node_kv -- inside one transaction.
+// FlowsService is the one service allowed to open Stores.Tx (clause 3: a
+// write spanning aggregates is a service operation, not a store one).
+func (s *FlowsService) purgeProfile(ctx context.Context, profileID string) error {
+	prefix := "source:" + escapeLike(profileID) + "/%"
+	txCtx, tx, err := s.stores.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("opening purge transaction for profile %q: %w", profileID, err)
+	}
+	if err := s.doPurgeProfile(txCtx, profileID, prefix); err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			return fmt.Errorf("purging profile %q failed: %w (rollback also failed: %w)", profileID, err, rbErr)
+		}
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing purge of profile %q: %w", profileID, err)
+	}
+	return nil
+}
+
+func (s *FlowsService) doPurgeProfile(ctx context.Context, profileID, prefix string) error {
+	if err := s.stores.InboxItems.DeleteByProfile(ctx, profileID); err != nil {
+		return fmt.Errorf("purging inbox items: %w", err)
+	}
+	// Defensive: cascade already dropped every claim tied to a deleted item.
+	// This catches a claim recorded under profileID against an item that
+	// belongs to a different profile, which the cascade above cannot reach.
+	if err := s.stores.FeedClaims.DeleteUnarchivedByProfile(ctx, profileID); err != nil {
+		return fmt.Errorf("purging feed membership claims: %w", err)
+	}
+	// The sessions themselves are hive's and survive; only the links go,
+	// because there is no longer an item for them to hang off.
+	if err := s.stores.ItemSessions.DeleteByProfile(ctx, profileID); err != nil {
+		return fmt.Errorf("purging item session links: %w", err)
+	}
+	if err := s.stores.EventLog.DeleteByTopicPrefix(ctx, prefix); err != nil {
+		return fmt.Errorf("purging event log: %w", err)
+	}
+	if err := s.stores.EventLog.DeleteConsumerOffset(ctx, profileID); err != nil {
+		return fmt.Errorf("purging consumer offset: %w", err)
+	}
+	if err := s.stores.SourceHeads.DeleteByTopicPrefix(ctx, prefix); err != nil {
+		return fmt.Errorf("purging source head: %w", err)
+	}
+	if err := s.stores.NodeKV.DeleteByFlow(ctx, profileID); err != nil {
+		return fmt.Errorf("purging node kv: %w", err)
+	}
+	return nil
+}
+
+// escapeLike neutralizes LIKE metacharacters in profileID so a purge's topic
+// prefix cannot accidentally widen past that profile's own rows.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
 }
 
 // Get returns one flow's full definition for the editor.

@@ -39,7 +39,7 @@ type Options struct {
 	Now func() time.Time
 	// Logger is where a store reports a recoverable anomaly it chose to skip
 	// rather than fail on -- today only EventLogStore.Commit's keyless feed
-	// output (3b).
+	// output.
 	Logger zerolog.Logger
 }
 
@@ -55,20 +55,34 @@ func (o Options) withDefaults() Options {
 func New(q *queries.DB, opts Options) *Stores {
 	opts = opts.withDefaults()
 
+	heads := NewSourceHeadStore(q, opts)
+	claims := NewFeedClaimStore(q, opts)
+	kv := NewNodeKVStore(q, opts)
+	runs := NewNodeRunStore(q, opts)
+	commands := NewOutputCommandStore(q, opts)
+
+	// InboxItemStore and EventLogStore call into each other --
+	// IngestObservation appends through the log, Commit and ActivateReplay
+	// resolve and mint through the inbox -- so neither can be fully built
+	// before the other exists. items.log is wired in once log exists.
+	items := NewInboxItemStore(q, opts, heads)
+	log := NewEventLogStore(q, opts, items, claims, kv, runs, commands)
+	items.log = log
+
 	return &Stores{
 		q: q,
 
 		ActivityEvents:  NewActivityEventStore(q, opts),
 		AgentSessions:   NewAgentSessionStore(q, opts),
-		EventLog:        NewEventLogStore(q, opts),
-		FeedClaims:      NewFeedClaimStore(q, opts),
-		InboxItems:      NewInboxItemStore(q, opts),
+		EventLog:        log,
+		FeedClaims:      claims,
+		InboxItems:      items,
 		ItemSessions:    NewItemSessionStore(q, opts),
 		Jobs:            NewJobStore(q, opts),
-		NodeKV:          NewNodeKVStore(q, opts),
-		NodeRuns:        NewNodeRunStore(q, opts),
-		OutputCommands:  NewOutputCommandStore(q, opts),
-		SourceHeads:     NewSourceHeadStore(q, opts),
+		NodeKV:          kv,
+		NodeRuns:        runs,
+		OutputCommands:  commands,
+		SourceHeads:     heads,
 		WebhookCaptures: NewWebhookCaptureStore(q, opts),
 	}
 }

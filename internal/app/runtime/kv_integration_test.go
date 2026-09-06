@@ -73,7 +73,7 @@ func TestRun_DedupFunctionNotifiesExactlyOnce(t *testing.T) {
 	first, err := runner.Run(ctx, []models.Msg{kvMsg("1")})
 	require.NoError(t, err)
 	assert.Equal(t, 1, notifyOutputs(first), "a new item notifies exactly once")
-	require.NoError(t, db.CommitBatch(ctx, first))
+	require.NoError(t, stores.New(db, stores.Options{}).EventLog.Commit(ctx, first))
 
 	second, err := runner.Run(ctx, []models.Msg{kvMsg("2")})
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestRun_KVSetThenThrowPersistsNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, batch.KVMutations)
 	assert.Zero(t, notifyOutputs(batch))
-	require.NoError(t, db.CommitBatch(ctx, batch))
+	require.NoError(t, stores.New(db, stores.Options{}).EventLog.Commit(ctx, batch))
 
 	var rows int
 	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&rows))
@@ -112,7 +112,7 @@ func TestRun_DedupMemoryIsDurableAcrossRunners(t *testing.T) {
 
 	first, err := kvTestRunner(t, db, dedupScript).Run(ctx, []models.Msg{kvMsg("1")})
 	require.NoError(t, err)
-	require.NoError(t, db.CommitBatch(ctx, first))
+	require.NoError(t, stores.New(db, stores.Options{}).EventLog.Commit(ctx, first))
 
 	rebuilt := kvTestRunner(t, db, dedupScript)
 	second, err := rebuilt.Run(ctx, []models.Msg{kvMsg("2")})

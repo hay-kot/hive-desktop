@@ -10,7 +10,6 @@ import (
 	"context"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
-	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -41,10 +40,10 @@ type FlowLister interface {
 	List() []flow.Flow
 }
 
-// Ingester is the cross-table write a Producer drives every tick. It stays
-// on *queries.DB until phase 3b moves IngestObservation onto a store.
+// Ingester is the cross-table write a Producer drives every tick. Satisfied
+// by *stores.InboxItemStore.
 type Ingester interface {
-	IngestObservation(ctx context.Context, classifier models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error)
+	IngestObservation(ctx context.Context, classifier models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error)
 }
 
 // SnapshotAppender appends a source's authoritative item set after a

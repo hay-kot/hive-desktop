@@ -33,12 +33,12 @@ func testOutputCommands(db *queries.DB) *stores.OutputCommandStore {
 	return stores.New(db, stores.Options{}).OutputCommands
 }
 
-// enqueueTestCommand enqueues one output_command row via CommitBatch (the
-// only production path that ever writes one), so tests exercise the real
-// dedup/enqueue behavior rather than inserting rows by hand.
+// enqueueTestCommand enqueues one output_command row via EventLogStore.Commit
+// (the only production path that ever writes one), so tests exercise the
+// real dedup/enqueue behavior rather than inserting rows by hand.
 func enqueueTestCommand(t *testing.T, db *queries.DB, actionID, key, payload string) {
 	t.Helper()
-	require.NoError(t, db.CommitBatch(t.Context(), models.CommitBatch{
+	require.NoError(t, stores.New(db, stores.Options{}).EventLog.Commit(t.Context(), models.CommitBatch{
 		Consumer:   "test-consumer-" + actionID + "-" + key,
 		UpToOffset: 1,
 		Outputs: []models.Output{

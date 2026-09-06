@@ -1,8 +1,10 @@
 package stores
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -13,16 +15,23 @@ import (
 
 // InboxItemStore owns inbox_item and inbox_event: the durable substrate
 // behind every feed item, and the lifecycle events recorded against it.
-// IngestObservation -- the write that also touches source_head and
-// event_log -- lands here in phase 3b; this store is the leaf half.
+// IngestObservation also touches source_head and event_log inside its own
+// transaction, which is why this store holds heads and log as siblings
+// (clause 2: an aggregate's own store may open a transaction and call
+// sibling stores when the write belongs to it).
 type InboxItemStore struct {
-	q      *queries.DB
+	q     *queries.DB
+	heads *SourceHeadStore
+	// log is set by New after both stores exist: EventLogStore.Commit and
+	// ActivateReplay resolve and mint through InboxItemStore, so neither
+	// store can be fully built before the other.
+	log    *EventLogStore
 	now    func() time.Time
 	mapper MapFunc[queries.InboxItem, InboxItem]
 }
 
-func NewInboxItemStore(q *queries.DB, opts Options) *InboxItemStore {
-	return &InboxItemStore{q: q, now: opts.Now, mapper: mapInboxItemFromDB}
+func NewInboxItemStore(q *queries.DB, opts Options, heads *SourceHeadStore) *InboxItemStore {
+	return &InboxItemStore{q: q, heads: heads, now: opts.Now, mapper: mapInboxItemFromDB}
 }
 
 // ListByFeed returns a feed's active items, newest first.
@@ -344,9 +353,232 @@ func (s *InboxItemStore) FeedCounts(ctx context.Context, profileID string) ([]Fe
 }
 
 // DeleteByProfile removes every inbox_item row for profileID. Used by
-// FlowsService.PurgeProfile (3b) when a workspace is deleted.
+// FlowsService.purgeProfile when a workspace is deleted.
 func (s *InboxItemStore) DeleteByProfile(ctx context.Context, profileID string) error {
 	return wrap("deleting inbox items by profile", s.q.Ctx(ctx).DeleteInboxItemsByProfile(ctx, profileID))
+}
+
+// GetUnarchivedByID reads one unarchived inbox row by id, scoped to
+// profileID. EventLogStore.ActivateReplay uses this to refuse a claim
+// against an item that is archived, missing, or belongs to another profile.
+func (s *InboxItemStore) GetUnarchivedByID(ctx context.Context, itemID int64, profileID string) (InboxItem, error) {
+	row, err := s.q.Ctx(ctx).GetUnarchivedInboxItemByID(ctx, queries.GetUnarchivedInboxItemByIDParams{ID: itemID, ProfileID: profileID})
+	if err != nil {
+		return InboxItem{}, errTransformQueryOne("inbox_item", fmt.Sprint(itemID), err)
+	}
+	return s.mapper(row), nil
+}
+
+// CreateSynthesized inserts a durable row for a feed output whose key never
+// went through ingest -- a function node minted it while splitting one
+// source message into per-entity items. EventLogStore.Commit calls this when
+// ResolveScoped finds no row for a feed output's key. Presentation comes
+// from the payload (title/url), the same fields the producer reads at the
+// ingest boundary; the lifecycle is active because the item is present in
+// the snapshot that carried it, and its absence from a later snapshot drops
+// the membership claim rather than archiving the row. A subsequent ingest
+// under the same identity upserts this row in place, so a genuine source
+// item briefly missing at commit self-heals rather than forking a
+// duplicate.
+func (s *InboxItemStore) CreateSynthesized(ctx context.Context, in InboxItemSynthesize) (InboxItem, error) {
+	title, url := feedItemPresentation(in.ExternalID, in.Payload)
+	row, err := s.q.Ctx(ctx).InsertInboxItem(ctx, queries.InsertInboxItemParams{
+		ProfileID: in.ProfileID, SourceKind: in.SourceKind, SourceScope: in.SourceScope, ExternalID: in.ExternalID,
+		Title: title, Url: url, Payload: in.Payload, Unread: 1, Lifecycle: models.LifecycleActive.String(),
+		FirstSeenAt: in.Now, LastEventAt: in.Now,
+	})
+	if err != nil {
+		return InboxItem{}, wrap("minting synthesized inbox item", err)
+	}
+	return s.mapper(row), nil
+}
+
+// feedItemPresentation reads the title and url a synthesized feed item
+// renders with from its payload, mirroring the ingest boundary's convention.
+// A payload with no title falls back to the key, so an item is never blank.
+func feedItemPresentation(key string, payload []byte) (title, url string) {
+	var wire struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	_ = json.Unmarshal(payload, &wire)
+	if title = wire.Title; title == "" {
+		title = key
+	}
+	return title, wire.URL
+}
+
+type ItemTriageState struct {
+	Unread         bool
+	ArchivedAt     *int64
+	ArchivedActor  string
+	ArchivedReason string
+}
+
+// applyTransition is intentionally SQL-free so archive semantics remain easy
+// to test. Terminal transitions are system-owned; system archived items
+// always return on a reopen, while manual archives obey the profile policy.
+func applyTransition(prev ItemTriageState, c models.Classification, policy models.ResurfacePolicy) ItemTriageState {
+	next := prev
+	if c.Transition == models.TransitionEnteredTerminal {
+		// A user archive wins a concurrent terminal observation. The item is
+		// already hidden; replacing its actor with system would erase the
+		// manual decision the in-transaction read deliberately observed.
+		if prev.ArchivedActor == models.ArchivedActorManual.String() && prev.ArchivedAt != nil {
+			return next
+		}
+		now := time.Now().UnixMilli()
+		next.ArchivedAt = &now
+		next.ArchivedActor = models.ArchivedActorSystem.String()
+		next.Unread = false
+		return next
+	}
+	if prev.ArchivedAt == nil {
+		if c.Attention == models.AttentionActivity || c.Transition == models.TransitionLeftTerminal {
+			next.Unread = true
+		}
+		return next
+	}
+	resurface := c.Transition == models.TransitionLeftTerminal ||
+		(prev.ArchivedActor == models.ArchivedActorManual.String() && policy == models.ResurfacePolicyAll && c.Attention == models.AttentionActivity)
+	if prev.ArchivedActor == models.ArchivedActorSystem.String() && c.Transition == models.TransitionLeftTerminal {
+		resurface = true
+	}
+	if prev.ArchivedActor == models.ArchivedActorManual.String() && policy == models.ResurfacePolicyNever {
+		resurface = false
+	}
+	if resurface {
+		next.ArchivedAt = nil
+		next.ArchivedActor = ""
+		next.Unread = true
+	}
+	return next
+}
+
+// archivedReason retains the reason for an item that remains archived. A
+// manual archive predating reason tracking is labeled manual; a newly
+// system-archived terminal item takes the classifier's source-specific
+// reason.
+func archivedReason(prev, next ItemTriageState, c models.Classification) string {
+	if next.ArchivedAt == nil {
+		return ""
+	}
+	if prev.ArchivedAt != nil {
+		if prev.ArchivedReason != "" {
+			return prev.ArchivedReason
+		}
+		if next.ArchivedActor == models.ArchivedActorManual.String() {
+			return models.ArchivedActorManual.String()
+		}
+		return ""
+	}
+	if next.ArchivedActor == models.ArchivedActorManual.String() {
+		return models.ArchivedActorManual.String()
+	}
+	return c.ArchivedReason
+}
+
+// IngestObservation is the persistence boundary for a source item: the
+// source head comparison, classification, inbox mutation, event log append
+// and source head update share one immediate SQLite transaction. The
+// aggregate it belongs to is the inbox item -- everything else in it exists
+// to decide what that row becomes -- so it writes source_head through
+// SourceHeadStore and the event log through EventLogStore rather than
+// reaching their generated queries directly.
+func (s *InboxItemStore) IngestObservation(ctx context.Context, classifier models.Classifier, p IngestObservationParams) (result IngestResult, err error) {
+	if classifier == nil {
+		return result, fmt.Errorf("ingesting observation: nil classifier")
+	}
+	if p.Current.ExternalID == "" {
+		return result, fmt.Errorf("ingesting observation: external id is required")
+	}
+	if p.Policy == "" {
+		p.Policy = models.ResurfacePolicyStateChanges
+	}
+	err = s.q.WithinTx(ctx, func(ctx context.Context, _ *queries.DB) error {
+		head, headErr := s.heads.Payload(ctx, p.Topic, p.Current.ExternalID)
+		if headErr == nil && bytes.Equal(head, p.Current.Payload) {
+			return nil
+		}
+		if headErr != nil && !errors.Is(headErr, sql.ErrNoRows) {
+			return fmt.Errorf("reading source head: %w", headErr)
+		}
+
+		var previous *models.Observation
+		prevRow, getErr := s.ResolveScoped(ctx, p.ProfileID, p.Current.SourceKind, p.Current.SourceScope, p.Current.ExternalID)
+		if getErr == nil {
+			previous = &models.Observation{ExternalID: prevRow.ExternalID, Title: prevRow.Title, URL: prevRow.URL, SourceKind: prevRow.SourceKind, SourceScope: prevRow.SourceScope, ObservedAt: prevRow.LastEventAt, Payload: prevRow.Payload}
+		} else if !errors.Is(getErr, sql.ErrNoRows) {
+			return fmt.Errorf("reading inbox item: %w", getErr)
+		}
+
+		classification := classifier.Classify(previous, p.Current)
+		if classification.Transition == "" {
+			classification.Transition = models.TransitionNone
+		}
+		if classification.Attention == "" {
+			classification.Attention = models.AttentionTrivial
+		}
+		if classification.Lifecycle == "" {
+			classification.Lifecycle = models.LifecycleUnknown
+		}
+		classification.Detail = boundEventDetail(classification.Detail)
+		prevTriage := ItemTriageState{}
+		if getErr == nil {
+			prevTriage.Unread = prevRow.Unread
+			prevTriage.ArchivedAt = prevRow.ArchivedAt
+			prevTriage.ArchivedActor = prevRow.ArchivedActor
+			prevTriage.ArchivedReason = prevRow.ArchivedReason
+		}
+		triage := applyTransition(prevTriage, classification, p.Policy)
+		archiveReason := archivedReason(prevTriage, triage, classification)
+		now := s.now().UnixMilli()
+		var archivedAt sql.NullInt64
+		if triage.ArchivedAt != nil {
+			archivedAt = sql.NullInt64{Int64: *triage.ArchivedAt, Valid: true}
+		}
+		item, upsertErr := s.q.Ctx(ctx).UpsertInboxItem(ctx, queries.UpsertInboxItemParams{
+			ProfileID: p.ProfileID, SourceKind: p.Current.SourceKind, SourceScope: p.Current.SourceScope, ExternalID: p.Current.ExternalID,
+			Title: p.Current.Title, Url: p.Current.URL, Payload: p.Current.Payload, Unread: boolToInt64(triage.Unread),
+			ArchivedAt: archivedAt, ArchivedActor: null(triage.ArchivedActor), ArchivedReason: null(archiveReason),
+			Lifecycle: classification.Lifecycle.String(), SourceState: null(classification.SourceState), FirstSeenAt: now, LastEventAt: p.Current.ObservedAt,
+		})
+		if upsertErr != nil {
+			return fmt.Errorf("upserting inbox item: %w", upsertErr)
+		}
+
+		if classification.Transition != models.TransitionNone || classification.Attention != models.AttentionTrivial {
+			var occurrence sql.NullString
+			if classification.OccurrenceKey != "" {
+				occurrence = sql.NullString{String: classification.OccurrenceKey, Valid: true}
+			}
+			_, eventErr := s.q.Ctx(ctx).InsertInboxEvent(ctx, queries.InsertInboxEventParams{ItemID: item.ID, Kind: classification.Kind, Transition: classification.Transition.String(), Attention: classification.Attention.String(), OccurrenceKey: occurrence, Summary: null(classification.Summary), Detail: classification.Detail, CreatedAt: now})
+			if eventErr != nil && !errors.Is(eventErr, sql.ErrNoRows) {
+				return fmt.Errorf("inserting inbox event: %w", eventErr)
+			}
+		}
+
+		occurrence := classification.OccurrenceKey
+		offset, appendErr := s.log.AppendObservation(ctx, p.Topic, p.Current.ExternalID, p.Current.Payload, p.Current.SourceKind, p.Current.SourceScope, occurrence, now)
+		if appendErr != nil {
+			return fmt.Errorf("appending event log: %w", appendErr)
+		}
+		if occurrence == "" {
+			occurrence = fmt.Sprintf("%d", offset)
+			if err := s.log.BackfillOccurrenceKey(ctx, offset, occurrence); err != nil {
+				return fmt.Errorf("backfilling occurrence key: %w", err)
+			}
+		}
+		if err := s.heads.Upsert(ctx, p.Topic, p.Current.ExternalID, p.Current.Payload); err != nil {
+			return fmt.Errorf("updating source head: %w", err)
+		}
+		result = IngestResult{ItemID: item.ID, Revision: item.Revision, Classification: classification, Wrote: true, Offset: offset}
+		return nil
+	})
+	if err != nil {
+		return IngestResult{}, fmt.Errorf("ingesting observation: %w", err)
+	}
+	return result, nil
 }
 
 func boolToInt64(b bool) int64 {

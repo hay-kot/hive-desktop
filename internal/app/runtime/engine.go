@@ -35,9 +35,8 @@ type InboxReader interface {
 
 // CommitStore is the event log's write side. Commit and ActivateReplay both
 // advance the consumer offset, which is what makes them log operations
-// rather than a separate pipeline type. Phase 3b wires *stores.EventLogStore
-// directly; until then a queriesCommitStore adapts the still-cross-table
-// *queries.DB methods of the same shape.
+// rather than a separate pipeline type. Satisfied directly by
+// *stores.EventLogStore.
 type CommitStore interface {
 	// Commit applies one run's outputs and advances the offset, atomically.
 	Commit(ctx context.Context, batch models.CommitBatch) error
