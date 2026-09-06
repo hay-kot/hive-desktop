@@ -401,9 +401,9 @@ func (u *UI) Close() {
 
 // SeedMock installs the deterministic inbox rows a fixture run needs. Mock
 // mode has no live producer, so nothing else would fill the feed.
-func (u *UI) SeedMock(core *app.App) {
+func (u *UI) SeedMock(ctx context.Context, core *app.App) {
 	if u.mock != "feed" && u.mock != "action-smoke" {
 		return
 	}
-	e2e.SeedMockInboxItemsOrWarn(core.Store, u.logger)
+	e2e.SeedMockInboxItemsOrWarn(ctx, core.Store, u.logger)
 }

@@ -79,7 +79,7 @@ func (db *DB) AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope
 }
 
 // AppendSnapshot is the Queries-level form of DB.AppendSnapshot, so
-// transactional callers (WithTx) can append a snapshot atomically with other
+// transactional callers can append a snapshot atomically with other
 // writes.
 func (q *Queries) AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []SnapshotItem) (int64, error) {
 	payload, err := json.Marshal(items)

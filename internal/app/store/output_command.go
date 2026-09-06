@@ -120,26 +120,22 @@ const interruptedOutputCommandError = "interrupted: application stopped while ac
 // have performed its side effect before a crash, so retrying it in the
 // background would be unauthorized and unsafe.
 func (db *DB) RecoverInterruptedOutputCommands(ctx context.Context) error {
-	tx, err := db.conn.BeginTx(ctx, nil)
-	if err != nil {
-		return wrap("starting interrupted output command recovery", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if _, err = tx.ExecContext(ctx, `
+	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		if _, err := tx.querier().ExecContext(ctx, `
 		UPDATE job
 		SET status = 'failed', step = 'Failed', error = ?, updated_at = ?
 		WHERE (status = 'queued' AND command_id IS NULL)
 			OR (status = 'running'
 				AND command_id IN (SELECT id FROM output_command WHERE status = 'running'))`,
-		interruptedOutputCommandError, time.Now().UnixMilli()); err != nil {
-		return wrap("recovering interrupted jobs", err)
-	}
-	if _, err = tx.ExecContext(ctx, `
+			interruptedOutputCommandError, time.Now().UnixMilli()); err != nil {
+			return wrap("recovering interrupted jobs", err)
+		}
+		if _, err := tx.querier().ExecContext(ctx, `
 		UPDATE output_command
 		SET status = 'failed', attempts = attempts + 1, last_error = ?
 		WHERE status = 'running'`, interruptedOutputCommandError); err != nil {
-		return wrap("recovering interrupted output commands", err)
-	}
-	return wrap("committing interrupted output command recovery", tx.Commit())
+			return wrap("recovering interrupted output commands", err)
+		}
+		return nil
+	})
 }

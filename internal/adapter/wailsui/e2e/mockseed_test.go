@@ -55,7 +55,7 @@ func TestSeedMockInboxItems_WritesExpectedRows(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	require.NoError(t, seedMockInboxItems(db))
+	require.NoError(t, seedMockInboxItems(t.Context(), db))
 
 	rows, err := db.Conn().QueryContext(context.Background(), `
 		SELECT external_id, source_kind, source_scope, payload, unread, last_event_at

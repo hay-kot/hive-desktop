@@ -75,7 +75,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, core.Close()) })
-	require.NoError(t, seedMockInboxItems(db)) // feed mode's startup seeding
+	require.NoError(t, seedMockInboxItems(t.Context(), db)) // feed mode's startup seeding
 
 	harness := NewStateResetHarness(db, core.Conn(), zerolog.Nop())
 	require.NotNil(t, harness)
@@ -131,7 +131,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	fresh, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, fresh.Close()) })
-	require.NoError(t, seedMockInboxItems(fresh))
+	require.NoError(t, seedMockInboxItems(t.Context(), fresh))
 	assert.Equal(t, dumpStableState(t, fresh), dumpStableState(t, db))
 
 	// The core action tables are empty again, as after a fresh boot.

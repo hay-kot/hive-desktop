@@ -155,8 +155,8 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 		return fmt.Errorf("commit offset must not be negative: %d", b.UpToOffset)
 	}
 
-	return db.WithTx(ctx, func(q *Queries) error {
-		current, err := q.GetConsumerOffset(ctx, b.Consumer)
+	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		current, err := tx.queries.GetConsumerOffset(ctx, b.Consumer)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("reading committed offset for consumer %q: %w", b.Consumer, err)
 		}
@@ -172,7 +172,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 		for _, out := range b.Outputs {
 			switch out.Sink.Kind {
 			case SinkKindFeed:
-				item, err := resolveInboxItemScoped(ctx, q, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
+				item, err := resolveInboxItemScoped(ctx, tx.queries, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
 					// A feed output whose key has no inbox row is one a function
 					// node synthesized: it split a source message into per-entity
@@ -194,14 +194,14 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 							Msg("commit: feed output has no key; skipping so the offset can advance")
 						continue
 					}
-					item, err = mintFeedInboxItem(ctx, q, b.Consumer, out, now)
+					item, err = mintFeedInboxItem(ctx, tx.queries, b.Consumer, out, now)
 					if err != nil {
 						return fmt.Errorf("minting inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 					}
 				} else if err != nil {
 					return fmt.Errorf("resolving inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 				}
-				if err := q.UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{
+				if err := tx.queries.UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{
 					ProfileID: b.Consumer, FeedID: out.Sink.TargetID, ItemID: item.ID, SourceID: out.SourceTopic,
 				}); err != nil {
 					return fmt.Errorf("claiming feed membership %s/%s: %w", out.Sink.TargetID, out.Key, err)
@@ -209,7 +209,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 			case SinkKindAction:
 				// The dedup key is the occurrence key, so the row cannot be
 				// traced back to its item by key alone.
-				if err := q.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
+				if err := tx.queries.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
 					ActionID: out.Sink.TargetID, Key: out.OccurrenceKey, Payload: []byte(out.Payload), CreatedAt: now,
 					ProfileID: b.Consumer, SourceKind: out.SourceKind, SourceScope: out.SourceScope, ExternalID: out.Key,
 				}); err != nil {
@@ -227,7 +227,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 					return fmt.Errorf("encoding notify command %s/%s: %w", out.Sink.TargetID, out.Key, err)
 				}
 				key := notifyDedupKey(out)
-				if err := q.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
+				if err := tx.queries.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
 					ActionID: NotifyActionID(out.Sink.TargetID), Key: key, Payload: payload, CreatedAt: now,
 				}); err != nil {
 					return fmt.Errorf("enqueuing notify command %s/%s: %w", out.Sink.TargetID, key, err)
@@ -243,7 +243,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				if out.Sink.Kind != SinkKindFeed || out.Sink.TargetID != snapshot.FeedID || out.SourceTopic != snapshot.SourceTopic || out.SnapshotID != snapshot.SnapshotID {
 					continue
 				}
-				item, err := resolveInboxItemScoped(ctx, q, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
+				item, err := resolveInboxItemScoped(ctx, tx.queries, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
 					// Consistent with the outputs pass above (already logged
 					// there): an item with no row claims no membership, so it
@@ -256,17 +256,17 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				itemIDs = append(itemIDs, item.ID)
 			}
 			if len(itemIDs) == 0 {
-				if err := q.DeleteFeedMembershipClaimsForSourceAll(ctx, DeleteFeedMembershipClaimsForSourceAllParams{FeedID: snapshot.FeedID, SourceID: snapshot.SourceTopic}); err != nil {
+				if err := tx.queries.DeleteFeedMembershipClaimsForSourceAll(ctx, DeleteFeedMembershipClaimsForSourceAllParams{FeedID: snapshot.FeedID, SourceID: snapshot.SourceTopic}); err != nil {
 					return fmt.Errorf("clearing empty feed snapshot: %w", err)
 				}
-			} else if err := q.DeleteFeedMembershipClaimsNotInSnapshot(ctx, DeleteFeedMembershipClaimsNotInSnapshotParams{FeedID: snapshot.FeedID, SourceID: snapshot.SourceTopic, ItemIds: itemIDs}); err != nil {
+			} else if err := tx.queries.DeleteFeedMembershipClaimsNotInSnapshot(ctx, DeleteFeedMembershipClaimsNotInSnapshotParams{FeedID: snapshot.FeedID, SourceID: snapshot.SourceTopic, ItemIds: itemIDs}); err != nil {
 				return fmt.Errorf("reconciling feed snapshot: %w", err)
 			}
 		}
 
 		for _, m := range b.KVMutations {
 			if m.Delete {
-				if err := q.DeleteNodeKV(ctx, DeleteNodeKVParams{FlowID: b.Consumer, NodeID: m.NodeID, Scope: KVScopeNode, Key: m.Key}); err != nil {
+				if err := tx.queries.DeleteNodeKV(ctx, DeleteNodeKVParams{FlowID: b.Consumer, NodeID: m.NodeID, Scope: KVScopeNode, Key: m.Key}); err != nil {
 					return fmt.Errorf("deleting node kv %s/%s: %w", m.NodeID, m.Key, err)
 				}
 				continue
@@ -275,7 +275,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 			if m.ExpiresAt > 0 {
 				expiresAt = sql.NullInt64{Int64: m.ExpiresAt, Valid: true}
 			}
-			if err := q.UpsertNodeKV(ctx, UpsertNodeKVParams{
+			if err := tx.queries.UpsertNodeKV(ctx, UpsertNodeKVParams{
 				FlowID: b.Consumer, NodeID: m.NodeID, Scope: KVScopeNode, Key: m.Key,
 				Value: m.Value, ExpiresAt: expiresAt, UpdatedAt: now,
 			}); err != nil {
@@ -288,7 +288,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 			if nr.Err != "" {
 				errCol = sql.NullString{String: nr.Err, Valid: true}
 			}
-			if err := q.InsertNodeRun(ctx, InsertNodeRunParams{
+			if err := tx.queries.InsertNodeRun(ctx, InsertNodeRunParams{
 				FlowID:    nr.FlowID,
 				NodeID:    nr.NodeID,
 				Ok:        boolToInt64(nr.OK),
@@ -303,7 +303,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 			}
 		}
 
-		if err := q.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{
+		if err := tx.queries.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{
 			Consumer: b.Consumer,
 			Offset:   b.UpToOffset,
 		}); err != nil {

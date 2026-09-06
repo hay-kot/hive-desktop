@@ -116,11 +116,11 @@ func (r *StateReset) capture(path string) {
 // concurrent frontend read sees either the old state or the baseline, never
 // an empty store; see the type comment for the full ordering.
 func (r *StateReset) Reset(ctx context.Context) error {
-	var reseed func(*store.Queries) error
+	var reseed store.Seeder
 	switch r.mock {
 	case "feed", "action-smoke":
 		// The same deterministic fixture path main.go seeds at startup.
-		reseed = seedMockInboxItemsTx
+		reseed = mockSeeder{db: r.db}
 	}
 	if err := r.db.ResetAllState(ctx, reseed); err != nil {
 		return fmt.Errorf("reset pipeline database: %w", err)

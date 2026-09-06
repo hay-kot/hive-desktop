@@ -90,47 +90,47 @@ func (db *DB) Prune(ctx context.Context, policy RetentionPolicy) error {
 		return fmt.Errorf("event per-item retention limit must not be negative")
 	}
 
-	return db.WithTx(ctx, func(q *Queries) error {
+	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
 		if policy.EventLogMaxAge > 0 {
-			if err := q.DeleteEventsOlderThan(ctx, time.Now().Add(-policy.EventLogMaxAge).UnixMilli()); err != nil {
+			if err := tx.queries.DeleteEventsOlderThan(ctx, time.Now().Add(-policy.EventLogMaxAge).UnixMilli()); err != nil {
 				return fmt.Errorf("pruning old event log rows: %w", err)
 			}
 		}
 		if policy.EventLogPerTopicLimit > 0 {
-			if err := q.DeleteEventsOverLimitPerTopic(ctx, policy.EventLogPerTopicLimit); err != nil {
+			if err := tx.queries.DeleteEventsOverLimitPerTopic(ctx, policy.EventLogPerTopicLimit); err != nil {
 				return fmt.Errorf("pruning excess event log rows: %w", err)
 			}
 		}
 		if policy.EventLogSnapshotsPerTopicLimit > 0 {
-			if err := q.DeleteSnapshotsOverLimitPerTopic(ctx, policy.EventLogSnapshotsPerTopicLimit); err != nil {
+			if err := tx.queries.DeleteSnapshotsOverLimitPerTopic(ctx, policy.EventLogSnapshotsPerTopicLimit); err != nil {
 				return fmt.Errorf("pruning superseded source snapshots: %w", err)
 			}
 		}
 
-		if err := q.PruneNodeRuns(ctx, policy.NodeRunLimit); err != nil {
+		if err := tx.queries.PruneNodeRuns(ctx, policy.NodeRunLimit); err != nil {
 			return fmt.Errorf("pruning node runs: %w", err)
 		}
-		if err := q.PruneTerminalOutputCommands(ctx, policy.TerminalOutputCommandLimit); err != nil {
+		if err := tx.queries.PruneTerminalOutputCommands(ctx, policy.TerminalOutputCommandLimit); err != nil {
 			return fmt.Errorf("pruning terminal output commands: %w", err)
 		}
-		if err := q.PruneActivityEvents(ctx, policy.ActivityEventLimit); err != nil {
+		if err := tx.queries.PruneActivityEvents(ctx, policy.ActivityEventLimit); err != nil {
 			return fmt.Errorf("pruning activity events: %w", err)
 		}
-		if err := q.PruneTerminalJobs(ctx, policy.JobLimit); err != nil {
+		if err := tx.queries.PruneTerminalJobs(ctx, policy.JobLimit); err != nil {
 			return fmt.Errorf("pruning terminal jobs: %w", err)
 		}
-		if err := q.PruneArchivedInboxItems(ctx, sql.NullInt64{Int64: time.Now().Add(-policy.ArchivedItemRetention).UnixMilli(), Valid: true}); err != nil {
+		if err := tx.queries.PruneArchivedInboxItems(ctx, sql.NullInt64{Int64: time.Now().Add(-policy.ArchivedItemRetention).UnixMilli(), Valid: true}); err != nil {
 			return fmt.Errorf("pruning archived inbox items: %w", err)
 		}
-		if err := q.DeleteOrphanedSourceHeads(ctx); err != nil {
+		if err := tx.queries.DeleteOrphanedSourceHeads(ctx); err != nil {
 			return fmt.Errorf("reclaiming orphaned source heads: %w", err)
 		}
-		if err := q.TrimInboxItemEvents(ctx, policy.EventPerItemLimit); err != nil {
+		if err := tx.queries.TrimInboxItemEvents(ctx, policy.EventPerItemLimit); err != nil {
 			return fmt.Errorf("trimming inbox item events: %w", err)
 		}
 		// No row-count cap on node_kv on purpose: a pruned "seen" key would
 		// make its item re-notify, so bounding relies on TTL and teardown.
-		if err := q.DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: time.Now().UnixMilli(), Valid: true}); err != nil {
+		if err := tx.queries.DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: time.Now().UnixMilli(), Valid: true}); err != nil {
 			return fmt.Errorf("sweeping expired node kv: %w", err)
 		}
 		return nil

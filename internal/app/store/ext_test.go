@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +124,40 @@ func TestWithinTx_SuccessCommits(t *testing.T) {
 		return insertItem(ctx, tx, "item-1")
 	}))
 	assert.Equal(t, 1, countInboxItems(t, db))
+}
+
+// TestWithinTx_EntityMethodsUseOneConnection times out because a transaction
+// escape blocks on SQLite's immediate write lock instead of failing.
+func TestWithinTx_EntityMethodsUseOneConnection(t *testing.T) {
+	t.Parallel()
+
+	db := extTestDB(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	t.Cleanup(cancel)
+
+	require.NoError(t, db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		require.NoError(t, tx.NodeKVSet(ctx, "flow-1", "node-1", "key", `"value"`, 0))
+		assert.Equal(t, 1, db.Conn().Stats().InUse, "NodeKVSet escaped the transaction")
+
+		_, err := tx.Append(ctx, "source:flow-1/node-1", "event-1", []byte(`{"v":1}`))
+		require.NoError(t, err)
+		assert.Equal(t, 1, db.Conn().Stats().InUse, "Append escaped the transaction")
+		return nil
+	}))
+}
+
+func TestWithinTx_ReadSeesEarlierWrite(t *testing.T) {
+	t.Parallel()
+
+	db := extTestDB(t)
+	require.NoError(t, db.WithinTx(t.Context(), func(ctx context.Context, tx *DB) error {
+		require.NoError(t, insertItem(ctx, tx, "item-1"))
+		items, err := tx.ListUnarchivedInboxItems(ctx, "flow-1")
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		assert.Equal(t, "item-1", items[0].ExternalID)
+		return nil
+	}))
 }
 
 // TestWithinTx_ReleasesTheConnection guards the failure that would only show

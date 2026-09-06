@@ -82,8 +82,8 @@ func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, 
 	if tail < 0 {
 		return fmt.Errorf("activating replay for %q: negative tail", profileID)
 	}
-	return db.WithTx(ctx, func(q *Queries) error {
-		currentTail, err := q.GetEventLogTailOffset(ctx)
+	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		currentTail, err := tx.queries.GetEventLogTailOffset(ctx)
 		if err != nil {
 			return fmt.Errorf("reading event log tail: %w", err)
 		}
@@ -91,17 +91,17 @@ func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, 
 			return fmt.Errorf("activating replay for %q: supplied tail %d exceeds current event log tail %d", profileID, tail, currentTail)
 		}
 
-		if err := q.DeleteUnarchivedFeedMembershipClaimsByProfile(ctx, profileID); err != nil {
+		if err := tx.queries.DeleteUnarchivedFeedMembershipClaimsByProfile(ctx, profileID); err != nil {
 			return fmt.Errorf("clearing replayable memberships: %w", err)
 		}
 		for _, claim := range claims {
 			if claim.ProfileID != "" && claim.ProfileID != profileID {
 				return fmt.Errorf("activating replay: claim profile %q does not match %q", claim.ProfileID, profileID)
 			}
-			if _, err := q.GetUnarchivedInboxItemByID(ctx, GetUnarchivedInboxItemByIDParams{ID: claim.ItemID, ProfileID: profileID}); err != nil {
+			if _, err := tx.queries.GetUnarchivedInboxItemByID(ctx, GetUnarchivedInboxItemByIDParams{ID: claim.ItemID, ProfileID: profileID}); err != nil {
 				return fmt.Errorf("activating replay: item %d is not an unarchived item in %q: %w", claim.ItemID, profileID, err)
 			}
-			if err := q.UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{
+			if err := tx.queries.UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{
 				ProfileID: profileID,
 				FeedID:    claim.FeedID,
 				ItemID:    claim.ItemID,
@@ -112,29 +112,29 @@ func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, 
 		}
 
 		if len(feedIDs) == 0 {
-			if err := q.DeleteFeedMembershipClaimsForFeedsAll(ctx, profileID); err != nil {
+			if err := tx.queries.DeleteFeedMembershipClaimsForFeedsAll(ctx, profileID); err != nil {
 				return fmt.Errorf("clearing flow feeds: %w", err)
 			}
-		} else if err := q.DeleteFeedMembershipClaimsForFeeds(ctx, DeleteFeedMembershipClaimsForFeedsParams{ProfileID: profileID, FeedIds: feedIDs}); err != nil {
+		} else if err := tx.queries.DeleteFeedMembershipClaimsForFeeds(ctx, DeleteFeedMembershipClaimsForFeedsParams{ProfileID: profileID, FeedIds: feedIDs}); err != nil {
 			return fmt.Errorf("removing obsolete feeds: %w", err)
 		}
 		if len(sourceIDs) == 0 {
-			if err := q.DeleteFeedMembershipClaimsForRemovedSourcesAll(ctx, profileID); err != nil {
+			if err := tx.queries.DeleteFeedMembershipClaimsForRemovedSourcesAll(ctx, profileID); err != nil {
 				return fmt.Errorf("clearing removed sources: %w", err)
 			}
-		} else if err := q.DeleteFeedMembershipClaimsForRemovedSources(ctx, DeleteFeedMembershipClaimsForRemovedSourcesParams{ProfileID: profileID, SourceIds: sourceIDs}); err != nil {
+		} else if err := tx.queries.DeleteFeedMembershipClaimsForRemovedSources(ctx, DeleteFeedMembershipClaimsForRemovedSourcesParams{ProfileID: profileID, SourceIds: sourceIDs}); err != nil {
 			return fmt.Errorf("removing obsolete sources: %w", err)
 		}
 
-		if err := q.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{Consumer: profileID, Offset: tail}); err != nil {
+		if err := tx.queries.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{Consumer: profileID, Offset: tail}); err != nil {
 			return fmt.Errorf("advancing replay consumer offset: %w", err)
 		}
 
 		if len(kvNodeIDs) == 0 {
-			if err := q.DeleteNodeKVByFlow(ctx, profileID); err != nil {
+			if err := tx.queries.DeleteNodeKVByFlow(ctx, profileID); err != nil {
 				return fmt.Errorf("clearing flow node kv: %w", err)
 			}
-		} else if err := q.DeleteNodeKVForFlowExceptNodes(ctx, DeleteNodeKVForFlowExceptNodesParams{FlowID: profileID, NodeIds: kvNodeIDs}); err != nil {
+		} else if err := tx.queries.DeleteNodeKVForFlowExceptNodes(ctx, DeleteNodeKVForFlowExceptNodesParams{FlowID: profileID, NodeIds: kvNodeIDs}); err != nil {
 			return fmt.Errorf("removing obsolete node kv: %w", err)
 		}
 		return nil
@@ -145,25 +145,25 @@ func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, 
 // prefix is escaped for LIKE so profile IDs cannot accidentally widen a purge.
 func (db *DB) PurgeProfile(ctx context.Context, profileID string) error {
 	prefix := "source:" + escapeLike(profileID) + "/%"
-	return db.WithTx(ctx, func(q *Queries) error {
-		if err := q.DeleteInboxItemsByProfile(ctx, profileID); err != nil {
+	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		if err := tx.queries.DeleteInboxItemsByProfile(ctx, profileID); err != nil {
 			return fmt.Errorf("purging inbox items: %w", err)
 		}
 		// The sessions themselves are hive's and survive; only the links go,
 		// because there is no longer an item for them to hang off.
-		if err := q.DeleteItemSessionsByProfile(ctx, profileID); err != nil {
+		if err := tx.queries.DeleteItemSessionsByProfile(ctx, profileID); err != nil {
 			return fmt.Errorf("purging item session links: %w", err)
 		}
-		if err := q.DeleteConsumerOffsetByConsumer(ctx, profileID); err != nil {
+		if err := tx.queries.DeleteConsumerOffsetByConsumer(ctx, profileID); err != nil {
 			return fmt.Errorf("purging consumer offset: %w", err)
 		}
-		if err := q.DeleteEventLogByTopicPrefix(ctx, prefix); err != nil {
+		if err := tx.queries.DeleteEventLogByTopicPrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("purging event log: %w", err)
 		}
-		if err := q.DeleteSourceHeadByTopicPrefix(ctx, prefix); err != nil {
+		if err := tx.queries.DeleteSourceHeadByTopicPrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("purging source head: %w", err)
 		}
-		if err := q.DeleteNodeKVByFlow(ctx, profileID); err != nil {
+		if err := tx.queries.DeleteNodeKVByFlow(ctx, profileID); err != nil {
 			return fmt.Errorf("purging node kv: %w", err)
 		}
 		return nil

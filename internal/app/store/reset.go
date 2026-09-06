@@ -25,29 +25,36 @@ var resetTables = []string{
 	"agent_workspace_session",
 }
 
+// Seeder writes the baseline rows a reset restores. It runs inside the wipe
+// transaction, so implementations must use the supplied context to join it
+// through their existing store and never open another transaction.
+type Seeder interface {
+	Seed(ctx context.Context) error
+}
+
 // ResetAllState deletes every row from every mutable pipeline table, resets
 // the tables' AUTOINCREMENT counters, and then runs reseed (when non-nil)
 // against the same transaction. Because the wipe and reseed share one
 // transaction, a concurrent reader observes either the old state or the
-// reseeded baseline — never an intermediate empty store. The connection stays
+// reseeded baseline -- never an intermediate empty store. The connection stays
 // open throughout, and row ids and event offsets subsequently restart from 1
 // exactly as in a freshly created database. This exists for the test-only
 // /_e2e/reset harness and must never run against live user state.
-func (db *DB) ResetAllState(ctx context.Context, reseed func(*Queries) error) error {
-	return db.WithTx(ctx, func(q *Queries) error {
+func (db *DB) ResetAllState(ctx context.Context, reseed Seeder) error {
+	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
 		for _, table := range resetTables {
-			if _, err := q.db.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			if _, err := tx.querier().ExecContext(ctx, `DELETE FROM `+table); err != nil {
 				return fmt.Errorf("clearing table %s: %w", table, err)
 			}
 			// AUTOINCREMENT counters live in sqlite_sequence rows named after
 			// their table; scoping the delete to resetTables leaves any other
 			// sequence untouched.
-			if _, err := q.db.ExecContext(ctx, `DELETE FROM sqlite_sequence WHERE name = ?`, table); err != nil {
+			if _, err := tx.querier().ExecContext(ctx, `DELETE FROM sqlite_sequence WHERE name = ?`, table); err != nil {
 				return fmt.Errorf("resetting sequence for table %s: %w", table, err)
 			}
 		}
 		if reseed != nil {
-			return reseed(q)
+			return reseed.Seed(ctx)
 		}
 		return nil
 	})

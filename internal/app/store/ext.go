@@ -39,6 +39,13 @@ func (db *DB) boundTo(tx *sql.Tx) *DB {
 // Only the outermost caller commits or rolls back. An inner fn that fails
 // returns its error up to that caller, which is what rolls the whole unit
 // back.
+//
+// No store call runs on a goroutine that did not open the transaction.
+// jobs.Store.Track is the one store-work path that starts a goroutine. It
+// calls `bg := context.WithoutCancel(ctx)` before it starts that goroutine and
+// remains correct because it has no transactional callers. WithoutCancel
+// copies context values, including a transaction, so Track must not run inside
+// WithinTx.
 func (db *DB) WithinTx(ctx context.Context, fn func(context.Context, *DB) error) error {
 	if tx, ok := txFromContext(ctx); ok {
 		return fn(ctx, db.boundTo(tx))

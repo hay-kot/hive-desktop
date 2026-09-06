@@ -113,7 +113,9 @@ func (s *Store) Resume(ctx context.Context, commandID int64) int64 {
 // context detached from the caller's, so the work survives the request that
 // started it (an RPC handler returns immediately). The job is not linked to an
 // output_command, so it shows in the jobs UI without a deep-link. Persistence
-// failures never derail fn.
+// failures never derail fn. Do not call Track inside store.WithinTx:
+// context.WithoutCancel copies context values, including its transaction, into
+// the goroutine.
 func (s *Store) Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64 {
 	id := s.Begin(ctx, label, actionID, target)
 	bg := context.WithoutCancel(ctx)

@@ -184,7 +184,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ui.SeedMock(core)
+	ui.SeedMock(startupCtx, core)
 
 	// The terminal-guarded surfaces are the parts of the API that authenticate,
 	// so their token and CORS allowlist are minted here and handed to the

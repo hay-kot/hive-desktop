@@ -318,8 +318,8 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 	if p.Policy == "" {
 		p.Policy = ResurfacePolicyStateChanges
 	}
-	err = db.WithTx(ctx, func(q *Queries) error {
-		head, headErr := q.GetSourceHeadPayload(ctx, GetSourceHeadPayloadParams{Topic: p.Topic, Key: p.Current.ExternalID})
+	err = db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		head, headErr := tx.queries.GetSourceHeadPayload(ctx, GetSourceHeadPayloadParams{Topic: p.Topic, Key: p.Current.ExternalID})
 		if headErr == nil && bytes.Equal(head, p.Current.Payload) {
 			return nil
 		}
@@ -328,7 +328,7 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 		}
 
 		var previous *Observation
-		prevRow, getErr := resolveInboxItemScoped(ctx, q, p.ProfileID, p.Current.SourceKind, p.Current.SourceScope, p.Current.ExternalID)
+		prevRow, getErr := resolveInboxItemScoped(ctx, tx.queries, p.ProfileID, p.Current.SourceKind, p.Current.SourceScope, p.Current.ExternalID)
 		if getErr == nil {
 			previous = &Observation{ExternalID: prevRow.ExternalID, Title: prevRow.Title, URL: prevRow.Url, SourceKind: prevRow.SourceKind, SourceScope: prevRow.SourceScope, ObservedAt: prevRow.LastEventAt, Payload: prevRow.Payload}
 		} else if !errors.Is(getErr, sql.ErrNoRows) {
@@ -367,7 +367,7 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 		if triage.ArchivedAt != nil {
 			archivedAt = sql.NullInt64{Int64: *triage.ArchivedAt, Valid: true}
 		}
-		item, upsertErr := q.UpsertInboxItem(ctx, UpsertInboxItemParams{
+		item, upsertErr := tx.queries.UpsertInboxItem(ctx, UpsertInboxItemParams{
 			ProfileID: p.ProfileID, SourceKind: p.Current.SourceKind, SourceScope: p.Current.SourceScope, ExternalID: p.Current.ExternalID,
 			Title: p.Current.Title, Url: p.Current.URL, Payload: p.Current.Payload, Unread: boolToInt64(triage.Unread),
 			ArchivedAt: archivedAt, ArchivedActor: null(triage.ArchivedActor), ArchivedReason: null(archiveReason),
@@ -382,24 +382,24 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 			if classification.OccurrenceKey != "" {
 				occurrence = sql.NullString{String: classification.OccurrenceKey, Valid: true}
 			}
-			_, eventErr := q.InsertInboxEvent(ctx, InsertInboxEventParams{ItemID: item.ID, Kind: classification.Kind, Transition: classification.Transition.String(), Attention: classification.Attention.String(), OccurrenceKey: occurrence, Summary: null(classification.Summary), Detail: classification.Detail, CreatedAt: now})
+			_, eventErr := tx.queries.InsertInboxEvent(ctx, InsertInboxEventParams{ItemID: item.ID, Kind: classification.Kind, Transition: classification.Transition.String(), Attention: classification.Attention.String(), OccurrenceKey: occurrence, Summary: null(classification.Summary), Detail: classification.Detail, CreatedAt: now})
 			if eventErr != nil && !errors.Is(eventErr, sql.ErrNoRows) {
 				return fmt.Errorf("inserting inbox event: %w", eventErr)
 			}
 		}
 
 		occurrence := classification.OccurrenceKey
-		offset, appendErr := q.AppendEvent(ctx, AppendEventParams{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload, Snapshot: 0, SourceKind: p.Current.SourceKind, SourceScope: p.Current.SourceScope, OccurrenceKey: null(occurrence), CreatedAt: now})
+		offset, appendErr := tx.queries.AppendEvent(ctx, AppendEventParams{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload, Snapshot: 0, SourceKind: p.Current.SourceKind, SourceScope: p.Current.SourceScope, OccurrenceKey: null(occurrence), CreatedAt: now})
 		if appendErr != nil {
 			return fmt.Errorf("appending event log: %w", appendErr)
 		}
 		if occurrence == "" {
 			occurrence = fmt.Sprintf("%d", offset)
-			if err := q.UpdateEventOccurrenceKey(ctx, UpdateEventOccurrenceKeyParams{OccurrenceKey: sql.NullString{String: occurrence, Valid: true}, Offset: offset}); err != nil {
+			if err := tx.queries.UpdateEventOccurrenceKey(ctx, UpdateEventOccurrenceKeyParams{OccurrenceKey: sql.NullString{String: occurrence, Valid: true}, Offset: offset}); err != nil {
 				return fmt.Errorf("backfilling occurrence key: %w", err)
 			}
 		}
-		if err := q.UpsertSourceHead(ctx, UpsertSourceHeadParams{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload}); err != nil {
+		if err := tx.queries.UpsertSourceHead(ctx, UpsertSourceHeadParams{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload}); err != nil {
 			return fmt.Errorf("updating source head: %w", err)
 		}
 		result = IngestResult{ItemID: item.ID, Revision: item.Revision, Classification: classification, Wrote: true, Offset: offset}

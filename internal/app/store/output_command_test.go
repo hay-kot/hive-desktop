@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -21,6 +22,34 @@ func enqueueTestCommand(t *testing.T, db *DB, actionID, key string) {
 			},
 		},
 	}))
+}
+
+func TestRecoverInterruptedOutputCommands_JoinsTransaction(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	command, created, err := db.ConfirmOutputCommand(ctx, "review", "item-1", []byte(`{}`), ItemRef{})
+	require.NoError(t, err)
+	require.True(t, created)
+	job, err := db.InsertJob(ctx, JobRecord{CreatedAt: 1, UpdatedAt: 1, Status: "queued", Label: "Review"})
+	require.NoError(t, err)
+	_, err = db.SetJobRunning(ctx, job.ID, 2, "Running", command.ID)
+	require.NoError(t, err)
+
+	require.NoError(t, db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
+		return tx.RecoverInterruptedOutputCommands(ctx)
+	}))
+
+	command, err = db.OutputCommand(ctx, command.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "failed", command.Status)
+	jobs, err := db.ListJobs(ctx, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, "failed", jobs[0].Status)
+	rows, err := db.ListRunnableOutputCommandsAfter(ctx, 0, 10)
+	require.NoError(t, err)
+	assert.Empty(t, rows)
 }
 
 func TestListRunnableOutputCommands_ReturnsOldestIDFirst(t *testing.T) {

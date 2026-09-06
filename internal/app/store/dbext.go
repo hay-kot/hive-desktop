@@ -115,7 +115,7 @@ func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 	// Open with pragmas for WAL mode, busy timeout, and foreign keys, plus
 	// _txlock=immediate so write transactions begin with BEGIN IMMEDIATE.
 	//
-	// Several goroutines write this DB concurrently through WithTx (the
+	// Several goroutines write this DB concurrently through WithinTx (the
 	// producer's IngestObservation, the frontend runtime's CommitBatch, the
 	// output worker, retention). Each reads before it writes. With the driver
 	// default (BEGIN, deferred) two such transactions can both hold a read
@@ -183,29 +183,6 @@ func (db *DB) Conn() *sql.DB {
 // Queries returns the sqlc queries interface.
 func (db *DB) Queries() *Queries {
 	return db.queries
-}
-
-// WithTx executes a function within a transaction.
-// If the function returns an error, the transaction is rolled back.
-func (db *DB) WithTx(ctx context.Context, fn func(*Queries) error) error {
-	tx, err := db.conn.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	queries := db.queries.WithTx(tx)
-	if err := fn(queries); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			return fmt.Errorf("transaction failed: %w (rollback also failed: %w)", err, rbErr)
-		}
-		return err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
 }
 
 // initSchema applies all pending migrations. No legacy bootstrap: this
