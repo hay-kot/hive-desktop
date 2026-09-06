@@ -108,10 +108,11 @@ func TestRenderPrompt(t *testing.T) {
 	}
 }
 
-// TestValidatePromptSamplesANonNilLastRun is the point of the sample data: a
+// TestValidatePromptRendersBothRuns is the point of the sample data: a
 // template reading .LastRun through the date func has to validate at edit
-// time, not fail on the one Friday morning it finally runs.
-func TestValidatePromptSamplesANonNilLastRun(t *testing.T) {
+// time, and one that calls a method on it has to fail there too, not on the
+// first Friday morning it finally runs with no previous run to point at.
+func TestValidatePromptRendersBothRuns(t *testing.T) {
 	t.Parallel()
 
 	require.NotNil(t, SamplePromptData().LastRun)
@@ -119,14 +120,16 @@ func TestValidatePromptSamplesANonNilLastRun(t *testing.T) {
 	tests := []struct {
 		name    string
 		tmpl    string
-		wantErr bool
+		wantErr string
 	}{
 		{name: "plain", tmpl: "hello"},
 		{name: "date over last run", tmpl: `{{ date "2006-01-02" .LastRun }}`},
 		{name: "date over now", tmpl: `{{ date "15:04" .Now }}`},
+		{name: "guarded method on last run", tmpl: `{{ if .LastRun }}{{ .LastRun.Format "2006" }}{{ end }}`},
 		{name: "every field", tmpl: "{{ .Schedule.ID }}{{ .Schedule.Name }}{{ .Schedule.Cron }}{{ .Workspace.Dir }}{{ .Workspace.Name }}{{ .ScheduledFor }}{{ .Reason }}{{ .Missed }}"},
-		{name: "unparseable", tmpl: "{{", wantErr: true},
-		{name: "unknown field", tmpl: "{{ .Nope }}", wantErr: true},
+		{name: "unparseable", tmpl: "{{", wantErr: "prompt template"},
+		{name: "unknown field", tmpl: "{{ .Nope }}", wantErr: "prompt template"},
+		{name: "unguarded method on last run", tmpl: `{{ .LastRun.Format "2006" }}`, wantErr: "on the first run, with .LastRun unset"},
 	}
 
 	for _, tt := range tests {
@@ -134,11 +137,24 @@ func TestValidatePromptSamplesANonNilLastRun(t *testing.T) {
 			t.Parallel()
 
 			err := ValidatePrompt(tt.tmpl)
-			if tt.wantErr {
-				require.Error(t, err)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
 				return
 			}
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestPreviewPromptRendersTheFirstRunToo(t *testing.T) {
+	t.Parallel()
+
+	lastRun := time.Date(2026, time.August, 28, 9, 0, 0, 0, time.UTC)
+	data := testPromptData()
+	data.LastRun = &lastRun
+
+	preview, err := PreviewPrompt(`Since {{ if .LastRun }}{{ date "2006-01-02" .LastRun }}{{ else }}the start{{ end }}.`, data)
+	require.NoError(t, err)
+	assert.Equal(t, "Since 2026-08-28.", preview.Prompt)
+	assert.Equal(t, "Since the start.", preview.FirstRunPrompt)
 }

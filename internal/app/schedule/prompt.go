@@ -64,11 +64,33 @@ func RenderPrompt(tmpl string, data PromptData) (string, error) {
 	return out.String(), nil
 }
 
-// ValidatePrompt reports whether a template parses and executes. The sample
-// data carries a non-nil LastRun so a template that only ever reads it through
-// the date func is not the thing that fails at 09:00 on a Friday.
+// PromptPreview is a template rendered twice: against the data as given, and
+// as the first run sees it, with LastRun unset.
+type PromptPreview struct {
+	Prompt         string
+	FirstRunPrompt string
+}
+
+// PreviewPrompt renders a template both ways. A template that only fails on
+// the first run, one that calls a method on .LastRun, says so in its error:
+// that is the run it would otherwise fail on for real.
+func PreviewPrompt(tmpl string, data PromptData) (PromptPreview, error) {
+	prompt, err := RenderPrompt(tmpl, data)
+	if err != nil {
+		return PromptPreview{}, err
+	}
+	data.LastRun = nil
+	firstRun, err := RenderPrompt(tmpl, data)
+	if err != nil {
+		return PromptPreview{}, fmt.Errorf("%w (on the first run, with .LastRun unset)", err)
+	}
+	return PromptPreview{Prompt: prompt, FirstRunPrompt: firstRun}, nil
+}
+
+// ValidatePrompt reports whether a template parses and executes, with a
+// previous run behind it and without one.
 func ValidatePrompt(tmpl string) error {
-	_, err := RenderPrompt(tmpl, SamplePromptData())
+	_, err := PreviewPrompt(tmpl, SamplePromptData())
 	return err
 }
 
