@@ -235,13 +235,38 @@
   min-width: 0;
 }
 
+.docs__eyebrow-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
 .docs__eyebrow {
   font-family: var(--font-mono);
   font-size: 11.5px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--amber);
-  margin-bottom: 14px;
+  margin: 0;
+}
+
+.prose .docs__markdown {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.prose .docs__markdown:hover {
+  color: var(--text);
+}
+
+.docsnav__footer .docsnav__link {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
 }
 
 .docs__lede {
@@ -451,6 +476,62 @@
 
 .prose blockquote p {
   margin: 10px 0;
+}
+
+/* Callouts: `> [!TIP] Title` blockquotes, see src/lib/remark-callouts.mjs. */
+.prose .callout {
+  --callout-color: var(--blue);
+  --callout-tint: var(--blue-tint);
+  --callout-edge: var(--blue-edge);
+  margin: 20px 0;
+  padding: 12px 18px 4px;
+  border: 1px solid var(--callout-edge);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--callout-tint);
+  color: var(--text-soft);
+}
+
+.prose .callout--tip {
+  --callout-color: var(--green);
+  --callout-tint: var(--green-tint);
+  --callout-edge: var(--green-edge);
+}
+
+.prose .callout--important {
+  --callout-color: var(--violet);
+  --callout-tint: var(--violet-tint);
+  --callout-edge: var(--violet-edge);
+}
+
+.prose .callout--warning {
+  --callout-color: var(--amber);
+  --callout-tint: var(--amber-tint);
+  --callout-edge: var(--amber-edge);
+}
+
+.prose .callout--caution {
+  --callout-color: var(--red);
+  --callout-tint: var(--red-tint);
+  --callout-edge: var(--red-edge);
+}
+
+.prose .callout__title {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--callout-color);
+  margin: 0 0 6px;
+}
+
+.prose .callout p {
+  margin: 8px 0;
+}
+
+.prose .callout pre {
+  margin: 12px 0;
 }
 
 .prose hr {

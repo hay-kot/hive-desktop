@@ -4,7 +4,7 @@ import { getCollection, type CollectionEntry } from "astro:content";
 import Footer from "../components/Footer.astro";
 import DocsHeader from "../components/docs/DocsHeader.astro";
 import DocsSidebar from "../components/docs/DocsSidebar.astro";
-import { buildDocsTree, docHref } from "../lib/docs";
+import { buildDocsTree, docHref, docMarkdownHref } from "../lib/docs";
 import { site } from "../data";
 import Base from "./Base.astro";
 import "../styles/docs.css";
@@ -37,7 +37,12 @@ const title = `${entry.data.title} · ${site.brand.name} docs`;
 
     <article class="docs__main" data-pagefind-body>
       <div class="prose">
-        <p class="docs__eyebrow" data-pagefind-ignore>{entry.data.group}</p>
+        <div class="docs__eyebrow-row" data-pagefind-ignore>
+          <p class="docs__eyebrow">{entry.data.group}</p>
+          <a class="docs__markdown" href={docMarkdownHref(entry)} title="This page as Markdown">
+            Markdown
+          </a>
+        </div>
         <h1>{entry.data.title}</h1>
         <p class="docs__lede">{entry.data.description}</p>
         <slot />

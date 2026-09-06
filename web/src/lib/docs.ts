@@ -1,7 +1,7 @@
 import type { CollectionEntry } from "astro:content";
 
 /** Sidebar group order. A page's `group` frontmatter must be one of these. */
-export const DOC_GROUPS = ["Getting started", "Concepts", "Help"] as const;
+export const DOC_GROUPS = ["Getting started", "Concepts", "Configuration", "Help"] as const;
 export type DocGroup = (typeof DOC_GROUPS)[number];
 
 export type DocsTree = { group: DocGroup; entries: CollectionEntry<"docs">[] }[];
@@ -22,4 +22,30 @@ export function buildDocsTree(entries: CollectionEntry<"docs">[]): DocsTree {
 /** `index` is the section root at /docs; every other page nests under it. */
 export function docHref(entry: CollectionEntry<"docs">): string {
   return entry.id === "index" ? "/docs" : `/docs/${entry.id}`;
+}
+
+/** The Markdown twin of a page, served for LLMs and for "view source". */
+export function docMarkdownHref(entry: CollectionEntry<"docs">): string {
+  return `/docs/${entry.id}.md`;
+}
+
+/**
+ * A page's body as standalone Markdown: the rendered title and lede restored
+ * as a heading and a blockquote (the layout draws them from frontmatter, so the
+ * body starts at `##`), and root-relative links made absolute so the text
+ * reads correctly outside the site.
+ */
+export function docMarkdown(entry: CollectionEntry<"docs">, site: URL): string {
+  const body = (entry.body ?? "").replace(
+    /(\]\()\/(?!\/)/g,
+    (_match, open: string) => `${open}${site.origin}/`,
+  );
+  return [
+    `# ${entry.data.title}`,
+    "",
+    `> ${entry.data.description}`,
+    "",
+    body.trim(),
+    "",
+  ].join("\n");
 }
