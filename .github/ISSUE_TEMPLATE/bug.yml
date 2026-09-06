@@ -1,0 +1,90 @@
+name: Bug report
+description: Something in the app does not do what it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things make a bug report useful here: what you saw, and where in the
+        code you think it comes from. Only the first is required -- file it
+        without the second if you did not get that far.
+
+  - type: textarea
+    id: what-happens
+    attributes:
+      label: What happens
+      description: What you did, what the app did instead, and whether it repeats.
+      placeholder: |
+        Deleting a workspace from the UI appears to work -- the row goes away --
+        but the workspace is back as soon as the page is refreshed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: |
+        What you found. Where the message comes from, what the logs show, which
+        code path you think is at fault. Cite `file:line`. Say plainly if you did
+        not confirm it -- a read of the code is still worth having.
+      placeholder: |
+        Delete and list disagree about what a workspace is.
+        `POST /api/terminal/agents/workspaces/delete` ends sessions, but the list
+        endpoint scans the filesystem, so the next scan finds the directory again.
+    validations:
+      required: false
+
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Diagnostic bundle
+      description: |
+        If Report a problem gave you a bundle, drag the file into this box. It
+        holds build info, a log tail, and whichever of your settings, flows, and
+        actions you opted in to, with secrets scrubbed. Open it and read it first
+        if you want to.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings, About shows the version and the channel. Say "built from source" if you built it.
+      placeholder: 0.4.2 (beta)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Your OS and version, plus anything else the bug touches -- tmux version
+        for a terminal bug, where your workspace root lives, which agent you run.
+      placeholder: |
+        - macOS, Darwin 25.6.0
+        - tmux 3.7b (homebrew)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched the open issues for this.
+          required: true
+        - label: This is not a security vulnerability. Those go to a private advisory, not here.
+
+  - type: markdown
+    attributes:
+      value: |
+        **Agents.** If an LLM writes this issue, use ASD-STE100 Simplified
+        Technical English: active voice, approved-vocabulary words, sentences of
+        20 words or fewer, no gerunds. See
+        [CONTRIBUTING.md, Writing
+        style](https://github.com/hay-kot/hive-desktop/blob/main/CONTRIBUTING.md#writing-style).
+        Separate what you ran from what you read, and say which one each claim
+        comes from.
