@@ -244,11 +244,11 @@ func (s *AgentWorkspacesService) RootProblem(context.Context) string {
 
 // List returns every recognized workspace, valid or not — a broken manifest
 // carries its last-good content plus Problem, rather than vanishing.
-func (s *AgentWorkspacesService) List(context.Context) ([]WorkspaceView, error) {
+func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, error) {
 	statuses := s.store.Statuses()
 	views := make([]WorkspaceView, 0, len(statuses))
 	for _, st := range statuses {
-		views = append(views, workspaceView(st))
+		views = append(views, s.workspaceView(ctx, st))
 	}
 	return views, nil
 }
@@ -296,10 +296,15 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 		sessions = append(sessions, s.sessionView(ctx, rec))
 	}
 
-	view := workspaceView(st)
-	if len(genResult.Problems) > 0 {
-		view.Problem = strings.Join(genResult.Problems, "; ")
+	view := s.workspaceView(ctx, st)
+	// Generation problems join the view's own rather than replacing it: an
+	// agent that is not on PATH and an MCP that could not be resolved are
+	// independent, and reporting only the second hides the first.
+	problems := genResult.Problems
+	if view.Problem != "" {
+		problems = append([]string{view.Problem}, problems...)
 	}
+	view.Problem = strings.Join(problems, "; ")
 
 	return OpenResult{
 		Workspace: view, Sessions: sessions,
@@ -943,7 +948,7 @@ func resolvedCommandLine(server mcpcatalog.Server) string {
 // reloadedView re-reads the store after a manifest write and returns dir's
 // fresh view, so the response reflects what actually landed on disk rather
 // than what was asked for.
-func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (WorkspaceView, error) {
+func (s *AgentWorkspacesService) reloadedView(ctx context.Context, dir string) (WorkspaceView, error) {
 	if err := s.store.Reload(); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInternal, "reloading workspaces")
 	}
@@ -951,7 +956,7 @@ func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (Wo
 	if !ok {
 		return WorkspaceView{}, Errorf(KindInternal, "workspace %q vanished after writing it", dir)
 	}
-	return workspaceView(st), nil
+	return s.workspaceView(ctx, st), nil
 }
 
 // ResizeSession votes a size for a session's attached control client — the
@@ -1190,14 +1195,20 @@ func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec store.Agen
 	}
 }
 
-func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
+// workspaceView is where a workspace's agent: field meets machine state. The
+// PATH check runs here, at view-render time, for the reason Catalogue gives
+// for doing it there: PATH is not something a loaded manifest can carry, and
+// a workspace whose agent is missing today resolves the moment the CLI is
+// installed, with no edit to the file.
+func (s *AgentWorkspacesService) workspaceView(ctx context.Context, st agentws.WorkspaceStatus) WorkspaceView {
 	problem, notice := "", ""
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
 	} else if st.Valid {
 		// A workspace whose manifest failed to parse has no trustworthy Agent
-		// field to explain, so the MCP notice is skipped rather than shown
-		// against whatever the zero value happens to be.
+		// field to explain, so the agent and MCP explanations are skipped
+		// rather than shown against whatever the zero value happens to be.
+		problem = agentws.AgentProblem(ctx, st.Workspace.Agent, s.commands[st.Workspace.Agent], s.lookPath())
 		notice = mcpNotice(st.Workspace.Agent)
 	}
 	return WorkspaceView{
