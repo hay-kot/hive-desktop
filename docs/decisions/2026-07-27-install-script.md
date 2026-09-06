@@ -1,6 +1,8 @@
-# One-line install script behind an obscure path
+# One-line install script served by the landing-page worker
 
-- **Status:** accepted
+- **Status:** accepted; point 3 reversed on 2026-09-05 — the repository is
+  public, so the path token protects nothing and the script now sits at
+  `/install.sh`
 - **Date:** 2026-07-27
 
 ## Context
@@ -25,12 +27,12 @@ Linux installer half is left to the Linux publishing work (#36).
    abort on mismatch. Install and auto-update agree by construction, and a
    corrupted or swapped artifact never installs.
 
-3. **Behind an obscure path token, nested under the existing invite-page token**
-   (`/install/<token>/install.sh`). `robots.txt` disallows the whole `/install/`
-   prefix, so the token never appears in a public file — a top-level token
-   directory would have to be named in robots.txt or left crawlable. This is
-   **obscurity, not authentication**: anyone with the link can fetch it, and it
-   holds only while the repo is private. Re-evaluate before the repo goes public.
+3. ~~**Behind an obscure path token, nested under the existing invite-page
+   token** (`/install/<token>/install.sh`).~~ **Reversed 2026-09-05.** The token
+   was obscurity, not authentication, and it held only while the repo was
+   private. The repo is public, so the token is in git history and protects
+   nothing. The script is `/install.sh` and the page is `/install`; both are
+   crawlable and the page is in the sitemap.
 
 4. **macOS installs to `/Applications`** (falling back to `~/Applications`
    without sudo) from a Developer ID-signed, notarized, stapled build, so
@@ -41,9 +43,8 @@ Linux installer half is left to the Linux publishing work (#36).
 
 ## Consequences
 
-- Rotating the URL means renaming both the invite page
-  (`web/src/pages/install/<token>.astro`) and the script directory
-  (`web/public/install/<token>/`) to a new token.
+- The install URL is stable and public. It appears in the README, on the site,
+  and in the docs, so changing it breaks published copy in all three.
 - The script itself is unsigned and unversioned; its integrity rests on HTTPS
   from a domain we control, the in-manifest checksum of the artifact it
   downloads, and being short enough to read (`| less`) before running.

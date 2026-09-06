@@ -1,25 +1,16 @@
 ---
-/**
- * Unlisted invite-only install page. The path is a random token so the page is
- * unguessable; it is `noindex` and disallowed in robots.txt as well. The
- * installer it documents is the static asset alongside it, under the same token
- * (web/public/install/<token>/install.sh) — so robots.txt disallows the whole
- * /install/ prefix without ever printing the token. Rotating the URL means
- * renaming both this file and that directory to a new token.
- */
-import Icon from "../../components/Icon.astro";
-import Base from "../../layouts/Base.astro";
+import Icon from "../components/Icon.astro";
+import Base from "../layouts/Base.astro";
 
 const version = "v0.4 beta";
-const command =
-  "curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash";
+const command = "curl -fsSL https://hivedesktop.com/install.sh | bash";
 
 const mac = { arches: "Apple silicon · Intel", path: "/Applications/Hive.app" };
 
 const steps = [
   {
     title: "Run the installer",
-    body: "Paste the command above. It pulls the latest beta build for your machine and puts <code>hive</code> on your PATH.",
+    body: "Paste the command above. It pulls the latest build for your machine and puts <code>hive</code> on your PATH.",
   },
   {
     title: "Connect GitHub",
@@ -39,31 +30,22 @@ const goodToKnow = [
 ];
 ---
 
-<Base
-  title="Install Hive"
-  description="Private-beta install link for the Hive desktop app."
-  noindex
->
+<Base title="Install Hive" description="Install the Hive desktop app with one command.">
   <div class="install">
     <header class="topbar">
       <a class="topbar__brand" href="/">
         <Icon name="hex" size={22} />
         <span>Hive</span>
       </a>
-      <span class="badge">Private beta</span>
       <span class="topbar__spacer"></span>
       <span class="topbar__version mono">{version}</span>
     </header>
 
     <div class="install__body">
-      <div class="tag-pill mono">
-        <span class="tag-pill__dot"></span>Invite-only link
-      </div>
-
       <h1 class="install__title">Install Hive</h1>
       <p class="install__lead">
-        One command pulls the right binary for your machine from the latest beta build. This URL is
-        unlisted, so please don’t share it outside the beta.
+        One command pulls the right binary for your machine from the latest release, checks it
+        against the published checksum, and installs it.
       </p>
 
       <div class="tabs" role="tablist" aria-label="Operating system">
@@ -120,8 +102,8 @@ const goodToKnow = [
         <div>
           <div class="soon__title">Linux builds are coming</div>
           <div class="soon__body">
-            The release pipeline ships macOS during the beta; Linux x86_64 and arm64 are next in
-            line. Beta members get an email the moment builds land.
+            The release pipeline ships macOS today; Linux x86_64 and arm64 are next in line. The
+            installer already knows how to install them.
           </div>
         </div>
       </div>
@@ -136,8 +118,8 @@ const goodToKnow = [
         <div>
           <div class="soon__title">Windows builds are coming</div>
           <div class="soon__body">
-            The release pipeline ships macOS during the beta, with Linux next in line. Windows
-            lands after the pipeline is stable.
+            The release pipeline ships macOS today, with Linux next in line. Windows lands after
+            the pipeline is stable.
           </div>
         </div>
       </div>
@@ -169,17 +151,20 @@ const goodToKnow = [
       </div>
 
       <p class="help">
-        <span class="help__mark">ⓘ</span>Hit a snag? Reply to your invite email or ping the beta
-        Discord. Builds ship weekly and rough edges are expected.
+        <span class="help__mark">ⓘ</span>
+        <span>
+          Hit a snag? <a href="https://github.com/hay-kot/hive-desktop/issues">Open an issue</a>.
+          Builds ship often and rough edges are expected.
+        </span>
       </p>
     </div>
   </div>
 </Base>
 
 <script>
-  // Invite links may carry ?channel=beta|dev. The installer script is static and
-  // identical for every channel; only the command shown here gains the flag that
-  // picks the channel at run time.
+  // ?channel=beta|dev tracks a prerelease channel. The installer script is static
+  // and identical for every channel; only the command shown here gains the flag
+  // that picks the channel at run time.
   const channel = new URLSearchParams(location.search).get("channel");
   if (channel === "beta" || channel === "dev") {
     const code = document.querySelector<HTMLElement>("[data-command]");
@@ -263,47 +248,11 @@ const goodToKnow = [
     color: var(--text-dim);
   }
 
-  .badge {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--amber);
-    background: rgba(245, 158, 11, 0.14);
-    border: 1px solid var(--amber-edge);
-    border-radius: 20px;
-    padding: 3px 10px;
-  }
-
   .install__body {
     padding: 64px 32px 96px;
   }
 
-  .tag-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 11px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    padding: 6px 13px;
-  }
-
-  .tag-pill__dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--green);
-    animation: hivePulse 2.4s ease-in-out infinite;
-  }
-
   .install__title {
-    margin-top: 22px;
     font-size: clamp(34px, 5vw, 46px);
     line-height: 1.06;
     font-weight: 600;
