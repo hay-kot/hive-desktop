@@ -12,10 +12,6 @@ lefthook = "2.1.10"
 # hive is fetched directly: the sum.golang.org proxy lags freshly pushed
 # commits, and the vendor pin usually is one.
 GOPRIVATE = "github.com/colonyops/hive"
-# Local secrets (release signing/notary/R2). The generated launch.env is
-# intentionally scoped to `dev` so tests, release tools, and the headless
-# server do not inherit development paths or framework ports.
-_.file = { path = ".env", redact = true }
 
 # A tool install wires hooks and prepares this worktree's isolated desktop
 # instance. The enter hook only fills a missing launch.env. Each later mise
@@ -361,8 +357,12 @@ run = "go run ./cmd/release changelog promote"
 [tasks.release]
 description = "Interactively select a channel and version increment, validate, confirm, and publish (args: [--dry-run] [dev|beta|stable] [version])"
 interactive = true
+# 1Password exposes its local environment as a FIFO, so loading it globally
+# races any aggregate task whose children start concurrently.
+env = { _.file = { path = ".env", redact = true } }
 run = "go run ./cmd/release run"
 
 [tasks."release:publish"]
 description = "Low-level desktop publisher (args: <version> [flags]); prefer `mise release` for a public release"
+env = { _.file = { path = ".env", redact = true } }
 run = "go run ./cmd/release publish"
