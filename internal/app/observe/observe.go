@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/metric"
@@ -61,4 +62,32 @@ func StartConditionalSpan(ctx context.Context, tracer trace.Tracer, name string,
 		return ctx, trace.SpanFromContext(ctx)
 	}
 	return tracer.Start(ctx, name, opts...)
+}
+
+// Trace-correlation field names. They match what Grafana's Loki-to-Tempo
+// derived field looks for by default, so a log line links to its trace with no
+// per-deployment configuration.
+const (
+	LogTraceIDKey = "trace_id"
+	LogSpanIDKey  = "span_id"
+)
+
+// TraceHook writes the active span's ids onto a log event. It is a
+// zerolog.Hook rather than a writer arm because it adds fields, and a Hook is
+// the only place that can: an arm receives the event already encoded.
+//
+// It reads the context an event carries, so it fires only where a call site
+// wrote .Ctx(ctx). Without that the event has no span to name, and the hook is
+// a no-op rather than a guess.
+var TraceHook zerolog.Hook = traceHook{}
+
+type traceHook struct{}
+
+func (traceHook) Run(e *zerolog.Event, _ zerolog.Level, _ string) {
+	sc := trace.SpanContextFromContext(e.GetCtx())
+	if !sc.IsValid() {
+		return
+	}
+	e.Str(LogTraceIDKey, sc.TraceID().String())
+	e.Str(LogSpanIDKey, sc.SpanID().String())
 }

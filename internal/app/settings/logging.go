@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 const (
@@ -37,7 +39,13 @@ func ResolveLogLevel() (zerolog.Level, error) {
 func NewLogger(path string, level zerolog.Level, extra ...io.Writer) (zerolog.Logger, func(), error) {
 	stderr := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
 	build := func(writers ...io.Writer) zerolog.Logger {
-		return zerolog.New(zerolog.MultiLevelWriter(writers...)).With().Timestamp().Logger().Level(level)
+		// The trace hook runs on every event and adds nothing to one that
+		// carries no span, so it is installed unconditionally: whether the ids
+		// mean anything is telemetry's business, not the logger's.
+		return zerolog.New(zerolog.MultiLevelWriter(writers...)).
+			With().Timestamp().Logger().
+			Level(level).
+			Hook(observe.TraceHook)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return build(append([]io.Writer{stderr}, extra...)...), func() {}, fmt.Errorf("create desktop log dir: %w", err)
