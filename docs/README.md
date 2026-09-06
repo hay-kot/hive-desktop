@@ -16,11 +16,8 @@ ADRs are marked, not deleted.
 
 ## References
 
-- Tester-facing getting-started docs live on the website — source in [`web/src/content/docs/`](../web/src/content/docs/), published at [hivedesktop.com/docs](https://hivedesktop.com/docs). [`distribution.md`](distribution.md) is the maintainer counterpart.
+- User-facing product docs live on the website — source in [`web/src/content/docs/`](../web/src/content/docs/), published at [hivedesktop.com/docs](https://hivedesktop.com/docs). [`distribution.md`](distribution.md) is the maintainer counterpart.
 - [`architecture.md`](architecture.md) — how the app is structured and how it should grow: the core/adapter shape, named patterns, directory layout, extension points, cross-cutting conventions, and the rules PRs are reviewed against. Read this before adding a subsystem, entrypoint, or extension point.
 - [`source-pipeline.md`](source-pipeline.md) — the pipeline's runtime behaviour: ingestion, the `Msg` contract, flows, membership replay, retention, and actions.
 - [`distribution.md`](distribution.md) — concrete distribution infra: bucket, domains, bucket layout, manifest schema, publish/rollback runbook, credentials.
-
-## Related documents outside this repo
-
-The desktop app is being extracted from `colonyops/hive`; the phase-by-phase extraction plan (vendor tool spec, hive-side removal, sequencing) lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
+- [`development.md`](development.md) — repository layout, setup, running the app, and the quality gates.
