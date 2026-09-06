@@ -11,13 +11,6 @@ import (
 // (workspace, schedule) after each insert.
 const scheduleRunLimit = 200
 
-// ScheduleCursorRecord is how far one workspace schedule has been evaluated.
-// Named Record, like JobRecord and NodeRunRecord, because sqlc already emits
-// a ScheduleCursor row type from the schedule_cursor table; this is the
-// boundary shape callers use. Cron is snapshotted alongside the cursor: a
-// re-timed schedule's cron no longer matches the stored one, which is what
-// tells the scheduler to treat it as new rather than back-filling
-// occurrences under the old cadence.
 type ScheduleCursorRecord struct {
 	Workspace        string
 	ScheduleID       string
@@ -25,9 +18,8 @@ type ScheduleCursorRecord struct {
 	Cron             string
 }
 
-// ScheduleRunRecord is one schedule execution attempt. SessionID is 0 when
-// the run launched no chat (a failed or skipped run); the table stores that
-// as NULL. Named Record for the same reason as ScheduleCursorRecord.
+// ScheduleRunRecord.SessionID is 0 when the run launched no chat; the table
+// stores that as NULL.
 type ScheduleRunRecord struct {
 	ID           int64
 	Workspace    string
@@ -43,8 +35,6 @@ type ScheduleRunRecord struct {
 	Error        string
 }
 
-// GetScheduleCursor reads one schedule's cursor. ok reports whether it
-// exists.
 func (db *DB) GetScheduleCursor(ctx context.Context, workspace, scheduleID string) (ScheduleCursorRecord, bool, error) {
 	db = db.Ctx(ctx)
 	row, err := db.queries.GetScheduleCursor(ctx, GetScheduleCursorParams{
@@ -60,15 +50,12 @@ func (db *DB) GetScheduleCursor(ctx context.Context, workspace, scheduleID strin
 	return scheduleCursorFromRow(row), true, nil
 }
 
-// UpsertScheduleCursor writes a schedule's cursor, replacing any existing
-// one for the same (workspace, schedule_id).
 func (db *DB) UpsertScheduleCursor(ctx context.Context, cursor ScheduleCursorRecord) error {
 	db = db.Ctx(ctx)
 	err := db.queries.UpsertScheduleCursor(ctx, UpsertScheduleCursorParams(cursor))
 	return wrap(fmt.Sprintf("upserting schedule cursor for %s/%s", cursor.Workspace, cursor.ScheduleID), err)
 }
 
-// ListScheduleCursors returns every stored cursor, across every workspace.
 func (db *DB) ListScheduleCursors(ctx context.Context) ([]ScheduleCursorRecord, error) {
 	db = db.Ctx(ctx)
 	rows, err := db.queries.ListScheduleCursors(ctx)
@@ -82,8 +69,6 @@ func (db *DB) ListScheduleCursors(ctx context.Context) ([]ScheduleCursorRecord, 
 	return out, nil
 }
 
-// DeleteScheduleCursor removes one schedule's cursor, e.g. when the manifest
-// no longer defines it.
 func (db *DB) DeleteScheduleCursor(ctx context.Context, workspace, scheduleID string) error {
 	db = db.Ctx(ctx)
 	err := db.queries.DeleteScheduleCursor(ctx, DeleteScheduleCursorParams{
@@ -93,16 +78,11 @@ func (db *DB) DeleteScheduleCursor(ctx context.Context, workspace, scheduleID st
 	return wrap(fmt.Sprintf("deleting schedule cursor for %s/%s", workspace, scheduleID), err)
 }
 
-// DeleteScheduleCursors removes every cursor a workspace has. Workspace
-// deletion calls this alongside DeleteScheduleRuns.
 func (db *DB) DeleteScheduleCursors(ctx context.Context, workspace string) error {
 	db = db.Ctx(ctx)
 	return wrap("deleting schedule cursors by workspace", db.queries.DeleteScheduleCursorsByWorkspace(ctx, workspace))
 }
 
-// InsertScheduleRun persists one run and returns the stored row with its
-// assigned id, then prunes that schedule's run history back to
-// scheduleRunLimit.
 func (db *DB) InsertScheduleRun(ctx context.Context, run ScheduleRunRecord) (ScheduleRunRecord, error) {
 	db = db.Ctx(ctx)
 	row, err := db.queries.InsertScheduleRun(ctx, InsertScheduleRunParams{
@@ -133,8 +113,6 @@ func (db *DB) InsertScheduleRun(ctx context.Context, run ScheduleRunRecord) (Sch
 	return scheduleRunFromRow(row), nil
 }
 
-// ListScheduleRunsFor returns up to limit of one schedule's runs, newest
-// first.
 func (db *DB) ListScheduleRunsFor(ctx context.Context, workspace, scheduleID string, limit int) ([]ScheduleRunRecord, error) {
 	db = db.Ctx(ctx)
 	rows, err := db.queries.ListScheduleRunsForSchedule(ctx, ListScheduleRunsForScheduleParams{
@@ -148,9 +126,6 @@ func (db *DB) ListScheduleRunsFor(ctx context.Context, workspace, scheduleID str
 	return scheduleRunsFromRows(rows), nil
 }
 
-// LastLaunchedScheduleRun returns the most recent run that actually started
-// a chat for a schedule, skipping over failed and skipped attempts. ok
-// reports whether such a run exists.
 func (db *DB) LastLaunchedScheduleRun(ctx context.Context, workspace, scheduleID string) (ScheduleRunRecord, bool, error) {
 	db = db.Ctx(ctx)
 	row, err := db.queries.LastLaunchedScheduleRun(ctx, LastLaunchedScheduleRunParams{
@@ -166,17 +141,11 @@ func (db *DB) LastLaunchedScheduleRun(ctx context.Context, workspace, scheduleID
 	return scheduleRunFromRow(row), true, nil
 }
 
-// DeleteScheduleRuns removes every run recorded for a workspace. Workspace
-// deletion calls this alongside DeleteAgentWorkspaceSessionsByWorkspace.
 func (db *DB) DeleteScheduleRuns(ctx context.Context, workspace string) error {
 	db = db.Ctx(ctx)
 	return wrap("deleting schedule runs by workspace", db.queries.DeleteScheduleRunsByWorkspace(ctx, workspace))
 }
 
-// scheduleCursorFromRow adapts a generated row to the domain record. The two
-// are field-identical today; if a future column makes them diverge this
-// stops compiling and becomes an explicit mapping (activity_event.go follows
-// the same pattern).
 func scheduleCursorFromRow(row ScheduleCursor) ScheduleCursorRecord {
 	return ScheduleCursorRecord(row)
 }
@@ -210,9 +179,6 @@ func scheduleRunFromRow(row ScheduleRun) ScheduleRunRecord {
 	}
 }
 
-// nullableInt64FromZero treats 0 as "no value": ScheduleRunRecord.SessionID
-// uses 0 rather than a pointer to mean none, unlike JobRecord.CommandID
-// (which is a *int64) — a schedule run's session id is never legitimately 0.
 func nullableInt64FromZero(value int64) sql.NullInt64 {
 	if value == 0 {
 		return sql.NullInt64{}

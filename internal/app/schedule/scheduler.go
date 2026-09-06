@@ -21,10 +21,8 @@ const grace = 5 * time.Minute
 // minute of wake instead.
 const maxSleep = time.Minute
 
-// ErrNotFound reports a workspace/id pair that names no live schedule.
 var ErrNotFound = errors.New("schedule: not found")
 
-// Run is one execution of a schedule. ID is assigned by the store.
 type Run struct {
 	ID           int64
 	Workspace    string
@@ -35,54 +33,43 @@ type Run struct {
 	Reason       Reason
 	Missed       int
 	Status       Status
-	// SessionID is the chat the run launched, 0 when it launched none.
+	// SessionID is 0 when the run launched no chat.
 	SessionID int64
 	Prompt    string
 	Error     string
 }
 
-// Snapshot is one read of the workspace set.
 type Snapshot struct {
-	// Specs are the schedules of every workspace the source could read.
 	Specs []Spec
-	// Workspaces are the directories those specs came from. They bound what a
-	// pass may prune: a workspace missing from this list contributed no specs,
-	// so its cursors say nothing about schedules that were deleted.
+	// Workspaces bound what a pass may prune: a workspace missing from this
+	// list contributed no specs, so its cursors say nothing about schedules
+	// that were deleted.
 	Workspaces []string
 }
 
-// Source is the live set of schedules, across every workspace. It answers both
-// halves in one call because they have to agree: a pass that read its specs
-// from one view of the root and its prune scope from another would delete the
-// cursors of a workspace whose schedules it never saw.
+// Source answers both halves of a Snapshot in one call because they have to
+// agree: a pass that read its specs from one view of the root and its prune
+// scope from another would delete the cursors of a workspace whose schedules
+// it never saw.
 type Source interface {
 	Snapshot() Snapshot
 }
 
-// WorkspaceNamer resolves a workspace directory to its display name, for the
-// prompt template's .Workspace.Name.
 type WorkspaceNamer interface {
 	WorkspaceName(dir string) string
 }
 
-// Store persists what the app has to remember between launches: how far each
-// schedule has been evaluated, and what its runs did.
 type Store interface {
 	Cursor(ctx context.Context, workspace, id string) (Cursor, bool, error)
 	SaveCursor(ctx context.Context, cursor Cursor) error
-	// PruneCursors drops every cursor inside workspaces that is outside keep,
-	// so a deleted schedule does not leave a cursor that back-fires when its id
-	// is reused. A cursor in any other workspace is left alone: a manifest that
-	// momentarily does not parse must not delete the state that says how far
-	// its schedules got.
+	// PruneCursors drops every cursor inside workspaces that keep does not
+	// name, so a deleted schedule's id can be reused without back-firing.
+	// Cursors in any other workspace are left alone.
 	PruneCursors(ctx context.Context, workspaces []string, keep []Cursor) error
 	LastLaunchedRun(ctx context.Context, workspace, id string) (Run, bool, error)
 	InsertRun(ctx context.Context, run Run) (Run, error)
 }
 
-// LaunchRequest is one chat to start. ScheduleID is the schedule it belongs
-// to, which the launcher records on the chat; ScheduleName is what the chat is
-// told started it.
 type LaunchRequest struct {
 	Workspace    string
 	ScheduleID   string
@@ -91,7 +78,6 @@ type LaunchRequest struct {
 	Prompt       string
 }
 
-// Launcher starts chats and reports whether one is still running.
 type Launcher interface {
 	Launch(ctx context.Context, req LaunchRequest) (int64, error)
 	SessionLive(ctx context.Context, sessionID int64) (bool, error)
@@ -107,8 +93,7 @@ type Options struct {
 	// Now defaults to time.Now. Cron is evaluated in whatever location it
 	// returns, so a clock that reports time.Local is what makes "0 9 * * 5"
 	// mean 09:00 where the user is.
-	Now func() time.Time
-	// OnRun is called after a run is recorded, launched or not.
+	Now    func() time.Time
 	OnRun  func(Run)
 	Logger zerolog.Logger
 }
@@ -133,7 +118,6 @@ type Scheduler struct {
 	stopOnce sync.Once
 }
 
-// New builds a Scheduler. Nothing runs until Start.
 func New(opts Options) *Scheduler {
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -145,9 +129,8 @@ func New(opts Options) *Scheduler {
 	}
 }
 
-// Start runs the loop. The first pass happens immediately, on the loop
-// goroutine: that pass is the catch-up for everything that came due while the
-// app was closed.
+// Start runs the loop. The first pass is immediate: it is the catch-up for
+// everything that came due while the app was closed.
 func (s *Scheduler) Start(ctx context.Context) {
 	runCtx, cancel := context.WithCancel(ctx)
 	s.cancel = cancel
@@ -170,8 +153,6 @@ func (s *Scheduler) Stop() {
 	})
 }
 
-// Reload asks for a pass now, because the schedule set changed. It never
-// blocks.
 func (s *Scheduler) Reload() {
 	select {
 	case s.reload <- struct{}{}:
@@ -197,8 +178,6 @@ func (s *Scheduler) loop(ctx context.Context) {
 	}
 }
 
-// wait is how long the loop sleeps before the next pass: until the soonest
-// occurrence, capped at maxSleep.
 func (s *Scheduler) wait() time.Duration {
 	now := s.opts.Now()
 	d := maxSleep
@@ -210,8 +189,7 @@ func (s *Scheduler) wait() time.Duration {
 	return max(d, 0)
 }
 
-// pass evaluates every spec once. A spec that fails is logged and the pass
-// continues; the returned error is the first failure, for tests.
+// pass evaluates every spec; the returned error is the first failure, for tests.
 func (s *Scheduler) pass(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -266,9 +244,6 @@ func (s *Scheduler) RunNow(ctx context.Context, workspace, id string) (Run, erro
 	return run, err
 }
 
-// evaluate plans one spec, executes the decision it produced, and closes the
-// cursor.
-//
 // The cursor closes even when the execution failed. An occurrence is never
 // retried: a run that launched but could not be recorded would otherwise fire
 // a second chat on the next pass, which is worse than the missing row. The one
@@ -311,14 +286,12 @@ func (s *Scheduler) evaluate(ctx context.Context, spec Spec, now time.Time) (Cur
 	return evaluation.Cursor, runErr
 }
 
-// execute performs one decision and records what it did. A refusal (the
-// previous chat is still open, a missed run the schedule says to skip) and a
-// failure are both recorded as runs: a schedule that silently does nothing is
-// indistinguishable from one that is broken.
+// A refusal (the previous chat is still open, a missed run the schedule says
+// to skip) and a failure are both recorded as runs: a schedule that silently
+// does nothing is indistinguishable from one that is broken.
 //
 // launched reports that a chat was started, whether or not the run recording
-// it made it into the store. The caller needs it to decide whether the
-// occurrence has been consumed.
+// it made it into the store; it decides whether the occurrence was consumed.
 func (s *Scheduler) execute(ctx context.Context, spec Spec, decision Decision, now time.Time) (_ Run, launched bool, _ error) {
 	run := Run{
 		Workspace:    spec.Workspace,

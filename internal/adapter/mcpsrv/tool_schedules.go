@@ -10,29 +10,20 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app"
 )
 
-// Scheduled chats on this server. The definitions live in each workspace's
-// agent-workspace.yaml, so put_schedule and remove_schedule are manifest
-// writes that touch one entry, and list_schedules joins the entries with the
-// run state the app keeps beside them. Times are RFC 3339 in local time,
-// unlike the canvas tools' unix milliseconds: cron is local time, and "Friday
-// at 09:00" is what a model reasons about.
-//
-// Running a schedule outside its timetable spawns an agent CLI, which this
-// surface never does (see the package comment); that stays the Chats area's
-// "Run now".
+// The schedule tools answer times as RFC 3339 in local time, unlike the canvas
+// tools' unix milliseconds: cron is local time, and "Friday at 09:00" is what
+// a model reasons about. Running a schedule outside its timetable spawns an
+// agent CLI, which this surface never does (see the package comment).
 
 type listWorkspacesOutput struct {
 	Workspaces []workspaceSummary `json:"workspaces"`
 }
 
 type workspaceSummary struct {
-	Dir      string `json:"dir"      jsonschema:"The directory name every schedule tool's workspace argument takes."`
-	Name     string `json:"name"`
-	Agent    string `json:"agent"`
-	Autonomy string `json:"autonomy"`
-	// Problem is why the manifest could not be read. The row still lists
-	// with its last-good name, but it refuses schedule writes until the file
-	// is fixed.
+	Dir       string   `json:"dir"               jsonschema:"The directory name every schedule tool's workspace argument takes."`
+	Name      string   `json:"name"`
+	Agent     string   `json:"agent"`
+	Autonomy  string   `json:"autonomy"`
 	Problem   string   `json:"problem,omitempty"`
 	Schedules []string `json:"schedules"         jsonschema:"The ids of the workspace's schedules."`
 }
@@ -69,9 +60,8 @@ type scheduleRunView struct {
 	Error        string `json:"error,omitempty"`
 }
 
-// putScheduleInput's optional fields are pointers so that a field the caller
-// left out can be told from one set to its zero value: omitted keeps what the
-// schedule has, "" or false changes it.
+// The optional fields are pointers so an omitted field can be told from one
+// set to its zero value: omitted keeps what the schedule has.
 type putScheduleInput struct {
 	Workspace string  `json:"workspace"          jsonschema:"The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment."`
 	ID        string  `json:"id"                 jsonschema:"[a-z0-9-]+, unique in the workspace. An existing id is edited in place; a new one is appended."`
@@ -190,10 +180,10 @@ func (ctrl *Controller) ScheduleRuns(ctx context.Context, _ *mcp.CallToolRequest
 	return nil, out, nil
 }
 
-// workspaceDir accepts a workspace's absolute path where its directory name is
-// expected, because HIVE_AGENT_WORKSPACE, which the argument descriptions send
-// an agent to, holds the path. Only a direct child of the workspace root is
-// reduced; anything else passes through to the app's own validation.
+// workspaceDir accepts an absolute path where a directory name is expected,
+// because HIVE_AGENT_WORKSPACE, which the argument descriptions send an agent
+// to, holds the path. Anything but a direct child of the root passes through
+// to the app's own validation.
 func (ctrl *Controller) workspaceDir(arg string) string {
 	if !filepath.IsAbs(arg) {
 		return arg
@@ -229,8 +219,6 @@ func scheduleRunViewFrom(run app.RunView) scheduleRunView {
 	}
 }
 
-// localTime renders unix milliseconds the way the schedule tools answer with
-// times: RFC 3339 in the machine's own zone, which is the zone cron runs in.
 func localTime(unixMilli int64) string {
 	return time.UnixMilli(unixMilli).Local().Format(time.RFC3339)
 }

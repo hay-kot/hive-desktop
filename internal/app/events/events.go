@@ -61,10 +61,9 @@ type CanvasToggleRequested struct {
 	Open    bool
 }
 
-// SchedulesUpdated reports that a workspace's scheduled chats changed: its
-// manifest was written, or one of its schedules ran. What changed is not in
-// the payload because both halves of a schedule's state (the manifest entry
-// and its run history) are stored state a reader re-reads.
+// SchedulesUpdated reports that a workspace's manifest was written or one of
+// its schedules ran. The payload names only the workspace: the entry and its
+// run history are both stored state a reader re-reads.
 type SchedulesUpdated struct{ Workspace string }
 
 // ConnectionUpdated reports that one provider's stored credentials changed —

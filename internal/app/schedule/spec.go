@@ -29,7 +29,7 @@ var idPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // Spec is one schedules: entry in an agent-workspace.yaml. Workspace is not in
 // the file: the loader stamps it on, because a Spec travels to the scheduler
-// alone and has to carry the directory it came from.
+// alone.
 type Spec struct {
 	Workspace string   `json:"workspace" yaml:"-"`
 	ID        string   `json:"id"        yaml:"id"`
@@ -40,7 +40,6 @@ type Spec struct {
 	OnMissed  OnMissed `json:"onMissed"  yaml:"on_missed,omitempty"`
 }
 
-// DisplayName is the name to show, falling back to the id.
 func (s Spec) DisplayName() string {
 	if s.Name != "" {
 		return s.Name
@@ -48,9 +47,8 @@ func (s Spec) DisplayName() string {
 	return s.ID
 }
 
-// Validate checks everything the spec owns. Workspace is deliberately absent:
-// it is the loader's to set, so validating an unsaved edit must not depend on
-// it.
+// Validate leaves Workspace alone: it is the loader's to set, so validating an
+// unsaved edit must not depend on it.
 func (s Spec) Validate() error {
 	if s.ID == "" {
 		return fmt.Errorf("schedule: id is required")

@@ -8,9 +8,8 @@ import "time"
 // window closes at now.
 const maxOccurrences = 100_000
 
-// Cursor is how far one schedule has been evaluated. Cron is stored with it so
-// a re-timed schedule is recognized as new rather than back-firing every
-// occurrence its old expression would have had.
+// Cursor is how far one schedule has been evaluated. Cron rides along so a
+// re-timed schedule is recognized as new rather than back-fired.
 type Cursor struct {
 	Workspace        string
 	ID               string
@@ -18,7 +17,6 @@ type Cursor struct {
 	Cron             string
 }
 
-// Decision is one occurrence the evaluation chose to honor.
 type Decision struct {
 	// ScheduledFor is the latest occurrence in the window. Earlier ones are
 	// counted in Missed rather than each getting a run: firing a week of
@@ -27,19 +25,16 @@ type Decision struct {
 	ScheduledFor time.Time
 	Reason       Reason
 	Missed       int
-	// Skip means the run is late and the schedule says not to catch up.
-	Skip bool
+	Skip         bool
 }
 
-// Evaluation is one spec's outcome: the cursor to persist, and the decision to
-// execute when there is one.
 type Evaluation struct {
 	Cursor   Cursor
 	Decision *Decision
 }
 
-// Evaluate plans one spec against its stored cursor. It is pure: no clock, no
-// I/O, so the whole missed-run policy is testable from a table.
+// Evaluate is pure, no clock and no I/O, so the whole missed-run policy is
+// testable from a table.
 //
 // grace is how late an occurrence may be and still count as due rather than a
 // catch-up. It absorbs the gap between an occurrence and the pass that notices
@@ -84,8 +79,6 @@ func Evaluate(spec Spec, cursor *Cursor, now time.Time, grace time.Duration) Eva
 	return Evaluation{Cursor: closed, Decision: &decision}
 }
 
-// NextDue is the soonest occurrence across every enabled spec, and false when
-// nothing is scheduled. It is what bounds the loop's sleep.
 func NextDue(specs []Spec, now time.Time) (time.Time, bool) {
 	var soonest time.Time
 	for _, spec := range specs {

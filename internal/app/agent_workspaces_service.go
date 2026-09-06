@@ -85,18 +85,12 @@ type AgentWorkspacesService struct {
 	// port is not known when this service is built and can change if it
 	// rebinds.
 	mcpBase func(context.Context) string
-	// OnSchedulesChanged is called after a manifest write lands, with the
-	// workspace directory that was written. App points it at the scheduler's
-	// reload and the SchedulesUpdated event. It is a field rather than a
-	// constructor argument because the scheduler is built after this service,
-	// over it.
+	// OnSchedulesChanged is a field rather than a constructor argument because
+	// the scheduler it reloads is built after this service, over it.
 	OnSchedulesChanged func(workspace string)
-	// OnSessionEnded is called after a chat that asked to end itself is gone,
-	// so the area showing it can re-read.
-	OnSessionEnded func(SessionView)
-	// endDelay reads how long EndOwnSession waits after answering before the
-	// tmux session is ended: the agent_workspaces.session_end_delay setting.
-	// nil or a non-positive answer takes the shipped value.
+	OnSessionEnded     func(SessionView)
+	// endDelay reads agent_workspaces.session_end_delay; nil or a non-positive
+	// answer takes the shipped value.
 	endDelay func(context.Context) time.Duration
 	logger   zerolog.Logger
 }
@@ -161,10 +155,8 @@ type WorkspaceView struct {
 	// what the workspace declares says so before any session is even started
 	// (spec §7.2, ADR a-workspace-declares-its-own-authority).
 	Notice string `json:"notice"`
-	// Schedules is the workspace's schedules: list, each joined with when it
-	// fires next and how it went last time. It rides the workspace view
-	// because the editor that writes it is the workspace editor, and the
-	// sidebar names the next run in a header tooltip.
+	// Schedules rides the workspace view because the editor that writes it is
+	// the workspace editor, and the sidebar names the next run.
 	Schedules []ScheduleView `json:"schedules"`
 }
 
@@ -207,15 +199,12 @@ type SessionView struct {
 	ResumeAttempted bool `json:"resumeAttempted"`
 	// Notice carries a fresh-launch, unbounded-MCP or missing-MCP explanation.
 	Notice string `json:"notice"`
-	// ExitedEarly reports that the launched command was already gone by the
-	// time the launch returned. A caller with no pane to show Notice on -- the
-	// scheduler -- reads this rather than the prose, so the reason it treats a
-	// launch as failed does not depend on the wording of a notice.
+	// ExitedEarly is what the scheduler reads instead of Notice, so the reason
+	// it treats a launch as failed does not depend on a notice's wording.
 	ExitedEarly bool `json:"exitedEarly"`
-	// ScheduleID names the schedule whose run started this chat, empty when a
-	// person started it. It is a column on the session record rather than a
-	// lookup in the run history: session ids are reused after a delete and the
-	// history is pruned, so a derivation would mislabel or lose it.
+	// ScheduleID is a column on the session record rather than a lookup in the
+	// run history: session ids are reused after a delete and the history is
+	// pruned, so a derivation would mislabel or lose it.
 	ScheduleID string `json:"scheduleId"`
 }
 
@@ -234,40 +223,30 @@ type StartSession struct {
 	Name      string
 	Cols      int
 	Rows      int
-	// Prompt is the agent's first message, handed to the CLI at launch. Empty
-	// produces exactly the interactive launch line.
+	// Prompt empty produces exactly the interactive launch line.
 	Prompt string
 	// Detached skips the control-client attach, so the session has no
-	// TerminalID or WindowID. A scheduled launch has no pane to render into
-	// and no size to negotiate; the UI never sets this.
-	Detached bool
-	// ScheduleID marks a chat a schedule started. The scheduler sets it; the
-	// UI's launch never does.
+	// TerminalID or WindowID. A scheduled launch has no pane to render into.
+	Detached   bool
 	ScheduleID string
 }
 
-// AgentSessionEndPath is the route a chat calls to end its own session,
-// presenting the token its launch handed it. It lives here so the URL a
-// launch writes into the agent's environment and the route httpapi serves
-// cannot drift apart.
+// AgentSessionEndPath lives here so the URL a launch writes into the agent's
+// environment and the route httpapi serves cannot drift apart.
 const AgentSessionEndPath = "/api/sessions/end"
 
-// defaultEndDelay is the grace between answering a chat that asked to end
-// itself and ending its session when settings name none: the request arrives
-// from inside the agent's own tool call, and killing the pane before that
-// call returns would cut the tool result out of the transcript.
+// defaultEndDelay exists because the end request arrives from inside the
+// agent's own tool call; killing the pane before that call returns would cut
+// the tool result out of the transcript.
 const defaultEndDelay = 10 * time.Second
 
-// SessionEnding is EndOwnSession's answer: the chat that asked, and when its
-// session will be ended.
 type SessionEnding struct {
 	Session SessionView
 	EndsAt  time.Time
 }
 
-// StartScheduledSession is one schedule's launch. It has no cols/rows because
-// it is always detached. Prompt is the schedule's own template, rendered; the
-// launch frames it.
+// StartScheduledSession has no cols/rows because it is always detached.
+// Prompt is the schedule's own template, rendered; the launch frames it.
 type StartScheduledSession struct {
 	Workspace    string
 	ScheduleID   string
@@ -350,19 +329,15 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	}, nil
 }
 
-// regeneration is what one regenerate produced: the status it read, and what
-// the skill resolution and Generate reported.
 type regeneration struct {
 	status          agentws.WorkspaceStatus
 	generated       agentws.Result
 	missingPackages []MissingPackageItem
 }
 
-// regenerate rewrites a workspace's disposable artifacts from its manifest:
-// Open's write half, and what a scheduled launch needs before it starts. The
-// resolution chain Generate itself stays pure over lives here: mcps: [...]
-// resolves through the store's Catalogue, skills: [...] through skills.yml's
-// packages (ADR skill-packages-are-the-unit-a-workspace-enables).
+// regenerate holds the resolution chain Generate itself stays pure over:
+// mcps: [...] resolves through the store's Catalogue, skills: [...] through
+// skills.yml's packages (ADR skill-packages-are-the-unit-a-workspace-enables).
 func (s *AgentWorkspacesService) regenerate(ctx context.Context, dir string) (regeneration, error) {
 	if !validWorkspaceDir(dir) {
 		return regeneration{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
@@ -488,15 +463,9 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	})
 }
 
-// StartScheduledSession launches a chat the scheduler asked for. The
-// workspace is regenerated first, as the UI's own launch path does through
-// Open: without it a scheduled run would drive an agent whose .mcp.json and
-// skills were never regenerated for the manifest as it stands now. Open's
-// read half, the session list and the view, has no reader here.
-//
-// The prompt the agent receives is the schedule's rendered prompt inside the
-// scheduled-run frame: what started it, that nobody is watching, and how to
-// end the session when done. The run history keeps the unframed prompt.
+// StartScheduledSession regenerates the workspace first, as Open does for the
+// UI's launch: otherwise a scheduled run would drive an agent whose .mcp.json
+// and skills are stale. The run history keeps the unframed prompt.
 func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req StartScheduledSession) (SessionView, error) {
 	regen, err := s.regenerate(ctx, req.Workspace)
 	if err != nil {
@@ -515,8 +484,6 @@ func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req 
 	})
 }
 
-// sessionEndURL is the address a chat ends itself at, empty when the loopback
-// server has no port to answer on.
 func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
 	if s.mcpBase == nil {
 		return ""
@@ -528,11 +495,9 @@ func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
 	return strings.TrimSuffix(base, "/") + AgentSessionEndPath
 }
 
-// EndOwnSession ends the chat whose launch handed out token. It answers as
-// soon as the token is matched, naming when the chat will be gone, and
-// deletes it after that delay in the background: the tmux session and the
-// record both. A schedule that runs hourly must not leave a row per run in
-// the sidebar; the run history is where the outcome lives.
+// EndOwnSession answers as soon as the token is matched and deletes the chat,
+// record included, after the delay in the background: a schedule that runs
+// hourly must not leave a row per run in the sidebar.
 func (s *AgentWorkspacesService) EndOwnSession(ctx context.Context, token string) (SessionEnding, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -575,9 +540,6 @@ func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Durati
 	}
 }
 
-// SessionLive reports whether a session's tmux session still exists. The
-// scheduler asks before launching: a schedule whose previous chat is still
-// open should not start a second one.
 func (s *AgentWorkspacesService) SessionLive(ctx context.Context, id int64) (bool, error) {
 	alive, err := s.terminals.HasSession(ctx, sessionName(id))
 	if err != nil {
@@ -759,10 +721,8 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
 	}
-	// The workspace's schedule state is app-local like its session records, so
-	// it goes with them. The cursors especially: one left behind would let a
-	// workspace rebuilt under the same directory name back-fire every
-	// occurrence its predecessor's schedule missed.
+	// A cursor left behind would let a workspace rebuilt under the same
+	// directory name back-fire every occurrence its predecessor missed.
 	if err := s.db.DeleteScheduleRuns(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting schedule runs for workspace %q", dir)
 	}
@@ -815,13 +775,11 @@ type WorkspaceEdit struct {
 	Autonomy string
 	MCPs     []string
 	Skills   []string
-	// Schedules is the whole schedules: list as the editor holds it. A write
-	// reconciles the manifest to exactly this, so an entry the editor dropped
-	// is deleted by the same call that saves the rest.
+	// Schedules is the whole list: a write reconciles the manifest to exactly
+	// this, so an entry the editor dropped is deleted by the same call.
 	Schedules []ScheduleEdit
 }
 
-// ScheduleEdit is one row of the workspace editor's schedules section.
 type ScheduleEdit struct {
 	ID       string
 	Name     string
@@ -831,9 +789,6 @@ type ScheduleEdit struct {
 	OnMissed string
 }
 
-// spec is the manifest entry this edit stands for. Workspace stays empty: the
-// loader stamps it on when the file is read back, and nothing between here and
-// the write needs it.
 func (e ScheduleEdit) spec() schedule.Spec {
 	return schedule.Spec{
 		ID:       strings.TrimSpace(e.ID),
@@ -845,11 +800,8 @@ func (e ScheduleEdit) spec() schedule.Spec {
 	}
 }
 
-// SchedulePatch is the MCP tools' write to one schedules: entry: the fields to
-// change, laid over what the entry already says. A nil field keeps its stored
-// value, so an agent told to re-time a paused schedule does not re-enable it.
-// For an id that does not exist yet, Cron and Prompt are required and the rest
-// take their defaults.
+// A nil SchedulePatch field keeps its stored value, so an agent told to
+// re-time a paused schedule does not re-enable it.
 type SchedulePatch struct {
 	ID       string
 	Name     *string
@@ -925,9 +877,8 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 			seen[id] = true
 		}
 	}
-	// A schedule judges itself: the id shape, the cron expression and the
-	// prompt template are the spec's own rules, and repeating them here would
-	// be a second place for them to drift.
+	// The id shape, cron and prompt rules are the spec's own; repeating them
+	// here would be a second place for them to drift.
 	seen := make(map[string]bool, len(req.Schedules))
 	for _, spec := range req.specs() {
 		if err := spec.Validate(); err != nil {
@@ -958,12 +909,6 @@ func (s *AgentWorkspacesService) CreateWorkspace(ctx context.Context, req Worksp
 
 // UpdateWorkspace rewrites the editable fields of an existing workspace's
 // manifest in place — comments and keys the editor does not own survive.
-//
-// A workspace whose manifest does not currently parse is refused. The editor
-// loads its form from the workspace view, and on the first load of a run
-// there is no last-good snapshot behind a broken file, so the form opens
-// empty; saving it would reconcile mcps, skills and schedules to nothing. The
-// file has to be fixed where it broke.
 func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req WorkspaceEdit) (WorkspaceView, error) {
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
@@ -978,9 +923,7 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 }
 
 // PutSchedule upserts one schedules: entry by id and leaves the rest of the
-// manifest alone: the MCP tools' write, where the editor's is the whole
-// manifest at once. An existing entry is edited in place, field by field; a
-// new one is appended.
+// manifest alone.
 func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, patch SchedulePatch) (ScheduleView, error) {
 	st, err := s.editableWorkspace(dir)
 	if err != nil {
@@ -1027,9 +970,8 @@ func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, pa
 	return ScheduleView{}, Errorf(KindInternal, "schedule %q vanished after writing it", spec.ID)
 }
 
-// RemoveSchedule deletes one schedules: entry by id. Its run history stays,
-// because history outlives the entry it came from on purpose, and its cursor
-// is pruned by the scheduler's next pass.
+// RemoveSchedule leaves the run history, which outlives its entry on purpose;
+// the cursor is pruned by the scheduler's next pass.
 func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id string) error {
 	st, err := s.editableWorkspace(dir)
 	if err != nil {
@@ -1054,10 +996,9 @@ func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id str
 	return err
 }
 
-// editableWorkspace is the status of a workspace a write may land in: the
-// directory exists and its manifest parses. On the first load of a run there
-// is no last-good snapshot behind a broken file, so a write over one would
-// reconcile every list to nothing; a broken manifest is fixed in the file.
+// editableWorkspace refuses a manifest that does not parse: on the first load
+// of a run there is no last-good snapshot behind a broken file, so a write
+// over one would reconcile every list to nothing.
 func (s *AgentWorkspacesService) editableWorkspace(dir string) (agentws.WorkspaceStatus, error) {
 	if !validWorkspaceDir(dir) {
 		return agentws.WorkspaceStatus{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
@@ -1326,9 +1267,8 @@ func resolvedCommandLine(server mcpcatalog.Server) string {
 
 // savedView re-reads the store after a manifest write and returns dir's fresh
 // view, so the response reflects what actually landed on disk rather than what
-// was asked for, then tells the scheduler the schedules may have moved. The
-// hook fires after the reload because the scheduler takes its specs from the
-// same snapshot this read comes out of.
+// was asked for. The hook fires after the reload because the scheduler takes
+// its specs from the same snapshot this read comes out of.
 func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (WorkspaceView, error) {
 	if err := s.store.Reload(); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInternal, "reloading workspaces")
@@ -1363,8 +1303,6 @@ func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, co
 	return terminalError(client.Resize(ctx, cols, rows), "resizing session %q", rec.Name)
 }
 
-// terminalLaunch is one launch's inputs: what the caller resolved that the
-// session record does not carry.
 type terminalLaunch struct {
 	dir  string
 	line string
@@ -1374,9 +1312,7 @@ type terminalLaunch struct {
 	// happen, empty when there is nothing to announce.
 	resumeAttempted bool
 	resumeNotice    string
-	// detached leaves the session running with no control client, so the view
-	// carries no TerminalID or WindowID for a UI to open.
-	detached bool
+	detached        bool
 }
 
 // launchTerminal creates rec's tmux session fresh and attaches to it, gives it
@@ -1451,12 +1387,10 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	return view, nil
 }
 
-// discardDetached drops the session record of a detached launch that never
-// reached a live tmux session, and returns cause unchanged. A UI launch keeps
-// its record: the user is looking at the error and the row they can retry from.
-// A scheduled one has neither, so a schedule firing every minute against a
-// reached cap or a tmux that is down would otherwise add a dead row a minute
-// to the sidebar. Failing to delete is not worth losing the launch error over.
+// A UI launch keeps its record as the row the user retries from. A detached
+// one has no such reader, and a schedule firing every minute against a
+// reached cap would otherwise add a dead row a minute to the sidebar. Failing
+// to delete is not worth losing the launch error over.
 func (s *AgentWorkspacesService) discardDetached(ctx context.Context, rec store.AgentWorkspaceSession, opts terminalLaunch, cause error) error {
 	if !opts.detached {
 		return cause
@@ -1617,8 +1551,6 @@ func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []sto
 	return views
 }
 
-// workspaceView is one workspace's row: the manifest fields, why it could not
-// be read, and its schedules joined with their run state.
 func (s *AgentWorkspacesService) workspaceView(ctx context.Context, st agentws.WorkspaceStatus) WorkspaceView {
 	problem, notice := "", ""
 	if !st.Valid && st.Err != nil {
@@ -1629,9 +1561,6 @@ func (s *AgentWorkspacesService) workspaceView(ctx context.Context, st agentws.W
 		// against whatever the zero value happens to be.
 		notice = mcpNotice(st.Workspace.Agent)
 	}
-	// A broken manifest still lists its last-good schedules, the same way it
-	// still lists its last-good mcps. UpdateWorkspace refuses to write over a
-	// broken file either way, so nothing here can be saved back.
 	return WorkspaceView{
 		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
 		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs,

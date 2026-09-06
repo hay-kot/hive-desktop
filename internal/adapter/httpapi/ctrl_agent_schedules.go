@@ -9,25 +9,14 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app"
 )
 
-// The schedules surface is what a user does to a schedule outside the editor:
-// run it now, read its history, preview an edit. It sits under the same prefix
-// as the rest of the agent control plane because a schedule launches an agent
-// CLI, which is arbitrary command execution (ADR terminal-transport).
-//
-// A schedule is read and written through the workspace view: workspaces/open
-// lists them joined with their run state, and workspaces/create and
-// workspaces/update save them with the rest of the manifest. There is no
-// per-schedule list or write route.
+// The schedule routes sit under the terminal prefix because a schedule
+// launches an agent CLI, which is arbitrary command execution (ADR
+// terminal-transport). Schedules are read and written through the workspace
+// view; there is no per-schedule list or write route.
 
-// agentScheduleView is one schedule row. nextRunAt and lastRun are nullable on
-// the wire: a disabled schedule has no next run, and one that has never fired
-// has no last one.
 type agentScheduleView struct {
-	Workspace string `json:"workspace"`
-	ID        string `json:"id"`
-	// Name is the manifest's own name and is empty when the entry has none:
-	// the client falls back to the id for display. Resolving it here would
-	// round trip through the editor and write the id back as a name.
+	Workspace string                `json:"workspace"`
+	ID        string                `json:"id"`
 	Name      string                `json:"name"`
 	Cron      string                `json:"cron"`
 	Prompt    string                `json:"prompt"`
@@ -37,8 +26,6 @@ type agentScheduleView struct {
 	LastRun   *agentScheduleRunView `json:"lastRun"`
 }
 
-// agentScheduleRunView is one execution. Timestamps are unix milliseconds;
-// sessionId is null when the run launched no chat.
 type agentScheduleRunView struct {
 	ID           int64  `json:"id"`
 	Workspace    string `json:"workspace"`
@@ -90,7 +77,6 @@ type agentScheduleRunResponse struct {
 	Run agentScheduleRunView `json:"run"`
 }
 
-// AgentScheduleRun fires one schedule now, outside its timetable.
 func (ctrl *Controller) AgentScheduleRun(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentScheduleIDRequest](ctrl, w, r)
 	if err != nil {
@@ -121,7 +107,6 @@ type agentScheduleRunsResponse struct {
 	Runs []agentScheduleRunView `json:"runs"`
 }
 
-// AgentScheduleRuns lists one schedule's run history, newest first.
 func (ctrl *Controller) AgentScheduleRuns(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentScheduleRunsRequest](ctrl, w, r)
 	if err != nil {
@@ -158,7 +143,6 @@ type agentSchedulePreviewResponse struct {
 	PromptError string  `json:"promptError"`
 }
 
-// AgentSchedulePreview dry-runs an unsaved edit.
 func (ctrl *Controller) AgentSchedulePreview(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentSchedulePreviewRequest](ctrl, w, r)
 	if err != nil {

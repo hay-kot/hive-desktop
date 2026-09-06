@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// PromptData is what a prompt template can reach. It is a flat record on
-// purpose: a template that reads through the app's own types would break every
-// time one of them changed.
+// PromptData is a flat record on purpose: a template that reads through the
+// app's own types would break every time one of them changed.
 type PromptData struct {
 	Schedule struct {
 		ID, Name, Cron string
@@ -21,9 +20,7 @@ type PromptData struct {
 	ScheduledFor time.Time
 	Reason       string
 	Missed       int
-	// LastRun is the ScheduledFor of the previous launched run, nil on the
-	// first. The date func takes it directly so a template does not have to
-	// guard the nil itself.
+	// LastRun is the previous launched run's ScheduledFor, nil on the first.
 	LastRun *time.Time
 }
 
@@ -51,7 +48,6 @@ func formatDate(layout string, value any) string {
 	}
 }
 
-// RenderPrompt executes a schedule's prompt template.
 func RenderPrompt(tmpl string, data PromptData) (string, error) {
 	parsed, err := template.New("prompt").Funcs(promptFuncs).Option("missingkey=error").Parse(tmpl)
 	if err != nil {
@@ -64,16 +60,14 @@ func RenderPrompt(tmpl string, data PromptData) (string, error) {
 	return out.String(), nil
 }
 
-// PromptPreview is a template rendered twice: against the data as given, and
-// as the first run sees it, with LastRun unset.
 type PromptPreview struct {
 	Prompt         string
 	FirstRunPrompt string
 }
 
-// PreviewPrompt renders a template both ways. A template that only fails on
-// the first run, one that calls a method on .LastRun, says so in its error:
-// that is the run it would otherwise fail on for real.
+// PreviewPrompt renders with LastRun set and then unset. A template that only
+// fails on the first run, one that calls a method on .LastRun, says so in its
+// error: that is the run it would otherwise fail on for real.
 func PreviewPrompt(tmpl string, data PromptData) (PromptPreview, error) {
 	prompt, err := RenderPrompt(tmpl, data)
 	if err != nil {
@@ -87,14 +81,11 @@ func PreviewPrompt(tmpl string, data PromptData) (PromptPreview, error) {
 	return PromptPreview{Prompt: prompt, FirstRunPrompt: firstRun}, nil
 }
 
-// ValidatePrompt reports whether a template parses and executes, with a
-// previous run behind it and without one.
 func ValidatePrompt(tmpl string) error {
 	_, err := PreviewPrompt(tmpl, SamplePromptData())
 	return err
 }
 
-// SamplePromptData is the stand-in a preview or a validation renders against.
 func SamplePromptData() PromptData {
 	now := time.Now()
 	last := now.Add(-24 * time.Hour)

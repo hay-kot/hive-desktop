@@ -177,21 +177,16 @@ type Service struct {
 // hand an agent, as opposed to the copyable prompts the registry lists.
 var frames = template.Must(template.New("frames").Funcs(funcs()).ParseFS(templatesFS, "templates/scheduled-run.tmpl"))
 
-// ScheduledRunData frames a scheduled chat's opening message.
 type ScheduledRunData struct {
 	ScheduleName  string
 	WorkspaceName string
-	// Prompt is the schedule's own template, already rendered.
-	Prompt string
-	// CanEnd reports whether the launch handed the process an end-session URL.
-	// Without one the closing instruction is left out rather than pointing at
-	// nothing.
+	Prompt        string
+	// CanEnd is false when the launch handed the process no end-session URL;
+	// the closing instruction is then left out rather than pointing at nothing.
 	CanEnd bool
 }
 
-// ScheduledRun wraps a scheduled chat's rendered prompt in the frame every
-// scheduled launch carries: what started it, that nobody is watching, and how
-// to end the session when the task is done.
+// ScheduledRun frames a scheduled chat's rendered prompt as its opening message.
 func ScheduledRun(data ScheduledRunData) (string, error) {
 	var buf strings.Builder
 	if err := frames.ExecuteTemplate(&buf, "scheduled-run.tmpl", data); err != nil {

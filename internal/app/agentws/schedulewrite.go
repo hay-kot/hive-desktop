@@ -14,10 +14,7 @@ import (
 const schedulesKey = "schedules"
 
 // WriteSchedules makes the manifest's schedules: list say exactly specs and
-// touches nothing else in the file. It is the per-list write the MCP tools
-// use; the editor writes schedules with the rest of the manifest through
-// WriteManifest. A workspace with no manifest is an error: a schedule has
-// nowhere to live.
+// touches nothing else in the file.
 func WriteSchedules(root, dir string, specs []schedule.Spec) error {
 	path := filepath.Join(root, dir, manifestFileName)
 	raw, err := os.ReadFile(path)
@@ -39,12 +36,8 @@ func WriteSchedules(root, dir string, specs []schedule.Spec) error {
 	return nil
 }
 
-// reconcileSchedules makes the schedules: sequence say exactly specs, in that
-// order: each entry upserted by id, entries whose id specs no longer names
-// dropped, and the key removed once nothing is left. It is a node-tree edit
-// for the same reason the rest of WriteManifest is -- everything a surviving
-// entry carries beyond the keys a Spec owns, its own comments included,
-// survives.
+// reconcileSchedules is a node-tree edit for the same reason the rest of
+// WriteManifest is: keys and comments a Spec does not own survive.
 func reconcileSchedules(mapping *yaml.Node, specs []schedule.Spec) {
 	if len(specs) == 0 {
 		removeManifestKey(mapping, schedulesKey)
@@ -106,9 +99,8 @@ func promptScalar(prompt string) *yaml.Node {
 	return node
 }
 
-// manifestSequence returns mapping[key] as a sequence, creating it when the
-// key is absent and replacing a value that is not a sequence. `schedules:`
-// with nothing under it parses as null, not as an empty list.
+// A non-sequence value is replaced: `schedules:` with nothing under it parses
+// as null, not as an empty list.
 func manifestSequence(mapping *yaml.Node, key string) *yaml.Node {
 	if node := findManifestValue(mapping, key); node != nil {
 		if node.Kind != yaml.SequenceNode {

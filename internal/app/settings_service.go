@@ -294,9 +294,8 @@ func (s *SettingsService) Editor(context.Context) (string, error) {
 	return cfg.Editor.Command, nil
 }
 
-// SessionEndDelay is the grace between a chat asking to end its own session
-// and the session being ended; zero when settings cannot be read, which the
-// caller treats as the shipped value.
+// SessionEndDelay is zero when settings cannot be read; the caller takes the
+// shipped value.
 func (s *SettingsService) SessionEndDelay(context.Context) time.Duration {
 	cfg, err := s.store.Effective()
 	if err != nil {

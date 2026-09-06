@@ -15,26 +15,15 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// The consumer-defined ports internal/app/schedule declares, filled from what
-// this package already owns. They are values rather than pointers: each is a
-// handle or two over a store App holds for its whole life.
-
-// scheduleWorkspaces answers both the scheduler's Source and its
-// WorkspaceNamer. One type for both because every answer is a projection of
-// the same workspace store, which swaps its status set whole on reload: a
+// scheduleWorkspaces is both the scheduler's Source and its WorkspaceNamer: a
 // second adapter over the same store would only be a second place to keep the
 // "valid workspaces only" rule in step.
 type scheduleWorkspaces struct{ store *agentws.Store }
 
-// Snapshot returns every valid workspace's schedules, and the directories they
-// came from, out of one Statuses read.
-//
-// A workspace whose manifest failed to parse contributes neither: its
-// last-good schedules may name a cadence the file on disk no longer says, and
-// firing that would be the scheduler acting on a manifest the user has already
-// replaced. Leaving it out of the directories too is what stops the pass from
-// reading "every schedule here was deleted" from a file the app could not
-// open, so both halves have to come from the same read.
+// A workspace whose manifest failed to parse contributes neither specs nor a
+// directory: its last-good schedules may name a cadence the file no longer
+// says, and listing the directory would let the pass read "every schedule
+// here was deleted" from a file the app could not open.
 func (w scheduleWorkspaces) Snapshot() schedule.Snapshot {
 	statuses := w.store.Statuses()
 	snapshot := schedule.Snapshot{
@@ -56,9 +45,6 @@ func (w scheduleWorkspaces) WorkspaceName(dir string) string {
 	return st.Workspace.Name
 }
 
-// scheduleStore is the scheduler's Store over the pipeline database. The
-// scheduler works in time.Time and both schedule tables hold unix
-// milliseconds, so this is where the two meet.
 type scheduleStore struct{ db *store.DB }
 
 func (s scheduleStore) Cursor(ctx context.Context, workspace, id string) (schedule.Cursor, bool, error) {
@@ -83,15 +69,9 @@ func (s scheduleStore) SaveCursor(ctx context.Context, cursor schedule.Cursor) e
 	})
 }
 
-// PruneCursors deletes the cursors of workspaces the pass could read, minus
-// the ones it kept. Everything else is left where it is: a cursor whose
-// workspace is missing from the root, or whose manifest did not parse this
-// pass, is state the app cannot yet say is stale. Losing it silently drops the
-// occurrence between the break and the fix. A schedule the editor removed from
-// a manifest the pass could read is exactly the case this does prune, so an id
-// reused later starts from now rather than back-firing every occurrence since
-// the old one was last seen. A deleted workspace runs through
-// DeleteWorkspace instead.
+// A cursor outside the pass's workspaces is left alone: a manifest that
+// momentarily fails to parse must not lose the state that says how far its
+// schedules got. A deleted workspace runs through DeleteWorkspace instead.
 func (s scheduleStore) PruneCursors(ctx context.Context, workspaces []string, keep []schedule.Cursor) error {
 	stored, err := s.db.ListScheduleCursors(ctx)
 	if err != nil {
@@ -166,9 +146,8 @@ func scheduleRunFromRecord(rec store.ScheduleRunRecord) schedule.Run {
 	}
 }
 
-// scheduleLauncher starts a scheduled chat through the same service a hand
-// started one goes through, so a scheduled run gets the workspace's
-// regenerated artifacts and is held by the same session cap.
+// scheduleLauncher goes through the same service a hand-started chat does, so
+// a scheduled run gets the regenerated artifacts and the same session cap.
 type scheduleLauncher struct{ workspaces *AgentWorkspacesService }
 
 func (l scheduleLauncher) Launch(ctx context.Context, req schedule.LaunchRequest) (int64, error) {
@@ -193,10 +172,9 @@ func (l scheduleLauncher) SessionLive(ctx context.Context, sessionID int64) (boo
 	return l.workspaces.SessionLive(ctx, sessionID)
 }
 
-// buildScheduler wires the scheduler over the workspace set, the pipeline
-// database and the session launcher. It is built in every mode, mock ones
-// included: a fixture root declares no schedules, so the loop passes over an
-// empty set rather than becoming a second startup path to keep in step.
+// buildScheduler runs in every mode, mock ones included: a fixture root
+// declares no schedules, so the loop passes over an empty set rather than
+// becoming a second startup path to keep in step.
 func (a *App) buildScheduler(logger zerolog.Logger) *schedule.Scheduler {
 	workspaces := scheduleWorkspaces{store: a.agentWorkspaceStore}
 	return schedule.New(schedule.Options{
@@ -213,8 +191,6 @@ func (a *App) buildScheduler(logger zerolog.Logger) *schedule.Scheduler {
 	})
 }
 
-// scheduleRunDetail is the activity body: why the run happened, how much it
-// stood in for, where it went, and what stopped it.
 func scheduleRunDetail(run schedule.Run) string {
 	parts := []string{string(run.Reason)}
 	if run.Missed > 0 {

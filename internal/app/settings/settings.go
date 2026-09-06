@@ -136,10 +136,9 @@ type ProfileSettings struct {
 type AgentWorkspacesSettings struct {
 	Dir string `yaml:"dir,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_DIR"`
 	// SessionEndDelay is the grace between a chat asking to end its own
-	// session and the session being ended. The request arrives from inside
-	// the agent's own tool call, so the delay is what lets that call return
-	// and the agent finish its closing message first. Zero or unset takes the
-	// shipped value.
+	// session and the session being ended: the request arrives from inside the
+	// agent's own tool call, and the delay lets that call return first. Zero
+	// takes the shipped value.
 	SessionEndDelay Duration `yaml:"session_end_delay,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_SESSION_END_DELAY"`
 }
 

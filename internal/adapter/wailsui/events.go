@@ -197,8 +197,7 @@ func emitCanvasToggle(toggle CanvasToggle) {
 }
 
 // emitSchedulesUpdated wakes the Chats area after a workspace's scheduled
-// chats changed, naming the workspace. Safe to call from any goroutine once
-// the app is running.
+// chats changed, naming the workspace.
 func emitSchedulesUpdated(workspace string) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("schedules:updated", workspace)

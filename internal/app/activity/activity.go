@@ -90,10 +90,9 @@ func AutoAction(label, rule, target string) Event {
 	}
 }
 
-// ScheduleRun records one scheduled chat's execution: launched, skipped, or
-// failed. status is schedule.Status's string form rather than the type: the
-// audit log is a sink every subsystem writes to and takes no dependency on any
-// of them, so an unrecognized status records as plain info instead of failing.
+// status is schedule.Status's string form rather than the type: the audit log
+// is a sink every subsystem writes to and takes no dependency on any of them,
+// so an unrecognized status records as plain info instead of failing.
 func ScheduleRun(name, workspace, status, detail string) Event {
 	severity, outcome := SeverityInfo, "ran"
 	switch status {

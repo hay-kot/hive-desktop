@@ -8,13 +8,10 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// ParseCron parses a 5-field cron expression or one of the @hourly/@daily/
-// @weekly/@monthly/@every descriptors.
-//
-// The parser is left at its default location, which makes robfig evaluate the
-// expression in the location of the time handed to Next. Every caller passes a
-// time.Local clock reading, so "0 9 * * 5" means 09:00 where the user is,
-// including across a daylight-saving shift.
+// ParseCron leaves the parser at its default location, which makes robfig
+// evaluate the expression in the location of the time handed to Next. Every
+// caller passes a time.Local clock reading, so "0 9 * * 5" means 09:00 where
+// the user is, including across a daylight-saving shift.
 func ParseCron(expr string) (cron.Schedule, error) {
 	expr = strings.TrimSpace(expr)
 	if expr == "" {
@@ -27,9 +24,8 @@ func ParseCron(expr string) (cron.Schedule, error) {
 	return sched, nil
 }
 
-// NextOccurrences returns up to n occurrences strictly after `after`. It stops
-// early when the expression has no further occurrence at all (February 30th),
-// so the result can be shorter than n.
+// NextOccurrences can return fewer than n: an expression with no further
+// occurrence at all (February 30th) stops the walk early.
 func NextOccurrences(expr string, after time.Time, n int) ([]time.Time, error) {
 	sched, err := ParseCron(expr)
 	if err != nil {

@@ -6,8 +6,6 @@ import (
 	"github.com/hay-kot/httpkit/server"
 )
 
-// agentSessionEndResponse is the answer to a chat ending itself: which session,
-// and when it will be gone. endsAt is unix milliseconds.
 type agentSessionEndResponse struct {
 	Session int64 `json:"session"`
 	EndsAt  int64 `json:"endsAt"`
