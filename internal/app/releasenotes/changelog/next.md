@@ -49,7 +49,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   throughput, backlog depth, pause and resume, and frame latency; every call to
   a source's API reports its duration, its status and which connector made it,
   alongside how much rate-limit budget that connector has left; database
-  statements appear on the trace they belong to. Every signal is tagged with
+  statements appear on the trace they belong to. Each poll tick is one trace, so
+  a stale feed resolves to the source that failed and the request that hung, and
+  every log line written inside a trace carries its id. Every signal is tagged with
   the build's version and release channel, so a dev build's data never mixes
   with a release's. `development.metrics` serves the same metrics at
   `/metrics` on the local server for a scrape, with or without an endpoint
