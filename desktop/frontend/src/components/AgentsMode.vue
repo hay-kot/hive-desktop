@@ -269,10 +269,7 @@ watch([paneStatus, openSessionId], ([status, id]) => {
 
 // A route naming a chat other than the open one is a request to switch. A
 // reload with a stale ?chat is the same shape. Only an in-flight launch is left
-// alone, so two attaches never race for the pane. The workspace editor's run
-// history does not come through here at all: it goes to
-// handleOpenScheduledChat, which resumes a dead chat rather than only naming
-// it.
+// alone, so two attaches never race for the pane.
 watch([routeChatId, () => props.active], ([id, active]) => {
   if (id === null || !active) return
   if (openSessionId.value === id || paneStatus.value === 'opening') return
@@ -361,21 +358,6 @@ useWailsEvent('schedules:updated', () => {
   void reloadRecents()
   void reloadWorkspaces()
 })
-
-// The run history's "Open chat" is a row click, not a route write: ?chat never
-// relaunches a dead session (ADR the-open-chat-rides-the-route), and a
-// scheduled chat is usually opened long after its agent finished, often after
-// a reboot took the tmux session with it. The list is re-read first because the
-// chat may have been created since it was last loaded. The editor is the
-// surface it is asked from, and it covers the pane the chat opens into, so it
-// closes with the request.
-async function handleOpenScheduledChat(id: number): Promise<void> {
-  workspaceEditorOpen.value = false
-  if (!recents.value.some((row) => row.id === id)) await reloadRecents()
-  const session = recents.value.find((row) => row.id === id)
-  if (!session) return
-  await handleSidebarSelectSession(session)
-}
 
 // ── Workspace editor (DrawerSheet, like every other editor) ──────────────────
 // Create, edit, and delete: the editor is the workspace's whole management
@@ -925,7 +907,6 @@ onBeforeUnmount(() => {
       @close="workspaceEditorOpen = false"
       @save="saveWorkspace"
       @delete="deleteWorkspaceFromEditor"
-      @open-chat="handleOpenScheduledChat"
     />
 
     <NewChatDialog

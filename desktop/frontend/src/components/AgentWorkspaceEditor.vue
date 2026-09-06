@@ -13,10 +13,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import IconArrowLeft from '~icons/lucide/arrow-left'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconChevronRight from '~icons/lucide/chevron-right'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconFolderCog from '~icons/lucide/folder-cog'
 import IconFolderOpen from '~icons/lucide/folder-open'
-import IconMessageSquare from '~icons/lucide/message-square'
 import IconPencil from '~icons/lucide/pencil'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
@@ -25,11 +25,13 @@ import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconX from '~icons/lucide/x'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
+import BaseBadge from './BaseBadge.vue'
 import BaseButton from './BaseButton.vue'
 import DrawerSheet from './DrawerSheet.vue'
 import InlineConfirm from './InlineConfirm.vue'
 import SettingsError from './settings/SettingsError.vue'
-import { CodeField, SelectField, TextField, TextareaField, type SelectOption } from '../pipeline/fields'
+import SettingsSection from './settings/SettingsSection.vue'
+import { CodeField, FieldRow, SelectField, TextField, TextareaField, type SelectOption } from '../pipeline/fields'
 import { useAgentSchedules } from '../composables/useAgentSchedules'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { timeLabel } from '../lib/activityPresentation'
@@ -52,8 +54,6 @@ const emit = defineEmits<{
   close: []
   save: [request: WorkspaceEditRequest]
   delete: [dir: string]
-  /** A chat one of this workspace's runs launched; the area resumes it like a sidebar click. */
-  'open-chat': [session: number]
 }>()
 
 const {
@@ -115,7 +115,8 @@ interface AutonomyOption {
   label: string
   description: string
   danger: boolean
-  flags: string
+  /** The launch this posture runs, agent included; empty until the table has loaded. */
+  command: string
   unavailable: boolean
 }
 
@@ -125,7 +126,7 @@ const autonomyOptions = computed<AutonomyOption[]>(() => {
     const flags = known?.[meta.value]
     return {
       ...meta,
-      flags: flags?.length ? flags.join(' ') : '',
+      command: flags ? [agent.value, ...flags].join(' ') : '',
       // Only a loaded table can rule a posture out; with nothing loaded the
       // selector stays fully usable and simply shows no flag detail.
       unavailable: !!known && !flags,
@@ -137,6 +138,22 @@ function selectAutonomy(option: AutonomyOption): void {
   if (props.busy || option.unavailable) return
   autonomy.value = option.value
 }
+
+// The dangerous posture keeps its warning wash when chosen, so the bypass is
+// never a quiet selection.
+function autonomyRowClass(option: AutonomyOption): string {
+  if (autonomy.value !== option.value) return 'enabled:hover:bg-row-hover'
+  return option.danger ? 'bg-severity-warning-tint' : 'bg-selection'
+}
+
+// The settings pages' vocabulary: SettingsSection's boxed card, drawn here so
+// a list can end in its own action row; the small outlined button a row
+// carries; the quiet icon button beside it; and the accent row a card ends
+// with, which the card's hairlines separate from the list above it.
+const listCardClass = 'divide-y divide-row overflow-hidden rounded-[11px] border border-card bg-raised'
+const inlineButtonClass = 'flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-3 py-1.5 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50'
+const iconButtonClass = 'flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text disabled:cursor-not-allowed disabled:opacity-40'
+const footerButtonClass = 'flex w-full cursor-pointer items-center gap-2 px-4 py-3 text-left text-[13px] font-medium text-accent hover:bg-chip disabled:cursor-not-allowed disabled:opacity-50'
 
 const confirming = ref(false)
 
@@ -884,7 +901,7 @@ function closeSheet(): void {
   if (!props.busy && !confirming.value) emit('close')
 }
 
-const nameInput = ref<HTMLInputElement | null>(null)
+const nameInput = ref<{ focus: () => void } | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 onMounted(async () => {
   void reloadMCPCatalogue()
@@ -899,7 +916,7 @@ onMounted(async () => {
     ref="sheet"
     :ariaLabel="creating ? 'New workspace' : 'Edit workspace'"
     testid="agent-workspace-editor"
-    :default-size="460"
+    :default-size="520"
     :close-on-escape="!confirming && !scheduleDraft?.removing"
     :close-on-backdrop="!confirming"
     @close="cancel"
@@ -1036,7 +1053,10 @@ onMounted(async () => {
         @update:model-value="setCron"
       />
 
-      <p v-if="nextRunsLine" class="-mt-2 text-xs leading-relaxed text-text-4" data-testid="agent-workspace-editor-schedule-next-runs">{{ nextRunsLine }}</p>
+      <!-- Always on screen once a preview can answer: the answer lands 300ms
+           after a keystroke, and a line that appears then pushes the fields
+           below it around. -->
+      <p v-if="workspace" class="-mt-2 min-h-5 text-xs leading-relaxed text-text-4" data-testid="agent-workspace-editor-schedule-next-runs">{{ nextRunsLine }}</p>
 
       <SelectField
         :model-value="scheduleDraft.onMissed"
@@ -1078,15 +1098,6 @@ onMounted(async () => {
               </div>
               <p v-if="run.error" class="mt-0.5 text-[10.5px] leading-relaxed text-severity-error">{{ run.error }}</p>
             </div>
-            <button
-              v-if="run.sessionId"
-              type="button"
-              class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-              title="Open chat"
-              aria-label="Open chat"
-              :data-testid="`agent-workspace-editor-schedule-open-chat-${run.id}`"
-              @click="emit('open-chat', run.sessionId)"
-            ><IconMessageSquare class="size-3" /></button>
           </div>
         </div>
       </div>
@@ -1094,12 +1105,12 @@ onMounted(async () => {
 
     <!-- While a delete is pending the form recedes: dimmed and inert, so the
          two states can't be misread for each other (FolderEditModal's rule). -->
-    <div v-else class="flex flex-col gap-4 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming }">
+    <div v-else class="flex flex-col gap-7 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming }">
       <!-- Above the open/reveal actions on purpose: the fix is in the file,
            and those two buttons are what reach it. -->
       <div
         v-if="manifestProblem"
-        class="flex flex-col gap-1 rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs leading-relaxed text-severity-error"
+        class="flex flex-col gap-1 rounded-md border border-severity-error-border bg-severity-error-tint px-3 py-2 text-xs leading-relaxed text-severity-error"
         data-testid="agent-workspace-editor-problem"
       >
         <p>{{ manifestProblem }}</p>
@@ -1111,14 +1122,14 @@ onMounted(async () => {
           <button
             v-if="editor.command"
             type="button"
-            class="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-2.5 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text disabled:opacity-50"
+            :class="inlineButtonClass"
             :disabled="busy"
             data-testid="agent-workspace-editor-open-editor"
             @click="openInEditor"
           ><IconExternalLink class="size-3.5" />Open in {{ editor.title }}</button>
           <button
             type="button"
-            class="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-2.5 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text disabled:opacity-50"
+            :class="inlineButtonClass"
             :disabled="busy"
             data-testid="agent-workspace-editor-reveal"
             @click="reveal"
@@ -1128,57 +1139,50 @@ onMounted(async () => {
         <p v-if="actionError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-action-error">{{ actionError }}</p>
       </div>
 
-      <div v-if="creating" class="flex flex-col gap-1.5">
-        <label for="agent-workspace-dir" class="text-xs text-text-3">Directory name</label>
-        <input
-          id="agent-workspace-dir"
-          ref="dirInput"
-          v-model="dir"
-          type="text"
-          placeholder="my-project"
-          autocapitalize="off"
-          autocorrect="off"
-          spellcheck="false"
-          :disabled="busy"
-          class="w-full rounded-lg border border-strong bg-raised px-3 py-2.5 font-mono text-[13px] text-text outline-none focus:border-accent"
-          data-testid="agent-workspace-editor-dir"
-          @keydown.enter="submit"
-        >
-        <span class="text-xs text-text-4">A new directory under the workspace root, seeded with an AGENTS.md to shape.</span>
+      <div class="flex flex-col gap-3">
+        <FieldRow v-if="creating" label="Directory name" hint="A new directory under the workspace root, seeded with an AGENTS.md to shape.">
+          <input
+            ref="dirInput"
+            v-model="dir"
+            type="text"
+            placeholder="my-project"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            aria-label="Directory name"
+            :disabled="busy"
+            class="w-full rounded-lg border border-strong bg-app px-3 py-2.5 font-mono text-[13.5px] text-text outline-none placeholder:text-text-4 focus:border-accent disabled:opacity-60"
+            data-testid="agent-workspace-editor-dir"
+            @keydown.enter="submit"
+          >
+        </FieldRow>
+        <div class="grid grid-cols-2 gap-3">
+          <TextField
+            ref="nameInput"
+            v-model="name"
+            label="Name"
+            :disabled="busy"
+            testid="agent-workspace-editor-name"
+            @keydown.enter="submit"
+          />
+          <FieldRow label="Agent">
+            <AppSelect
+              v-model="agent"
+              :options="agentOptions"
+              placeholder="No agents configured"
+              aria-label="Agent"
+              testid="agent-workspace-editor-agent"
+              :disabled="busy || !agents.length"
+            />
+          </FieldRow>
+        </div>
       </div>
 
-      <div class="flex flex-col gap-1.5">
-        <label for="agent-workspace-name" class="text-xs text-text-3">Name</label>
-        <input
-          id="agent-workspace-name"
-          ref="nameInput"
-          v-model="name"
-          type="text"
-          :disabled="busy"
-          class="w-full rounded-lg border border-strong bg-raised px-3 py-2.5 text-[13.5px] text-text outline-none focus:border-accent"
-          data-testid="agent-workspace-editor-name"
-          @keydown.enter="submit"
-        >
-      </div>
-
-      <div class="flex flex-col gap-1.5">
-        <span class="text-xs text-text-3">Agent</span>
-        <AppSelect
-          v-model="agent"
-          :options="agentOptions"
-          placeholder="No agents configured"
-          aria-label="Agent"
-          testid="agent-workspace-editor-agent"
-          :disabled="busy || !agents.length"
-        />
-      </div>
-
-      <div class="flex flex-col gap-1.5">
-        <span class="text-xs text-text-3">Autonomy</span>
+      <SettingsSection title="Autonomy" description="How much the agent does without asking.">
         <div
           role="radiogroup"
           aria-label="Autonomy"
-          class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised"
+          :class="listCardClass"
           data-testid="agent-workspace-editor-autonomy"
         >
           <button
@@ -1188,44 +1192,45 @@ onMounted(async () => {
             role="radio"
             :aria-checked="autonomy === option.value"
             :disabled="busy || option.unavailable"
-            class="flex items-start gap-2.5 px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 first:rounded-t-lg last:rounded-b-lg"
-            :class="[
-              busy || option.unavailable ? '' : 'cursor-pointer',
-              autonomy === option.value && option.danger ? 'bg-severity-warning-tint' : '',
-            ]"
+            class="flex w-full items-start gap-3 px-4 py-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+            :class="[busy || option.unavailable ? '' : 'cursor-pointer', autonomyRowClass(option)]"
             :data-testid="`agent-workspace-editor-autonomy-${option.value}`"
             @click="selectAutonomy(option)"
           >
             <span
-              class="mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border"
-              :class="autonomy === option.value ? 'border-accent' : 'border-strong'"
-            >
-              <span v-if="autonomy === option.value" class="size-1.5 rounded-full bg-accent" />
-            </span>
-            <span class="min-w-0 flex-1">
+              class="mt-0.5 size-4 shrink-0 rounded-full"
+              :class="autonomy === option.value ? 'border-[5px] border-accent bg-app' : 'border border-strong'"
+            />
+            <span class="flex min-w-0 flex-1 flex-col gap-1">
               <span class="flex items-center gap-1.5">
                 <IconTriangleAlert v-if="option.danger" class="size-3.5 shrink-0 text-severity-warning" aria-hidden="true" />
-                <span class="text-[13px]" :class="option.danger ? 'text-severity-warning' : 'text-text'">{{ option.label }}</span>
+                <span class="text-[13.5px] font-semibold" :class="option.danger ? 'text-severity-warning' : 'text-text'">{{ option.label }}</span>
               </span>
-              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-text-3">{{ option.description }}</span>
-              <span
-                v-if="option.flags"
-                class="mt-0.5 block truncate font-mono text-[11px]"
+              <span class="text-[12px] leading-relaxed text-text-3">{{ option.description }}</span>
+              <code
+                v-if="option.command"
+                class="truncate font-mono text-[11.5px]"
                 :class="option.danger ? 'text-severity-warning' : 'text-text-4'"
-                :title="option.flags"
-              >{{ agent }} {{ option.flags }}</span>
-              <span v-if="option.unavailable" class="mt-0.5 block text-[11px] text-text-4">not available for this agent</span>
+                :title="option.command"
+              >{{ option.command }}</code>
+              <span v-if="option.unavailable" class="text-[11px] text-text-4">not available for this agent</span>
             </span>
           </button>
         </div>
-      </div>
+      </SettingsSection>
 
-      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-mcps">
-        <span class="text-xs text-text-3">MCP servers</span>
-        <div v-if="mcpRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
-          <div v-for="row in mcpRows" :key="row.id" class="flex items-start gap-2.5 px-3 py-2.5">
+      <SettingsSection
+        title="MCP servers"
+        description="The shared library in mcps.yaml; each switch is this workspace's own."
+        testid="agent-workspace-editor-mcps"
+      >
+        <div :class="listCardClass">
+          <div
+            v-for="row in mcpRows"
+            :key="row.id"
+            class="flex items-start gap-3 px-4 py-3.5"
+          >
             <AppSwitch
-              size="sm"
               class="mt-0.5"
               :model-value="mcpEnabled(row.id)"
               :aria-label="`Enable ${row.title}`"
@@ -1234,68 +1239,72 @@ onMounted(async () => {
               @update:model-value="toggleMCP(row.id)"
             />
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <span class="truncate text-[13px] text-text">{{ row.title }}</span>
-                <span
-                  class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4"
-                >{{ row.shipped ? row.stability : 'custom' }}</span>
-                <span v-if="row.shadows" class="shrink-0 text-[10px] text-severity-warning">replaces shipped</span>
+              <div class="flex items-center gap-2">
+                <span class="truncate text-[13.5px] font-semibold" :class="mcpEnabled(row.id) ? 'text-text' : 'text-text-2'">{{ row.title }}</span>
+                <BaseBadge
+                  :tone="row.shipped ? 'neutral' : 'accent'"
+                  variant="pill"
+                  class="shrink-0 px-2 py-0.5 text-[10.5px] font-semibold uppercase"
+                >{{ row.shipped ? row.stability : 'custom' }}</BaseBadge>
+                <span v-if="row.shadows" class="shrink-0 text-[10.5px] text-severity-warning">replaces shipped</span>
               </div>
-              <div v-if="row.command" class="truncate font-mono text-[11px] text-text-4" :title="row.command">{{ row.command }}</div>
-              <div v-if="row.problem" class="text-[11px] text-severity-warning">{{ row.problem }}</div>
-              <div v-if="row.missing" class="text-[11px] text-severity-warning">not in the catalogue — enabled ids without an entry are skipped at launch</div>
+              <div v-if="row.command" class="mt-1 truncate font-mono text-[11.5px] text-text-4" :title="row.command">{{ row.command }}</div>
+              <div v-if="row.problem" class="mt-1 text-[11.5px] text-severity-warning">{{ row.problem }}</div>
+              <div v-if="row.missing" class="mt-1 text-[11.5px] text-severity-warning">not in the catalogue — enabled ids without an entry are skipped at launch</div>
             </div>
             <button
               v-if="!row.shipped && !row.missing"
               type="button"
-              class="mt-0.5 shrink-0 cursor-pointer text-text-4 hover:text-severity-error disabled:opacity-50"
+              :class="[iconButtonClass, 'hover:text-severity-error']"
               :title="`Remove ${row.title} from mcps.yaml (every workspace loses it)`"
               :aria-label="`Remove ${row.title}`"
               :disabled="busy"
               :data-testid="`agent-workspace-editor-mcp-remove-${row.id}`"
               @click="removeServer(row.id)"
-            ><IconTrash2 class="size-3.5" /></button>
+            ><IconTrash2 class="size-[15px]" /></button>
           </div>
-        </div>
-
-        <div v-if="importOpen" class="flex flex-col gap-1.5">
-          <CodeField
-            v-model="importText"
-            :rows="8"
-            :placeholder="importPlaceholder"
-            testid="agent-workspace-editor-mcp-import-text"
-          />
-          <div class="flex items-center gap-2">
-            <BaseButton size="sm" :busy="importBusy" :disabled="!importText.trim()" data-testid="agent-workspace-editor-mcp-import-submit" @click="submitImport">Add servers</BaseButton>
-            <BaseButton
-              variant="secondary"
-              size="sm"
-              :disabled="importBusy || !importText.trim()"
-              data-testid="agent-workspace-editor-mcp-import-format"
-              @click="formatImportJSON"
-            >Format JSON</BaseButton>
-            <BaseButton variant="secondary" size="sm" :disabled="importBusy" @click="importOpen = false">Cancel</BaseButton>
-          </div>
-          <span class="text-xs text-text-4">Pasted servers land in mcps.yaml — the library every workspace picks from — and switch on here.</span>
-        </div>
-        <button
-          v-else
-          type="button"
-          class="self-start cursor-pointer text-[12px] text-accent hover:underline"
-          :disabled="busy"
-          data-testid="agent-workspace-editor-mcp-import"
-          @click="importOpen = true"
-        >Add servers from JSON…</button>
-        <p v-if="mcpError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-mcp-error">{{ mcpError }}</p>
-      </div>
-
-      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-skills">
-        <span class="text-xs text-text-3">Skill packages</span>
-        <div v-if="skillRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
-          <div v-for="row in skillRows" :key="row.name" class="flex flex-col">
-            <div class="flex items-start gap-2.5 px-3 py-2.5">
-              <AppSwitch
+          <p v-if="!mcpRows.length" class="px-4 py-3.5 text-xs leading-relaxed text-text-3">No servers in mcps.yaml yet.</p>
+          <div v-if="importOpen" class="flex flex-col gap-2 px-4 py-3.5">
+            <CodeField
+              v-model="importText"
+              :rows="8"
+              :placeholder="importPlaceholder"
+              testid="agent-workspace-editor-mcp-import-text"
+            />
+            <div class="flex items-center gap-2">
+              <BaseButton size="sm" :busy="importBusy" :disabled="!importText.trim()" data-testid="agent-workspace-editor-mcp-import-submit" @click="submitImport">Add servers</BaseButton>
+              <BaseButton
+                variant="secondary"
                 size="sm"
+                :disabled="importBusy || !importText.trim()"
+                data-testid="agent-workspace-editor-mcp-import-format"
+                @click="formatImportJSON"
+              >Format JSON</BaseButton>
+              <BaseButton variant="secondary" size="sm" :disabled="importBusy" @click="importOpen = false">Cancel</BaseButton>
+            </div>
+            <span class="text-xs text-text-4">Pasted servers land in mcps.yaml — the library every workspace picks from — and switch on here.</span>
+          </div>
+          <button
+            v-else
+            type="button"
+            :class="footerButtonClass"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-mcp-import"
+            @click="importOpen = true"
+          ><IconPlus class="size-3.5" />Add servers from JSON…</button>
+        </div>
+        <p v-if="mcpError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-mcp-error">{{ mcpError }}</p>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Skill packages"
+        description="A package is glob patterns over skill names in skills.yml. Names come from the skills Hive ships and the SKILL.md files under .shared/skills."
+        testid="agent-workspace-editor-skills"
+      >
+        <div :class="listCardClass">
+          <div v-for="row in skillRows" :key="row.name">
+            <div class="flex items-start gap-3 px-4 py-3.5">
+              <AppSwitch
                 class="mt-0.5"
                 :model-value="skillEnabled(row.name)"
                 :aria-label="`Enable ${row.title}`"
@@ -1304,12 +1313,12 @@ onMounted(async () => {
                 @update:model-value="toggleSkill(row.name)"
               />
               <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-1.5">
-                  <span class="truncate text-[13px] text-text">{{ row.title }}</span>
+                <div class="flex items-center gap-2">
+                  <span class="truncate text-[13.5px] font-semibold" :class="skillEnabled(row.name) ? 'text-text' : 'text-text-2'">{{ row.title }}</span>
                   <button
                     v-if="!row.missing"
                     type="button"
-                    class="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-text-4 hover:text-text-3"
+                    class="flex shrink-0 cursor-pointer items-center gap-1 font-mono text-[11px] text-text-4 hover:text-text-2"
                     :aria-expanded="skillPackageExpanded(row.name)"
                     :data-testid="`agent-workspace-editor-skill-members-${row.name}`"
                     @click="toggleSkillPackageExpanded(row.name)"
@@ -1318,54 +1327,55 @@ onMounted(async () => {
                     <IconChevronDown class="size-3 transition-transform" :class="{ '-rotate-90': !skillPackageExpanded(row.name) }" />
                   </button>
                 </div>
-                <div v-if="row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ row.description }}</div>
-                <div v-if="!row.missing && !row.members.length" class="text-[11px] text-severity-warning">matches no skill — check its patterns in skills.yml</div>
-                <div v-if="row.warning" class="text-[11px] text-severity-warning">{{ row.warning }}</div>
+                <div v-if="row.description" class="mt-1 text-[12px] leading-relaxed text-text-3">{{ row.description }}</div>
+                <div v-if="!row.missing && !row.members.length" class="mt-1 text-[11.5px] text-severity-warning">matches no skill — check its patterns in skills.yml</div>
+                <div v-if="row.warning" class="mt-1 text-[11.5px] text-severity-warning">{{ row.warning }}</div>
               </div>
             </div>
-            <ul v-if="skillPackageExpanded(row.name) && row.members.length" class="flex flex-col gap-1 border-t border-row px-3 py-2 pl-9">
-              <li v-for="member in row.members" :key="member.slug" class="flex items-center gap-1.5">
+            <ul v-if="skillPackageExpanded(row.name) && row.members.length" class="flex flex-col gap-1 border-t border-row pb-3 pl-[58px] pr-4 pt-2.5">
+              <li v-for="member in row.members" :key="member.slug" class="flex items-center gap-2">
                 <span class="truncate font-mono text-[11.5px] text-text-3">{{ member.slug }}</span>
-                <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ member.shipped ? 'shipped' : 'custom' }}</span>
+                <BaseBadge tone="muted" variant="pill" class="shrink-0 px-2 py-0.5 text-[10.5px] font-medium">{{ member.shipped ? 'shipped' : 'custom' }}</BaseBadge>
               </li>
             </ul>
           </div>
+          <p v-if="!skillRows.length" class="px-4 py-3.5 text-xs leading-relaxed text-text-3">No packages are defined yet.</p>
+          <div class="flex divide-x divide-row">
+            <button
+              type="button"
+              :class="footerButtonClass"
+              :disabled="busy"
+              data-testid="agent-workspace-editor-skills-packages"
+              @click="openSkillPackages"
+            ><IconPencil class="size-3.5" />Edit skills.yml…</button>
+            <button
+              type="button"
+              :class="footerButtonClass"
+              :disabled="busy"
+              data-testid="agent-workspace-editor-skills-shared"
+              @click="openSharedSkills"
+            ><IconFolderOpen class="size-3.5" />Open the skills folder…</button>
+          </div>
         </div>
-        <span v-else class="text-xs text-text-4">No packages are defined yet.</span>
-        <div class="flex items-center gap-3">
-          <button
-            type="button"
-            class="cursor-pointer text-[12px] text-accent hover:underline"
-            :disabled="busy"
-            data-testid="agent-workspace-editor-skills-packages"
-            @click="openSkillPackages"
-          >Edit skills.yml…</button>
-          <button
-            type="button"
-            class="cursor-pointer text-[12px] text-accent hover:underline"
-            :disabled="busy"
-            data-testid="agent-workspace-editor-skills-shared"
-            @click="openSharedSkills"
-          >Open the skills folder…</button>
-        </div>
-        <span class="text-xs text-text-4">A package is glob patterns over skill names in skills.yml. Names come from the skills Hive ships and the SKILL.md files under .shared/skills.</span>
         <p v-if="skillPackagesProblem" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skills-problem">{{ skillPackagesProblem }}</p>
         <p v-if="skillError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skill-error">{{ skillError }}</p>
-      </div>
+      </SettingsSection>
 
       <!-- Schedules are manifest state like the lists above, so they are part
            of this form and travel with its Save. -->
-      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-schedules">
-        <span class="text-xs text-text-3">Schedules</span>
-        <div v-if="scheduleCards.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
+      <SettingsSection
+        title="Schedules"
+        description="A schedule starts a chat in this workspace on its own timetable. Its prompt is a Go template, so one schedule can ask for everything since the last run."
+        testid="agent-workspace-editor-schedules"
+      >
+        <div :class="listCardClass">
           <div
             v-for="(card, index) in scheduleCards"
             :key="card.key"
-            class="flex items-start gap-2.5 px-3 py-2.5"
+            class="flex items-start gap-3 px-4 py-3.5"
             :data-testid="`agent-workspace-editor-schedule-${index}`"
           >
             <AppSwitch
-              size="sm"
               class="mt-0.5"
               :model-value="!card.disabled"
               :aria-label="card.disabled ? 'Enable this schedule' : 'Pause this schedule'"
@@ -1374,15 +1384,17 @@ onMounted(async () => {
               @update:model-value="(enabled) => (card.disabled = !enabled)"
             />
             <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <span class="truncate text-[13px]" :class="card.disabled ? 'text-text-3' : 'text-text'">{{ scheduleLabel(card) }}</span>
-                <span
+              <div class="flex items-center gap-2">
+                <span class="truncate text-[13.5px] font-semibold" :class="card.disabled ? 'text-text-2' : 'text-text'">{{ scheduleLabel(card) }}</span>
+                <BaseBadge
                   v-if="!card.saved || card.edited"
-                  class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4"
+                  tone="muted"
+                  variant="pill"
+                  class="shrink-0 px-2 py-0.5 text-[10.5px] font-medium"
                   :data-testid="`agent-workspace-editor-schedule-${index}-unsaved`"
-                >unsaved</span>
+                >unsaved</BaseBadge>
               </div>
-              <div class="mt-0.5 truncate text-[11px] text-text-4">
+              <div class="mt-1 truncate text-[12px] text-text-3">
                 <span :data-testid="`agent-workspace-editor-schedule-${index}-summary`">{{ describe(card.shape) }}</span>
                 <template v-if="nextRunLabel(card)">
                   <span aria-hidden="true"> · </span>
@@ -1391,16 +1403,16 @@ onMounted(async () => {
               </div>
               <div
                 v-if="card.lastRun"
-                class="mt-0.5 flex items-center gap-1.5 text-[11px] text-text-4"
+                class="mt-1 flex items-center gap-1.5 text-[11.5px] text-text-4"
                 :data-testid="`agent-workspace-editor-schedule-${index}-last-run`"
               >
                 <span class="size-1.5 shrink-0 rounded-full" :class="statusDot(card.lastRun.status)" />
                 <span class="truncate">{{ lastRunLabel(card.lastRun) }}</span>
               </div>
-              <p v-if="card.lastRun?.error" class="mt-0.5 text-[11px] leading-relaxed text-severity-warning">{{ card.lastRun.error }}</p>
+              <p v-if="card.lastRun?.error" class="mt-1 text-[11.5px] leading-relaxed text-severity-warning">{{ card.lastRun.error }}</p>
               <p
                 v-if="card.actionError"
-                class="mt-0.5 text-[11px] leading-relaxed text-severity-error"
+                class="mt-1 text-[11.5px] leading-relaxed text-severity-error"
                 :data-testid="`agent-workspace-editor-schedule-${index}-action-error`"
               >{{ card.actionError }}</p>
             </div>
@@ -1408,46 +1420,41 @@ onMounted(async () => {
               <button
                 v-if="card.saved"
                 type="button"
-                class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
+                :class="iconButtonClass"
                 title="Run now"
                 aria-label="Run now"
                 :disabled="busy || card.running"
                 :data-testid="`agent-workspace-editor-schedule-${index}-run`"
                 @click="runScheduleNow(card)"
-              ><IconPlay class="size-3" /></button>
+              ><IconPlay class="size-[15px]" /></button>
               <button
                 type="button"
-                class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
+                :class="iconButtonClass"
                 title="Edit this schedule"
                 aria-label="Edit this schedule"
                 :disabled="busy"
                 :data-testid="`agent-workspace-editor-schedule-${index}-edit`"
                 @click="openScheduleDraft(card, $event)"
-              ><IconPencil class="size-3" /></button>
+              ><IconChevronRight class="size-4" /></button>
             </div>
           </div>
+          <p v-if="!scheduleCards.length" class="px-4 py-3.5 text-xs leading-relaxed text-text-3">No schedules yet.</p>
+          <button
+            type="button"
+            :class="footerButtonClass"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-schedule-add"
+            @click="openScheduleDraft(null, $event)"
+          ><IconPlus class="size-3.5" />Add schedule</button>
         </div>
-        <span v-else class="text-xs text-text-4">No schedules yet.</span>
-        <button
-          type="button"
-          class="flex cursor-pointer items-center gap-1.5 self-start text-[12px] text-accent hover:underline"
-          :disabled="busy"
-          data-testid="agent-workspace-editor-schedule-add"
-          @click="openScheduleDraft(null, $event)"
-        ><IconPlus class="size-3.5" />Add schedule</button>
-        <span class="text-xs text-text-4">A schedule starts a chat in this workspace on its own timetable. Its prompt is a Go template, so one schedule can ask for everything since the last run.</span>
-      </div>
+      </SettingsSection>
 
-      <p v-if="!creating" class="text-xs leading-relaxed text-text-4">
+      <p v-if="!creating" class="border-t border-border pt-4 text-xs leading-relaxed text-text-4">
         Saving rewrites these fields in agent-workspace.yaml and re-syncs the workspace's
         generated files. Comments and anything else in the file stay as written — edit the
         file for those.
       </p>
-      <p
-        v-if="error && !confirming"
-        class="rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error"
-        data-testid="agent-workspace-editor-error"
-      >{{ error }}</p>
+      <SettingsError v-if="error && !confirming" :message="error" testid="agent-workspace-editor-error" />
     </div>
 
     <template #footer>

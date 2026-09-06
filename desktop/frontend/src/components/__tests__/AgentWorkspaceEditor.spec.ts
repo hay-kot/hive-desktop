@@ -643,9 +643,10 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
-  // A saved schedule's page reads its history as it opens, and the chat a run
-  // launched is opened by the area, never by the drawer writing a route.
-  it('loads the run history with the page and asks the area to open a run chat', async () => {
+  // A saved schedule's page reads its history as it opens. The history offers
+  // no way into a run's chat: a scheduled chat deletes itself when its task is
+  // done, so the pointer would be dead for almost every row.
+  it('loads the run history with the page', async () => {
     const client = scheduleClient()
     mocks.client = client
     const wrapper = mountEditor({ ...demo, schedules: [schedule()] })
@@ -656,9 +657,7 @@ describe('AgentWorkspaceEditor', () => {
     await flushPromises()
     expect(client.scheduleRuns).toHaveBeenCalledWith('demo', 'weekly-summary', 20)
     expect(el('agent-workspace-editor-schedule-history')!.textContent).toContain('launched · on schedule')
-
-    el<HTMLButtonElement>('agent-workspace-editor-schedule-open-chat-3')!.click()
-    expect(wrapper.emitted('open-chat')).toEqual([[9]])
+    expect(el('agent-workspace-editor-schedule-open-chat-3')).toBeNull()
     wrapper.unmount()
   })
 

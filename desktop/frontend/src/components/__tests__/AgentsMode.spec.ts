@@ -391,36 +391,6 @@ describe('AgentsMode', () => {
     expect(router.currentRoute.value.query.canvas).toBe('1')
   })
 
-  // A scheduled chat is usually opened after its agent finished, so the
-  // editor's "Open chat" has to relaunch it the way a click on its sidebar row
-  // does: writing ?chat alone would do nothing at all. The editor closes with
-  // it, since it covers the pane the chat opens into. The history is on the
-  // schedule's page, which loads it as it opens.
-  it('relaunches a finished scheduled chat from the run history', async () => {
-    const client = fakeClient()
-    const dead = { ...chatRow, id: 9, name: 'Weekly summary', terminalId: '' }
-    client.allSessions.mockResolvedValue([dead])
-    client.scheduleRuns.mockResolvedValue([{
-      id: 3, workspace: 'web-app', scheduleId: 'weekly-summary', scheduleName: 'Weekly summary',
-      scheduledFor: Date.now(), startedAt: Date.now(), reason: 'due', status: 'launched',
-      missed: 0, sessionId: 9, prompt: 'Summarize the week.', error: '',
-    }])
-    client.resumeSession.mockResolvedValue({ ...dead, terminalId: 'agentws-9', windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
-    mocks.createAgentWorkspacesClient.mockReturnValue(client)
-    const { wrapper, router } = await mountAgentsMode('/workspaces/web-app')
-
-    wrapper.findComponent(AgentsSidebar).vm.$emit('edit-workspace', workspaceRows[0])
-    await flushPromises()
-    document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-0-edit"]')!.click()
-    await flushPromises()
-    document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-open-chat-3"]')!.click()
-    await flushPromises()
-
-    expect(client.resumeSession).toHaveBeenCalledWith({ id: 9 })
-    expect(router.currentRoute.value.query.chat).toBe('9')
-    expect(document.querySelector('[data-testid="agent-workspace-editor"]')).toBeNull()
-  })
-
   // A schedule firing at 09:00 starts a chat nobody clicked for: the tree
   // learns about it from the wake-up, not from the next user action.
   it('reloads the chat list when a schedule reports a change', async () => {
