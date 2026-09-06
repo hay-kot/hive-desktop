@@ -8,12 +8,11 @@ Private product monorepo for the Hive desktop application and its supporting ser
 | --------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
 | Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/app/` + `internal/adapter/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |
 | Vendored hive core                            | `internal/hivecore/`             | CLI-managed by `cmd/vendorhive` — **read-only**                                              |
-| Admin server (analytics, licenses, purchases) | `server/`                        | Future — nested Go module when built                                                         |
 | Landing page                                  | `web/`                           | Static HTML on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com) |
 
 ## Layout & conventions
 
-- Root Go module `github.com/hay-kot/hive-desktop` owns the desktop app and vendored core. `server/` becomes its own nested module (plus a root `go.work`) when it exists — see `AGENTS.md`.
+- Root Go module `github.com/hay-kot/hive-desktop` owns the desktop app and vendored core.
 - Code under `internal/hivecore/` is vendored from `colonyops/hive` at the SHA pinned in `cmd/vendorhive/vendor.lock`. Never edit it here: change hive first, then re-vendor.
 - Releases are signed/notarized in CI and uploaded to Cloudflare R2 behind a stable domain — versioned zips plus a `latest.json` manifest that drives the in-app updater and the landing-page download link. GitHub releases are not user-facing.
 

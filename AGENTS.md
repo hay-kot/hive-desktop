@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Private product monorepo: Hive desktop app, future admin server, and landing page.
+Monorepo for the Hive desktop app and the landing page.
 
 ## Before building a feature
 
@@ -23,7 +23,6 @@ document wins for new work — do not extend the shape it is replacing.
 ## Module layout
 
 - **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/app/`, `internal/adapter/`) and vendored hive core (`internal/hivecore/`). See [`desktop/AGENTS.md`](desktop/AGENTS.md).
-- **`server/`** — future Go admin backend, a nested module when it lands. Placeholder only; see [`server/README.md`](server/README.md).
 - **`web/`** — the landing page and public docs at `hivedesktop.com`, an Astro build on Cloudflare Workers. See [`web/AGENTS.md`](web/AGENTS.md).
 
 ## Development tooling — `cmd/`
