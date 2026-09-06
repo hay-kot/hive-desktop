@@ -160,11 +160,16 @@ type EditorSettings struct {
 // Endpoint is the signal-less OTLP base; on Grafana Cloud InstanceID is the
 // OTLP instance id from the stack's OpenTelemetry tile, not the stack id.
 //
-// Token is a reference, never a token — "env:NAME", "file:/path", or
-// "op://vault/item/field" — so a dotfiles-managed settings.yaml names where
-// the credential lives without carrying it. A literal is rejected rather than
-// passed through, which is what makes that rule enforceable instead of
-// advisory. See internal/app/secrets.
+// All three may be an internal/app/secrets reference — "env:NAME",
+// "file:/path", "op://vault/item/field" — so one 1Password item can hold a
+// whole destination. They differ in whether a literal is allowed: Token
+// *requires* a reference, because a literal there is a credential in a
+// dotfiles-managed file, while Endpoint and InstanceID name a destination and
+// are ordinarily written out.
+//
+// A reference is resolved at launch, so Validate checks Endpoint's URL shape
+// only when it is written out. The resolved value is checked either way, by
+// the telemetry package.
 type TelemetrySettings struct {
 	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
 	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
@@ -404,15 +409,20 @@ func validateTelemetry(t TelemetrySettings) error {
 	if endpoint == "" {
 		return fmt.Errorf("telemetry.endpoint is required when telemetry.enabled is true")
 	}
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return fmt.Errorf("telemetry.endpoint must be a valid URL: %w", err)
-	}
-	if parsed.Scheme != "https" {
-		return fmt.Errorf("telemetry.endpoint must use https")
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("telemetry.endpoint must include a host")
+	// A reference's target is unknown until launch, so only a written-out
+	// endpoint can be checked here. Resolving during Validate would shell out
+	// to a secret manager on every settings save.
+	if !secrets.HasKnownPrefix(endpoint) {
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			return fmt.Errorf("telemetry.endpoint must be a valid URL: %w", err)
+		}
+		if parsed.Scheme != "https" {
+			return fmt.Errorf("telemetry.endpoint must use https")
+		}
+		if parsed.Host == "" {
+			return fmt.Errorf("telemetry.endpoint must include a host")
+		}
 	}
 	if strings.TrimSpace(t.InstanceID) == "" {
 		return fmt.Errorf("telemetry.instance_id is required when telemetry.enabled is true")

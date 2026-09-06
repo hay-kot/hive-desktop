@@ -31,6 +31,21 @@ adds sources.
    through as a literal by design — that is right for a library and wrong for
    this config, so the check lives here.
 
+   **A field beside a secret may take a reference without requiring one.**
+   `telemetry.endpoint` and `telemetry.instance_id` name a destination rather
+   than a credential, and are ordinarily written out; accepting a reference
+   there is what lets one 1Password item hold a whole destination instead of
+   splitting it across the file and the vault. Requiring one would be wrong —
+   an endpoint is not a secret. So the rule is per field: `Resolve` on every
+   one, `HasKnownPrefix` only on the ones that must not hold a literal.
+
+   The cost is that a shape check must be conditional. `telemetry.endpoint`'s
+   https rule cannot apply to a reference, whose target is unknown until
+   launch, and resolving inside `Validate` would shell out to a secret manager
+   on every settings save. A written-out endpoint is therefore checked at load
+   and a reference at construction, where the resolved value is checked
+   either way.
+
 2. **`op://<vault>/<item>/<field>` is a registered source.** The prefix cut
    leaves `//vault/item/field`, which the resolver rebuilds into the canonical
    reference and hands to `op read --no-newline`. The value in config is
@@ -70,10 +85,12 @@ adds sources.
   a `Register` call and one entry in `KnownPrefixes`, not a new mechanism, and
   it is how `credentials.Store` would eventually be reachable from config.
 - A 1Password read can block on a person approving a prompt, so it is bounded
-  at 30s and runs once at startup. An unattended launch with a locked vault
+  at 30s, runs once at startup, and is skipped entirely when the section that
+  names it is disabled — a turned-off `telemetry` block must never raise a
+  prompt. An unattended launch with a locked vault
   resolves to an error, which disables telemetry with the reason logged rather
   than failing startup.
 - `op` is not a dependency. A config that never names an `op://` reference
   never looks for it.
-- Only `telemetry.token` uses this today. Nothing forces an existing
+- The `telemetry` block is the only user today. Nothing forces an existing
   `credentials.Ref` field to migrate, and none should until there is a reason.

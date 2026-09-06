@@ -92,16 +92,21 @@ func main() {
 	// Built before the final logger because its log bridge is one of that
 	// logger's writer arms. A bad configuration disables telemetry rather than
 	// failing startup: nothing else depends on it.
-	tel, telErr := telemetry.New(ctx, telemetry.Options{
+	telOpts := telemetry.Options{
 		Export:      cfg.Telemetry.Enabled,
-		Endpoint:    cfg.Telemetry.Endpoint,
-		User:        cfg.Telemetry.InstanceID,
-		Token:       telemetryToken(cfg.Telemetry, &logger),
 		Scrape:      cfg.Development.Metrics.Enabled,
 		Version:     version,
 		Environment: environment,
 		Instance:    cfg.Development.Instance.ID,
-	})
+	}
+	// Only when export is on: resolving a reference can prompt for approval,
+	// which a disabled section must never do.
+	if cfg.Telemetry.Enabled {
+		telOpts.Endpoint = resolveSetting("telemetry.endpoint", cfg.Telemetry.Endpoint, &logger)
+		telOpts.User = resolveSetting("telemetry.instance_id", cfg.Telemetry.InstanceID, &logger)
+		telOpts.Token = resolveSetting("telemetry.token", cfg.Telemetry.Token, &logger)
+	}
+	tel, telErr := telemetry.New(ctx, telOpts)
 	if telErr != nil {
 		tel = telemetry.Off()
 	}
@@ -309,19 +314,20 @@ func main() {
 // able to hold up quitting, and losing the last batch costs less than a hang.
 const telemetryFlushGrace = 2 * time.Second
 
-// telemetryToken resolves telemetry.token, which is a reference rather than a
-// credential. A failure here reports as no token, so telemetry disables itself
-// with the reason logged instead of failing startup.
-func telemetryToken(cfg settings.TelemetrySettings, logger *zerolog.Logger) string {
-	if !cfg.Enabled || cfg.Token == "" {
+// resolveSetting reads a value that may be a secret reference. A literal
+// resolves to itself, so this is safe on a setting that is ordinarily written
+// out. A failure resolves to empty, which telemetry reports as a missing
+// setting rather than failing startup.
+func resolveSetting(name, ref string, logger *zerolog.Logger) string {
+	if ref == "" {
 		return ""
 	}
-	token, err := secrets.Resolve(cfg.Token)
+	value, err := secrets.Resolve(ref)
 	if err != nil {
-		logger.Error().Err(err).Msg("telemetry.token could not be resolved")
+		logger.Error().Err(err).Str("setting", name).Msg("telemetry setting could not be resolved")
 		return ""
 	}
-	return token
+	return value
 }
 
 // telemetryEnvironment separates a working tree's signals from a release's. A

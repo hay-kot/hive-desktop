@@ -183,8 +183,8 @@ http:
   port: 0 # the OS chooses
 telemetry:
   enabled: false # export this app's own metrics, logs and traces over OTLP
-  endpoint: "" # the signal-less OTLP base, https only
-  instance_id: "" # the endpoint's basic-auth username
+  endpoint: "" # the signal-less OTLP base, https only; may be a secret reference
+  instance_id: "" # the endpoint's basic-auth username; may be a secret reference
   token: "" # a reference, never a token: env:NAME, file:/path, or op://vault/item/field
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
                  # A binding is a single combo ("j") or a space-separated
@@ -228,15 +228,33 @@ collector in between; `development.metrics` serves the same instruments at
 `/metrics` on the loopback server for a local scrape. The two are independent —
 either, both, or neither — because one MeterProvider feeds both readers.
 
-`telemetry.token` holds a **reference**, not a credential, and a literal is
-rejected rather than accepted (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources). Three sources are
-recognized:
+All three of `endpoint`, `instance_id` and `token` accept a **secret
+reference** (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources), so one 1Password item can hold a whole
+destination:
 
 ```yaml
-token: env:HIVE_GRAFANACLOUD_TOKEN          # headless and CI
-token: file:~/.config/hive/otlp-token       # works however the app was launched
-token: op://Private/Grafana Cloud/credential # 1Password, via the op CLI
+telemetry:
+  enabled: true
+  endpoint: op://Private/Grafana Cloud/endpoint
+  instance_id: op://Private/Grafana Cloud/username
+  token: op://Private/Grafana Cloud/credential
 ```
+
+Three sources are recognized — `env:NAME`, `file:/path`, and
+`op://vault/item/field` — and they differ in whether a literal is allowed.
+`token` **requires** a reference, because a literal there is a credential in a
+dotfiles-managed file; `endpoint` and `instance_id` name a destination and are
+ordinarily written out, so both forms work:
+
+```yaml
+endpoint: https://otlp-gateway-prod-us-central-0.grafana.net/otlp  # fine
+token: glc_eyJvIjoi...                                            # rejected
+```
+
+A written-out endpoint is checked for https at load. A reference is not,
+because its target is unknown until launch; the resolved value is checked
+either way. References resolve only when `telemetry.enabled` is true, so a
+disabled section never raises a 1Password prompt.
 
 Prefer `file:` or `op://` for an installed app. A launched `.app` inherits
 almost no environment and the app reads no env files, so `env:` resolves only

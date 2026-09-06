@@ -288,6 +288,26 @@ func TestTelemetryAcceptsEverySecretReferenceForm(t *testing.T) {
 	}
 }
 
+// The whole destination can live in one secret, so the endpoint and the
+// instance id take a reference too. Unlike the token they may also be written
+// out, which is why a literal is still checked for shape.
+func TestTelemetryEndpointAndInstanceIDAcceptReferences(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = telemetryFixture(func(s *TelemetrySettings) {
+		s.Endpoint = "op://Private/Grafana Cloud/endpoint"
+		s.InstanceID = "op://Private/Grafana Cloud/username"
+	})
+	require.NoError(t, cfg.Validate())
+}
+
+// A reference's target is unknown until launch, so the https rule cannot be
+// applied to it here. The telemetry package checks the resolved value.
+func TestTelemetryDefersURLChecksOnAReference(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = telemetryFixture(func(s *TelemetrySettings) { s.Endpoint = "file:/etc/hive/otlp-endpoint" })
+	require.NoError(t, cfg.Validate())
+}
+
 // Nothing is required while the section is off, so a half-filled block does
 // not stop the app from starting.
 func TestTelemetryDisabledSkipsValidation(t *testing.T) {
