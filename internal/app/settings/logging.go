@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,19 +29,29 @@ func ResolveLogLevel() (zerolog.Level, error) {
 }
 
 // NewLogger builds the root logger at the resolved immutable path and level.
-func NewLogger(path string, level zerolog.Level) (zerolog.Logger, func(), error) {
+//
+// Each extra writer is an additional arm of the same MultiLevelWriter and
+// receives the encoded JSON event, not the console rendering the two built-in
+// arms produce — the two ConsoleWriters parse that same JSON to pretty-print
+// it. That is the seam a log bridge attaches to: a zerolog.Hook is handed only
+// the level and the message, while an arm sees the event's fields.
+//
+// An extra writer must not fail the write or block: it is a tap on the log
+// pipeline, and an error here would be an error about an error.
+func NewLogger(path string, level zerolog.Level, extra ...io.Writer) (zerolog.Logger, func(), error) {
 	stderr := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+	build := func(writers ...io.Writer) zerolog.Logger {
+		return zerolog.New(zerolog.MultiLevelWriter(writers...)).With().Timestamp().Logger().Level(level)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		l := zerolog.New(stderr).With().Timestamp().Logger().Level(level)
-		return l, func() {}, fmt.Errorf("create desktop log dir: %w", err)
+		return build(append([]io.Writer{stderr}, extra...)...), func() {}, fmt.Errorf("create desktop log dir: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		l := zerolog.New(stderr).With().Timestamp().Logger().Level(level)
-		return l, func() {}, fmt.Errorf("open desktop log file: %w", err)
+		return build(append([]io.Writer{stderr}, extra...)...), func() {}, fmt.Errorf("open desktop log file: %w", err)
 	}
 	fileW := zerolog.ConsoleWriter{Out: f, NoColor: true, TimeFormat: time.RFC3339}
-	l := zerolog.New(zerolog.MultiLevelWriter(fileW, stderr)).With().Timestamp().Logger().Level(level)
+	l := build(append([]io.Writer{fileW, stderr}, extra...)...)
 	return l, func() { _ = f.Close() }, nil
 }
 

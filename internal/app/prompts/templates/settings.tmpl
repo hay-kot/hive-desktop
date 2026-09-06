@@ -58,6 +58,12 @@ agent_workspaces:
   dir: ""                  # workspace root; empty is the config dir's workspaces/.
                            # A leading ~ is expanded at read time.
 
+telemetry:
+  enabled: false           # export the app's own metrics, logs and traces over OTLP
+  endpoint: ""             # signal-less OTLP base, https only; no collector needed
+  instance_id: ""          # the endpoint's basic-auth username. The token is never
+                           # a setting: it is read from HIVE_GRAFANACLOUD_TOKEN
+
 development:
   mocks:
     mode: live             # live, feed, pipeline, onboarding, action-smoke
@@ -71,6 +77,8 @@ development:
     enabled: false         # serves /debug/pprof on the local server
   perf:
     enabled: false         # record UI performance spans to a JSONL file
+  metrics:
+    enabled: false         # serves /metrics on the local server for a scrape
   debug:
     pause_ingest: 0s
     pause_commit: 0s
@@ -83,6 +91,7 @@ development:
 - `polling.interval` below 60s is rejected.
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
+- `telemetry.enabled` requires `telemetry.endpoint` and `telemetry.instance_id`, and the endpoint must be https. It is the one URL setting that is deliberately not loopback-only; the token is never a setting.
 - `profiles.order` never has to be exhaustive: name only the profiles whose position matters. Dragging a tile in the rail rewrites the whole key; editing it here takes effect on the next launch.
 - `keybindings` has its own command-id vocabulary. Read the ids off Settings ▸ Keyboard rather than guessing them. A binding can be a single combo (`j`) or a space-separated sequence of combos pressed in order (`g i`).
 {{template "task" .}}

@@ -181,6 +181,10 @@ http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
   host: 127.0.0.1
   port: 0 # the OS chooses
+telemetry:
+  enabled: false # export this app's own metrics, logs and traces over OTLP
+  endpoint: "" # the signal-less OTLP base, https only
+  instance_id: "" # the endpoint's basic-auth username
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
                  # A binding is a single combo ("j") or a space-separated
                  # sequence of combos pressed in order ("g i").
@@ -201,6 +205,8 @@ development:
     port: 0
   pprof:
     enabled: false # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
+  metrics:
+    enabled: false # serves /metrics on the loopback HTTP server when on
   debug:
     pause_ingest: 0s
     pause_commit: 0s
@@ -215,6 +221,19 @@ misses; it must be absolute, a configured path that does not work is an error
 rather than a fallback to a different tmux, and changing it takes a relaunch.
 Installing tmux does not: a failed lookup is retried, so only a successful one
 is remembered.
+
+`telemetry` sends the app's own signals to an OpenTelemetry endpoint with no
+collector in between; `development.metrics` serves the same instruments at
+`/metrics` on the loopback server for a local scrape. The two are independent —
+either, both, or neither — because one MeterProvider feeds both readers.
+
+There is no token field. `telemetry.endpoint` and `telemetry.instance_id`
+identify a destination and are safe to commit; the token is read from
+`HIVE_GRAFANACLOUD_TOKEN`, so a settings file that is under version control
+never carries a credential. For Grafana Cloud the endpoint is
+`https://otlp-gateway-<zone>.grafana.net/otlp` and `instance_id` is the OTLP
+instance id printed on the stack's OpenTelemetry tile, which is **not** the
+stack id.
 
 Every scalar override mirrors its YAML path, for example
 `updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `http.port` →

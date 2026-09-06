@@ -221,6 +221,18 @@ func TestSettingsValidation(t *testing.T) {
 		}},
 		{"relative tmux path", func(s *Settings) { s.Paths.Tmux = "bin/tmux" }},
 		{"bare tmux name", func(s *Settings) { s.Paths.Tmux = "tmux" }},
+		{"telemetry without endpoint", func(s *Settings) {
+			s.Telemetry = TelemetrySettings{Enabled: true, InstanceID: "123456"}
+		}},
+		{"telemetry without instance id", func(s *Settings) {
+			s.Telemetry = TelemetrySettings{Enabled: true, Endpoint: "https://gw.example.com/otlp"}
+		}},
+		{"telemetry plaintext endpoint", func(s *Settings) {
+			s.Telemetry = TelemetrySettings{Enabled: true, Endpoint: "http://gw.example.com/otlp", InstanceID: "123456"}
+		}},
+		{"telemetry endpoint without host", func(s *Settings) {
+			s.Telemetry = TelemetrySettings{Enabled: true, Endpoint: "https:///otlp", InstanceID: "123456"}
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -229,6 +241,27 @@ func TestSettingsValidation(t *testing.T) {
 			require.Error(t, cfg.Validate())
 		})
 	}
+}
+
+// A telemetry endpoint is deliberately remote, unlike every other URL setting.
+// The loopback rule that guards development.github.api_base must not creep
+// onto it.
+func TestTelemetryAcceptsARemoteEndpoint(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = TelemetrySettings{
+		Enabled:    true,
+		Endpoint:   "https://otlp-gateway-prod-us-central-0.grafana.net/otlp",
+		InstanceID: "123456",
+	}
+	require.NoError(t, cfg.Validate())
+}
+
+// Nothing is required while the section is off, so a half-filled block does
+// not stop the app from starting.
+func TestTelemetryDisabledSkipsValidation(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = TelemetrySettings{Enabled: false, Endpoint: "http://not-a-real-endpoint"}
+	require.NoError(t, cfg.Validate())
 }
 
 // A struct tag cannot reference a constant, so the env name is written twice.

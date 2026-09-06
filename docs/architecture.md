@@ -186,6 +186,7 @@ column is the section that specifies it.
 | A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR terminal-transport |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
+| A new **metric, span, or log field** | Consumer-defined interface in the emitting package; the SDK stays in `app/telemetry` | [Telemetry](#telemetry) |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
@@ -356,6 +357,10 @@ internal/
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
                                   #   and no dependencies (ADR ui-performance-spans-are-recorded-to-jsonl)
+    telemetry/                    # the app's own metrics, logs and traces over
+                                  #   OTLP, and the local /metrics scrape; the
+                                  #   only package that imports the OTel SDK
+                                  #   (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape)
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
 
@@ -805,6 +810,33 @@ requires `http.enabled`, and a disabled endpoint has no route at all.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware, **adopted** — see below) and `mapx`.
+
+### Telemetry
+
+The app's own metrics, logs and traces go out over OTLP with **no collector**
+(ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape). Two independent gates sit over one MeterProvider:
+`telemetry.enabled` pushes to a remote endpoint, `development.metrics.enabled`
+mounts `/metrics` on the shared loopback server exactly as pprof does. Both off
+is the no-op object, so no call site checks whether telemetry is configured.
+
+**`internal/app/telemetry` is the only package that may import the OTel SDK.**
+A subsystem that wants to emit declares a narrow interface it owns and takes an
+implementation as a constructor parameter — `tmuxcc.MetricsSink` is the shape,
+and `NopMetrics` is why a holder needs no nil check. Importing `otel` anywhere
+else means the SDK can no longer be swapped or removed in one place.
+
+Four resource attributes carry identity, and they are not a free choice:
+`service.name`, `service.instance.id`, `deployment.environment.name` and
+`service.version` are the ones a backend keeps as a queryable dimension rather
+than filing into `target_info` or structured metadata. `service.version` is a
+Prometheus label but **not** a Loki one, which is why the release channel is
+the primary separator between builds. Anything else worth slicing by has to
+become one of these four or a metric label — adding a fifth resource attribute
+does not make it queryable.
+
+The log bridge is a **zerolog writer arm**, not a `zerolog.Hook`: a Hook cannot
+read an event's fields. `settings.NewLogger` takes extra writers for this, and
+an extra arm must never fail a write or block.
 
 ### Source HTTP
 
