@@ -181,6 +181,11 @@ http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
   host: 127.0.0.1
   port: 0 # the OS chooses
+telemetry:
+  enabled: false # export this app's own metrics, logs and traces over OTLP
+  endpoint: "" # the signal-less OTLP base, https only; may be a secret reference
+  instance_id: "" # the endpoint's basic-auth username; may be a secret reference
+  token: "" # a reference, never a token: env:NAME, file:/path, or op://vault/item/field
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
                  # A binding is a single combo ("j") or a space-separated
                  # sequence of combos pressed in order ("g i").
@@ -201,6 +206,8 @@ development:
     port: 0
   pprof:
     enabled: false # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
+  metrics:
+    enabled: false # serves /metrics on the loopback HTTP server when on
   debug:
     pause_ingest: 0s
     pause_commit: 0s
@@ -215,6 +222,50 @@ misses; it must be absolute, a configured path that does not work is an error
 rather than a fallback to a different tmux, and changing it takes a relaunch.
 Installing tmux does not: a failed lookup is retried, so only a successful one
 is remembered.
+
+`telemetry` sends the app's own signals to an OpenTelemetry endpoint with no
+collector in between; `development.metrics` serves the same instruments at
+`/metrics` on the loopback server for a local scrape. The two are independent —
+either, both, or neither — because one MeterProvider feeds both readers.
+
+All three of `endpoint`, `instance_id` and `token` accept a **secret
+reference** (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources), so one 1Password item can hold a whole
+destination:
+
+```yaml
+telemetry:
+  enabled: true
+  endpoint: op://Private/Grafana Cloud/endpoint
+  instance_id: op://Private/Grafana Cloud/username
+  token: op://Private/Grafana Cloud/credential
+```
+
+Three sources are recognized — `env:NAME`, `file:/path`, and
+`op://vault/item/field` — and they differ in whether a literal is allowed.
+`token` **requires** a reference, because a literal there is a credential in a
+dotfiles-managed file; `endpoint` and `instance_id` name a destination and are
+ordinarily written out, so both forms work:
+
+```yaml
+endpoint: https://otlp-gateway-prod-us-central-0.grafana.net/otlp  # fine
+token: glc_eyJvIjoi...                                            # rejected
+```
+
+A written-out endpoint is checked for https at load. A reference is not,
+because its target is unknown until launch; the resolved value is checked
+either way. References resolve only when `telemetry.enabled` is true, so a
+disabled section never raises a 1Password prompt.
+
+Prefer `file:` or `op://` for an installed app. A launched `.app` inherits
+almost no environment and the app reads no env files, so `env:` resolves only
+when a shell or `mise run dev` put the variable there. The `op://` value is
+what 1Password's own **Copy Secret Reference** puts on the clipboard; `op` is
+found through the same package-manager prefixes tmux discovery searches, and a
+locked vault can raise an approval prompt on the first read.
+
+For Grafana Cloud the endpoint is `https://otlp-gateway-<zone>.grafana.net/otlp`
+and `instance_id` is the OTLP instance id printed on the stack's OpenTelemetry
+tile, which is **not** the stack id.
 
 Every scalar override mirrors its YAML path, for example
 `updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `http.port` →

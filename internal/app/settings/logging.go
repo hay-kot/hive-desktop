@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -28,19 +29,25 @@ func ResolveLogLevel() (zerolog.Level, error) {
 }
 
 // NewLogger builds the root logger at the resolved immutable path and level.
-func NewLogger(path string, level zerolog.Level) (zerolog.Logger, func(), error) {
+//
+// An extra writer is another arm of the MultiLevelWriter and receives the
+// encoded JSON event, not the console rendering — which is the seam a log
+// bridge attaches to, since a zerolog.Hook sees only level and message. An
+// extra arm must not fail the write or block.
+func NewLogger(path string, level zerolog.Level, extra ...io.Writer) (zerolog.Logger, func(), error) {
 	stderr := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
+	build := func(writers ...io.Writer) zerolog.Logger {
+		return zerolog.New(zerolog.MultiLevelWriter(writers...)).With().Timestamp().Logger().Level(level)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		l := zerolog.New(stderr).With().Timestamp().Logger().Level(level)
-		return l, func() {}, fmt.Errorf("create desktop log dir: %w", err)
+		return build(append([]io.Writer{stderr}, extra...)...), func() {}, fmt.Errorf("create desktop log dir: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		l := zerolog.New(stderr).With().Timestamp().Logger().Level(level)
-		return l, func() {}, fmt.Errorf("open desktop log file: %w", err)
+		return build(append([]io.Writer{stderr}, extra...)...), func() {}, fmt.Errorf("open desktop log file: %w", err)
 	}
 	fileW := zerolog.ConsoleWriter{Out: f, NoColor: true, TimeFormat: time.RFC3339}
-	l := zerolog.New(zerolog.MultiLevelWriter(fileW, stderr)).With().Timestamp().Logger().Level(level)
+	l := build(append([]io.Writer{fileW, stderr}, extra...)...)
 	return l, func() { _ = f.Close() }, nil
 }
 

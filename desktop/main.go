@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
@@ -25,7 +27,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
+	"github.com/hay-kot/hive-desktop/internal/app/secrets"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/telemetry"
 )
 
 //go:embed all:frontend/dist
@@ -77,13 +81,55 @@ func main() {
 		MockMode:           cfg.MockMode(),
 		AgentWorkspacesDir: cfg.AgentWorkspaces.Dir,
 	})
-	if paths.LogFile != initialLogPath {
+
+	// Cancelled by shutdown rather than deferred: log.Fatal below would skip a
+	// defer, and shutdown is the one path both exits take.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	version, commit, date := resolvedBuildInfo()
+	environment := telemetryEnvironment(version)
+
+	// Built before the final logger because its log bridge is one of that
+	// logger's writer arms. A bad configuration disables telemetry rather than
+	// failing startup: nothing else depends on it.
+	telOpts := telemetry.Options{
+		Export:      cfg.Telemetry.Enabled,
+		Scrape:      cfg.Development.Metrics.Enabled,
+		Version:     version,
+		Environment: environment,
+		Instance:    cfg.Development.Instance.ID,
+	}
+	// Only when export is on: resolving a reference can prompt for approval,
+	// which a disabled section must never do.
+	if cfg.Telemetry.Enabled {
+		telOpts.Endpoint = resolveSetting("telemetry.endpoint", cfg.Telemetry.Endpoint, &logger)
+		telOpts.User = resolveSetting("telemetry.instance_id", cfg.Telemetry.InstanceID, &logger)
+		telOpts.Token = resolveSetting("telemetry.token", cfg.Telemetry.Token, &logger)
+	}
+	tel, telErr := telemetry.New(ctx, telOpts)
+	if telErr != nil {
+		tel = telemetry.Off()
+	}
+
+	if paths.LogFile != initialLogPath || len(tel.LogWriters()) > 0 {
 		logCloser()
-		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level)
+		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level, tel.LogWriters()...)
 		if logErr != nil {
 			logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
 		}
 	}
+	switch {
+	case telErr != nil:
+		logger.Error().Err(telErr).Msg("telemetry is configured but unusable; continuing without it")
+	case tel.Enabled():
+		logger.Info().
+			Bool("export", cfg.Telemetry.Enabled).
+			Bool("scrape", cfg.Development.Metrics.Enabled).
+			Str("environment", environment).
+			Str("version", version).
+			Msg("telemetry enabled")
+	}
+
 	settingsStore = settings.NewStore(paths.SettingsPath)
 	backupDir = filepath.Join(paths.StateDir, "migration-backups")
 
@@ -110,15 +156,18 @@ func main() {
 			Msg("GitHub API base overridden; not talking to api.github.com")
 	}
 
-	// Cancelled by shutdown rather than deferred: log.Fatal below would skip a
-	// defer, and shutdown is the one path both exits take.
-	ctx, cancel := context.WithCancel(context.Background())
+	// One span per startup phase, so "the app is slow to open" resolves to
+	// which phase without further instrumentation.
+	startupCtx, startupSpan := tel.Tracer().Start(ctx, "app.startup", trace.WithAttributes(
+		attribute.String("build.commit", commit),
+		attribute.String("build.date", date),
+	))
 
 	// The adapter is built first because the core takes two driven ports from
 	// it — where a notification is delivered, and whether it may be.
 	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
-	version, commit, date := resolvedBuildInfo()
+	_, coreSpan := tel.Tracer().Start(startupCtx, "app.core.new")
 	core, err := app.New(ctx, app.Config{
 		Settings:       cfg,
 		SettingsStore:  settingsStore,
@@ -130,6 +179,7 @@ func main() {
 		Build:          report.Build{Version: version, Commit: commit, Date: date},
 		ReportUploader: ui.ReportUploader(),
 	})
+	coreSpan.End()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -193,7 +243,12 @@ func main() {
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
 	}
+	// The metrics scrape rides the same server on the same terms.
+	if h := tel.MetricsHandler(); h != nil && core.MountAPI(telemetry.MetricsPath, h) {
+		logger.Info().Str("path", telemetry.MetricsPath).Msg("metrics endpoint mounted")
+	}
 
+	_, mountSpan := tel.Tracer().Start(startupCtx, "app.ui.mount")
 	ui.Mount(ctx, core, wailsui.MountOptions{
 		Assets:        assets,
 		AppIcon:       appIcon,
@@ -212,10 +267,16 @@ func main() {
 		},
 	})
 
+	mountSpan.End()
+
 	// Background work starts after the adapter is mounted: the flows watcher
 	// calls event subscribers from its own goroutine, and the tray subscriber
 	// has to exist before it can fire.
-	if err := core.Start(ctx); err != nil {
+	_, startSpan := tel.Tracer().Start(startupCtx, "app.core.start")
+	err = core.Start(ctx)
+	startSpan.End()
+	startupSpan.End()
+	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -230,6 +291,13 @@ func main() {
 		if err := core.Close(); err != nil {
 			logger.Warn().Err(err).Msg("core shutdown reported an error")
 		}
+		// After the core, so a shutdown log line still reaches the exporter, and
+		// on its own context because ctx is already cancelled.
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), telemetryFlushGrace)
+		if err := tel.Shutdown(flushCtx); err != nil {
+			logger.Warn().Err(err).Msg("telemetry shutdown reported an error")
+		}
+		flushCancel()
 		logCloser()
 	})
 	ui.OnShutdown(shutdown)
@@ -240,6 +308,36 @@ func main() {
 		log.Fatal(err)
 	}
 	shutdown()
+}
+
+// telemetryFlushGrace is short on purpose: an unreachable backend must not be
+// able to hold up quitting, and losing the last batch costs less than a hang.
+const telemetryFlushGrace = 2 * time.Second
+
+// resolveSetting reads a value that may be a secret reference. A literal
+// resolves to itself, so this is safe on a setting that is ordinarily written
+// out. A failure resolves to empty, which telemetry reports as a missing
+// setting rather than failing startup.
+func resolveSetting(name, ref string, logger *zerolog.Logger) string {
+	if ref == "" {
+		return ""
+	}
+	value, err := secrets.Resolve(ref)
+	if err != nil {
+		logger.Error().Err(err).Str("setting", name).Msg("telemetry setting could not be resolved")
+		return ""
+	}
+	return value
+}
+
+// telemetryEnvironment separates a working tree's signals from a release's. A
+// published build reports its release channel; a plain `go build`, a dev-task
+// binary, or a pseudo-version reports "source".
+func telemetryEnvironment(version string) string {
+	if channel, ok := wailsui.ReleaseChannel(version); ok {
+		return channel
+	}
+	return "source"
 }
 
 // shutdownGrace bounds a signal-triggered teardown end to end. App.Close

@@ -221,6 +221,29 @@ func TestSettingsValidation(t *testing.T) {
 		}},
 		{"relative tmux path", func(s *Settings) { s.Paths.Tmux = "bin/tmux" }},
 		{"bare tmux name", func(s *Settings) { s.Paths.Tmux = "tmux" }},
+		{"telemetry without endpoint", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Endpoint = "" })
+		}},
+		{"telemetry without instance id", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.InstanceID = "" })
+		}},
+		{"telemetry plaintext endpoint", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Endpoint = "http://gw.example.com/otlp" })
+		}},
+		{"telemetry endpoint without host", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Endpoint = "https:///otlp" })
+		}},
+		{"telemetry without token", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Token = "" })
+		}},
+		// A pasted credential is the thing config must never hold, so it is
+		// rejected rather than passed through as a literal.
+		{"telemetry literal token", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Token = "glc_eyJvIjoiMTIzNDU2In0=" })
+		}},
+		{"telemetry unknown token prefix", func(s *Settings) {
+			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Token = "vault:kv/data/otlp" })
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -229,6 +252,68 @@ func TestSettingsValidation(t *testing.T) {
 			require.Error(t, cfg.Validate())
 		})
 	}
+}
+
+func telemetryFixture(edit func(*TelemetrySettings)) TelemetrySettings {
+	t := TelemetrySettings{
+		Enabled:    true,
+		Endpoint:   "https://otlp-gateway-prod-us-central-0.grafana.net/otlp",
+		InstanceID: "123456",
+		Token:      "env:HIVE_GRAFANACLOUD_TOKEN",
+	}
+	edit(&t)
+	return t
+}
+
+// A telemetry endpoint is deliberately remote, unlike every other URL setting.
+// The loopback rule that guards development.github.api_base must not creep
+// onto it.
+func TestTelemetryAcceptsARemoteEndpoint(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = telemetryFixture(func(*TelemetrySettings) {})
+	require.NoError(t, cfg.Validate())
+}
+
+func TestTelemetryAcceptsEverySecretReferenceForm(t *testing.T) {
+	for _, ref := range []string{
+		"env:HIVE_GRAFANACLOUD_TOKEN",
+		"file:/etc/hive/otlp-token",
+		"op://Private/Grafana Cloud/credential",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			cfg := DefaultSettings()
+			cfg.Telemetry = telemetryFixture(func(s *TelemetrySettings) { s.Token = ref })
+			require.NoError(t, cfg.Validate())
+		})
+	}
+}
+
+// The whole destination can live in one secret, so the endpoint and the
+// instance id take a reference too. Unlike the token they may also be written
+// out, which is why a literal is still checked for shape.
+func TestTelemetryEndpointAndInstanceIDAcceptReferences(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = telemetryFixture(func(s *TelemetrySettings) {
+		s.Endpoint = "op://Private/Grafana Cloud/endpoint"
+		s.InstanceID = "op://Private/Grafana Cloud/username"
+	})
+	require.NoError(t, cfg.Validate())
+}
+
+// A reference's target is unknown until launch, so the https rule cannot be
+// applied to it here. The telemetry package checks the resolved value.
+func TestTelemetryDefersURLChecksOnAReference(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = telemetryFixture(func(s *TelemetrySettings) { s.Endpoint = "file:/etc/hive/otlp-endpoint" })
+	require.NoError(t, cfg.Validate())
+}
+
+// Nothing is required while the section is off, so a half-filled block does
+// not stop the app from starting.
+func TestTelemetryDisabledSkipsValidation(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry = TelemetrySettings{Enabled: false, Endpoint: "http://not-a-real-endpoint", Token: "pasted-literal"}
+	require.NoError(t, cfg.Validate())
 }
 
 // A struct tag cannot reference a constant, so the env name is written twice.

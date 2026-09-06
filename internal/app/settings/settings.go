@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/secrets"
 )
 
 const settingsFileName = "settings.yaml"
@@ -152,6 +153,30 @@ type EditorSettings struct {
 	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
 }
 
+// TelemetrySettings configures OTLP export of the app's own signals. It is
+// top-level rather than under development because it is the user's own
+// observability, not a debug facility.
+//
+// Endpoint is the signal-less OTLP base; on Grafana Cloud InstanceID is the
+// OTLP instance id from the stack's OpenTelemetry tile, not the stack id.
+//
+// All three may be an internal/app/secrets reference — "env:NAME",
+// "file:/path", "op://vault/item/field" — so one 1Password item can hold a
+// whole destination. They differ in whether a literal is allowed: Token
+// *requires* a reference, because a literal there is a credential in a
+// dotfiles-managed file, while Endpoint and InstanceID name a destination and
+// are ordinarily written out.
+//
+// A reference is resolved at launch, so Validate checks Endpoint's URL shape
+// only when it is written out. The resolved value is checked either way, by
+// the telemetry package.
+type TelemetrySettings struct {
+	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
+	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
+	InstanceID string `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID"`
+	Token      string `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"`
+}
+
 // HTTPSettings configures the local loopback HTTP server that hosts both the
 // webhook listener and the agent API. On by default: it is loopback-only, so it
 // is reachable only from this machine.
@@ -185,6 +210,13 @@ type PprofSettings struct {
 // shipped build; the dev task turns it on through launch.env.
 type PerfSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
+}
+
+// MetricsSettings gates the local Prometheus scrape endpoint, mounted on the
+// shared HTTP server the way pprof is (ADR pprof-debug-endpoint). Independent of telemetry.enabled:
+// the same instruments feed both readers.
+type MetricsSettings struct {
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_METRICS_ENABLED"`
 }
 
 // DevToolsSettings makes the in-app developer tools reachable in a build that
@@ -223,6 +255,7 @@ type DevelopmentSettings struct {
 	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
 	Pprof    PprofSettings     `yaml:"pprof"`
 	Perf     PerfSettings      `yaml:"perf"`
+	Metrics  MetricsSettings   `yaml:"metrics"`
 	DevTools DevToolsSettings  `yaml:"devtools"`
 	Debug    DebugSettings     `yaml:"debug"`
 }
@@ -239,6 +272,7 @@ type Settings struct {
 	Appearance      Appearance              `yaml:"appearance"`
 	Profiles        ProfileSettings         `yaml:"profiles,omitempty"`
 	HTTP            HTTPSettings            `yaml:"http"`
+	Telemetry       TelemetrySettings       `yaml:"telemetry"`
 	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
 	Paths           PathsSettings           `yaml:"paths,omitempty"`
 	Editor          EditorSettings          `yaml:"editor,omitempty"`
@@ -256,12 +290,14 @@ func DefaultSettings() Settings {
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
 		Appearance:    Appearance{TerminalShowWindows: true, TerminalPoolSize: 3},
 		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
+		Telemetry:     TelemetrySettings{Enabled: false},
 		Development: DevelopmentSettings{
 			Mocks:    MockSettings{Mode: MockLive},
 			Vite:     ServerSettings{Host: "127.0.0.1", Port: 0},
 			Wails:    ServerSettings{Host: "127.0.0.1", Port: 0},
 			Pprof:    PprofSettings{Enabled: false},
 			Perf:     PerfSettings{Enabled: false},
+			Metrics:  MetricsSettings{Enabled: false},
 			DevTools: DevToolsSettings{Enabled: false},
 		},
 	}
@@ -346,6 +382,9 @@ func (s Settings) Validate() error {
 	if s.Development.Instance.ID != "" && strings.ContainsAny(s.Development.Instance.ID, `/\\`) {
 		return fmt.Errorf("development.instance.id must not contain path separators")
 	}
+	if err := validateTelemetry(s.Telemetry); err != nil {
+		return err
+	}
 	// Loopback-only, for the same reason the webhook listener is (ADR local-webhook-listener):
 	// this value redirects an authenticated GitHub client, so the only host
 	// allowed to receive that traffic is one on this machine. Because it is
@@ -354,6 +393,45 @@ func (s Settings) Validate() error {
 	// remote collector.
 	if err := validateGitHubAPIBase(s.GitHubAPIBase()); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateTelemetry deliberately does not apply validateGitHubAPIBase's
+// loopback rule: this endpoint is remote by definition, so https is what stops
+// a persisted setting putting the credential on the wire in the clear. The
+// token is not a setting, so its absence is the telemetry package's to report.
+func validateTelemetry(t TelemetrySettings) error {
+	if !t.Enabled {
+		return nil
+	}
+	endpoint := strings.TrimSpace(t.Endpoint)
+	if endpoint == "" {
+		return fmt.Errorf("telemetry.endpoint is required when telemetry.enabled is true")
+	}
+	// A reference's target is unknown until launch, so only a written-out
+	// endpoint can be checked here. Resolving during Validate would shell out
+	// to a secret manager on every settings save.
+	if !secrets.HasKnownPrefix(endpoint) {
+		parsed, err := url.Parse(endpoint)
+		if err != nil {
+			return fmt.Errorf("telemetry.endpoint must be a valid URL: %w", err)
+		}
+		if parsed.Scheme != "https" {
+			return fmt.Errorf("telemetry.endpoint must use https")
+		}
+		if parsed.Host == "" {
+			return fmt.Errorf("telemetry.endpoint must include a host")
+		}
+	}
+	if strings.TrimSpace(t.InstanceID) == "" {
+		return fmt.Errorf("telemetry.instance_id is required when telemetry.enabled is true")
+	}
+	if strings.TrimSpace(t.Token) == "" {
+		return fmt.Errorf("telemetry.token is required when telemetry.enabled is true")
+	}
+	if !secrets.HasKnownPrefix(t.Token) {
+		return fmt.Errorf("telemetry.token must be a reference (env:NAME, file:/path, or op://vault/item/field), not a literal secret")
 	}
 	return nil
 }
