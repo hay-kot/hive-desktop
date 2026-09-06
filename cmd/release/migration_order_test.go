@@ -17,7 +17,7 @@ func TestMigrationOrderScript(t *testing.T) {
 	require.NoError(t, err)
 
 	dir := t.TempDir()
-	migrationDir := filepath.Join(dir, "internal", "app", "store", "migrations")
+	migrationDir := filepath.Join(dir, "internal", "app", "data", "queries", "migrations")
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "scripts"), 0o755))
 	require.NoError(t, os.MkdirAll(migrationDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "scripts", "check-migration-order.sh"), script, 0o755))

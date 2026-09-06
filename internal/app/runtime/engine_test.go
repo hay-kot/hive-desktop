@@ -9,19 +9,20 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // The engine is tested against a real SQLite store, like everything else that
 // touches the commit protocol. Its whole job is what happens between a read
 // and a commit, and a fake store would only assert that the calls were made.
 
-func openTestStore(t *testing.T) *store.DB {
+func openTestStore(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -68,16 +69,16 @@ type observation struct {
 
 // ingest writes an item through the production source boundary and returns the
 // resulting log offset, exactly as the producer does.
-func ingest(t *testing.T, db *store.DB, flowID string, obs ...observation) int64 {
+func ingest(t *testing.T, db *queries.DB, flowID string, obs ...observation) int64 {
 	t.Helper()
 	var last int64
 	for _, o := range obs {
 		payload, err := json.Marshal(map[string]string{"title": o.title, "repo": "acme/app"})
 		require.NoError(t, err)
-		result, err := db.IngestObservation(t.Context(), passthroughClassifier{}, store.IngestObservationParams{
+		result, err := db.IngestObservation(t.Context(), passthroughClassifier{}, queries.IngestObservationParams{
 			ProfileID: flowID,
 			Topic:     "source:" + flowID + "/src",
-			Current: store.Observation{
+			Current: models.Observation{
 				ExternalID: o.externalID, Title: o.title, URL: "https://example.invalid/" + o.externalID,
 				SourceKind: "github", SourceScope: "search",
 				ObservedAt: time.Now().UnixMilli(), Payload: payload,
@@ -94,13 +95,13 @@ func ingest(t *testing.T, db *store.DB, flowID string, obs ...observation) int64
 // snapshotSource appends the authoritative "this is everything the source
 // currently has" event a producer tick ends with. Replay recomputes membership
 // from it, so a flow with no snapshot in its log has nothing to replay.
-func snapshotSource(t *testing.T, db *store.DB, flowID string, obs ...observation) {
+func snapshotSource(t *testing.T, db *queries.DB, flowID string, obs ...observation) {
 	t.Helper()
-	items := make([]store.SnapshotItem, 0, len(obs))
+	items := make([]models.SnapshotItem, 0, len(obs))
 	for _, o := range obs {
 		payload, err := json.Marshal(map[string]string{"title": o.title, "repo": "acme/app"})
 		require.NoError(t, err)
-		items = append(items, store.SnapshotItem{Key: o.externalID, Payload: payload})
+		items = append(items, models.SnapshotItem{Key: o.externalID, Payload: payload})
 	}
 	_, err := db.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search", items)
 	require.NoError(t, err)
@@ -127,23 +128,23 @@ func splitFlow(id, script string) flow.Flow {
 // snapshotOne appends a single-item snapshot — the shape a grafana metrics
 // source emits, where one node maps to one message whose payload carries the
 // whole query result for a downstream function node to split.
-func snapshotOne(t *testing.T, db *store.DB, flowID, key, payload string) {
+func snapshotOne(t *testing.T, db *queries.DB, flowID, key, payload string) {
 	t.Helper()
 	_, err := db.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search",
-		[]store.SnapshotItem{{Key: key, Payload: json.RawMessage(payload)}})
+		[]models.SnapshotItem{{Key: key, Payload: json.RawMessage(payload)}})
 	require.NoError(t, err)
 }
 
 type passthroughClassifier struct{}
 
-func (passthroughClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (passthroughClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	kind := "observed"
 	if previous != nil {
 		kind = "updated"
 	}
-	return store.Classification{
-		Kind: kind, Transition: store.TransitionNone, Attention: store.AttentionActivity,
-		Lifecycle: store.LifecycleActive, Summary: current.Title,
+	return models.Classification{
+		Kind: kind, Transition: models.TransitionNone, Attention: models.AttentionActivity,
+		Lifecycle: models.LifecycleActive, Summary: current.Title,
 	}
 }
 
@@ -171,7 +172,7 @@ func (c *committed) wait(t *testing.T) {
 	}
 }
 
-func startEngine(t *testing.T, db *store.DB, flows *flowSet, onCommit func()) *runtime.Engine {
+func startEngine(t *testing.T, db *queries.DB, flows *flowSet, onCommit func()) *runtime.Engine {
 	t.Helper()
 	engine := runtime.NewEngine(runtime.EngineOptions{
 		Store:       db,

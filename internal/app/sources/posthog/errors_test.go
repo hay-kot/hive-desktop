@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog/client"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func TestErrorsConfigValidate(t *testing.T) {
@@ -100,8 +100,8 @@ func TestErrorsProduceEmitsOnePerIssue(t *testing.T) {
 	config := &ErrorsConfig{Credential: "posthog/us.posthog.com-42", Limit: 10}
 	src := &errorsSource{fetcher: fx, request: config.request(), topic: "source:flow/node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -176,8 +176,8 @@ func TestIssueTitleNeverEmpty(t *testing.T) {
 	fx, _ := connectedFetcher(t, server.URL)
 	src := &errorsSource{fetcher: fx, request: (&ErrorsConfig{}).request(), topic: "t"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -202,7 +202,7 @@ func TestErrorsProduceFailsWithoutEmitting(t *testing.T) {
 	src := &errorsSource{fetcher: fx, request: (&ErrorsConfig{}).request(), topic: "t"}
 
 	emitted := 0
-	err := src.Produce(t.Context(), func(store.Msg) error {
+	err := src.Produce(t.Context(), func(models.Msg) error {
 		emitted++
 		return nil
 	})
@@ -210,9 +210,9 @@ func TestErrorsProduceFailsWithoutEmitting(t *testing.T) {
 	assert.Zero(t, emitted)
 }
 
-func observation(id, state, lastSeen string) store.Observation {
+func observation(id, state, lastSeen string) models.Observation {
 	payload, _ := json.Marshal(issuePayload{ID: id, Title: "TypeError", State: state, LastSeen: lastSeen})
-	return store.Observation{ExternalID: id, Title: "TypeError", Payload: payload}
+	return models.Observation{ExternalID: id, Title: "TypeError", Payload: payload}
 }
 
 func TestErrorsClassifierNewIssue(t *testing.T) {
@@ -220,8 +220,8 @@ func TestErrorsClassifierNewIssue(t *testing.T) {
 
 	got := errorsClassifier{}.Classify(nil, observation("i1", statusActive, "2026-08-03T09:00:00Z"))
 	assert.Equal(t, "new", got.Kind)
-	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
-	assert.Equal(t, store.AttentionActivity, got.Attention)
+	assert.Equal(t, models.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, models.AttentionActivity, got.Attention)
 }
 
 func TestErrorsClassifierResolvedAndRegressed(t *testing.T) {
@@ -232,16 +232,16 @@ func TestErrorsClassifierResolvedAndRegressed(t *testing.T) {
 
 	closed := errorsClassifier{}.Classify(&active, resolved)
 	assert.Equal(t, statusResolved, closed.Kind)
-	assert.Equal(t, store.LifecycleTerminal, closed.Lifecycle)
-	assert.Equal(t, store.TransitionEnteredTerminal, closed.Transition)
+	assert.Equal(t, models.LifecycleTerminal, closed.Lifecycle)
+	assert.Equal(t, models.TransitionEnteredTerminal, closed.Transition)
 	assert.Equal(t, statusResolved, closed.ArchivedReason)
 	assert.Equal(t, "Resolved", closed.Summary)
 
 	// A regression is the signal the whole connector exists for.
 	regressed := errorsClassifier{}.Classify(&resolved, active)
 	assert.Equal(t, "regressed", regressed.Kind)
-	assert.Equal(t, store.TransitionLeftTerminal, regressed.Transition)
-	assert.Equal(t, store.AttentionActivity, regressed.Attention)
+	assert.Equal(t, models.TransitionLeftTerminal, regressed.Transition)
+	assert.Equal(t, models.AttentionActivity, regressed.Attention)
 }
 
 // suppressed is terminal for the same reason resolved is: the user has said
@@ -253,8 +253,8 @@ func TestErrorsClassifierSuppressedIsTerminal(t *testing.T) {
 	suppressed := observation("i1", statusSuppressed, "2026-08-03T09:00:00Z")
 
 	got := errorsClassifier{}.Classify(&active, suppressed)
-	assert.Equal(t, store.LifecycleTerminal, got.Lifecycle)
-	assert.Equal(t, store.TransitionEnteredTerminal, got.Transition)
+	assert.Equal(t, models.LifecycleTerminal, got.Lifecycle)
+	assert.Equal(t, models.TransitionEnteredTerminal, got.Transition)
 }
 
 // This is the roll-up guarantee: an issue that is still erroring reports a new
@@ -269,11 +269,11 @@ func TestErrorsClassifierOccurrenceTracksLastSeen(t *testing.T) {
 
 	unchanged := errorsClassifier{}.Classify(&first, same)
 	assert.Equal(t, "updated", unchanged.Kind)
-	assert.Equal(t, store.AttentionTrivial, unchanged.Attention, "a re-observed issue must not re-raise attention")
+	assert.Equal(t, models.AttentionTrivial, unchanged.Attention, "a re-observed issue must not re-raise attention")
 
 	advanced := errorsClassifier{}.Classify(&first, later)
 	assert.Equal(t, "occurred", advanced.Kind)
-	assert.Equal(t, store.AttentionActivity, advanced.Attention)
+	assert.Equal(t, models.AttentionActivity, advanced.Attention)
 	assert.NotEqual(t, unchanged.OccurrenceKey, advanced.OccurrenceKey, "a fresh burst is a distinct occurrence")
 }
 
@@ -283,10 +283,10 @@ func TestErrorsClassifierOccurrenceTracksLastSeen(t *testing.T) {
 func TestOccurrenceStampFallsBackToObservedAt(t *testing.T) {
 	t.Parallel()
 
-	obs := store.Observation{ExternalID: "i1", ObservedAt: 1700, Payload: []byte(`{"id":"i1"}`)}
+	obs := models.Observation{ExternalID: "i1", ObservedAt: 1700, Payload: []byte(`{"id":"i1"}`)}
 	assert.Equal(t, "1700", occurrenceStamp(obs))
 
-	unparseable := store.Observation{ExternalID: "i1", ObservedAt: 1700, Payload: []byte(`{"lastSeen":"not-a-date"}`)}
+	unparseable := models.Observation{ExternalID: "i1", ObservedAt: 1700, Payload: []byte(`{"lastSeen":"not-a-date"}`)}
 	assert.Equal(t, "not-a-date", occurrenceStamp(unparseable),
 		"an unparseable stamp is still stable, so it does not mint a new occurrence each poll")
 }

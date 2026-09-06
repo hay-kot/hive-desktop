@@ -9,12 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
-	"github.com/rs/zerolog"
 )
 
 // fakeSessionLauncher records every LaunchSession call.
@@ -185,16 +186,16 @@ func TestHiveSessionLauncher_PropagatesServiceFailure(t *testing.T) {
 
 // fakeItemSessionLinker records the association the launcher persists.
 type fakeItemSessionLinker struct {
-	links map[string]store.ItemRef
+	links map[string]models.ItemRef
 	err   error
 }
 
-func (f *fakeItemSessionLinker) LinkItemSession(_ context.Context, sessionID string, ref store.ItemRef) error {
+func (f *fakeItemSessionLinker) LinkItemSession(_ context.Context, sessionID string, ref models.ItemRef) error {
 	if f.err != nil {
 		return f.err
 	}
 	if f.links == nil {
-		f.links = map[string]store.ItemRef{}
+		f.links = map[string]models.ItemRef{}
 	}
 	f.links[sessionID] = ref
 	return nil
@@ -205,11 +206,11 @@ func TestHiveSessionLauncher_LinksTheCreatedSessionToItsItem(t *testing.T) {
 	linker := &fakeItemSessionLinker{}
 	launcher := NewHiveSessionLauncher(creator)
 	launcher.SetItemSessionLinker(linker, zerolog.Nop())
-	ref := store.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
+	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
 
 	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-1", Prompt: "go", Repo: "r", Origin: ref})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]store.ItemRef{"session-1": ref}, linker.links)
+	assert.Equal(t, map[string]models.ItemRef{"session-1": ref}, linker.links)
 	// The item id also goes on the session as a hive tag, for a reader inside
 	// hive. It is presentational and never read back.
 	require.Len(t, creator.calls, 1)
@@ -240,7 +241,7 @@ func TestHiveSessionLauncher_ReportsSuccessWhenTheLinkCannotBeWritten(t *testing
 
 	outcome, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{
 		Name: "review-1", Prompt: "go", Repo: "r",
-		Origin: store.ItemRef{ProfileID: "p", ExternalID: "acme/repo#1"},
+		Origin: models.ItemRef{ProfileID: "p", ExternalID: "acme/repo#1"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "session-1", outcome.ID)
@@ -254,7 +255,7 @@ func TestLaunchSessionExecutor_CarriesTheCommandsOriginToTheLauncher(t *testing.
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{
 		PromptTemplate: "review", RepoTemplate: "acme/site",
 	}}
-	ref := store.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/site#81"}
+	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/site#81"}
 
 	_, err := exec.Execute(t.Context(), action, OutputData{
 		Key: "oc-1", Raw: json.RawMessage(`{}`), Payload: map[string]any{}, Origin: ref,

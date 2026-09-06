@@ -102,7 +102,7 @@ watch(() => props.active, (active) => {
 // ── The tree ─────────────────────────────────────────────────────────────
 // One node per workspace, carrying its own chats. They keep the order the
 // cross-workspace read hands over (newest record first, stable under a resume —
-// internal/app/store/queries: ListAllAgentWorkspaceSessions), so grouping costs
+// internal/app/data/queries: ListAllAgentWorkspaceSessions), so grouping costs
 // no ordering. `live` is here for the fold default, which opens a workspace with
 // something running in it.
 interface WorkspaceNode {

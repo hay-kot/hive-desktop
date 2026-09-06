@@ -9,12 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-func openJobsTestDB(t *testing.T) *store.DB {
+func openJobsTestDB(t *testing.T) *queries.DB {
 	t.Helper()
-	database, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	database, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = database.Close() })
 	return database
@@ -126,15 +126,15 @@ func TestStore_ListActiveUsesBackendClockWindow(t *testing.T) {
 	now := time.UnixMilli(10_000)
 	jobStore := NewStore(database, Options{Now: func() time.Time { return now }})
 
-	_, err := database.InsertJob(ctx, store.JobRecord{
+	_, err := database.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: 1, UpdatedAt: now.Add(-DefaultLingerWindow).UnixMilli(), Status: "done", Label: "Boundary",
 	})
 	require.NoError(t, err)
-	_, err = database.InsertJob(ctx, store.JobRecord{
+	_, err = database.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: 2, UpdatedAt: now.Add(-DefaultLingerWindow - time.Millisecond).UnixMilli(), Status: "failed", Label: "Outside",
 	})
 	require.NoError(t, err)
-	queued, err := database.InsertJob(ctx, store.JobRecord{
+	queued, err := database.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: 3, UpdatedAt: 1, Status: "queued", Label: "Queued",
 	})
 	require.NoError(t, err)

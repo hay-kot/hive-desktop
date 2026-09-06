@@ -5,13 +5,13 @@ import (
 	"errors"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // FlowsService owns the flow definitions: the listing the picker renders,
@@ -19,7 +19,7 @@ import (
 // profile's sidebar-rail avatar.
 type FlowsService struct {
 	flows     *flow.FlowStore
-	db        *store.DB
+	db        *queries.DB
 	creds     credentials.Store
 	images    *profileimg.Store
 	marks     *sourcemark.Store
@@ -28,7 +28,7 @@ type FlowsService struct {
 	onUpdated func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
+func newFlowsService(flows *flow.FlowStore, db *queries.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
 	return &FlowsService{flows: flows, db: db, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
 }
 

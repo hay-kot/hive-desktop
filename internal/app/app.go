@@ -13,11 +13,13 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/pkg/tmpl"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
@@ -39,7 +41,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
@@ -121,11 +122,11 @@ type App struct {
 	// vendored), needed by the e2e harness for table resets and fixture
 	// seeding that no per-domain service has a reason to expose otherwise.
 	Events *events.Bus
-	Store  *store.DB
+	Store  *queries.DB
 
 	// Domain stores. Nothing outside this package holds these — a bypass
 	// here is exactly the bug this rule exists to prevent: ProfileTray once
-	// wrote through flowStore directly (store.SetEnabled), duplicating
+	// wrote through flowStore directly (queries.SetEnabled), duplicating
 	// FlowsService.SetEnabled minus its typed-error wrapping and its
 	// notifyUpdated event. A domain's need is a method on its service, not
 	// the store underneath it. activityStore and jobStore are unexported for
@@ -291,15 +292,15 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.fetchers.SetSearchTTL(a.pollInterval)
 	}
 
-	dbOptions := store.DefaultOpenOptions()
+	dbOptions := queries.DefaultOpenOptions()
 	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
 	dbOptions.Logger = cfg.Logger
-	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
+	db, err := queries.Open(ctx, cfg.Paths.StateDir, dbOptions)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("open desktop store: %w", err)
 	}
-	compactPipelineStoreAtStartup(ctx, db, store.DatabasePath(cfg.Paths.StateDir), cfg.Logger)
+	compactPipelineStoreAtStartup(ctx, db, queries.DatabasePath(cfg.Paths.StateDir), cfg.Logger)
 	a.Store = db
 
 	// The activity recorder is shared by every subsystem that reports to the
@@ -373,7 +374,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 
 	a.outputs = a.buildOutputWorker(cfg)
-	a.retention = ingest.NewMaintenance(db, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.retention = ingest.NewMaintenance(db, queries.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
 	a.scripts.Register(js.New(runtime.NewScriptPool(0)))
 	a.engine = a.buildEngine(cfg.Logger)
@@ -445,13 +446,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 }
 
 type pipelineCompactor interface {
-	Compact(context.Context, store.CompactionPolicy) (store.CompactionResult, error)
+	Compact(context.Context, queries.CompactionPolicy) (queries.CompactionResult, error)
 }
 
 func compactPipelineStoreAtStartup(ctx context.Context, db pipelineCompactor, path string, logger zerolog.Logger) {
 	before, beforeErr := os.Stat(path)
 	started := time.Now()
-	result, compactErr := db.Compact(ctx, store.DefaultCompactionPolicy())
+	result, compactErr := db.Compact(ctx, queries.DefaultCompactionPolicy())
 	duration := time.Since(started)
 	after, afterErr := os.Stat(path)
 
@@ -737,7 +738,7 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 // openFlows constructs the flow store over settings.FlowsDir() and a watcher
 // that reloads it on any flows/*.yaml change, including the app's own
 // SaveFlow/SaveLayout writes. It must run before the producer and retention:
-// both resolve enabled flow ids live from the store.
+// both resolve enabled flow ids live from the queries.
 //
 // The rail order comes from settings.yaml, which the flow package does not
 // read; it is process state the watcher's reloads leave alone. Reordering the

@@ -8,10 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // The parity fixtures in testdata/parity are the engine's own regression
@@ -33,11 +33,11 @@ import (
 const parityDir = "testdata/parity"
 
 type parityFixture struct {
-	Name     string            `json:"name"`
-	Why      string            `json:"why"`
-	Flow     flow.Flow         `json:"flow"`
-	Batch    []store.Msg       `json:"batch"`
-	Expected store.CommitBatch `json:"expected"`
+	Name     string             `json:"name"`
+	Why      string             `json:"why"`
+	Flow     flow.Flow          `json:"flow"`
+	Batch    []models.Msg       `json:"batch"`
+	Expected models.CommitBatch `json:"expected"`
 }
 
 func TestParityFixtures(t *testing.T) {
@@ -120,7 +120,7 @@ func testScripts() *runtime.ScriptRegistry {
 // canonical renders a commit batch as plain JSON values, so comparison is
 // structural rather than byte-for-byte: a payload's key order and whitespace
 // are whatever produced it, and neither is part of the contract.
-func canonical(t *testing.T, batch store.CommitBatch) map[string]any {
+func canonical(t *testing.T, batch models.CommitBatch) map[string]any {
 	t.Helper()
 
 	normalized := batch

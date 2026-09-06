@@ -15,10 +15,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
@@ -51,14 +51,14 @@ const (
 // AgentWorkspacesService opens agent workspaces and drives the sessions run
 // inside them: an agent CLI in a tmux session named agentws-<record id>,
 // resolved through the launch table in agentws (autonomy flags, MCP wiring,
-// session/resume args) and addressed by a durable store.AgentWorkspaceSession
+// session/resume args) and addressed by a durable queries.AgentWorkspaceSession
 // record. Sessions are tmux's, not this process's -- they outlive App.Close
 // by design, which is what makes reopening a codex session (no resume form)
 // a real reattach instead of a fresh relaunch.
 type AgentWorkspacesService struct {
 	store     *agentws.Store
 	terminals *tmuxcc.Manager
-	db        *store.DB
+	db        *queries.DB
 	skills    *SkillsService
 	// profileCommands is agentCommands' result (app.go): hive's configured
 	// agent profiles projected onto a full command line, flags included. It
@@ -84,7 +84,7 @@ type AgentWorkspacesService struct {
 	mcpBase func(context.Context) string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, profileCommands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *queries.DB, skills *SkillsService, profileCommands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
 	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, profileCommands: profileCommands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
 }
 
@@ -341,7 +341,7 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 // live tmux session is omitted rather than reported dead -- a row's
 // TerminalID already carries that.
 func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string) ([]SessionActivityItem, error) {
-	var records []store.AgentWorkspaceSession
+	var records []queries.AgentWorkspaceSession
 	var err error
 	if dir == "" {
 		records, err = s.db.ListAllAgentWorkspaceSessions(ctx)
@@ -389,7 +389,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	}
 
 	now := time.Now().UnixMilli()
-	rec, err := s.db.CreateAgentWorkspaceSession(ctx, store.AgentWorkspaceSession{
+	rec, err := s.db.CreateAgentWorkspaceSession(ctx, queries.AgentWorkspaceSession{
 		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
 		CreatedAt: now, LastOpenedAt: now,
 	})
@@ -990,7 +990,7 @@ func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, co
 // StartSession and ResumeSession's relaunch branch always want a fresh
 // session here — ResumeSession's still-alive branch attaches directly
 // instead, without going through this method.
-func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
+func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec queries.AgentWorkspaceSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
 	count, err := s.liveSessionCount(ctx)
 	if err != nil {
 		return SessionView{}, terminalError(err, "counting live agent sessions")
@@ -1188,7 +1188,7 @@ func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceS
 // sessionView reports a session record's current, read-only state -- unlike
 // launchTerminal's view, this never launches or attaches anything, so
 // WindowID, ResumeAttempted and Notice stay zero-valued.
-func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec store.AgentWorkspaceSession) SessionView {
+func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec queries.AgentWorkspaceSession) SessionView {
 	name := sessionName(rec.ID)
 	live := ""
 	if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {

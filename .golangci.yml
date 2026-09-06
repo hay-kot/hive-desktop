@@ -93,7 +93,7 @@ linters:
         # "Bounded Context"): its types stop at the Anti-Corruption Layer and
         # never appear in an app signature. The files list below is the
         # allowlist, verified by grep on 2026-07-25 against the real tree:
-        # dispatch/hive_adapters.go (the seam itself), store/dbext.go (calls
+        # dispatch/hive_adapters.go (the seam itself), data/queries/dbext.go (calls
         # vendored migrate.Up during schema init), and app.go (constructs the
         # vendored hive runtime — coredb, eventbus, stores, hive session
         # service — and hands it to the seam). This is deliberately not a
@@ -125,8 +125,8 @@ linters:
             - "!**/internal/app/dispatch/hive_hc_adapters_test.go"
             - "!**/internal/app/dispatch/session_git_status_test.go"
             - "!**/internal/app/dispatch/launch_session_executor_test.go"
-            - "!**/internal/app/store/dbext.go"
-            - "!**/internal/app/store/dbext_test.go"
+            - "!**/internal/app/data/queries/dbext.go"
+            - "!**/internal/app/data/queries/dbext_test.go"
           deny:
             - pkg: github.com/hay-kot/hive-desktop/internal/hivecore
               desc: |

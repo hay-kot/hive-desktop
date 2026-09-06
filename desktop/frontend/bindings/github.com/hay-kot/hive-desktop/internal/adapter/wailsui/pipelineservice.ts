@@ -22,10 +22,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as actions$0 from "../../app/actions/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as dispatch$0 from "../../app/dispatch/models.js";
+import * as queries$0 from "../../app/data/queries/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as store$0 from "../../app/store/models.js";
+import * as dispatch$0 from "../../app/dispatch/models.js";
 
 export function ActionRun(commandID: number): $CancellablePromise<dispatch$0.ActionRunView> {
     return $Call.ByID(1655642280, commandID);
@@ -35,11 +35,11 @@ export function ActionViews(itemID: number): $CancellablePromise<actions$0.View[
     return $Call.ByID(3356906731, itemID);
 }
 
-export function FeedCounts(profileID: string): $CancellablePromise<store$0.FeedInboxCount[] | null> {
+export function FeedCounts(profileID: string): $CancellablePromise<queries$0.FeedInboxCount[] | null> {
     return $Call.ByID(444584149, profileID);
 }
 
-export function InboxItemEvents(itemID: number, limit: number): $CancellablePromise<store$0.InboxEventView[] | null> {
+export function InboxItemEvents(itemID: number, limit: number): $CancellablePromise<queries$0.InboxEventView[] | null> {
     return $Call.ByID(1903831253, itemID, limit);
 }
 
@@ -51,19 +51,19 @@ export function InvokeAction(actionID: string, itemID: number, input: dispatch$0
     return $Call.ByID(1680026695, actionID, itemID, input);
 }
 
-export function ListArchivedInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<store$0.InboxItemView[] | null> {
+export function ListArchivedInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<queries$0.InboxItemView[] | null> {
     return $Call.ByID(2837386034, profileID, feedID, limit);
 }
 
-export function ListInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<store$0.InboxItemView[] | null> {
+export function ListInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<queries$0.InboxItemView[] | null> {
     return $Call.ByID(2653900732, profileID, feedID, limit);
 }
 
-export function ListInboxItemsTrash(profileID: string, limit: number): $CancellablePromise<store$0.InboxItemView[] | null> {
+export function ListInboxItemsTrash(profileID: string, limit: number): $CancellablePromise<queries$0.InboxItemView[] | null> {
     return $Call.ByID(31725505, profileID, limit);
 }
 
-export function MarkInboxItemUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<store$0.InboxItemView> {
+export function MarkInboxItemUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<queries$0.InboxItemView> {
     return $Call.ByID(4238206404, itemID, revision, unread);
 }
 
@@ -75,7 +75,7 @@ export function NewSessionDraft(itemID: number): $CancellablePromise<dispatch$0.
     return $Call.ByID(2051065966, itemID);
 }
 
-export function NodeRuns(flowID: string, limit: number): $CancellablePromise<store$0.NodeRunRecord[] | null> {
+export function NodeRuns(flowID: string, limit: number): $CancellablePromise<queries$0.NodeRunRecord[] | null> {
     return $Call.ByID(3592664483, flowID, limit);
 }
 
@@ -88,10 +88,10 @@ export function RenderClipboardAction(actionID: string, itemID: number, inputs: 
     return $Call.ByID(3812385739, actionID, itemID, inputs);
 }
 
-export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<store$0.InboxItemView> {
+export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<queries$0.InboxItemView> {
     return $Call.ByID(2209910498, itemID, revision);
 }
 
-export function ToggleInboxItemIgnored(itemID: number, revision: number): $CancellablePromise<store$0.InboxItemView> {
+export function ToggleInboxItemIgnored(itemID: number, revision: number): $CancellablePromise<queries$0.InboxItemView> {
     return $Call.ByID(1906272206, itemID, revision);
 }

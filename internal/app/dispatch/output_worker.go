@@ -7,11 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/rs/zerolog"
 )
 
 const (
@@ -50,7 +52,7 @@ type OutputData struct {
 	IsRerun   bool
 	// Origin is the inbox item this command was routed from — attribution, not
 	// payload, and zero when the command has no inbox item behind it.
-	Origin store.ItemRef
+	Origin models.ItemRef
 }
 type Executor interface {
 	Execute(context.Context, actions.Action, OutputData, ActionInvocationInput) (ExecutionResult, error)
@@ -73,10 +75,10 @@ type ActionLister interface {
 	Get(string) (actions.Action, bool)
 }
 type OutputCommandStore interface {
-	ListRunnableOutputCommandsAfter(context.Context, int64, int) ([]store.OutputCommand, error)
-	ConfirmOutputCommand(context.Context, string, string, []byte, store.ItemRef) (store.OutputCommand, bool, error)
-	RerunOutputCommand(context.Context, string, string, []byte, store.ItemRef) (store.OutputCommand, error)
-	OutputCommand(context.Context, int64) (store.OutputCommand, error)
+	ListRunnableOutputCommandsAfter(context.Context, int64, int) ([]queries.OutputCommand, error)
+	ConfirmOutputCommand(context.Context, string, string, []byte, models.ItemRef) (queries.OutputCommand, bool, error)
+	RerunOutputCommand(context.Context, string, string, []byte, models.ItemRef) (queries.OutputCommand, error)
+	OutputCommand(context.Context, int64) (queries.OutputCommand, error)
 	MarkOutputCommandDone(context.Context, int64, ...string) error
 	MarkOutputCommandFailed(context.Context, int64, string, ...string) error
 	RetryOutputCommand(context.Context, int64, string, ...string) error
@@ -174,10 +176,10 @@ func (w *Worker) Start(ctx context.Context) {
 	}()
 }
 func (w *Worker) Stop() { w.stopOnce.Do(func() { close(w.stop) }) }
-func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, origin store.ItemRef, input ActionInvocationInput) (ActionRunView, error) {
+func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, origin models.ItemRef, input ActionInvocationInput) (ActionRunView, error) {
 	w.runMu.Lock()
 	defer w.runMu.Unlock()
-	var row store.OutputCommand
+	var row queries.OutputCommand
 	var err error
 	if input.Rerun {
 		row, err = w.db.RerunOutputCommand(ctx, actionID, key, payload, origin)
@@ -275,7 +277,7 @@ func (w *Worker) Tick(ctx context.Context) {
 	}
 }
 
-func (w *Worker) process(ctx context.Context, row store.OutputCommand) {
+func (w *Worker) process(ctx context.Context, row queries.OutputCommand) {
 	a, ok := w.actions.Get(row.ActionID)
 	label := row.ActionID
 	if ok {
@@ -331,7 +333,7 @@ func actionLabel(action actions.Action) string {
 
 func (w *Worker) execute(
 	ctx context.Context,
-	row store.OutputCommand,
+	row queries.OutputCommand,
 	a actions.Action,
 	input ActionInvocationInput,
 	logger zerolog.Logger,
@@ -356,7 +358,7 @@ func (w *Worker) execute(
 
 func (w *Worker) fail(
 	ctx context.Context,
-	row store.OutputCommand,
+	row queries.OutputCommand,
 	result ExecutionResult,
 	execErr error,
 	jobID int64,
@@ -402,7 +404,7 @@ func boundExecutionStream(stream string) string {
 	return stream[:maxExecutionStreamBytes-len(truncatedStreamMarker)] + truncatedStreamMarker
 }
 
-func actionRunView(row store.OutputCommand) ActionRunView {
+func actionRunView(row queries.OutputCommand) ActionRunView {
 	v := ActionRunView{CommandID: row.ID, Status: row.Status}
 	if row.LastError.Valid {
 		v.Error = row.LastError.String

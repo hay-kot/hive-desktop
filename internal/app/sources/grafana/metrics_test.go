@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 func queryServer(t *testing.T) *httptest.Server {
@@ -28,8 +28,8 @@ func TestProduceEmitsOneKeyedMessage(t *testing.T) {
 
 	src := &metricsSource{fetcher: fx, dsUID: "ds", expr: "up", topic: "source:flow/node", key: "node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -58,8 +58,8 @@ func TestProduceUsesConfiguredTitle(t *testing.T) {
 
 	src := &metricsSource{fetcher: fx, dsUID: "ds", expr: "up", title: "Prod uptime", topic: "source:flow/node", key: "node"}
 
-	var got store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var got models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		got = m
 		return nil
 	}))
@@ -80,7 +80,7 @@ func TestProduceReturnsFetchError(t *testing.T) {
 	src := &metricsSource{fetcher: fx, dsUID: "ds", expr: "up", topic: "source:flow/node", key: "node"}
 
 	emitted := false
-	err := src.Produce(t.Context(), func(store.Msg) error {
+	err := src.Produce(t.Context(), func(models.Msg) error {
 		emitted = true
 		return nil
 	})

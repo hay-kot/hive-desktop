@@ -11,12 +11,14 @@ import (
 
 	"github.com/colonyops/hive/pkg/osopen"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/rs/zerolog"
 )
 
 // Job action ids label session jobs in the jobs UI.
@@ -74,8 +76,8 @@ type sessionJobRunner interface {
 // itemSessionStore is the durable item↔session association: which sessions an
 // inbox item spawned, and the removal of links to sessions hive no longer has.
 type itemSessionStore interface {
-	ItemRefByID(ctx context.Context, itemID int64) (store.ItemRef, error)
-	ItemSessions(ctx context.Context, ref store.ItemRef) ([]store.ItemSession, error)
+	ItemRefByID(ctx context.Context, itemID int64) (models.ItemRef, error)
+	ItemSessions(ctx context.Context, ref models.ItemRef) ([]queries.ItemSession, error)
 	UnlinkItemSessions(ctx context.Context, sessionIDs []string) error
 }
 
@@ -369,7 +371,7 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	// A form drafted from an item links the session back to it. An item that
 	// has gone (pruned between opening the form and submitting it) launches
 	// unlinked rather than refusing the session the user asked for.
-	var origin store.ItemRef
+	var origin models.ItemRef
 	if req.ItemID != 0 && s.links != nil {
 		resolved, err := s.links.ItemRefByID(ctx, req.ItemID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

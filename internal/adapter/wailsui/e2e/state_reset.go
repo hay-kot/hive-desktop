@@ -16,9 +16,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // stateResetPath restores a mock-mode server instance to its post-startup
@@ -52,7 +53,7 @@ type pristineFile struct {
 // external edit — including recording the same reload activity a hand edit
 // would.
 type StateReset struct {
-	db       *store.DB
+	db       *queries.DB
 	core     *sql.DB
 	logger   zerolog.Logger
 	mock     string
@@ -68,14 +69,14 @@ type StateReset struct {
 // core is the raw connection to the vendored Hive action database (sessions,
 // messages) — the caller passes app.App.HiveConn() rather than the vendored
 // *coredb.DB itself.
-func NewStateResetHarness(db *store.DB, core *sql.DB, logger zerolog.Logger) *StateReset {
+func NewStateResetHarness(db *queries.DB, core *sql.DB, logger zerolog.Logger) *StateReset {
 	b, _ := settings.LoadBootstrap()
 	mock := settings.MockMode()
 	return NewStateResetHarnessForInstance(db, core, mock, settings.ResolvePaths(b, settings.ResolveOptions{MockMode: mock}), logger)
 }
 
 // NewStateResetHarnessForInstance uses the composition-root runtime snapshot.
-func NewStateResetHarnessForInstance(db *store.DB, core *sql.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
+func NewStateResetHarnessForInstance(db *queries.DB, core *sql.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
 	if mock == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
@@ -116,7 +117,7 @@ func (r *StateReset) capture(path string) {
 // concurrent frontend read sees either the old state or the baseline, never
 // an empty store; see the type comment for the full ordering.
 func (r *StateReset) Reset(ctx context.Context) error {
-	var reseed store.Seeder
+	var reseed queries.Seeder
 	switch r.mock {
 	case "feed", "action-smoke":
 		// The same deterministic fixture path main.go seeds at startup.

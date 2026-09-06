@@ -3,11 +3,13 @@ package dispatch
 import (
 	"testing"
 
-	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 )
 
 // The whole notify path, end to end through the production seams a flow
@@ -16,11 +18,11 @@ import (
 // itself is faked.
 func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	ctx := t.Context()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	item, err := db.Queries().InsertInboxItem(ctx, store.InsertInboxItemParams{
+	item, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: "triage", SourceKind: "github", SourceScope: "src", ExternalID: "acme/api#12",
 		Payload: []byte(`{"repo":"acme/api","title":"Fix the flake"}`), Lifecycle: "active",
 	})
@@ -43,10 +45,10 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	// reaching a notify terminal.
 	commit := func(offset int64, occurrence string) {
 		t.Helper()
-		require.NoError(t, db.CommitBatch(ctx, store.CommitBatch{
+		require.NoError(t, db.CommitBatch(ctx, models.CommitBatch{
 			Consumer: "triage", UpToOffset: offset,
-			Outputs: []store.Output{{
-				Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: "triage/tell-me"},
+			Outputs: []models.Output{{
+				Sink:          models.Sink{Kind: models.SinkKindNotify, TargetID: "triage/tell-me"},
 				Key:           "acme/api#12",
 				OccurrenceKey: occurrence,
 				SourceKind:    "github",
@@ -80,7 +82,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 // unresolvable. They must fail visibly rather than hang in the queue.
 func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	ctx := t.Context()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -90,10 +92,10 @@ func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	})
 	worker := NewWorker(db, NewFlowNotifyActions(flowListerTest{}, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
-	require.NoError(t, db.CommitBatch(ctx, store.CommitBatch{
+	require.NoError(t, db.CommitBatch(ctx, models.CommitBatch{
 		Consumer: "triage", UpToOffset: 1,
-		Outputs: []store.Output{{
-			Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: "triage/deleted"},
+		Outputs: []models.Output{{
+			Sink:          models.Sink{Kind: models.SinkKindNotify, TargetID: "triage/deleted"},
 			Key:           "acme/api#12",
 			OccurrenceKey: "occ",
 			Payload:       []byte(`{}`),

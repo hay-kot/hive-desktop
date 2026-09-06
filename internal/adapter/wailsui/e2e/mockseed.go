@@ -8,8 +8,9 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // MockFlowID, MockSourceNodeID, and MockFeedNodeID identify the fixture graph
@@ -96,21 +97,21 @@ var mockInboxItems = []feed.Item{
 
 // seedMockInboxItems writes deterministic inbox rows directly rather than
 // using the ingestion transaction. This is intentionally fixture-only.
-func seedMockInboxItems(ctx context.Context, db *store.DB) error {
+func seedMockInboxItems(ctx context.Context, db *queries.DB) error {
 	return db.WithinTx(ctx, seedMockInboxItemsTx)
 }
 
 // seedMockInboxItemsTx is the transaction-scoped seed body. Startup seeding
 // wraps it in its own transaction; the /_e2e/reset harness reuses it inside
 // ResetAllState's wipe transaction so the delete and reseed commit atomically.
-func seedMockInboxItemsTx(ctx context.Context, db *store.DB) error {
+func seedMockInboxItemsTx(ctx context.Context, db *queries.DB) error {
 	if len(mockItemAges) != len(mockInboxItems) {
 		return fmt.Errorf("mock seed: %d ages for %d items", len(mockItemAges), len(mockInboxItems))
 	}
 	base := time.Now().UnixMilli()
-	q := db.Ctx(ctx).Queries()
+	q := db.Ctx(ctx).Queries
 	sourceTopic := "source:" + MockFlowID + "/" + MockSourceNodeID
-	snapshot := make([]store.SnapshotItem, 0, len(mockInboxItems))
+	snapshot := make([]models.SnapshotItem, 0, len(mockInboxItems))
 
 	for i, item := range mockInboxItems {
 		payload, err := json.Marshal(item)
@@ -118,7 +119,7 @@ func seedMockInboxItemsTx(ctx context.Context, db *store.DB) error {
 			return fmt.Errorf("mock seed: encode item %q: %w", item.ID, err)
 		}
 		seenAt := base - mockItemAges[i].Milliseconds()
-		row, err := q.InsertInboxItem(ctx, store.InsertInboxItemParams{
+		row, err := q.InsertInboxItem(ctx, queries.InsertInboxItemParams{
 			ProfileID:   MockFlowID,
 			SourceKind:  "github",
 			SourceScope: "",
@@ -134,12 +135,12 @@ func seedMockInboxItemsTx(ctx context.Context, db *store.DB) error {
 		if err != nil {
 			return fmt.Errorf("mock seed: insert item %q: %w", item.ID, err)
 		}
-		if err := q.UpsertFeedMembershipClaim(ctx, store.UpsertFeedMembershipClaimParams{
+		if err := q.UpsertFeedMembershipClaim(ctx, queries.UpsertFeedMembershipClaimParams{
 			ProfileID: MockFlowID, FeedID: MockFlowID + "/" + MockFeedNodeID, ItemID: row.ID, SourceID: sourceTopic,
 		}); err != nil {
 			return fmt.Errorf("mock seed: claim item %q: %w", item.ID, err)
 		}
-		snapshot = append(snapshot, store.SnapshotItem{Key: item.ID, Payload: payload})
+		snapshot = append(snapshot, models.SnapshotItem{Key: item.ID, Payload: payload})
 	}
 	if _, err := q.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
 		return fmt.Errorf("mock seed: append source snapshot: %w", err)
@@ -154,14 +155,14 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
-// mockSeeder adapts the fixture body to store.Seeder.
-type mockSeeder struct{ db *store.DB }
+// mockSeeder adapts the fixture body to queries.Seeder.
+type mockSeeder struct{ db *queries.DB }
 
 func (s mockSeeder) Seed(ctx context.Context) error {
 	return seedMockInboxItemsTx(ctx, s.db)
 }
 
-func SeedMockInboxItemsOrWarn(ctx context.Context, db *store.DB, logger zerolog.Logger) {
+func SeedMockInboxItemsOrWarn(ctx context.Context, db *queries.DB, logger zerolog.Logger) {
 	if err := seedMockInboxItems(ctx, db); err != nil {
 		logger.Warn().Err(err).Msg("mock inbox seed failed")
 	}

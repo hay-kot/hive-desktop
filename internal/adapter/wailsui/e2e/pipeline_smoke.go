@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
 
 // sourceToCommitSmokePath is available only to the dedicated server-build e2e
@@ -45,8 +47,8 @@ var sourceToCommitSmokeItems = []feed.Item{
 }
 
 type sourceToCommitSmokeState struct {
-	Claims   []store.InboxItemView `json:"claims"`
-	NodeRuns []store.NodeRunRecord `json:"nodeRuns"`
+	Claims   []queries.InboxItemView `json:"claims"`
+	NodeRuns []queries.NodeRunRecord `json:"nodeRuns"`
 	// NotifyCommands counts the notify node's enqueued output commands: the
 	// observable proof that the KV-backed dedup branch fired once per item
 	// and stayed quiet on a changed re-observation.
@@ -60,11 +62,11 @@ type sourceToCommitSmokeState struct {
 // pre-seeded claim.
 type sourceToCommitSmokeClassifier struct{}
 
-func (sourceToCommitSmokeClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (sourceToCommitSmokeClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	if previous == nil {
-		return store.Classification{Kind: "observed", Transition: store.TransitionNone, Attention: store.AttentionActivity, Lifecycle: store.LifecycleActive, Summary: current.Title}
+		return models.Classification{Kind: "observed", Transition: models.TransitionNone, Attention: models.AttentionActivity, Lifecycle: models.LifecycleActive, Summary: current.Title}
 	}
-	return store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: store.LifecycleActive, Summary: current.Title}
+	return models.Classification{Kind: "updated", Transition: models.TransitionNone, Attention: models.AttentionTrivial, Lifecycle: models.LifecycleActive, Summary: current.Title}
 }
 
 // sourceToCommitSmokeMiddleware is a narrow, mock-only harness around the
@@ -76,7 +78,7 @@ func (sourceToCommitSmokeClassifier) Classify(previous *store.Observation, curre
 // onAppended announces that the event log grew and wakes the engine, exactly
 // as the producer does. It is supplied rather than called directly so this
 // package does not have to import the adapter that mounts it.
-func sourceToCommitSmokeMiddleware(db *store.DB, mock string, onAppended func(nextOffset int64)) application.Middleware {
+func sourceToCommitSmokeMiddleware(db *queries.DB, mock string, onAppended func(nextOffset int64)) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if mock != "pipeline" {
 			return next
@@ -114,7 +116,7 @@ func sourceToCommitSmokeMiddleware(db *store.DB, mock string, onAppended func(ne
 // appendSourceToCommitSmokeItems ingests the fixture items. A non-empty rev
 // beyond "1" varies each title, so the re-observation is a genuine change
 // that appends and routes — the case KV dedup exists to suppress.
-func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB, rev string, onAppended func(nextOffset int64)) error {
+func appendSourceToCommitSmokeItems(ctx context.Context, db *queries.DB, rev string, onAppended func(nextOffset int64)) error {
 	var lastOffset int64
 	for _, item := range sourceToCommitSmokeItems {
 		if rev != "" && rev != "1" {
@@ -127,11 +129,11 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB, rev strin
 		// IngestObservation is the production source boundary. It creates the
 		// inbox identity and appends the event log record; the graph still has to
 		// traverse all nodes and Commit has to create the feed claim.
-		result, err := db.IngestObservation(ctx, sourceToCommitSmokeClassifier{}, store.IngestObservationParams{
+		result, err := db.IngestObservation(ctx, sourceToCommitSmokeClassifier{}, queries.IngestObservationParams{
 			ProfileID: sourceToCommitSmokeFlowID,
 			Topic:     "source:" + sourceToCommitSmokeFlowID + "/" + sourceToCommitSmokeSourceID,
-			Policy:    store.ResurfacePolicyStateChanges,
-			Current: store.Observation{
+			Policy:    models.ResurfacePolicyStateChanges,
+			Current: models.Observation{
 				ExternalID: item.ID, Title: item.Title, URL: item.URL,
 				SourceKind: "github", SourceScope: sourceToCommitSmokeSourceID,
 				ObservedAt: time.Now().UnixMilli(), Payload: payload,
@@ -150,7 +152,7 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB, rev strin
 	return nil
 }
 
-func readSourceToCommitSmokeState(ctx context.Context, db *store.DB) (sourceToCommitSmokeState, error) {
+func readSourceToCommitSmokeState(ctx context.Context, db *queries.DB) (sourceToCommitSmokeState, error) {
 	claims, err := db.ListInboxItemsByFeed(ctx, sourceToCommitSmokeFlowID, sourceToCommitSmokeFeedID, 100)
 	if err != nil {
 		return sourceToCommitSmokeState{}, fmt.Errorf("read smoke claims: %w", err)
@@ -162,7 +164,7 @@ func readSourceToCommitSmokeState(ctx context.Context, db *store.DB) (sourceToCo
 	var notifyCommands int
 	if err := db.Conn().QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM output_command WHERE action_id = ?`,
-		store.NotifyActionID(sourceToCommitSmokeNotifyID),
+		models.NotifyActionID(sourceToCommitSmokeNotifyID),
 	).Scan(&notifyCommands); err != nil {
 		return sourceToCommitSmokeState{}, fmt.Errorf("count smoke notify commands: %w", err)
 	}

@@ -8,13 +8,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/observe"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
 // Producer is the poll loop that turns configured source connectors into
@@ -32,7 +34,7 @@ import (
 // Source deduplication: a connector re-emits every current item on every
 // tick, even when nothing changed upstream (the GitHub fetch layer may itself
 // be cache-hit, but the cached items are still emitted). Producer delegates
-// to store.IngestObservation, which stores the last payload by (topic, key)
+// to queries.IngestObservation, which stores the last payload by (topic, key)
 // in the database and atomically appends a changed event with its new head,
 // so deduplication survives restarts and a failed append never suppresses a
 // retry. Successful ticks also append a source snapshot event for downstream
@@ -295,7 +297,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 	topic := instance.Node.Topic()
 	meta := instance.Metadata
 	if meta.Policy == "" {
-		meta.Policy = store.ResurfacePolicyStateChanges
+		meta.Policy = models.ResurfacePolicyStateChanges
 	}
 
 	// Named by kind, which is bounded; the id rides as an attribute.
@@ -319,13 +321,13 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		classifier = genericClassifier{}
 	}
 
-	items := make([]store.SnapshotItem, 0)
+	items := make([]models.SnapshotItem, 0)
 	observed := make(map[string]struct{})
 	err = instance.Pull.Produce(ctx, func(msg Msg) error {
 		if msg.Topic != topic {
 			return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
 		}
-		items = append(items, store.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
+		items = append(items, models.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
 		if msg.Key == "" {
 			return nil
 		}
@@ -334,7 +336,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		if msg.SourceKind != "" {
 			kind = msg.SourceKind
 		}
-		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+		result, err := pr.db.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
 		if err != nil {
 			return err
 		}
@@ -370,17 +372,17 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 // source head but not in this tick's snapshot. Only connectors that declared
 // CapConfirmAbsence get here; for the rest an item that stops appearing is
 // left to the resurface policy.
-func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instance, meta connector.Metadata, classifier store.Classifier, observed map[string]struct{}, out *drained) {
+func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instance, meta connector.Metadata, classifier models.Classifier, observed map[string]struct{}, out *drained) {
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 
-	keys, err := pr.db.ListActiveSourceHeadKeys(ctx, store.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
+	keys, err := pr.db.ListActiveSourceHeadKeys(ctx, queries.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
 	}
 
-	prevs := make([]store.Observation, 0, len(keys))
+	prevs := make([]models.Observation, 0, len(keys))
 	for _, key := range keys {
 		if _, present := observed[key]; present {
 			continue
@@ -412,7 +414,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if !ok || v.Current == nil {
 			continue
 		}
-		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
+		result, err := pr.db.IngestObservation(ctx, classifier, queries.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
@@ -493,7 +495,7 @@ func (pr *Producer) record(ctx context.Context, e activity.Event) {
 
 // genericClassifier keeps non-GitHub/test sources ingestible while adapters
 // supply richer semantics for real source kinds.
-func observationFromMsg(msg Msg, sourceKind, sourceScope string) store.Observation {
+func observationFromMsg(msg Msg, sourceKind, sourceScope string) models.Observation {
 	var wire struct {
 		Title     string `json:"title"`
 		URL       string `json:"url"`
@@ -506,14 +508,14 @@ func observationFromMsg(msg Msg, sourceKind, sourceScope string) store.Observati
 	if wire.UpdatedAt == 0 {
 		wire.UpdatedAt = time.Now().UnixMilli()
 	}
-	return store.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
+	return models.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
 }
 
 type genericClassifier struct{}
 
-func (genericClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (genericClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	if previous == nil {
-		return store.Classification{Kind: "observed", Transition: store.TransitionNone, Attention: store.AttentionActivity, Lifecycle: store.LifecycleUnknown, Summary: current.Title}
+		return models.Classification{Kind: "observed", Transition: models.TransitionNone, Attention: models.AttentionActivity, Lifecycle: models.LifecycleUnknown, Summary: current.Title}
 	}
-	return store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: store.LifecycleUnknown, Summary: current.Title}
+	return models.Classification{Kind: "updated", Transition: models.TransitionNone, Attention: models.AttentionTrivial, Lifecycle: models.LifecycleUnknown, Summary: current.Title}
 }

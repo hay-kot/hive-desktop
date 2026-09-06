@@ -9,14 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
-func observation(t *testing.T, item Item) store.Observation {
+func observation(t *testing.T, item Item) models.Observation {
 	t.Helper()
 	payload, err := json.Marshal(item)
 	require.NoError(t, err)
-	return store.Observation{ExternalID: item.ID, Title: item.Title, URL: item.URL, ObservedAt: item.UpdatedAt, Payload: payload}
+	return models.Observation{ExternalID: item.ID, Title: item.Title, URL: item.URL, ObservedAt: item.UpdatedAt, Payload: payload}
 }
 
 func searchItem(state string, updatedAt int64, labels ...string) Item {
@@ -35,8 +35,8 @@ func TestClassifyFirstObservation(t *testing.T) {
 
 	assert.Equal(t, "observed", out.Kind)
 	assert.Equal(t, "Added to workspace", out.Summary)
-	assert.Equal(t, store.AttentionActivity, out.Attention)
-	assert.Equal(t, store.LifecycleActive, out.Lifecycle)
+	assert.Equal(t, models.AttentionActivity, out.Attention)
+	assert.Equal(t, models.LifecycleActive, out.Lifecycle)
 	assert.NotEmpty(t, out.OccurrenceKey)
 }
 
@@ -53,8 +53,8 @@ func TestClassifyEntersTerminalOnMergeAndClose(t *testing.T) {
 
 			assert.Equal(t, state, out.Kind)
 			assert.Equal(t, summary, out.Summary)
-			assert.Equal(t, store.TransitionEnteredTerminal, out.Transition)
-			assert.Equal(t, store.LifecycleTerminal, out.Lifecycle)
+			assert.Equal(t, models.TransitionEnteredTerminal, out.Transition)
+			assert.Equal(t, models.LifecycleTerminal, out.Lifecycle)
 			assert.Equal(t, state, out.ArchivedReason)
 		})
 	}
@@ -69,8 +69,8 @@ func TestClassifyReopen(t *testing.T) {
 	out := classifier{}.Classify(&previous, current)
 
 	assert.Equal(t, "reopened", out.Kind)
-	assert.Equal(t, store.TransitionLeftTerminal, out.Transition)
-	assert.Equal(t, store.LifecycleActive, out.Lifecycle)
+	assert.Equal(t, models.TransitionLeftTerminal, out.Transition)
+	assert.Equal(t, models.LifecycleActive, out.Lifecycle)
 }
 
 func TestClassifyLabelChange(t *testing.T) {
@@ -94,7 +94,7 @@ func TestClassifyLabelChange(t *testing.T) {
 
 			assert.Equal(t, "labels", out.Kind)
 			assert.Equal(t, tc.summary, out.Summary)
-			assert.Equal(t, store.AttentionActivity, out.Attention)
+			assert.Equal(t, models.AttentionActivity, out.Attention)
 		})
 	}
 }
@@ -109,8 +109,8 @@ func TestClassifyReorderedLabelsAreTrivial(t *testing.T) {
 
 	out := classifier{}.Classify(&previous, current)
 
-	assert.Equal(t, store.AttentionTrivial, out.Attention)
-	assert.Equal(t, store.TransitionNone, out.Transition)
+	assert.Equal(t, models.AttentionTrivial, out.Attention)
+	assert.Equal(t, models.TransitionNone, out.Transition)
 }
 
 // A notification carries no labels at all. Comparing one against a search
@@ -139,8 +139,8 @@ func TestClassifyUnchangedItemIsTrivial(t *testing.T) {
 
 	out := classifier{}.Classify(&previous, current)
 
-	assert.Equal(t, store.AttentionTrivial, out.Attention)
-	assert.Equal(t, store.TransitionNone, out.Transition)
+	assert.Equal(t, models.AttentionTrivial, out.Attention)
+	assert.Equal(t, models.TransitionNone, out.Transition)
 	assert.Empty(t, out.OccurrenceKey)
 }
 
@@ -161,7 +161,7 @@ func (s *stubStates) ItemStates(_ context.Context, refs []itemRef) ([]itemState,
 func TestConfirmAbsenceArchivesATerminalItem(t *testing.T) {
 	t.Parallel()
 
-	previous := []store.Observation{observation(t, searchItem("open", 1000))}
+	previous := []models.Observation{observation(t, searchItem("open", 1000))}
 	stub := &stubStates{states: []itemState{{
 		Found: true, State: "merged", Title: "Fix the checkout flow",
 		URL: "https://git.example.com/acme/app/pulls/42", UpdatedAt: 2000,
@@ -188,7 +188,7 @@ func TestConfirmAbsenceArchivesATerminalItem(t *testing.T) {
 func TestConfirmAbsenceKeepsAStillOpenItem(t *testing.T) {
 	t.Parallel()
 
-	previous := []store.Observation{observation(t, searchItem("open", 1000))}
+	previous := []models.Observation{observation(t, searchItem("open", 1000))}
 	stub := &stubStates{states: []itemState{{Found: true, State: "open", UpdatedAt: 1500}}}
 
 	verdicts, err := (&absenceConfirmer{fetcher: stub}).ConfirmAbsence(t.Context(), previous)
@@ -204,7 +204,7 @@ func TestConfirmAbsenceKeepsAStillOpenItem(t *testing.T) {
 func TestConfirmAbsenceYieldsNoVerdictForAnUnresolvableItem(t *testing.T) {
 	t.Parallel()
 
-	previous := []store.Observation{observation(t, searchItem("open", 1000))}
+	previous := []models.Observation{observation(t, searchItem("open", 1000))}
 	stub := &stubStates{states: []itemState{{Found: false}}}
 
 	verdicts, err := (&absenceConfirmer{fetcher: stub}).ConfirmAbsence(t.Context(), previous)
@@ -215,7 +215,7 @@ func TestConfirmAbsenceYieldsNoVerdictForAnUnresolvableItem(t *testing.T) {
 func TestConfirmAbsenceSkipsUnaddressableItemsAndPropagatesErrors(t *testing.T) {
 	t.Parallel()
 
-	previous := []store.Observation{
+	previous := []models.Observation{
 		observation(t, Item{ID: "no-repo#1", Num: 1}),
 		observation(t, Item{ID: "acme/app#0", Repo: "acme/app"}),
 		{ExternalID: "not-json", Payload: []byte("{")},

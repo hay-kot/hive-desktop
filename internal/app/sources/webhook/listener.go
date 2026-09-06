@@ -17,8 +17,9 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // maxBodyBytes caps a webhook request body. Payloads are stored verbatim as
@@ -42,7 +43,7 @@ type Instances func() []connector.Instance
 // so membership replay keeps webhook-fed feeds intact across deploys and
 // restarts.
 type Listener struct {
-	db         *store.DB
+	db         *queries.DB
 	instances  Instances
 	onAppended func(nextOffset int64)
 	logger     zerolog.Logger
@@ -67,7 +68,7 @@ type mount struct {
 // NewListener builds a listener bound to host:port at Start. Configuration
 // validation limits host to loopback. onAppended fires after a delivery
 // appends event-log rows so the core can wake the flow engine.
-func NewListener(db *store.DB, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
+func NewListener(db *queries.DB, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
 	return &Listener{db: db, instances: instances, host: host, port: port, onAppended: onAppended, logger: logger}
 }
 
@@ -270,11 +271,11 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 	topic := inst.Node.Topic()
 	meta := inst.Metadata
 
-	result, err := l.db.IngestObservation(ctx, inst.Classifier, store.IngestObservationParams{
+	result, err := l.db.IngestObservation(ctx, inst.Classifier, queries.IngestObservationParams{
 		ProfileID: meta.ProfileID,
 		Topic:     topic,
 		Policy:    meta.Policy,
-		Current: store.Observation{
+		Current: models.Observation{
 			ExternalID:  key,
 			Title:       title,
 			URL:         url,
@@ -288,7 +289,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 		return 0, fmt.Errorf("ingesting webhook observation %q: %w", key, err)
 	}
 
-	if err := l.db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
+	if err := l.db.UpsertWebhookCapture(ctx, queries.UpsertWebhookCaptureParams{
 		Topic: topic, ReceivedAt: now, Body: body,
 	}); err != nil {
 		// The capture only powers editor affordances; losing it must not
@@ -300,15 +301,15 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 		return 0, nil
 	}
 
-	rows, err := l.db.Queries().ListUnarchivedInboxItemsBySource(ctx, store.ListUnarchivedInboxItemsBySourceParams{
+	rows, err := l.db.ListUnarchivedInboxItemsBySource(ctx, queries.ListUnarchivedInboxItemsBySourceParams{
 		ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope,
 	})
 	if err != nil {
 		return result.Offset, fmt.Errorf("listing webhook snapshot items for %q: %w", topic, err)
 	}
-	items := make([]store.SnapshotItem, 0, len(rows))
+	items := make([]models.SnapshotItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, store.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
+		items = append(items, models.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
 	}
 	offset, err := l.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	if err != nil {

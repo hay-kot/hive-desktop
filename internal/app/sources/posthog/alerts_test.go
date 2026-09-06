@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 func TestPostHogAlertsConfigValidate(t *testing.T) {
@@ -64,8 +64,8 @@ func TestPostHogAlertsProduceEmitsOnePerAlert(t *testing.T) {
 	fx, _ := connectedFetcher(t, server.URL)
 	src := &alertsSource{fetcher: fx, topic: "source:flow/node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -99,8 +99,8 @@ func TestPostHogAlertsFiringOnlySkipsQuietAlerts(t *testing.T) {
 	fx, _ := connectedFetcher(t, server.URL)
 	src := &alertsSource{fetcher: fx, firingOnly: true, topic: "t"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -119,8 +119,8 @@ func TestPostHogAlertWithoutInsightShortIDLinksToTheProject(t *testing.T) {
 	fx, _ := connectedFetcher(t, server.URL)
 	src := &alertsSource{fetcher: fx, topic: "t"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -131,9 +131,9 @@ func TestPostHogAlertWithoutInsightShortIDLinksToTheProject(t *testing.T) {
 	assert.Equal(t, server.URL+"/project/42/insights", payload.URL)
 }
 
-func alertObservation(id, state string) store.Observation {
+func alertObservation(id, state string) models.Observation {
 	payload, _ := json.Marshal(alertPayload{ID: id, Title: "Signups fell", State: state})
-	return store.Observation{ExternalID: id, Title: "Signups fell", Payload: payload}
+	return models.Observation{ExternalID: id, Title: "Signups fell", Payload: payload}
 }
 
 func TestPostHogAlertsClassifierFiringThenResolved(t *testing.T) {
@@ -144,15 +144,15 @@ func TestPostHogAlertsClassifierFiringThenResolved(t *testing.T) {
 
 	first := alertsClassifier{}.Classify(nil, firing)
 	assert.Equal(t, stateFiring, first.Kind)
-	assert.Equal(t, store.LifecycleActive, first.Lifecycle)
+	assert.Equal(t, models.LifecycleActive, first.Lifecycle)
 
 	resolved := alertsClassifier{}.Classify(&firing, quiet)
-	assert.Equal(t, store.LifecycleTerminal, resolved.Lifecycle)
-	assert.Equal(t, store.TransitionEnteredTerminal, resolved.Transition)
+	assert.Equal(t, models.LifecycleTerminal, resolved.Lifecycle)
+	assert.Equal(t, models.TransitionEnteredTerminal, resolved.Transition)
 	assert.Equal(t, "Resolved", resolved.Summary)
 
 	refiring := alertsClassifier{}.Classify(&quiet, firing)
-	assert.Equal(t, store.TransitionLeftTerminal, refiring.Transition)
+	assert.Equal(t, models.TransitionLeftTerminal, refiring.Transition)
 	assert.Equal(t, "Firing", refiring.Summary)
 }
 
@@ -163,7 +163,7 @@ func TestPostHogAlertsClassifierReobservedStaysTrivial(t *testing.T) {
 
 	got := alertsClassifier{}.Classify(&firing, firing)
 	assert.Equal(t, "updated", got.Kind)
-	assert.Equal(t, store.AttentionTrivial, got.Attention, "a still-firing alert must not re-notify every poll")
+	assert.Equal(t, models.AttentionTrivial, got.Attention, "a still-firing alert must not re-notify every poll")
 }
 
 // Only firing is a breach worth attention; snoozed and errored are not.
@@ -172,7 +172,7 @@ func TestPostHogAlertsClassifierNonFiringStatesAreTerminal(t *testing.T) {
 
 	for _, state := range []string{stateNotFiring, "snoozed", "errored"} {
 		got := alertsClassifier{}.Classify(nil, alertObservation("a1", state))
-		assert.Equalf(t, store.LifecycleTerminal, got.Lifecycle, "state %q", state)
+		assert.Equalf(t, models.LifecycleTerminal, got.Lifecycle, "state %q", state)
 	}
 }
 
@@ -197,8 +197,8 @@ func TestLastActivityPrefersNotification(t *testing.T) {
 	fx, _ := connectedFetcher(t, server.URL)
 	src := &alertsSource{fetcher: fx, topic: "t"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))

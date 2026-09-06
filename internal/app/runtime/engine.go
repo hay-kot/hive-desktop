@@ -7,30 +7,31 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // Store is what the engine needs from the pipeline database. It is declared
-// here because the engine is its consumer; *store.DB satisfies it.
+// here because the engine is its consumer; *queries.DB satisfies it.
 type Store interface {
 	// ReadForConsumer returns the next page after a consumer's committed
 	// offset.
-	ReadForConsumer(ctx context.Context, consumer string, limit int) ([]store.Msg, error)
+	ReadForConsumer(ctx context.Context, consumer string, limit int) ([]models.Msg, error)
 	// CommitBatch applies one run's outputs and advances the offset, atomically.
-	CommitBatch(ctx context.Context, batch store.CommitBatch) error
+	CommitBatch(ctx context.Context, batch models.CommitBatch) error
 	// EventLogTailOffset is the log's high-water mark, the point a replay
 	// fast-forwards its consumer to.
 	EventLogTailOffset(ctx context.Context) (int64, error)
 	// ListUnarchivedInboxItems returns the items a replay may claim. Archived
 	// items are deliberately absent: their membership is frozen.
-	ListUnarchivedInboxItems(ctx context.Context, profileID string) ([]store.InboxItemView, error)
+	ListUnarchivedInboxItems(ctx context.Context, profileID string) ([]queries.InboxItemView, error)
 	// ListReplaySourceSnapshots returns each source's newest authoritative
 	// snapshot at or before an offset.
-	ListReplaySourceSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]store.Msg, error)
+	ListReplaySourceSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]models.Msg, error)
 	// ActivateReplay installs a prepared replay: claims, removed structure,
 	// node-KV reconciliation, and the consumer checkpoint, in one transaction.
-	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []store.FeedMembershipClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
+	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []queries.FeedMembershipClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
 	// NodeKVGet and NodeKVKeys are the KVReader port live runners read
 	// durable node KV through.
 	NodeKVGet(ctx context.Context, flowID, nodeID, key string, now int64) (string, bool, error)
@@ -275,9 +276,9 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 		return fmt.Errorf("recomputing membership: %w", err)
 	}
 
-	claims := make([]store.FeedMembershipClaim, 0, len(result.Outputs))
+	claims := make([]queries.FeedMembershipClaim, 0, len(result.Outputs))
 	for _, output := range result.Outputs {
-		if output.Sink.Kind != store.SinkKindFeed {
+		if output.Sink.Kind != models.SinkKindFeed {
 			continue
 		}
 		itemID, ok := byIdentity[identityKey(output.SourceKind, output.SourceScope, output.Key)]
@@ -287,7 +288,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 			// claim.
 			continue
 		}
-		claims = append(claims, store.FeedMembershipClaim{
+		claims = append(claims, queries.FeedMembershipClaim{
 			ProfileID: f.ID,
 			FeedID:    output.Sink.TargetID,
 			ItemID:    itemID,

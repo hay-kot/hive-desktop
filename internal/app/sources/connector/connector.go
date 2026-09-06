@@ -12,7 +12,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // Config is everything a connector needs from a node's `type:`-specific
@@ -91,7 +91,7 @@ func (s Stability) String() string {
 type Capability uint16
 
 const (
-	// CapClassify means the connector supplies its own store.Classifier
+	// CapClassify means the connector supplies its own models.Classifier
 	// instead of falling back to generic observed/updated classification.
 	CapClassify Capability = 1 << iota
 	// CapConfirmAbsence means the connector can be asked what happened to an
@@ -151,7 +151,7 @@ type Node struct {
 	NodeID string
 	// Policy is the owning flow's resurface policy, which governs what
 	// happens when an item this source dropped comes back.
-	Policy store.ResurfacePolicy
+	Policy models.ResurfacePolicy
 }
 
 // ID is the flow-qualified source id, "<flowID>/<nodeID>".
@@ -173,7 +173,7 @@ type Metadata struct {
 	// SourceScope distinguishes several sources of one kind within a flow.
 	SourceScope string
 	// Policy governs resurfacing of an item that reappears.
-	Policy store.ResurfacePolicy
+	Policy models.ResurfacePolicy
 }
 
 // PullSource produces the current state of one source as a sequence of
@@ -187,7 +187,7 @@ type Metadata struct {
 // the item's stable identity and Payload to the item's JSON; the producer
 // supplies the topic.
 type PullSource interface {
-	Produce(ctx context.Context, emit func(store.Msg) error) error
+	Produce(ctx context.Context, emit func(models.Msg) error) error
 }
 
 // Instance is one constructed connector: the source itself plus whatever
@@ -213,10 +213,10 @@ type Instance struct {
 	MinInterval time.Duration
 	// Classifier turns an observation into an inbox event. Set iff the
 	// descriptor declares CapClassify.
-	Classifier store.Classifier
+	Classifier models.Classifier
 	// Absence answers what happened to an item that left the snapshot. Set
 	// iff the descriptor declares CapConfirmAbsence.
-	Absence store.AbsenceConfirmer
+	Absence models.AbsenceConfirmer
 	// Config is the parsed config this instance was built from, kept so a
 	// batched prefetch can re-read it without a second decode.
 	Config Config

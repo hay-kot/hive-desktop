@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 const (
@@ -27,7 +27,7 @@ type Recorder interface {
 // SQLite database. It is the single implementation behind both the Recorder
 // (backend emit sites) and the ActivityService (frontend reads/writes).
 type Store struct {
-	db   *store.DB
+	db   *queries.DB
 	now  func() time.Time
 	emit func(id int64)
 	log  *slog.Logger
@@ -47,7 +47,7 @@ type Options struct {
 }
 
 // NewStore builds a Store over db.
-func NewStore(db *store.DB, opts Options) *Store {
+func NewStore(db *queries.DB, opts Options) *Store {
 	s := &Store{db: db, now: opts.Now, emit: opts.Emit, log: opts.Log}
 	if s.now == nil {
 		s.now = time.Now
@@ -87,7 +87,7 @@ func (s *Store) Append(ctx context.Context, e Event) (Event, error) {
 		meta = encoded
 	}
 
-	rec, err := s.db.AppendActivityEvent(ctx, store.ActivityRecord{
+	rec, err := s.db.AppendActivityEvent(ctx, queries.ActivityRecord{
 		CreatedAt: s.now().UnixMilli(),
 		Category:  e.Category.String(),
 		Severity:  e.Severity.String(),
@@ -142,7 +142,7 @@ func (s *Store) List(ctx context.Context, before int64, limit int) ([]Event, err
 	return out, nil
 }
 
-func eventFromRecord(rec store.ActivityRecord) (Event, error) {
+func eventFromRecord(rec queries.ActivityRecord) (Event, error) {
 	ev := Event{
 		ID:        rec.ID,
 		CreatedAt: rec.CreatedAt,

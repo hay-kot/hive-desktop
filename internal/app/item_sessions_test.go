@@ -10,28 +10,29 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // fakeItemSessionStore stands in for the durable link table. links is keyed by
 // external id, which is enough to tell one item's sessions from another's here.
 type fakeItemSessionStore struct {
-	refs      map[int64]store.ItemRef
-	links     map[string][]store.ItemSession
+	refs      map[int64]models.ItemRef
+	links     map[string][]queries.ItemSession
 	unlinked  []string
 	unlinkErr error
 }
 
-func (f *fakeItemSessionStore) ItemRefByID(_ context.Context, itemID int64) (store.ItemRef, error) {
+func (f *fakeItemSessionStore) ItemRefByID(_ context.Context, itemID int64) (models.ItemRef, error) {
 	ref, ok := f.refs[itemID]
 	if !ok {
-		return store.ItemRef{}, sql.ErrNoRows
+		return models.ItemRef{}, sql.ErrNoRows
 	}
 	return ref, nil
 }
 
-func (f *fakeItemSessionStore) ItemSessions(_ context.Context, ref store.ItemRef) ([]store.ItemSession, error) {
+func (f *fakeItemSessionStore) ItemSessions(_ context.Context, ref models.ItemRef) ([]queries.ItemSession, error) {
 	return f.links[ref.ExternalID], nil
 }
 
@@ -59,8 +60,8 @@ func TestSessionsService_ItemSessionsJoinsLinksToLiveHiveState(t *testing.T) {
 		running: map[string]bool{"s1": true},
 	}
 	links := &fakeItemSessionStore{
-		refs: map[int64]store.ItemRef{7: {ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}},
-		links: map[string][]store.ItemSession{"acme/site#81": {
+		refs: map[int64]models.ItemRef{7: {ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}},
+		links: map[string][]queries.ItemSession{"acme/site#81": {
 			{SessionID: "s2", CreatedAt: 200},
 			{SessionID: "s1", CreatedAt: 100},
 		}},
@@ -89,8 +90,8 @@ func TestSessionsService_ItemSessionsPrunesLinksHiveCannotAccountFor(t *testing.
 		sessions: []dispatch.SessionSummary{{ID: "s1", Name: "kept", Slug: "kept", State: "active"}},
 	}
 	links := &fakeItemSessionStore{
-		refs: map[int64]store.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]store.ItemSession{"acme/site#81": {
+		refs: map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
+		links: map[string][]queries.ItemSession{"acme/site#81": {
 			{SessionID: "s1", CreatedAt: 100},
 			{SessionID: "deleted-elsewhere", CreatedAt: 90},
 		}},
@@ -108,8 +109,8 @@ func TestSessionsService_ItemSessionsPrunesLinksHiveCannotAccountFor(t *testing.
 func TestSessionsService_ItemSessionsKeepsLinksWhenHiveCannotBeRead(t *testing.T) {
 	manager := &fakeSessionManager{err: errors.New("hive.db locked")}
 	links := &fakeItemSessionStore{
-		refs:  map[int64]store.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]store.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
+		refs:  map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
+		links: map[string][]queries.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
 	}
 
 	_, err := itemSessionsService(manager, links).ItemSessions(t.Context(), 7)
@@ -124,8 +125,8 @@ func TestSessionsService_ItemSessionsSurvivesAFailedPrune(t *testing.T) {
 		sessions: []dispatch.SessionSummary{{ID: "s1", Name: "kept", Slug: "kept", State: "active"}},
 	}
 	links := &fakeItemSessionStore{
-		refs: map[int64]store.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]store.ItemSession{"acme/site#81": {
+		refs: map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
+		links: map[string][]queries.ItemSession{"acme/site#81": {
 			{SessionID: "s1", CreatedAt: 100},
 			{SessionID: "gone", CreatedAt: 90},
 		}},
@@ -147,8 +148,8 @@ func TestSessionsService_ItemSessionsKeepsSessionsWhenLivenessCannotBeRead(t *te
 		runningErr: errors.New("tmux is not reachable"),
 	}
 	links := &fakeItemSessionStore{
-		refs:  map[int64]store.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
-		links: map[string][]store.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
+		refs:  map[int64]models.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
+		links: map[string][]queries.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
 	}
 
 	views, err := itemSessionsService(manager, links).ItemSessions(t.Context(), 7)
@@ -160,7 +161,7 @@ func TestSessionsService_ItemSessionsKeepsSessionsWhenLivenessCannotBeRead(t *te
 
 func TestSessionsService_ItemSessionsRejectsAnUnknownItem(t *testing.T) {
 	manager, _ := activeSession()
-	links := &fakeItemSessionStore{refs: map[int64]store.ItemRef{}}
+	links := &fakeItemSessionStore{refs: map[int64]models.ItemRef{}}
 
 	_, err := itemSessionsService(manager, links).ItemSessions(t.Context(), 404)
 	assert.Equal(t, KindNotFound, KindOf(err))
@@ -171,10 +172,10 @@ func TestSessionsService_ItemSessionsRejectsAnUnknownItem(t *testing.T) {
 func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
-	ref := store.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
+	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
 	svc := &sessionsDeps{
 		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
-		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]store.ItemRef{7: ref}},
+		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]models.ItemRef{7: ref}},
 		logger: zerolog.Nop(),
 	}
 
@@ -191,12 +192,12 @@ func TestSessionsService_CreateSessionLaunchesUnlinkedWhenTheItemHasGone(t *test
 	manager, _ := activeSession()
 	svc := &sessionsDeps{
 		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
-		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]store.ItemRef{}},
+		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]models.ItemRef{}},
 		logger: zerolog.Nop(),
 	}
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 404})
 	require.NoError(t, err)
 	require.Len(t, launcher.calls, 1)
-	assert.Equal(t, store.ItemRef{}, launcher.calls[0].Origin)
+	assert.Equal(t, models.ItemRef{}, launcher.calls[0].Origin)
 }

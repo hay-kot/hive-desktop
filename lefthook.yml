@@ -57,11 +57,11 @@ pre-commit:
     - name: generated-code
       glob:
         - "sqlc.yaml"
-        - "internal/app/store/queries/*.sql"
-        - "internal/app/store/migrations/*.sql"
+        - "internal/app/data/queries/queries/*.sql"
+        - "internal/app/data/queries/migrations/*.sql"
         - "internal/app/activity/activity.go"
         - "internal/app/jobs/jobs.go"
-        - "internal/app/store/classify.go"
+        - "internal/app/data/models/classify.go"
         - "internal/app/flow/flow.go"
       run: mise run check:generate
 

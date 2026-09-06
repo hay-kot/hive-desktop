@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 func TestKindOf_WalksAWrappedChain(t *testing.T) {
@@ -73,11 +74,11 @@ func TestError_MessageAndJSON(t *testing.T) {
 func TestRerunOutputCommand_NoPriorRunUnwraps(t *testing.T) {
 	t.Parallel()
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	_, err = db.RerunOutputCommand(t.Context(), "review-pr", "item-1", nil, store.ItemRef{})
+	_, err = db.RerunOutputCommand(t.Context(), "review-pr", "item-1", nil, models.ItemRef{})
 	require.Error(t, err)
 	require.ErrorIs(t, err, sql.ErrNoRows)
 

@@ -15,8 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // fakeSource drives Producer.Tick with canned batches, one per call to
@@ -78,7 +79,7 @@ func pullInstance(flowID, nodeID string, pull connector.PullSource) connector.In
 		Metadata: connector.Metadata{
 			ProfileID:  flowID + "/" + nodeID,
 			SourceKind: "generic",
-			Policy:     store.ResurfacePolicyStateChanges,
+			Policy:     models.ResurfacePolicyStateChanges,
 		},
 		Pull: pull,
 	}
@@ -109,19 +110,19 @@ func sourcesOf(byID map[string]connector.PullSource) stubSources {
 type fakeAppender struct {
 	mu        sync.Mutex
 	nextOff   int64
-	calls     []store.Msg
+	calls     []models.Msg
 	snapshots int
 }
 
-func (a *fakeAppender) IngestObservation(_ context.Context, _ store.Classifier, p store.IngestObservationParams) (store.IngestResult, error) {
+func (a *fakeAppender) IngestObservation(_ context.Context, _ models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.nextOff++
-	a.calls = append(a.calls, store.Msg{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload})
-	return store.IngestResult{Wrote: true, Offset: a.nextOff}, nil
+	a.calls = append(a.calls, models.Msg{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload})
+	return queries.IngestResult{Wrote: true, Offset: a.nextOff}, nil
 }
 
-func (a *fakeAppender) ListActiveSourceHeadKeys(context.Context, store.SourceIdentity) ([]string, error) {
+func (a *fakeAppender) ListActiveSourceHeadKeys(context.Context, queries.SourceIdentity) ([]string, error) {
 	return nil, nil
 }
 
@@ -130,7 +131,7 @@ func (a *fakeAppender) SourceHeadPayload(context.Context, string, string) ([]byt
 }
 func (a *fakeAppender) DeleteSourceHead(context.Context, string, string) error { return nil }
 
-func (a *fakeAppender) AppendSnapshot(_ context.Context, _, _, _ string, _ []store.SnapshotItem) (int64, error) {
+func (a *fakeAppender) AppendSnapshot(_ context.Context, _, _, _ string, _ []models.SnapshotItem) (int64, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.nextOff++
@@ -152,9 +153,9 @@ func (r *activityRecorder) Record(_ context.Context, event activity.Event) {
 	r.events = append(r.events, event)
 }
 
-func openTestPipelineDB(t *testing.T) *store.DB {
+func openTestPipelineDB(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -328,7 +329,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	firstDB, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
+	firstDB, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 
 	first := NewProducer(firstDB, sourcesOf(map[string]connector.PullSource{
@@ -337,7 +338,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	first.Tick(t.Context())
 	require.NoError(t, firstDB.Close())
 
-	secondDB, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
+	secondDB, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = secondDB.Close() })
 	second := NewProducer(secondDB, sourcesOf(map[string]connector.PullSource{

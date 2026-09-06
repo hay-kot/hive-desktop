@@ -23,10 +23,10 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -82,7 +82,7 @@ func testSession(t *testing.T, seedConfig ...func(t *testing.T, configDir string
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
 	t.Helper()
-	item, err := core.Store.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+	item, err := core.Store.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: profile, SourceKind: "github", SourceScope: "s", ExternalID: external,
 		Payload: []byte(payload), Lifecycle: "active",
 	})
@@ -169,16 +169,16 @@ func TestInboxToolsMatchGolden(t *testing.T) {
 	core, session := testSession(t)
 	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
 
-	item, err := core.Store.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+	item, err := core.Store.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: "hooks", SourceKind: "webhook", SourceScope: "ci", ExternalID: "golden-1",
 		Title: "Golden item", Url: "https://example.test/items/golden-1", Payload: []byte(`{"number":1}`),
 		Unread: 1, Lifecycle: "active", FirstSeenAt: 1_700_000_000_000, LastEventAt: 1_700_000_001_000,
 	})
 	require.NoError(t, err)
-	require.NoError(t, core.Store.Queries().UpsertFeedMembershipClaim(t.Context(), store.UpsertFeedMembershipClaimParams{
+	require.NoError(t, core.Store.UpsertFeedMembershipClaim(t.Context(), queries.UpsertFeedMembershipClaimParams{
 		ProfileID: "hooks", FeedID: "hooks/inbox", ItemID: item.ID, SourceID: "source:hooks/hook",
 	}))
-	_, err = core.Store.Queries().InsertInboxEvent(t.Context(), store.InsertInboxEventParams{
+	_, err = core.Store.InsertInboxEvent(t.Context(), queries.InsertInboxEventParams{
 		ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Summary: sql.NullString{String: "Golden event", Valid: true},
 		Detail: []byte(`{"changed":"title"}`), CreatedAt: 1_700_000_002_000,
 	})
@@ -850,8 +850,8 @@ func TestExecuteFlowNeedsExactlyOneFlowSource(t *testing.T) {
 }
 
 // A JSON-object payload has to survive the schema and reach the node. It is
-// worth asserting because store.Msg carries its payload as json.RawMessage,
-// whose inferred schema is an array — passing store.Msg straight through as
+// worth asserting because models.Msg carries its payload as json.RawMessage,
+// whose inferred schema is an array — passing models.Msg straight through as
 // the tool's input type makes every real payload unrepresentable.
 func TestExecuteFlowDeliversAnObjectPayloadAndCommitsNothing(t *testing.T) {
 	core, session := testSession(t)

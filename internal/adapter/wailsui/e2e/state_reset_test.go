@@ -14,8 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
@@ -90,17 +91,17 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Append(ctx, "source:"+MockFlowID+"/"+MockSourceNodeID, "extra", []byte(`{"mutated":true}`))
 	require.NoError(t, err)
-	require.NoError(t, db.Queries().CommitConsumerOffset(ctx, store.CommitConsumerOffsetParams{Consumer: "frontend", Offset: 5}))
-	require.NoError(t, db.Queries().UpsertSourceHead(ctx, store.UpsertSourceHeadParams{Topic: "source:x", Key: "k", Payload: []byte(`{}`)}))
-	command, created, err := db.ConfirmOutputCommand(ctx, "smoke-shell", "pr2841", []byte(`{}`), store.ItemRef{})
+	require.NoError(t, db.CommitConsumerOffset(ctx, queries.CommitConsumerOffsetParams{Consumer: "frontend", Offset: 5}))
+	require.NoError(t, db.UpsertSourceHead(ctx, queries.UpsertSourceHeadParams{Topic: "source:x", Key: "k", Payload: []byte(`{}`)}))
+	command, created, err := db.ConfirmOutputCommand(ctx, "smoke-shell", "pr2841", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, db.MarkOutputCommandDone(ctx, command.ID, `{"ok":true}`, "out", "err"))
-	_, err = db.AppendActivityEvent(ctx, store.ActivityRecord{CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "mutated"})
+	_, err = db.AppendActivityEvent(ctx, queries.ActivityRecord{CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "mutated"})
 	require.NoError(t, err)
-	_, err = db.InsertJob(ctx, store.JobRecord{CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "done", Label: "mutated"})
+	_, err = db.InsertJob(ctx, queries.JobRecord{CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "done", Label: "mutated"})
 	require.NoError(t, err)
-	require.NoError(t, db.Queries().InsertNodeRun(ctx, store.InsertNodeRunParams{FlowID: MockFlowID, NodeID: MockSourceNodeID, Ok: 1, EndedAt: time.Now().UnixMilli()}))
+	require.NoError(t, db.InsertNodeRun(ctx, queries.InsertNodeRunParams{FlowID: MockFlowID, NodeID: MockSourceNodeID, Ok: 1, EndedAt: time.Now().UnixMilli()}))
 
 	// Mutate the core action tables the way a launch-session/publish-message
 	// action does.
@@ -128,7 +129,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 
 	// The pipeline database now equals a freshly seeded instance — including
 	// restarted AUTOINCREMENT ids and event offsets.
-	fresh, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	fresh, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, fresh.Close()) })
 	require.NoError(t, seedMockInboxItems(t.Context(), fresh))
@@ -158,7 +159,7 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 	// The pipeline smoke fixture's own server-side append plus a command, the
 	// state a source-to-commit run leaves behind.
 	require.NoError(t, appendSourceToCommitSmokeItems(ctx, db, "", nil))
-	_, created, err := db.ConfirmOutputCommand(ctx, "launch", "smoke-pr", []byte(`{}`), store.ItemRef{})
+	_, created, err := db.ConfirmOutputCommand(ctx, "launch", "smoke-pr", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 
@@ -192,9 +193,9 @@ func setStateResetEnv(t *testing.T, mode string) string {
 	return root
 }
 
-func openStateResetPipelineDB(t *testing.T) *store.DB {
+func openStateResetPipelineDB(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), settings.StateDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), settings.StateDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
@@ -205,7 +206,7 @@ func openStateResetPipelineDB(t *testing.T) *store.DB {
 // differ between two seeding runs. Including ids, event offsets, and
 // sqlite_sequence proves the reset restarts AUTOINCREMENT counters exactly
 // like a fresh database.
-func dumpStableState(t *testing.T, db *store.DB) map[string][][]string {
+func dumpStableState(t *testing.T, db *queries.DB) map[string][][]string {
 	t.Helper()
 	queries := map[string]string{
 		"event_log":             `SELECT "offset", topic, key, snapshot, source_kind, source_scope, payload FROM event_log ORDER BY "offset"`,
@@ -227,7 +228,7 @@ func dumpStableState(t *testing.T, db *store.DB) map[string][][]string {
 	return out
 }
 
-func dumpRows(t *testing.T, db *store.DB, query string) [][]string {
+func dumpRows(t *testing.T, db *queries.DB, query string) [][]string {
 	t.Helper()
 	rows, err := db.Conn().QueryContext(context.Background(), query)
 	require.NoError(t, err)

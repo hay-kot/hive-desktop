@@ -9,15 +9,16 @@ package ingest
 import (
 	"context"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// Msg is the pipeline's generic log record. It is store.Msg verbatim — a
+// Msg is the pipeline's generic log record. It is models.Msg verbatim — a
 // connector builds one per item and Producer appends it as-is, so there is no
 // separate wire type to keep in sync.
-type Msg = store.Msg
+type Msg = models.Msg
 
 // Sources is what a producer tick needs from the connector registry. Declared
 // here rather than exported from the registry because a package's dependency
@@ -39,11 +40,11 @@ type FlowLister interface {
 	List() []flow.Flow
 }
 
-// Appender is the subset of *store.DB a Producer needs.
+// Appender is the subset of *queries.DB a Producer needs.
 type Appender interface {
-	IngestObservation(ctx context.Context, classifier store.Classifier, p store.IngestObservationParams) (store.IngestResult, error)
-	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []store.SnapshotItem) (offset int64, err error)
-	ListActiveSourceHeadKeys(ctx context.Context, id store.SourceIdentity) ([]string, error)
+	IngestObservation(ctx context.Context, classifier models.Classifier, p queries.IngestObservationParams) (queries.IngestResult, error)
+	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (offset int64, err error)
+	ListActiveSourceHeadKeys(ctx context.Context, id queries.SourceIdentity) ([]string, error)
 	SourceHeadPayload(ctx context.Context, topic, key string) ([]byte, error)
 	DeleteSourceHead(ctx context.Context, topic, key string) error
 }

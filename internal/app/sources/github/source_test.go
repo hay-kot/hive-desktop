@@ -15,13 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // testCredential is the account every fixture source fetches as. Sources
@@ -60,9 +60,9 @@ func newResolver(fetchers *ghsource.Fetchers, flows fakeFlows) *ingest.Resolver 
 
 // openTestPipelineDB opens a throwaway store on a temp dir, migrated and
 // closed with the test.
-func openTestPipelineDB(t *testing.T) *store.DB {
+func openTestPipelineDB(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -282,7 +282,7 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 // TestProducer_WithGithubSource_IngestsAsGithubNotGeneric proves the declared
 // capabilities reach the producer. The registry's bijection test asserts the
 // factory fills what the descriptor promises; this asserts the producer then
-// uses it, end to end through a real fetch and a real store. Getting it wrong
+// uses it, end to end through a real fetch and a real queries. Getting it wrong
 // is not a crash: every GitHub item ingests as SourceKind "generic" with no
 // classifier and no absence confirmation, and the feed just looks wrong.
 func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {

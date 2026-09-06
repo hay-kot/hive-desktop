@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // TestNewSettingsServiceReadsNotifications proves the adapter-facing
@@ -143,7 +143,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 		fetchers := ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
-		db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+		db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}

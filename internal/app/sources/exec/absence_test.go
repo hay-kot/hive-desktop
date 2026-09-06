@@ -6,12 +6,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func TestConfirmAbsence_ResolvesEveryDepartedItem(t *testing.T) {
-	prev := []store.Observation{
+	prev := []models.Observation{
 		{ExternalID: "a", Title: "Alpha", Payload: []byte(`{"id":"a","title":"Alpha","state":"open"}`)},
 		{ExternalID: "b", Title: "Beta", Payload: []byte(`{"id":"b","title":"Beta"}`)},
 	}

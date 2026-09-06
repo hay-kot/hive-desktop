@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // ActionTypeNotify is the action type the notify executor is registered
@@ -67,7 +67,7 @@ type FlowLister interface {
 
 // FlowNotifyActions is the output worker's ActionLister: it resolves
 // synthetic "notify:<flowId>/<nodeId>" ids from the live flow set and
-// delegates every other id to the authored actions.yml store.
+// delegates every other id to the authored actions.yml queries.
 //
 // Resolution is late-bound (per lookup, not per construction) for the same
 // reason the producer's source lister and the webhook listener's route table
@@ -89,7 +89,7 @@ func NewFlowNotifyActions(flows FlowLister, catalog ActionLister) *FlowNotifyAct
 // actions.yml entry: its queued command fails rather than silently doing
 // nothing.
 func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
-	target, ok := store.NotifyActionTarget(id)
+	target, ok := models.NotifyActionTarget(id)
 	if !ok {
 		if l.actions == nil {
 			return actions.Action{}, false

@@ -4,13 +4,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 func newTestStore(t *testing.T, opts Options) *Store {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return NewStore(db, opts)

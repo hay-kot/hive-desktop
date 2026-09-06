@@ -10,7 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
@@ -20,9 +24,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/exec"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // seedRef is the account a seeded starter graph fetches as; seededCreds is a
@@ -198,14 +199,14 @@ func TestFlowsServiceStoreMarkImageRejectsBadInput(t *testing.T) {
 }
 
 func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	service := newFlowsService(flows, db, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+	_, err = db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
@@ -227,14 +228,14 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 // gone and the rows behind, and the id is the only handle left on them — so the
 // retry has to be accepted even though nothing on disk backs it any more.
 func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	service := newFlowsService(flows, db, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+	_, err = db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)

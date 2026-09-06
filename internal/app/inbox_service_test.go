@@ -14,8 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // recordingActionExecutor captures the context an action was dispatched with —
@@ -43,7 +44,7 @@ func (l *recordingSessionLauncher) LaunchSession(_ context.Context, req dispatch
 	return dispatch.SessionExecutionOutcome{ID: "session-1", Name: req.Name}, nil
 }
 
-func insertActionItem(t *testing.T, db *store.DB, id, kind, title string) int64 {
+func insertActionItem(t *testing.T, db *queries.DB, id, kind, title string) int64 {
 	t.Helper()
 	return insertActionItemSource(t, db, "github", id, kind, title, nil)
 }
@@ -51,13 +52,13 @@ func insertActionItem(t *testing.T, db *store.DB, id, kind, title string) int64 
 // insertActionItemSource inserts an inbox row with the given source kind and
 // an arbitrary payload merged over the canonical id/kind/title fields — used
 // by tests that need a non-GitHub source or extra payload fields (e.g. repo).
-func insertActionItemSource(t *testing.T, db *store.DB, sourceKind, id, kind, title string, extra map[string]any) int64 {
+func insertActionItemSource(t *testing.T, db *queries.DB, sourceKind, id, kind, title string, extra map[string]any) int64 {
 	t.Helper()
 	fields := map[string]any{"id": id, "kind": kind, "title": title}
 	maps.Copy(fields, extra)
 	payload, err := json.Marshal(fields)
 	require.NoError(t, err)
-	row, err := db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
+	row, err := db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
 	require.NoError(t, err)
 	return row.ID
 }
@@ -109,7 +110,7 @@ actions:
 
 func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -169,7 +170,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 // can never enqueue a durable command.
 func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -212,7 +213,7 @@ func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testi
 // (no panic) from both ActionViews and InvokeAction.
 func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -279,7 +280,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 
 func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -310,7 +311,7 @@ func (attemptedFailureExecutor) Execute(context.Context, actions.Action, dispatc
 func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	actionStore := configuredActionStore(t)
 	dir := t.TempDir()
-	db, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	failed := &attemptedFailureExecutor{}
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"launch-session": failed}), 0, zerolog.Nop())
@@ -319,7 +320,7 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	reopened, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
+	reopened, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	afterRestart, err := newInboxService(reopened, actionStore, nil).ActionRun(t.Context(), view.CommandID)
@@ -329,7 +330,7 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 
 func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -344,7 +345,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	require.NoError(t, err)
 	require.Equal(t, []dispatch.LaunchSessionRequest{{
 		Name: "review-pr-pr-1", Prompt: "Review Fix it", Repo: "git@example/repo.git",
-		Origin: store.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "pr-1"},
+		Origin: models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "pr-1"},
 	}}, launcher.calls)
 
 	var status string
@@ -354,7 +355,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 }
 
 func TestInboxService_NewSessionDraft(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := newInboxService(db, configuredActionStore(t), nil)
@@ -400,7 +401,7 @@ actions:
 	actionStore := actions.NewActionStore(path)
 	require.NoError(t, actionStore.Reload())
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 

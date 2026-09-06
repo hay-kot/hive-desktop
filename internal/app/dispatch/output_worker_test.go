@@ -12,14 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 // openTestPipelineDB opens a throwaway store on a temp dir, migrated and
 // closed with the test.
-func openTestPipelineDB(t *testing.T) *store.DB {
+func openTestPipelineDB(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -28,14 +29,14 @@ func openTestPipelineDB(t *testing.T) *store.DB {
 // enqueueTestCommand enqueues one output_command row via CommitBatch (the
 // only production path that ever writes one), so tests exercise the real
 // dedup/enqueue behavior rather than inserting rows by hand.
-func enqueueTestCommand(t *testing.T, db *store.DB, actionID, key, payload string) {
+func enqueueTestCommand(t *testing.T, db *queries.DB, actionID, key, payload string) {
 	t.Helper()
-	require.NoError(t, db.CommitBatch(t.Context(), store.CommitBatch{
+	require.NoError(t, db.CommitBatch(t.Context(), models.CommitBatch{
 		Consumer:   "test-consumer-" + actionID + "-" + key,
 		UpToOffset: 1,
-		Outputs: []store.Output{
+		Outputs: []models.Output{
 			{
-				Sink:          store.Sink{Kind: store.SinkKindAction, TargetID: actionID},
+				Sink:          models.Sink{Kind: models.SinkKindAction, TargetID: actionID},
 				OccurrenceKey: key,
 				Payload:       []byte(payload),
 			},
@@ -182,13 +183,13 @@ func TestWorker_ConfirmRequiresApprovalBeforeRerunningCompletedCommand(t *testin
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), store.ItemRef{}, ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.True(t, view.ConfirmationRequired)
 	assert.Equal(t, 1, exec.callCount(), "the duplicate must not execute before confirmation")
 	assert.Equal(t, "Fix bug", exec.calls[0].Payload["title"], "the worker preserves the queued command payload")
 
-	rerun, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), store.ItemRef{}, ActionInvocationInput{Rerun: true})
+	rerun, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), models.ItemRef{}, ActionInvocationInput{Rerun: true})
 	require.NoError(t, err)
 	assert.False(t, rerun.ConfirmationRequired)
 	assert.Equal(t, "done", rerun.Status)
@@ -212,7 +213,7 @@ func TestWorker_ConfirmRecordsJobLifecycleWithoutReplay(t *testing.T) {
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
-	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Begin", "Running", "Done"}, recorder.calls)
 	assert.Equal(t, "Test action", recorder.label)
@@ -221,7 +222,7 @@ func TestWorker_ConfirmRecordsJobLifecycleWithoutReplay(t *testing.T) {
 	assert.Positive(t, recorder.commandID)
 
 	recorder.calls = nil
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{}`), store.ItemRef{}, ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.True(t, view.ConfirmationRequired)
 	assert.Empty(t, recorder.calls, "an unconfirmed rerun must not create a phantom job")
@@ -234,7 +235,7 @@ func TestWorker_ConfirmUnknownActionRecordsQueuedFailure(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{}, NewDispatcher(nil), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
-	_, err := worker.Confirm(t.Context(), "missing", "item-1", []byte(`{}`), store.ItemRef{}, ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "missing", "item-1", []byte(`{}`), models.ItemRef{}, ActionInvocationInput{})
 	require.Error(t, err)
 	assert.Equal(t, []string{"Begin", "Fail"}, recorder.calls)
 	assert.Equal(t, "missing", recorder.label)
@@ -248,7 +249,7 @@ func TestWorker_ConfirmCreatesCommandWhenNoActionNodeProducedOne(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
-	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, exec.callCount())
 
@@ -388,7 +389,7 @@ func TestWorker_ConfirmFailureReturnsPersistedDiagnostics(t *testing.T) {
 	recorder := &fakeJobRecorder{}
 	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err, "an attempted side-effect failure is returned as a persisted view")
 	assert.Equal(t, "failed", view.Status)
 	assert.Equal(t, "boom", view.Error)
@@ -400,15 +401,15 @@ func TestWorker_ConfirmFailureReturnsPersistedDiagnostics(t *testing.T) {
 
 func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.T) {
 	dir := t.TempDir()
-	db, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, db, "review-action", "item-1", `{"title":"Fix bug"}`)
-	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`), store.ItemRef{})
+	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, db.Close())
 
-	reopened, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
+	reopened, err := queries.Open(t.Context(), dir, queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	exec := &fakeExecutor{}
@@ -427,7 +428,7 @@ func TestWorker_BoundsExecutorDiagnosticsBeforePersistence(t *testing.T) {
 	noisy := strings.Repeat("x", maxExecutionStreamBytes+1)
 	exec := &fakeExecutor{result: ExecutionResult{Log: ExecutionLog{Stdout: noisy, Stderr: noisy}}}
 	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), models.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, view.Stdout, maxExecutionStreamBytes)
 	assert.Len(t, view.Stderr, maxExecutionStreamBytes)

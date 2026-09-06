@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 type terminalConfirmer interface {
@@ -20,11 +20,11 @@ type absenceConfirmer struct{ live terminalConfirmer }
 // resolvedAbsence pairs a prior observation with its decoded feed item, kept
 // index-parallel to the refs sent to ConfirmTerminal.
 type resolvedAbsence struct {
-	observation store.Observation
+	observation models.Observation
 	item        feed.Item
 }
 
-func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []models.Observation) (map[string]models.AbsenceVerdict, error) {
 	resolvable := make([]resolvedAbsence, 0, len(previous))
 	refs := make([]feed.AbsentRef, 0, len(previous))
 	for _, observation := range previous {
@@ -42,7 +42,7 @@ func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.
 
 	states, err := c.live.ConfirmTerminal(ctx, refs)
 
-	verdicts := make(map[string]store.AbsenceVerdict)
+	verdicts := make(map[string]models.AbsenceVerdict)
 	for i, st := range states {
 		if !st.Found {
 			continue
@@ -59,7 +59,7 @@ func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.
 		// feed item so absence hydration never overwrites the inbox with blanks.
 		current.Title, current.URL = item.Title, item.URL
 		current.Payload, current.ObservedAt = payload, item.UpdatedAt
-		verdicts[observation.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: terminalState(st.State)}
+		verdicts[observation.ExternalID] = models.AbsenceVerdict{Current: &current, Terminal: terminalState(st.State)}
 	}
 	return verdicts, err
 }
@@ -70,18 +70,18 @@ func terminalState(state string) bool {
 
 type classifier struct{}
 
-func (classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (classifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	cur := decodeGithub(current.Payload)
-	lifecycle := store.LifecycleUnknown
+	lifecycle := models.LifecycleUnknown
 	if cur.State == "open" {
-		lifecycle = store.LifecycleActive
+		lifecycle = models.LifecycleActive
 	}
 	if terminalState(cur.State) {
-		lifecycle = store.LifecycleTerminal
+		lifecycle = models.LifecycleTerminal
 	}
-	out := store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
+	out := models.Classification{Kind: "updated", Transition: models.TransitionNone, Attention: models.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
 	if previous == nil {
-		out.Attention, out.Kind, out.Summary, out.OccurrenceKey = store.AttentionActivity, "observed", "Added to workspace", githubOccurrence(current.ExternalID, cur)
+		out.Attention, out.Kind, out.Summary, out.OccurrenceKey = models.AttentionActivity, "observed", "Added to workspace", githubOccurrence(current.ExternalID, cur)
 		out.Detail = githubDetail(nil, cur)
 		return out
 	}
@@ -90,20 +90,20 @@ func (classifier) Classify(previous *store.Observation, current store.Observatio
 	curTerminal := terminalState(cur.State)
 	switch {
 	case !prevTerminal && curTerminal:
-		out.Kind, out.Summary, out.Transition, out.Attention, out.ArchivedReason = cur.State, titleCase(cur.State), store.TransitionEnteredTerminal, store.AttentionActivity, cur.State
+		out.Kind, out.Summary, out.Transition, out.Attention, out.ArchivedReason = cur.State, titleCase(cur.State), models.TransitionEnteredTerminal, models.AttentionActivity, cur.State
 	case prevTerminal && !curTerminal && cur.State == "open":
-		out.Kind, out.Summary, out.Transition, out.Attention = "reopened", "Reopened", store.TransitionLeftTerminal, store.AttentionActivity
+		out.Kind, out.Summary, out.Transition, out.Attention = "reopened", "Reopened", models.TransitionLeftTerminal, models.AttentionActivity
 	case cur.UpdatedAt > prev.UpdatedAt && cur.Reason != "":
 		// Notification payloads do not carry labels, while search payloads do.
 		// Prefer GitHub's explicit notification reason before comparing labels
 		// so a comment cannot look like every label was removed.
 		out.Kind, out.Summary, out.Attention = githubActivity(cur.Reason)
 	case !sameLabels(cur.Labels, prev.Labels):
-		out.Kind, out.Summary, out.Attention = "labels", labelChangeSummary(prev.Labels, cur.Labels), store.AttentionActivity
+		out.Kind, out.Summary, out.Attention = "labels", labelChangeSummary(prev.Labels, cur.Labels), models.AttentionActivity
 	case cur.UpdatedAt > prev.UpdatedAt:
 		out.Kind, out.Summary, out.Attention = githubActivity(cur.Reason)
 	}
-	if out.Attention == store.AttentionActivity || out.Transition != store.TransitionNone {
+	if out.Attention == models.AttentionActivity || out.Transition != models.TransitionNone {
 		out.OccurrenceKey = githubOccurrence(current.ExternalID, cur)
 		out.Detail = githubDetail(&prev, cur)
 	}
@@ -141,7 +141,7 @@ func githubDetail(previous *githubPayload, current githubPayload) []byte {
 	return b
 }
 
-func githubActivity(reason string) (kind, summary string, attention store.Attention) {
+func githubActivity(reason string) (kind, summary string, attention models.Attention) {
 	summaries := map[string]string{
 		"approval_requested": "Approval requested",
 		"assign":             "Assigned on GitHub",
@@ -161,7 +161,7 @@ func githubActivity(reason string) (kind, summary string, attention store.Attent
 	if kind == "" {
 		kind = "updated"
 	}
-	return kind, summary, store.AttentionActivity
+	return kind, summary, models.AttentionActivity
 }
 
 func labelChangeSummary(previous, current []string) string {

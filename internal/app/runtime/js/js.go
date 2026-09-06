@@ -26,8 +26,8 @@ import (
 	"github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // Name is the language this runtime registers under.
@@ -51,7 +51,7 @@ const (
 )
 
 // maxKVKeyBytes and maxKVValueBytes cap what kv.set accepts: this is a
-// small-value dedup store, not a blob store. Over either cap the host func
+// small-value dedup store, not a blob queries. Over either cap the host func
 // throws so the script sees a catchable exception rather than silent
 // truncation. The number of keys is deliberately uncapped: the only writer
 // is the user's own script against their own local database, growth per tick
@@ -203,7 +203,7 @@ const interruptGrace = 250 * time.Millisecond
 // from stopping its flow. A goroutine that outlives its interrupt is
 // abandoned and keeps its pool slot, and the instance is marked wedged so the
 // engine's reset drops it.
-func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv runtime.NodeKV, console runtime.ConsoleSink) ([][]store.Msg, error) {
+func (i *instance) OnMessage(ctx context.Context, msg models.Msg, config any, kv runtime.NodeKV, console runtime.ConsoleSink) ([][]models.Msg, error) {
 	if i.wedged {
 		return nil, &runtime.ScriptError{Kind: runtime.ScriptErrorTimeout, Message: "script instance is still running a previous message"}
 	}
@@ -324,7 +324,7 @@ func (i *instance) toJS(v any) (goja.Value, error) {
 //
 // Resolving it here rather than in the engine is what lets a second language
 // bring its own ambiguities without the engine learning them.
-func (i *instance) fromJS(value goja.Value) ([][]store.Msg, error) {
+func (i *instance) fromJS(value goja.Value) ([][]models.Msg, error) {
 	if value == nil || goja.IsUndefined(value) || goja.IsNull(value) {
 		return nil, nil
 	}
@@ -343,8 +343,8 @@ func (i *instance) fromJS(value goja.Value) ([][]store.Msg, error) {
 		if err != nil {
 			return nil, err
 		}
-		ports := make([][]store.Msg, i.outputs)
-		ports[0] = []store.Msg{msg}
+		ports := make([][]models.Msg, i.outputs)
+		ports[0] = []models.Msg{msg}
 		return ports, nil
 	}
 
@@ -354,7 +354,7 @@ func (i *instance) fromJS(value goja.Value) ([][]store.Msg, error) {
 	}
 
 	if i.outputs <= 1 {
-		ports := make([][]store.Msg, i.outputs)
+		ports := make([][]models.Msg, i.outputs)
 		for _, entry := range entries {
 			if isJSONNull(entry) {
 				continue
@@ -372,7 +372,7 @@ func (i *instance) fromJS(value goja.Value) ([][]store.Msg, error) {
 	// are not an error: the engine finds no wire on that port and accounts for
 	// each one as a discard, which is what happened in the browser and what
 	// keeps the node-run counters honest.
-	ports := make([][]store.Msg, max(i.outputs, len(entries)))
+	ports := make([][]models.Msg, max(i.outputs, len(entries)))
 	for port, entry := range entries {
 		if isJSONNull(entry) {
 			continue
@@ -398,7 +398,7 @@ func (i *instance) fromJS(value goja.Value) ([][]store.Msg, error) {
 		if err != nil {
 			return nil, err
 		}
-		ports[port] = []store.Msg{msg}
+		ports[port] = []models.Msg{msg}
 	}
 	return ports, nil
 }
@@ -423,10 +423,10 @@ func isJSONNull(raw json.RawMessage) bool {
 // set of fields: anything else an author attaches to the message object is
 // not carried downstream, because the envelope is also what an HTTP or MCP
 // surface serialises. Per-message data belongs in msg.Payload.
-func decodeMsg(raw json.RawMessage) (store.Msg, error) {
-	var msg store.Msg
+func decodeMsg(raw json.RawMessage) (models.Msg, error) {
+	var msg models.Msg
 	if err := json.Unmarshal(raw, &msg); err != nil {
-		return store.Msg{}, &runtime.ScriptError{Kind: runtime.ScriptErrorResult, Message: "the returned value is not a message: " + err.Error()}
+		return models.Msg{}, &runtime.ScriptError{Kind: runtime.ScriptErrorResult, Message: "the returned value is not a message: " + err.Error()}
 	}
 	return msg, nil
 }

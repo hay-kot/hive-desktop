@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 )
 
 type notifierTest struct {
@@ -40,7 +41,7 @@ func (l itemLocatorTest) InboxItemID(context.Context, string, string, string, st
 
 func notifyAction() actions.Action {
 	return actions.Action{
-		ID:    store.NotifyActionID("triage/tell-me"),
+		ID:    models.NotifyActionID("triage/tell-me"),
 		Label: "Tell me",
 		Type:  ActionTypeNotify,
 		Config: &NotifyActionConfig{
@@ -53,15 +54,15 @@ func notifyAction() actions.Action {
 	}
 }
 
-func notifyData(t *testing.T, cmd store.NotifyCommand) OutputData {
+func notifyData(t *testing.T, cmd models.NotifyCommand) OutputData {
 	t.Helper()
 	raw, err := json.Marshal(cmd)
 	require.NoError(t, err)
 	return OutputData{Key: "occurrence-1", Raw: raw, CreatedAt: time.Now().UnixMilli(), CommandID: 7}
 }
 
-func notifyCommand() store.NotifyCommand {
-	return store.NotifyCommand{
+func notifyCommand() models.NotifyCommand {
+	return models.NotifyCommand{
 		ProfileID:   "triage",
 		ExternalID:  "acme/api#12",
 		SourceKind:  "github",
@@ -222,7 +223,7 @@ func TestNotifyExecutor_CooldownIsConfigurable(t *testing.T) {
 
 		patient := withCooldown(time.Hour)
 		eager := withCooldown(30 * time.Second)
-		eager.ID = store.NotifyActionID("triage/also-tell-me")
+		eager.ID = models.NotifyActionID("triage/also-tell-me")
 
 		_, err := executor.Execute(t.Context(), patient, notifyData(t, notifyCommand()), ActionInvocationInput{})
 		require.NoError(t, err)
@@ -252,7 +253,7 @@ func TestNotifyExecutor_CooldownIsPerNode(t *testing.T) {
 	require.NoError(t, err)
 
 	other := notifyAction()
-	other.ID = store.NotifyActionID("triage/also-tell-me")
+	other.ID = models.NotifyActionID("triage/also-tell-me")
 	_, err = executor.Execute(t.Context(), other, notifyData(t, notifyCommand()), ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, notifier.sent, 2)

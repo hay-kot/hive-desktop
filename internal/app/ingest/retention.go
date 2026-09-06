@@ -5,8 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 // DefaultRetentionInterval is deliberately infrequent: retention only touches
@@ -15,15 +16,15 @@ import (
 const DefaultRetentionInterval = 5 * time.Minute
 
 // RetentionStore is the subset of the pipeline database required by
-// Maintenance. *store.DB satisfies it.
+// Maintenance. *queries.DB satisfies it.
 type RetentionStore interface {
-	Prune(ctx context.Context, policy store.RetentionPolicy) error
+	Prune(ctx context.Context, policy queries.RetentionPolicy) error
 }
 
 // Maintenance periodically bounds pipeline history.
 type Maintenance struct {
 	db       RetentionStore
-	policy   store.RetentionPolicy
+	policy   queries.RetentionPolicy
 	interval time.Duration
 	logger   zerolog.Logger
 
@@ -36,7 +37,7 @@ type Maintenance struct {
 
 // NewMaintenance constructs the background retention loop. Callers must pass
 // a positive interval because time.NewTicker rejects zero and negative durations.
-func NewMaintenance(db RetentionStore, policy store.RetentionPolicy, interval time.Duration, logger zerolog.Logger) *Maintenance {
+func NewMaintenance(db RetentionStore, policy queries.RetentionPolicy, interval time.Duration, logger zerolog.Logger) *Maintenance {
 	return &Maintenance{
 		db:       db,
 		policy:   policy,

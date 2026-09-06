@@ -9,9 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	execsource "github.com/hay-kot/hive-desktop/internal/app/sources/exec"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // The exec connector is the first source whose failures are entirely the
@@ -26,16 +27,16 @@ func (execEnvironment) Environ(context.Context) []string { return nil }
 func execInstance(t *testing.T, command string) connector.Instance {
 	t.Helper()
 	instance, err := execsource.NewFactory(execEnvironment{}).New(
-		connector.Node{FlowID: "oncall", NodeID: "src", Policy: store.ResurfacePolicyStateChanges},
+		connector.Node{FlowID: "oncall", NodeID: "src", Policy: models.ResurfacePolicyStateChanges},
 		&execsource.Config{Command: command, Timeout: connector.Duration(10 * time.Second)},
 	)
 	require.NoError(t, err)
 	return instance
 }
 
-func execSourceKeys(t *testing.T, db *store.DB) []string {
+func execSourceKeys(t *testing.T, db *queries.DB) []string {
 	t.Helper()
-	keys, err := db.ListActiveSourceHeadKeys(t.Context(), store.SourceIdentity{
+	keys, err := db.ListActiveSourceHeadKeys(t.Context(), queries.SourceIdentity{
 		Topic: "source:oncall/src", ProfileID: "oncall", SourceKind: "exec", SourceScope: "src",
 	})
 	require.NoError(t, err)

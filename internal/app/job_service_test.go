@@ -7,12 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func TestJobService_ListAndListActive(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -21,17 +21,17 @@ func TestJobService_ListAndListActive(t *testing.T) {
 	service := newJobService(jobStore)
 	ctx := t.Context()
 
-	outside, err := db.InsertJob(ctx, store.JobRecord{
+	outside, err := db.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: now.Add(-time.Minute).UnixMilli(), UpdatedAt: now.Add(-jobs.DefaultLingerWindow - time.Millisecond).UnixMilli(),
 		Status: "done", Label: "Outside", Step: "Completed",
 	})
 	require.NoError(t, err)
-	inside, err := db.InsertJob(ctx, store.JobRecord{
+	inside, err := db.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: now.Add(-time.Minute).UnixMilli(), UpdatedAt: now.Add(-jobs.DefaultLingerWindow + time.Millisecond).UnixMilli(),
 		Status: "failed", Label: "Inside", Step: "Failed",
 	})
 	require.NoError(t, err)
-	queued, err := db.InsertJob(ctx, store.JobRecord{
+	queued, err := db.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: now.Add(-time.Hour).UnixMilli(), UpdatedAt: now.Add(-time.Hour).UnixMilli(),
 		Status: "queued", Label: "Queued", Step: "Queued",
 	})

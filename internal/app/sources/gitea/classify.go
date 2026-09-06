@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // terminalState reports whether a state ends an item's lifecycle. Gitea reports
@@ -24,28 +24,28 @@ func terminalState(state string) bool {
 // for.
 type classifier struct{}
 
-var _ store.Classifier = classifier{}
+var _ models.Classifier = classifier{}
 
-func (classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (classifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	cur := decodePayload(current.Payload)
 
-	lifecycle := store.LifecycleUnknown
+	lifecycle := models.LifecycleUnknown
 	switch {
 	case cur.State == "open":
-		lifecycle = store.LifecycleActive
+		lifecycle = models.LifecycleActive
 	case terminalState(cur.State):
-		lifecycle = store.LifecycleTerminal
+		lifecycle = models.LifecycleTerminal
 	}
 
-	out := store.Classification{
+	out := models.Classification{
 		Kind:        "updated",
-		Transition:  store.TransitionNone,
-		Attention:   store.AttentionTrivial,
+		Transition:  models.TransitionNone,
+		Attention:   models.AttentionTrivial,
 		Lifecycle:   lifecycle,
 		SourceState: cur.State,
 	}
 	if previous == nil {
-		out.Attention, out.Kind, out.Summary = store.AttentionActivity, "observed", "Added to workspace"
+		out.Attention, out.Kind, out.Summary = models.AttentionActivity, "observed", "Added to workspace"
 		out.OccurrenceKey, out.Detail = occurrenceKey(current.ExternalID, cur), detail(nil, cur)
 		return out
 	}
@@ -55,16 +55,16 @@ func (classifier) Classify(previous *store.Observation, current store.Observatio
 	switch {
 	case !prevTerminal && curTerminal:
 		out.Kind, out.Summary = cur.State, titleCase(cur.State)
-		out.Transition, out.Attention, out.ArchivedReason = store.TransitionEnteredTerminal, store.AttentionActivity, cur.State
+		out.Transition, out.Attention, out.ArchivedReason = models.TransitionEnteredTerminal, models.AttentionActivity, cur.State
 	case prevTerminal && !curTerminal && cur.State == "open":
 		out.Kind, out.Summary = "reopened", "Reopened"
-		out.Transition, out.Attention = store.TransitionLeftTerminal, store.AttentionActivity
+		out.Transition, out.Attention = models.TransitionLeftTerminal, models.AttentionActivity
 	case comparableLabels(prev, cur) && !sameLabels(prev.Labels, cur.Labels):
-		out.Kind, out.Summary, out.Attention = "labels", labelChangeSummary(prev.Labels, cur.Labels), store.AttentionActivity
+		out.Kind, out.Summary, out.Attention = "labels", labelChangeSummary(prev.Labels, cur.Labels), models.AttentionActivity
 	case cur.UpdatedAt > prev.UpdatedAt:
-		out.Kind, out.Summary, out.Attention = "updated", "Updated on Gitea", store.AttentionActivity
+		out.Kind, out.Summary, out.Attention = "updated", "Updated on Gitea", models.AttentionActivity
 	}
-	if out.Attention == store.AttentionActivity || out.Transition != store.TransitionNone {
+	if out.Attention == models.AttentionActivity || out.Transition != models.TransitionNone {
 		out.OccurrenceKey, out.Detail = occurrenceKey(current.ExternalID, cur), detail(&prev, cur)
 	}
 	return out
@@ -178,12 +178,12 @@ type itemStates interface {
 
 type absenceConfirmer struct{ fetcher itemStates }
 
-var _ store.AbsenceConfirmer = (*absenceConfirmer)(nil)
+var _ models.AbsenceConfirmer = (*absenceConfirmer)(nil)
 
 // resolvedAbsence pairs a prior observation with its decoded item, kept
 // index-parallel to the refs sent to ItemStates.
 type resolvedAbsence struct {
-	observation store.Observation
+	observation models.Observation
 	item        Item
 }
 
@@ -194,7 +194,7 @@ type resolvedAbsence struct {
 // An item that no longer resolves — deleted, or in a repository the token lost
 // access to — returns no verdict, leaving it to the flow's resurface policy
 // rather than archiving it on a lookup failure.
-func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []models.Observation) (map[string]models.AbsenceVerdict, error) {
 	resolvable := make([]resolvedAbsence, 0, len(previous))
 	refs := make([]itemRef, 0, len(previous))
 	for _, observation := range previous {
@@ -212,7 +212,7 @@ func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.
 
 	states, err := c.fetcher.ItemStates(ctx, refs)
 
-	verdicts := make(map[string]store.AbsenceVerdict)
+	verdicts := make(map[string]models.AbsenceVerdict)
 	for i, state := range states {
 		if !state.Found {
 			continue
@@ -234,7 +234,7 @@ func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.
 		// the decoded item — absence hydration must never blank the inbox row.
 		current.Title, current.URL = item.Title, item.URL
 		current.Payload, current.ObservedAt = payload, item.UpdatedAt
-		verdicts[observation.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: terminalState(state.State)}
+		verdicts[observation.ExternalID] = models.AbsenceVerdict{Current: &current, Terminal: terminalState(state.State)}
 	}
 	return verdicts, err
 }

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // InboxService owns the durable inbox as a *reader and triager* sees it: the
@@ -21,29 +21,29 @@ import (
 // talks to the store directly — routing them through a service would only put
 // a facade between two parts of the core with no caller in between.
 type InboxService struct {
-	db      *store.DB
+	db      *queries.DB
 	actions *actions.ActionStore
 	worker  *dispatch.Worker
 }
 
-func newInboxService(db *store.DB, catalog *actions.ActionStore, worker *dispatch.Worker) *InboxService {
+func newInboxService(db *queries.DB, catalog *actions.ActionStore, worker *dispatch.Worker) *InboxService {
 	return &InboxService{db: db, actions: catalog, worker: worker}
 }
 
-func (s *InboxService) ListInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
+func (s *InboxService) ListInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]queries.InboxItemView, error) {
 	items, err := s.db.ListInboxItemsByFeed(ctx, profileID, feedID, limit)
 	return items, Wrap(err, KindInternal, "listing feed %q", feedID)
 }
 
 // ListArchivedInboxItemsByFeed returns a feed's archived section, loaded
 // lazily when the user expands the archived divider.
-func (s *InboxService) ListArchivedInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
+func (s *InboxService) ListArchivedInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]queries.InboxItemView, error) {
 	items, err := s.db.ListArchivedInboxItemsByFeed(ctx, profileID, feedID, limit)
 	return items, Wrap(err, KindInternal, "listing archived items in feed %q", feedID)
 }
 
 // ListInboxItemsTrash returns unrouted and ignored items for the Trash view.
-func (s *InboxService) ListInboxItemsTrash(ctx context.Context, profileID string, limit int) ([]store.InboxItemView, error) {
+func (s *InboxService) ListInboxItemsTrash(ctx context.Context, profileID string, limit int) ([]queries.InboxItemView, error) {
 	items, err := s.db.ListInboxItemsTrash(ctx, profileID, limit)
 	return items, Wrap(err, KindInternal, "listing trash for %q", profileID)
 }
@@ -66,7 +66,7 @@ func (s *InboxService) InboxItemFeeds(ctx context.Context, itemIDs []int64) (map
 // InboxItemEvents lists one item's lifecycle events. An item with no events
 // yet and an item id that matches nothing are different answers: the second is
 // KindNotFound, so a caller reading an empty list knows it read the right item.
-func (s *InboxService) InboxItemEvents(ctx context.Context, itemID int64, limit int) ([]store.InboxEventView, error) {
+func (s *InboxService) InboxItemEvents(ctx context.Context, itemID int64, limit int) ([]queries.InboxEventView, error) {
 	if err := s.requireItem(ctx, itemID); err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (s *InboxService) InboxItemEvents(ctx context.Context, itemID int64, limit 
 
 // requireItem reports KindNotFound for an item id no row backs.
 func (s *InboxService) requireItem(ctx context.Context, itemID int64) error {
-	_, err := s.db.Queries().GetInboxItemByID(ctx, itemID)
+	_, err := s.db.GetInboxItemByID(ctx, itemID)
 	switch {
 	case err == nil:
 		return nil
@@ -87,7 +87,7 @@ func (s *InboxService) requireItem(ctx context.Context, itemID int64) error {
 	}
 }
 
-func (s *InboxService) MarkInboxItemUnread(ctx context.Context, itemID, revision int64, unread bool) (store.InboxItemView, error) {
+func (s *InboxService) MarkInboxItemUnread(ctx context.Context, itemID, revision int64, unread bool) (queries.InboxItemView, error) {
 	view, err := s.db.SetInboxItemUnread(ctx, itemID, revision, unread)
 	return view, s.itemWriteError(err, itemID)
 }
@@ -100,12 +100,12 @@ func (s *InboxService) MarkInboxItemsRead(ctx context.Context, profileID, feedID
 	return n, Wrap(err, KindInternal, "marking items read in %q", profileID)
 }
 
-func (s *InboxService) ToggleInboxItemArchived(ctx context.Context, itemID, revision int64) (store.InboxItemView, error) {
+func (s *InboxService) ToggleInboxItemArchived(ctx context.Context, itemID, revision int64) (queries.InboxItemView, error) {
 	view, err := s.db.ToggleInboxItemArchived(ctx, itemID, revision, time.Now().UnixMilli())
 	return view, s.itemWriteError(err, itemID)
 }
 
-func (s *InboxService) ToggleInboxItemIgnored(ctx context.Context, itemID, revision int64) (store.InboxItemView, error) {
+func (s *InboxService) ToggleInboxItemIgnored(ctx context.Context, itemID, revision int64) (queries.InboxItemView, error) {
 	view, err := s.db.ToggleInboxItemIgnored(ctx, itemID, revision, time.Now().UnixMilli())
 	return view, s.itemWriteError(err, itemID)
 }
@@ -117,21 +117,21 @@ func (s *InboxService) itemWriteError(err error, itemID int64) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, store.ErrStaleInboxItem):
+	case errors.Is(err, queries.ErrStaleInboxItem):
 		return Wrap(err, KindConflict, "inbox item %d changed underneath you", itemID)
 	default:
 		return Wrap(err, KindInternal, "updating inbox item %d", itemID)
 	}
 }
 
-func (s *InboxService) FeedCounts(ctx context.Context, profileID string) ([]store.FeedInboxCount, error) {
+func (s *InboxService) FeedCounts(ctx context.Context, profileID string) ([]queries.FeedInboxCount, error) {
 	counts, err := s.db.FeedCounts(ctx, profileID)
 	return counts, Wrap(err, KindInternal, "counting feeds for %q", profileID)
 }
 
 // ListItems returns inbox items newest-first, optionally scoped to a profile
 // (empty matches all), unfiltered by feed or triage — a debug/observation read.
-func (s *InboxService) ListItems(ctx context.Context, profileID string, limit int) ([]store.InboxItemView, error) {
+func (s *InboxService) ListItems(ctx context.Context, profileID string, limit int) ([]queries.InboxItemView, error) {
 	items, err := s.db.ListAllInboxItems(ctx, profileID, limit)
 	return items, Wrap(err, KindInternal, "listing inbox items")
 }
@@ -139,7 +139,7 @@ func (s *InboxService) ListItems(ctx context.Context, profileID string, limit in
 // FindItems returns every inbox item sharing an external id, optionally scoped
 // to a profile (empty profileID matches all). The same external id can exist
 // across profiles and source scopes, hence a slice.
-func (s *InboxService) FindItems(ctx context.Context, profileID, externalID string) ([]store.InboxItemView, error) {
+func (s *InboxService) FindItems(ctx context.Context, profileID, externalID string) ([]queries.InboxItemView, error) {
 	if externalID == "" {
 		return nil, Errorf(KindInvalid, "external id is required")
 	}
@@ -170,7 +170,7 @@ func (s *InboxService) ActionViews(ctx context.Context, itemID int64) ([]actions
 
 // NewSessionDraft projects an inbox item into a prefilled New Session form.
 func (s *InboxService) NewSessionDraft(ctx context.Context, itemID int64) (dispatch.SessionDraft, error) {
-	row, err := s.db.Queries().GetInboxItemByID(ctx, itemID)
+	row, err := s.db.GetInboxItemByID(ctx, itemID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return dispatch.SessionDraft{}, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
@@ -298,7 +298,7 @@ func (s *InboxService) confirmError(err error, actionID string) error {
 
 // NodeRuns returns up to limit of a flow's most recent node_run rows, newest
 // first, for the canvas's live per-node status and recent activity list.
-func (s *InboxService) NodeRuns(ctx context.Context, flowID string, limit int) ([]store.NodeRunRecord, error) {
+func (s *InboxService) NodeRuns(ctx context.Context, flowID string, limit int) ([]queries.NodeRunRecord, error) {
 	runs, err := s.db.NodeRuns(ctx, flowID, limit)
 	return runs, Wrap(err, KindInternal, "listing node runs for flow %q", flowID)
 }
@@ -334,7 +334,7 @@ func (s *InboxService) ActionRun(ctx context.Context, commandID int64) (dispatch
 // decodeItem reads and decodes one inbox item, classifying the two ways it
 // can fail: the row is gone, or its payload is not a canonical item.
 func (s *InboxService) decodeItem(ctx context.Context, itemID int64) (dispatch.DecodedActionItem, error) {
-	row, err := s.db.Queries().GetInboxItemByID(ctx, itemID)
+	row, err := s.db.GetInboxItemByID(ctx, itemID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return dispatch.DecodedActionItem{}, Wrap(err, KindNotFound, "inbox item %d not found", itemID)

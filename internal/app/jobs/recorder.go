@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 const (
@@ -32,7 +32,7 @@ type Recorder interface {
 
 // Store persists and reads jobs in the shared desktop pipeline database.
 type Store struct {
-	db   *store.DB
+	db   *queries.DB
 	now  func() time.Time
 	emit func(id int64)
 	log  *slog.Logger
@@ -49,7 +49,7 @@ type Options struct {
 }
 
 // NewStore builds a Store over db.
-func NewStore(db *store.DB, opts Options) *Store {
+func NewStore(db *queries.DB, opts Options) *Store {
 	s := &Store{db: db, now: opts.Now, emit: opts.Emit, log: opts.Log}
 	if s.now == nil {
 		s.now = time.Now
@@ -64,7 +64,7 @@ func NewStore(db *store.DB, opts Options) *Store {
 // failure, preserving the fire-and-forget Recorder contract.
 func (s *Store) Begin(ctx context.Context, label, actionID, target string) int64 {
 	now := s.now().UnixMilli()
-	rec, err := s.db.InsertJob(ctx, store.JobRecord{
+	rec, err := s.db.InsertJob(ctx, queries.JobRecord{
 		CreatedAt: now,
 		UpdatedAt: now,
 		Status:    JobStatusQueued.String(),
@@ -113,7 +113,7 @@ func (s *Store) Resume(ctx context.Context, commandID int64) int64 {
 // context detached from the caller's, so the work survives the request that
 // started it (an RPC handler returns immediately). The job is not linked to an
 // output_command, so it shows in the jobs UI without a deep-link. Persistence
-// failures never derail fn. Do not call Track inside store.WithinTx:
+// failures never derail fn. Do not call Track inside queries.WithinTx:
 // context.WithoutCancel copies context values, including its transaction, into
 // the goroutine.
 func (s *Store) Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64 {
@@ -180,7 +180,7 @@ func (s *Store) emitUpdate(id int64) {
 	}
 }
 
-func jobsFromRecords(recs []store.JobRecord) []Job {
+func jobsFromRecords(recs []queries.JobRecord) []Job {
 	out := make([]Job, 0, len(recs))
 	for _, rec := range recs {
 		out = append(out, jobFromRecord(rec))
@@ -188,7 +188,7 @@ func jobsFromRecords(recs []store.JobRecord) []Job {
 	return out
 }
 
-func jobFromRecord(rec store.JobRecord) Job {
+func jobFromRecord(rec queries.JobRecord) Job {
 	return Job{
 		ID:        rec.ID,
 		CreatedAt: rec.CreatedAt,

@@ -3,8 +3,8 @@ package exec
 import (
 	"context"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // absence resolves every item that left the snapshot. A successful run's stdout
@@ -18,14 +18,14 @@ import (
 // for a source whose snapshot is not authoritative.
 type absence struct{}
 
-var _ store.AbsenceConfirmer = absence{}
+var _ models.AbsenceConfirmer = absence{}
 
-func (absence) ConfirmAbsence(_ context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
-	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
+func (absence) ConfirmAbsence(_ context.Context, previous []models.Observation) (map[string]models.AbsenceVerdict, error) {
+	verdicts := make(map[string]models.AbsenceVerdict, len(previous))
 	for _, prev := range previous {
 		resolved := prev
 		resolved.Payload = canonical.WithState(prev.Payload, canonical.TerminalState)
-		verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &resolved, Terminal: true}
+		verdicts[prev.ExternalID] = models.AbsenceVerdict{Current: &resolved, Terminal: true}
 	}
 	return verdicts, nil
 }

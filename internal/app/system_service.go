@@ -7,8 +7,9 @@ import (
 	"strings"
 
 	"github.com/colonyops/hive/pkg/osopen"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // SystemService owns the app's on-disk locations and the operations the
@@ -58,7 +59,7 @@ func (s *SystemService) Info(context.Context) SystemInfo {
 		DataDir:         pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
 		ConfigDir:       pathInfo(s.paths.ConfigDir, s.paths.ConfigDirOverridden),
 		LogFile:         pathInfo(s.paths.LogFile, false),
-		Database:        pathInfo(store.DatabasePath(s.paths.StateDir), false),
+		Database:        pathInfo(queries.DatabasePath(s.paths.StateDir), false),
 		AgentWorkspaces: pathInfo(s.paths.AgentWorkspacesDir, false),
 	}
 }
@@ -139,11 +140,11 @@ func clearOverride(mutate func(*settings.Bootstrap)) error {
 // convenience: without it OpenPath is an arbitrary-file-open RPC.
 func (s *SystemService) checkAllowed(path string) error {
 	allowed := map[string]struct{}{
-		filepath.Clean(s.paths.DataDir):                      {},
-		filepath.Clean(s.paths.ConfigDir):                    {},
-		filepath.Clean(s.paths.LogFile):                      {},
-		filepath.Clean(store.DatabasePath(s.paths.StateDir)): {},
-		filepath.Clean(s.paths.AgentWorkspacesDir):           {},
+		filepath.Clean(s.paths.DataDir):                        {},
+		filepath.Clean(s.paths.ConfigDir):                      {},
+		filepath.Clean(s.paths.LogFile):                        {},
+		filepath.Clean(queries.DatabasePath(s.paths.StateDir)): {},
+		filepath.Clean(s.paths.AgentWorkspacesDir):             {},
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

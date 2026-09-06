@@ -15,15 +15,15 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
 // newTestAgentWorkspacesService builds a service over root with a real
 // tmuxcc.Manager pointed at a private tmux server (requireTmux/privateTmux,
 // terminals_service_test.go — a session's liveness is a real tmux fact, and a
-// faked one would only prove the fake), a real sqlite-backed store.DB, and a
+// faked one would only prove the fake), a real sqlite-backed queries.DB, and a
 // real SkillsService (newTestSkillsService). commands stands in for
 // agentCommands(hiveCfg) — the caller picks which agent keys are "configured"
 // and what they run.
@@ -31,7 +31,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	t.Helper()
 	privateTmux(t)
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -88,7 +88,7 @@ func writeSharedSkill(t *testing.T, root, slug, body string) {
 func newManifestOnlyService(t *testing.T, root string, profileCommands map[string]string) *AgentWorkspacesService {
 	t.Helper()
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 

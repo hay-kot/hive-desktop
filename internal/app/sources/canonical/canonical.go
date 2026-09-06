@@ -19,7 +19,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // TerminalState is the state a source mints for an item that left an
@@ -34,10 +34,10 @@ var terminalStates = map[string]bool{"resolved": true, "closed": true, "done": t
 
 // State extracts the canonical top-level `state` from a payload: lowercased
 // and trimmed; "" for non-object payloads or a missing/non-string state.
-// Delegates to store.CanonicalFields — no second copy of the canonical-field
+// Delegates to models.CanonicalFields — no second copy of the canonical-field
 // parsing.
 func State(payload []byte) string {
-	_, _, state := store.CanonicalFields(payload)
+	_, _, state := models.CanonicalFields(payload)
 	return strings.ToLower(strings.TrimSpace(state))
 }
 
@@ -74,19 +74,19 @@ func WithState(payload []byte, state string) []byte {
 // so downstream action dedup fires once per change.
 type Classifier struct{}
 
-var _ store.Classifier = Classifier{}
+var _ models.Classifier = Classifier{}
 
-func (Classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (Classifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	state := State(current.Payload)
 	curTerminal := isTerminal(state)
-	lifecycle := store.LifecycleActive
+	lifecycle := models.LifecycleActive
 	if curTerminal {
-		lifecycle = store.LifecycleTerminal
+		lifecycle = models.LifecycleTerminal
 	}
-	out := store.Classification{
+	out := models.Classification{
 		Kind:          "updated",
-		Transition:    store.TransitionNone,
-		Attention:     store.AttentionActivity,
+		Transition:    models.TransitionNone,
+		Attention:     models.AttentionActivity,
 		Lifecycle:     lifecycle,
 		SourceState:   state,
 		OccurrenceKey: current.ExternalID + "@" + strconv.FormatInt(current.ObservedAt, 10),
@@ -99,9 +99,9 @@ func (Classifier) Classify(previous *store.Observation, current store.Observatio
 	prevTerminal := isTerminal(State(previous.Payload))
 	switch {
 	case !prevTerminal && curTerminal:
-		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, titleCase(state), store.TransitionEnteredTerminal, state
+		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, titleCase(state), models.TransitionEnteredTerminal, state
 	case prevTerminal && !curTerminal:
-		out.Kind, out.Summary, out.Transition = "reopened", "Reopened", store.TransitionLeftTerminal
+		out.Kind, out.Summary, out.Transition = "reopened", "Reopened", models.TransitionLeftTerminal
 	}
 	return out
 }

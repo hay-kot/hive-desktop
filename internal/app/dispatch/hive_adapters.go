@@ -8,14 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
-	"github.com/rs/zerolog"
 )
 
 // AgentActivityStatus is this app's own vocabulary for a captured tmux pane's
@@ -224,9 +225,9 @@ type SessionPullRequest struct {
 
 // ItemSessionLinker persists the association between an inbox item and a
 // session created for it, so the item can find the session again after a
-// restart. Consumer-defined: the launcher needs one write, not a store.
+// restart. Consumer-defined: the launcher needs one write, not a queries.
 type ItemSessionLinker interface {
-	LinkItemSession(ctx context.Context, sessionID string, ref store.ItemRef) error
+	LinkItemSession(ctx context.Context, sessionID string, ref models.ItemRef) error
 }
 
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.

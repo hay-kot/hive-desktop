@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func isolateSettings(t *testing.T) {
@@ -32,7 +32,7 @@ func TestWebhookServiceInfoWithoutListener(t *testing.T) {
 }
 
 func TestWebhookServiceCapture(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	service := newWebhookService(testSettingsStore(t), db, nil, "127.0.0.1", 24483)
@@ -42,7 +42,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 	assert.Zero(t, view.ReceivedAt)
 
 	ctx := t.Context()
-	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
+	require.NoError(t, db.UpsertWebhookCapture(ctx, queries.UpsertWebhookCaptureParams{
 		Topic: "source:triage/hook", ReceivedAt: 42, Body: []byte(`{"event":"deploy"}`),
 	}))
 	view, err = service.Capture(t.Context(), "triage", "hook")

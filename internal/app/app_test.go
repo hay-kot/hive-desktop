@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // TestAppLifecycle is the cheapest proof that the wiring package main used to
@@ -31,12 +31,12 @@ import (
 // go.uber.org/goleak would say this more precisely; it is not in go.mod and
 // one assertion does not justify a dependency.
 type startupCompactorStub struct {
-	result store.CompactionResult
+	result queries.CompactionResult
 	err    error
 	called bool
 }
 
-func (s *startupCompactorStub) Compact(context.Context, store.CompactionPolicy) (store.CompactionResult, error) {
+func (s *startupCompactorStub) Compact(context.Context, queries.CompactionPolicy) (queries.CompactionResult, error) {
 	s.called = true
 	return s.result, s.err
 }

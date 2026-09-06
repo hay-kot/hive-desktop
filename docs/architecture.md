@@ -164,7 +164,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `ingest.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
 | **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR go-owned-llm-prompts. This is the pattern every new extension point should extend. |
 | **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
-| **Options struct** (Go) | store and subsystem constructors | `store.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
+| **Options struct** (Go) | store and subsystem constructors | `queries.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
 | **One instance per process** | producer, output worker, flow engine | Constructed once by `App` and injected. Deliberately **not** GoF Singleton: no global access point and no lazy self-construction — the constraint is "exactly one exists", not "anyone can reach it". Two would double-poll sources and re-execute actions. |
 
 ### Which pattern governs what
@@ -953,7 +953,7 @@ is itself built over `appkit/httpclient`. Nothing constructs a bespoke
   unauthorized onto re-auth, and a provider pauses fetching on rate limited. A
   connector that classifies into these three gets both behaviours without the
   app learning its name. It lives here rather than in `sources/connector`
-  because `connector` reaches `app/store` and would drag the SQLite driver
+  because `connector` reaches `app/data` and would drag the SQLite driver
   into every client package.
 - **Status and rate-limit mapping** — `Errors.Status` maps a response onto the
   taxonomy, with a provider-supplied hook for APIs that overload 403.

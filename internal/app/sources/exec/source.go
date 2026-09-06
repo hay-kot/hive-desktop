@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // maxStdout caps what one run may print, matching the webhook listener's
@@ -58,7 +58,7 @@ var _ connector.PullSource = (*source)(nil)
 // half-emitted and then failed would tell the producer that the items it never
 // reached are gone. A non-zero exit, a timeout, and output that is not a JSON
 // array of identified items are all errors — never an empty snapshot.
-func (s *source) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *source) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	stdout, err := s.run(ctx)
 	if err != nil {
 		return fmt.Errorf("exec source %q: %w", s.id, err)
@@ -68,7 +68,7 @@ func (s *source) Produce(ctx context.Context, emit func(store.Msg) error) error 
 		return fmt.Errorf("exec source %q: %w", s.id, err)
 	}
 	for _, item := range items {
-		if err := emit(store.Msg{Key: item.key, Topic: s.topic, SourceKind: SourceKind, Payload: item.payload}); err != nil {
+		if err := emit(models.Msg{Key: item.key, Topic: s.topic, SourceKind: SourceKind, Payload: item.payload}); err != nil {
 			return err
 		}
 	}
@@ -150,7 +150,7 @@ func decodeSnapshot(stdout []byte) ([]item, error) {
 		if len(entry) == 0 || entry[0] != '{' {
 			return nil, fmt.Errorf("item %d is %s, not an object", i, describeJSON(entry))
 		}
-		id, _, _ := store.CanonicalFields(entry)
+		id, _, _ := models.CanonicalFields(entry)
 		if id == "" {
 			return nil, fmt.Errorf(`item %d has no top-level "id"; an item's id is its identity across runs`, i)
 		}

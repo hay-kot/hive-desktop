@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // SourceKind is the inbox source_kind Gitea observations carry.
@@ -92,7 +92,7 @@ var _ connector.PullSource = (*source)(nil)
 // The whole result is fetched before the first emit, so a failing fetch cannot
 // half-succeed into an authoritative snapshot that archives everything it did
 // not reach.
-func (s *source) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *source) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	var (
 		items []Item
 		err   error
@@ -114,7 +114,7 @@ func (s *source) Produce(ctx context.Context, emit func(store.Msg) error) error 
 		if err != nil {
 			return fmt.Errorf("gitea source %q: encoding item %q: %w", s.id, item.ID, err)
 		}
-		msg := store.Msg{Key: item.ID, Topic: s.topic, Payload: payload, SourceKind: SourceKind}
+		msg := models.Msg{Key: item.ID, Topic: s.topic, Payload: payload, SourceKind: SourceKind}
 		if err := emit(msg); err != nil {
 			return err
 		}

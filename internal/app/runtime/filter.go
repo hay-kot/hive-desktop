@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // filterableItem is the GitHub item shape a github-filter node inspects, read
@@ -66,7 +66,7 @@ func (p *filterProcessor) close() {}
 // process routes a message to port 0 (pass) or port 1 (fail). Leaving port 1
 // unwired reproduces a plain "drop on fail" filter through the engine's
 // unwired-port-becomes-discard rule.
-func (p *filterProcessor) process(_ context.Context, msg store.Msg, _ NodeKV, _ ConsoleSink) ([][]store.Msg, error) {
+func (p *filterProcessor) process(_ context.Context, msg models.Msg, _ NodeKV, _ ConsoleSink) ([][]models.Msg, error) {
 	var item filterableItem
 	// A payload that is not an object simply has no fields to filter on; the
 	// zero item then fails any include group, which is the same outcome the
@@ -74,9 +74,9 @@ func (p *filterProcessor) process(_ context.Context, msg store.Msg, _ NodeKV, _ 
 	_ = json.Unmarshal(msg.Payload, &item)
 
 	if p.matches(item) {
-		return [][]store.Msg{{msg}, nil}, nil
+		return [][]models.Msg{{msg}, nil}, nil
 	}
-	return [][]store.Msg{nil, {msg}}, nil
+	return [][]models.Msg{nil, {msg}}, nil
 }
 
 // matches applies one rule: groups AND together, values within a group OR,
