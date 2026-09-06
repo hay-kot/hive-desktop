@@ -16,8 +16,6 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
-// captureExporter records what the bridge emits so a test can assert on the
-// record rather than on the JSON that produced it.
 type captureExporter struct {
 	mu      sync.Mutex
 	records []sdklog.Record
@@ -41,8 +39,7 @@ func (e *captureExporter) all() []sdklog.Record {
 	return append([]sdklog.Record(nil), e.records...)
 }
 
-// newBridge returns a zerolog logger whose only writer arm is the bridge, plus
-// the exporter it lands in.
+// newBridge returns a logger whose only writer arm is the bridge.
 func newBridge(t *testing.T) (zerolog.Logger, *captureExporter) {
 	t.Helper()
 
@@ -64,7 +61,7 @@ func attrs(r sdklog.Record) map[string]attribute.Value {
 }
 
 // The whole reason the bridge is a writer arm and not a zerolog.Hook: a Hook
-// cannot read the event's fields, and the fields are most of the value.
+// cannot read the event's fields.
 func TestBridgeCarriesFields(t *testing.T) {
 	logger, exp := newBridge(t)
 
@@ -82,7 +79,7 @@ func TestBridgeCarriesFields(t *testing.T) {
 	assert.Equal(t, "terminal WebSocket stream mounted", rec.Body().AsString())
 	assert.Equal(t, otellog.SeverityWarn, rec.Severity())
 	assert.Equal(t, "warn", rec.SeverityText())
-	assert.False(t, rec.Timestamp().IsZero(), "the event's own timestamp should be carried, not just the observed one")
+	assert.False(t, rec.Timestamp().IsZero())
 
 	got := attrs(rec)
 	assert.Equal(t, "/api/terminal", got["path"].AsString())
@@ -90,14 +87,13 @@ func TestBridgeCarriesFields(t *testing.T) {
 	assert.True(t, got["mounted"].AsBool())
 	assert.InDelta(t, 1.5, got["ratio"].AsFloat64(), 0.0001)
 
-	// The three fields that became first-class record properties must not also
-	// show up as attributes.
+	// The fields that became record properties must not also be attributes.
 	for _, key := range []string{zerolog.LevelFieldName, zerolog.TimestampFieldName, zerolog.MessageFieldName} {
 		assert.NotContains(t, got, key)
 	}
 }
 
-// zerolog writes whole numbers without a fraction; a count should not come out
+// zerolog writes whole numbers without a fraction; a count must not come out
 // the far side as 3.0.
 func TestBridgeKeepsIntegersIntegral(t *testing.T) {
 	logger, exp := newBridge(t)
@@ -120,8 +116,6 @@ func TestBridgeMapsSeverity(t *testing.T) {
 		{zerolog.LevelErrorValue, otellog.SeverityError},
 		{zerolog.LevelFatalValue, otellog.SeverityFatal},
 		{zerolog.LevelPanicValue, otellog.SeverityFatal2},
-		// An unrecognised level is filed as Info rather than left unspecified,
-		// which would sort unpredictably in a backend.
 		{"mystery", otellog.SeverityInfo},
 		{"", otellog.SeverityInfo},
 	}
@@ -133,8 +127,7 @@ func TestBridgeMapsSeverity(t *testing.T) {
 	}
 }
 
-// A tap on the log pipeline must never fail the write it is observing: an
-// error here would be an error about an error.
+// The tap must never fail the write it is observing.
 func TestBridgeSwallowsUnparseableWrites(t *testing.T) {
 	exp := &captureExporter{}
 	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(sdklog.NewSimpleProcessor(exp)))

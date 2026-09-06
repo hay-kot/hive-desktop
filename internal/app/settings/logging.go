@@ -30,14 +30,10 @@ func ResolveLogLevel() (zerolog.Level, error) {
 
 // NewLogger builds the root logger at the resolved immutable path and level.
 //
-// Each extra writer is an additional arm of the same MultiLevelWriter and
-// receives the encoded JSON event, not the console rendering the two built-in
-// arms produce — the two ConsoleWriters parse that same JSON to pretty-print
-// it. That is the seam a log bridge attaches to: a zerolog.Hook is handed only
-// the level and the message, while an arm sees the event's fields.
-//
-// An extra writer must not fail the write or block: it is a tap on the log
-// pipeline, and an error here would be an error about an error.
+// An extra writer is another arm of the MultiLevelWriter and receives the
+// encoded JSON event, not the console rendering — which is the seam a log
+// bridge attaches to, since a zerolog.Hook sees only level and message. An
+// extra arm must not fail the write or block.
 func NewLogger(path string, level zerolog.Level, extra ...io.Writer) (zerolog.Logger, func(), error) {
 	stderr := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
 	build := func(writers ...io.Writer) zerolog.Logger {

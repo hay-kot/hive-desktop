@@ -20,8 +20,6 @@ func TestOffEmitsNothing(t *testing.T) {
 	assert.Empty(t, p.LogWriters())
 	require.NoError(t, p.Shutdown(t.Context()))
 
-	// The tracer is usable rather than nil, so a span is safe to open without
-	// checking whether telemetry is configured.
 	require.NotNil(t, p.Tracer())
 	_, span := p.Tracer().Start(t.Context(), "noop")
 	span.End()
@@ -34,9 +32,6 @@ func TestNewWithBothGatesOffIsOff(t *testing.T) {
 	assert.Nil(t, p.MetricsHandler())
 }
 
-// An endpoint that is stated but unusable is an error rather than a silent
-// downgrade: the user asked for export and would otherwise never learn it is
-// not happening.
 func TestNewRejectsUnusableExportConfig(t *testing.T) {
 	base := Options{
 		Export:   true,
@@ -70,9 +65,8 @@ func TestNewRejectsUnusableExportConfig(t *testing.T) {
 	}
 }
 
-// The scrape gate stands alone: no endpoint, no token, no export, and the
-// endpoint still answers. This is what makes the local debug loop work with no
-// account configured.
+// The scrape gate stands alone: no endpoint and no token, so the local debug
+// loop works with no account configured.
 func TestScrapeWithoutExport(t *testing.T) {
 	p, err := New(t.Context(), Options{
 		Scrape:      true,
@@ -85,17 +79,13 @@ func TestScrapeWithoutExport(t *testing.T) {
 
 	assert.True(t, p.Enabled())
 	require.NotNil(t, p.MetricsHandler())
-	// Nothing is exported, so there is no log bridge to attach.
 	assert.Nil(t, p.LogWriter())
 
 	body := scrape(t, p.MetricsHandler())
-
-	// Go runtime metrics are the MVP's whole metric surface; assert one of
-	// them rather than the exposition being merely non-empty.
 	assert.Contains(t, body, "go_memory_used_bytes")
 
 	// The resource identity has to reach the exposition, or a query written
-	// locally cannot be the same query run against the remote backend.
+	// locally is not the same query run against the backend.
 	assert.Contains(t, body, "target_info")
 	for _, want := range []string{
 		`service_name="hive-desktop"`,
@@ -107,8 +97,7 @@ func TestScrapeWithoutExport(t *testing.T) {
 	}
 }
 
-// An empty identity is omitted rather than sent blank: an empty `instance`
-// label is worse than no label at all.
+// An empty `instance` label is worse than no label at all.
 func TestEmptyResourceAttributesAreOmitted(t *testing.T) {
 	p, err := New(t.Context(), Options{Scrape: true})
 	require.NoError(t, err)

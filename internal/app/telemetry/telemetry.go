@@ -1,15 +1,9 @@
-// Package telemetry exports the desktop app's own metrics, logs, and traces
-// over OTLP, and serves its metrics for a local scrape.
+// Package telemetry exports the app's own metrics, logs, and traces over OTLP,
+// and serves its metrics for a local scrape (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape).
 //
-// The two are independent gates over one MeterProvider: export pushes to a
-// remote OTLP endpoint, scrape mounts [MetricsPath] on the loopback HTTP
-// server. An instrument is declared once and both readers collect it, so a
-// PromQL expression written against the local endpoint transfers to the
-// remote backend unchanged.
-//
-// With neither gate on, [New] returns the same no-op object [Off] does: no
-// provider is constructed, no exporter goroutine runs, and no call site needs
-// a nil check.
+// Export and scrape are independent gates over one MeterProvider, so an
+// instrument is declared once and both readers collect it. With neither on,
+// [New] returns what [Off] returns.
 package telemetry
 
 import (
@@ -38,40 +32,27 @@ import (
 )
 
 const (
-	// MetricsPath is where [Provider.MetricsHandler] mounts on the shared
-	// loopback HTTP server, following pprof's precedent (ADR pprof-debug-endpoint).
 	MetricsPath = "/metrics"
 
-	// CredentialProvider names the credential provider whose environment
-	// override carries the OTLP token, so the variable this reads today
-	// (HIVE_GRAFANACLOUD_TOKEN) is the one a stored credential would use.
+	// CredentialProvider derives the token's environment name, so the variable
+	// read today is the one a stored credential would use.
 	CredentialProvider = "grafanacloud"
 
-	// ScopeName identifies this app's own instrumentation, as opposed to a
-	// library's, on every signal it emits.
 	ScopeName = "github.com/hay-kot/hive-desktop"
 )
 
-// Options configures the provider. Export and Scrape are independent: either,
-// both, or neither.
 type Options struct {
-	// Export pushes OTLP/HTTP to Endpoint, which is the signal-less base
-	// ("https://otlp-gateway-<zone>.grafana.net/otlp"); the per-signal paths
-	// are appended.
+	// Endpoint is the signal-less OTLP base
+	// ("https://otlp-gateway-<zone>.grafana.net/otlp"); per-signal paths are
+	// appended. On Grafana Cloud User is the stack's OTLP instance id, which is
+	// not the stack id.
 	Export   bool
 	Endpoint string
-	// User and Token are the endpoint's basic-auth pair. On Grafana Cloud User
-	// is the stack's OTLP instance id, which is not the stack id — it is the
-	// one printed on the stack's OpenTelemetry tile.
-	User  string
-	Token string
+	User     string
+	Token    string
 
-	// Scrape serves MetricsPath from a Prometheus reader on the same
-	// MeterProvider Export reads from.
 	Scrape bool
 
-	// Version, Environment and Instance become the resource attributes every
-	// signal carries. See resource.go for why these three.
 	Version     string
 	Environment string
 	Instance    string
@@ -94,10 +75,9 @@ func (o Options) validate() error {
 	if err != nil {
 		return fmt.Errorf("telemetry: endpoint is not a URL: %w", err)
 	}
-	// https only. Unlike development.github.api_base, which is pinned to
-	// loopback so a persisted setting cannot aim the app at a remote host,
-	// this endpoint is remote by definition — so the check that is left to
-	// make is that the credential does not cross the network in the clear.
+	// https rather than the loopback rule development.github.api_base follows:
+	// this endpoint is remote by definition, so what is left to enforce is that
+	// the credential does not cross the network in the clear.
 	if parsed.Scheme != "https" {
 		return errors.New("telemetry: endpoint must use https")
 	}
@@ -107,29 +87,24 @@ func (o Options) validate() error {
 	return nil
 }
 
-// Provider owns the SDK objects and hands out the narrow surfaces the rest of
-// the app uses. Exactly one is constructed per process.
 type Provider struct {
 	tracer  trace.Tracer
 	handler http.Handler
 	logw    io.Writer
 
-	// shutdown is run in reverse order, so a batch processor flushes before
-	// the exporter it writes through is closed.
+	// Run in reverse, so a batch processor flushes before its exporter closes.
 	shutdown []func(context.Context) error
 }
 
-// Off returns a provider that emits nothing. Its Tracer is a no-op tracer and
-// its handler and writer are nil, so a caller holds a usable *Provider whether
-// or not telemetry is configured.
+// Off returns a provider that emits nothing. Its Tracer is a no-op tracer, so a
+// span is safe to open without checking whether telemetry is configured.
 func Off() *Provider {
 	return &Provider{tracer: noop.NewTracerProvider().Tracer(ScopeName)}
 }
 
-// New builds the provider described by opts. It returns [Off] when both gates
-// are off, and an error when export is on but misconfigured — a stated
-// endpoint that cannot be used is a mistake worth reporting, not one to
-// silently drop telemetry over.
+// New returns [Off] when both gates are off, and an error when export is on but
+// misconfigured: a stated endpoint that cannot be used is worth reporting
+// rather than silently dropping telemetry over.
 func New(ctx context.Context, opts Options) (*Provider, error) {
 	if !opts.Export && !opts.Scrape {
 		return Off(), nil
@@ -144,8 +119,6 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 	}
 
 	p := Off()
-	// Anything already built is torn down before the error leaves, so a
-	// half-constructed provider never outlives the failure.
 	fail := func(err error) (*Provider, error) {
 		_ = p.Shutdown(ctx)
 		return nil, err
@@ -153,9 +126,8 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 
 	var readers []sdkmetric.Option
 	if opts.Scrape {
-		// A private registry, never promclient.DefaultRegisterer: the same
-		// reason PprofHandler builds its own mux instead of writing to
-		// http.DefaultServeMux.
+		// A private registry, never promclient.DefaultRegisterer — the reason
+		// PprofHandler builds its own mux.
 		reg := promclient.NewRegistry()
 		promReader, err := otelprom.New(otelprom.WithRegisterer(reg))
 		if err != nil {
@@ -186,10 +158,7 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 		if err != nil {
 			return fail(fmt.Errorf("telemetry: trace exporter: %w", err))
 		}
-		tp := sdktrace.NewTracerProvider(
-			sdktrace.WithBatcher(traceExp),
-			sdktrace.WithResource(res),
-		)
+		tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(traceExp), sdktrace.WithResource(res))
 		p.tracer = tp.Tracer(ScopeName)
 		p.shutdown = append(p.shutdown, tp.Shutdown)
 
@@ -212,9 +181,6 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 	mp := sdkmetric.NewMeterProvider(append(readers, sdkmetric.WithResource(res))...)
 	p.shutdown = append(p.shutdown, mp.Shutdown)
 
-	// Go runtime metrics are the MVP's whole metric surface: they need no
-	// instrumentation in the app and they are what "is the process healthy"
-	// is answered from.
 	if err := runtimemetrics.Start(runtimemetrics.WithMeterProvider(mp)); err != nil {
 		return fail(fmt.Errorf("telemetry: runtime metrics: %w", err))
 	}
@@ -222,25 +188,12 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 	return p, nil
 }
 
-// Enabled reports whether anything is emitted.
-func (p *Provider) Enabled() bool { return len(p.shutdown) > 0 || p.handler != nil }
-
-// Tracer returns the app's tracer, which is a no-op tracer when export is off.
-// Spans are therefore safe to open unconditionally.
-func (p *Provider) Tracer() trace.Tracer { return p.tracer }
-
-// MetricsHandler serves the Prometheus exposition format, or nil when the
-// scrape gate is off.
+func (p *Provider) Enabled() bool                { return len(p.shutdown) > 0 || p.handler != nil }
+func (p *Provider) Tracer() trace.Tracer         { return p.tracer }
 func (p *Provider) MetricsHandler() http.Handler { return p.handler }
+func (p *Provider) LogWriter() io.Writer         { return p.logw }
 
-// LogWriter is a zerolog writer arm that forwards each event as an OTLP log
-// record, or nil when export is off. It is a writer and not a zerolog.Hook
-// because a Hook sees only the level and the message, while a writer receives
-// the encoded event with its fields intact.
-func (p *Provider) LogWriter() io.Writer { return p.logw }
-
-// LogWriters returns LogWriter as a variadic-friendly slice, empty when there
-// is nothing to forward to.
+// LogWriters is LogWriter as a variadic-friendly slice for settings.NewLogger.
 func (p *Provider) LogWriters() []io.Writer {
 	if p.logw == nil {
 		return nil
@@ -248,8 +201,7 @@ func (p *Provider) LogWriters() []io.Writer {
 	return []io.Writer{p.logw}
 }
 
-// Shutdown flushes and closes everything New built. It is safe on a provider
-// from Off, and safe to call more than once.
+// Shutdown is safe on an Off provider and safe to call more than once.
 func (p *Provider) Shutdown(ctx context.Context) error {
 	var errs []error
 	for _, fn := range slices.Backward(p.shutdown) {
@@ -261,7 +213,6 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// signalURL appends OTLP's per-signal path to the gateway base.
 func signalURL(base, signal string) string {
 	return strings.TrimSuffix(strings.TrimSpace(base), "/") + "/v1/" + signal
 }

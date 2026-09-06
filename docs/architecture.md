@@ -825,14 +825,13 @@ implementation as a constructor parameter — `tmuxcc.MetricsSink` is the shape,
 and `NopMetrics` is why a holder needs no nil check. Importing `otel` anywhere
 else means the SDK can no longer be swapped or removed in one place.
 
-Four resource attributes carry identity, and they are not a free choice:
-`service.name`, `service.instance.id`, `deployment.environment.name` and
-`service.version` are the ones a backend keeps as a queryable dimension rather
-than filing into `target_info` or structured metadata. `service.version` is a
-Prometheus label but **not** a Loki one, which is why the release channel is
-the primary separator between builds. Anything else worth slicing by has to
-become one of these four or a metric label — adding a fifth resource attribute
-does not make it queryable.
+Four resource attributes carry identity — `service.name`,
+`service.instance.id`, `deployment.environment.name`, `service.version` — and
+they are not a free choice: they are what a backend keeps as a queryable
+dimension rather than filing into `target_info` or structured metadata.
+`service.version` is a Prometheus label but **not** a Loki one, which is why
+the release channel separates builds. A fifth resource attribute does not
+become queryable by being added; slice by a metric label instead.
 
 The log bridge is a **zerolog writer arm**, not a `zerolog.Hook`: a Hook cannot
 read an event's fields. `settings.NewLogger` takes extra writers for this, and

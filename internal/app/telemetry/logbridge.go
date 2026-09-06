@@ -13,41 +13,27 @@ import (
 )
 
 const (
-	// maxBodyBytes truncates a log body. Loki rejects a line over 256 KB, and
-	// a desktop log message that large is a dump rather than a message, so the
-	// cap sits well under the ceiling instead of at it.
+	// Loki rejects a line over 256 KB. A desktop log message that large is a
+	// dump, not a message, so the cap sits well under the ceiling.
 	maxBodyBytes = 32 << 10
 
-	// maxAttrs bounds one record's attributes. Grafana Cloud truncates past
-	// its own limits silently; dropping the tail here is at least visible in
-	// the code.
-	maxAttrs = 64
-
-	// maxAttrValueBytes matches Grafana Cloud's own attribute-value ceiling,
-	// so a value is cut here rather than silently on ingest.
+	maxAttrs          = 64
 	maxAttrValueBytes = 2048
 )
 
-// logWriter is a zerolog writer arm that re-emits each encoded event as an
-// OTLP log record.
+// logWriter re-emits each encoded zerolog event as an OTLP log record.
 //
-// It taps the writer chain rather than a zerolog.Hook because a Hook is handed
-// only the level and the message — the accumulated fields are not readable
-// from *zerolog.Event. Every writer in a MultiLevelWriter, by contrast,
-// receives the same encoded JSON event, which is what the app's two
-// ConsoleWriter arms parse to pretty-print. So does this one.
+// It is a writer arm rather than a zerolog.Hook because a Hook is handed only
+// the level and the message; an event's fields are not readable from a
+// *zerolog.Event. Every arm of a MultiLevelWriter receives the encoded JSON,
+// which is what the app's ConsoleWriter arms already parse to pretty-print.
 type logWriter struct {
 	emit emitter
 }
 
-// emitter is a log emit with its context already bound, the way
-// credentials.Bind binds a Resolver over a ref. An io.Writer has no context
-// parameter, so the alternative is storing one on the writer; a closure built
-// where a context is in scope says the same thing without the field.
-//
-// The bound context is detached from the app's cancellation on purpose: the
-// lines written during shutdown, the ones explaining why, are the last thing
-// that should be dropped.
+// emitter binds a context to a log emit the way credentials.Bind binds a
+// Resolver. An io.Writer has no context parameter, and the bound context is
+// detached from app cancellation so shutdown lines are not the ones dropped.
 type emitter func(otellog.Record)
 
 func bindEmitter(ctx context.Context, logger otellog.Logger) emitter {
@@ -59,9 +45,8 @@ func newLogWriter(ctx context.Context, logger otellog.Logger) io.Writer {
 	return &logWriter{emit: bindEmitter(ctx, logger)}
 }
 
-// Write always reports the full length and never returns an error. This arm is
-// a tap: a record that cannot be parsed or emitted must not surface as a
-// logging failure at the call site, which would be an error about an error.
+// Write never fails: this is a tap on the log pipeline, and an error here would
+// be an error about an error.
 func (w *logWriter) Write(p []byte) (int, error) {
 	w.forward(p)
 	return len(p), nil
@@ -117,15 +102,12 @@ func (w *logWriter) forward(p []byte) {
 	w.emit(rec)
 }
 
-// attrValue keeps a JSON scalar as its own type and renders anything
-// structured as its JSON text. A nested object is rare in this app's logs and
-// is more useful readable than dropped.
 func attrValue(raw json.RawMessage) attribute.Value {
-	var any any
-	if err := json.Unmarshal(raw, &any); err != nil {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return attribute.StringValue(truncate(string(raw), maxAttrValueBytes))
 	}
-	switch v := any.(type) {
+	switch v := decoded.(type) {
 	case string:
 		return attribute.StringValue(truncate(v, maxAttrValueBytes))
 	case bool:
@@ -159,10 +141,8 @@ func truncate(s string, max int) string {
 	return s[:max] + "…(truncated " + strconv.Itoa(len(s)-max) + " bytes)"
 }
 
-// severity maps zerolog's level names onto the OTel severity scale. An
-// unrecognised level is Info rather than unspecified: a record with no
-// severity sorts unpredictably in a backend, which is worse than one filed a
-// notch off.
+// severity files an unrecognised level as Info rather than leaving it
+// unspecified, which sorts unpredictably in a backend.
 func severity(level string) otellog.Severity {
 	switch level {
 	case zerolog.LevelTraceValue:

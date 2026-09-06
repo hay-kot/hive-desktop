@@ -152,16 +152,15 @@ type EditorSettings struct {
 	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
 }
 
-// TelemetrySettings configures OTLP export of the app's own metrics, logs and
-// traces. Off by default, and a top-level section rather than a development
-// one because it is the user's own observability, not a debug facility.
+// TelemetrySettings configures OTLP export of the app's own signals. It is
+// top-level rather than under development because it is the user's own
+// observability, not a debug facility.
 //
-// Endpoint is the signal-less OTLP base — for Grafana Cloud,
-// https://otlp-gateway-<zone>.grafana.net/otlp — and InstanceID is its
-// basic-auth username, which on Grafana Cloud is the OTLP instance id from the
-// stack's OpenTelemetry tile rather than the stack id. There is deliberately
-// no token field: a token in settings.yaml is a token in a dotfiles repo, so
-// it is read from the credential provider's environment override.
+// Endpoint is the signal-less OTLP base; on Grafana Cloud InstanceID is the
+// OTLP instance id from the stack's OpenTelemetry tile, not the stack id.
+// There is deliberately no token field — a token in settings.yaml is a token
+// in a dotfiles repo — so it comes from the credential provider's environment
+// override.
 type TelemetrySettings struct {
 	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
 	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
@@ -203,10 +202,9 @@ type PerfSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
 }
 
-// MetricsSettings gates the local Prometheus scrape endpoint, which mounts on
-// the shared HTTP server the way pprof does (ADR pprof-debug-endpoint). It is independent of
-// telemetry.enabled: the same instruments feed both, so a scrape answers
-// without a stack configured and export runs without the endpoint mounted.
+// MetricsSettings gates the local Prometheus scrape endpoint, mounted on the
+// shared HTTP server the way pprof is (ADR pprof-debug-endpoint). Independent of telemetry.enabled:
+// the same instruments feed both readers.
 type MetricsSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_METRICS_ENABLED"`
 }
@@ -389,14 +387,10 @@ func (s Settings) Validate() error {
 	return nil
 }
 
-// validateTelemetry checks only what is stated. The token is not a setting,
-// so its absence is reported by the telemetry package at construction rather
-// than failing startup here.
-//
-// The endpoint is deliberately not held to the loopback rule
-// validateGitHubAPIBase applies: this one is remote by definition. What is
-// enforced instead is https, so a persisted setting cannot put the credential
-// on the wire in the clear.
+// validateTelemetry deliberately does not apply validateGitHubAPIBase's
+// loopback rule: this endpoint is remote by definition, so https is what stops
+// a persisted setting putting the credential on the wire in the clear. The
+// token is not a setting, so its absence is the telemetry package's to report.
 func validateTelemetry(t TelemetrySettings) error {
 	if !t.Enabled {
 		return nil

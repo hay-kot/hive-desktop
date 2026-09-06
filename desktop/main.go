@@ -89,11 +89,9 @@ func main() {
 	version, commit, date := resolvedBuildInfo()
 	environment := telemetryEnvironment(version)
 
-	// Telemetry is constructed before the final logger because its log bridge
-	// is one of that logger's writer arms. A configuration that cannot be used
-	// disables telemetry rather than failing startup: nothing else in the app
-	// depends on it, and refusing to open the window over a bad endpoint would
-	// be a worse trade than losing the signals.
+	// Built before the final logger because its log bridge is one of that
+	// logger's writer arms. A bad configuration disables telemetry rather than
+	// failing startup: nothing else depends on it.
 	tel, telErr := telemetry.New(ctx, telemetry.Options{
 		Export:      cfg.Telemetry.Enabled,
 		Endpoint:    cfg.Telemetry.Endpoint,
@@ -108,8 +106,6 @@ func main() {
 		tel = telemetry.Off()
 	}
 
-	// Rebuilt when the resolved path moved (mock mode selects its own state
-	// directory) or when telemetry has an arm to add.
 	if paths.LogFile != initialLogPath || len(tel.LogWriters()) > 0 {
 		logCloser()
 		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level, tel.LogWriters()...)
@@ -155,9 +151,8 @@ func main() {
 			Msg("GitHub API base overridden; not talking to api.github.com")
 	}
 
-	// The one trace the MVP emits. Its children are the three phases startup
-	// splits into, so "the app takes a while to open" resolves to which of
-	// them without any further instrumentation.
+	// One span per startup phase, so "the app is slow to open" resolves to
+	// which phase without further instrumentation.
 	startupCtx, startupSpan := tel.Tracer().Start(ctx, "app.startup", trace.WithAttributes(
 		attribute.String("build.commit", commit),
 		attribute.String("build.date", date),
@@ -243,9 +238,7 @@ func main() {
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
 	}
-	// The metrics scrape rides the same server on the same terms: a handler is
-	// only offered when the gate is on, and there is nothing to mount onto
-	// when http.enabled is false.
+	// The metrics scrape rides the same server on the same terms.
 	if h := tel.MetricsHandler(); h != nil && core.MountAPI(telemetry.MetricsPath, h) {
 		logger.Info().Str("path", telemetry.MetricsPath).Msg("metrics endpoint mounted")
 	}
@@ -293,8 +286,8 @@ func main() {
 		if err := core.Close(); err != nil {
 			logger.Warn().Err(err).Msg("core shutdown reported an error")
 		}
-		// Flushed after the core, so a shutdown log line still reaches the
-		// exporter, and on its own context because ctx is already cancelled.
+		// After the core, so a shutdown log line still reaches the exporter, and
+		// on its own context because ctx is already cancelled.
 		flushCtx, flushCancel := context.WithTimeout(context.Background(), telemetryFlushGrace)
 		if err := tel.Shutdown(flushCtx); err != nil {
 			logger.Warn().Err(err).Msg("telemetry shutdown reported an error")
@@ -312,15 +305,13 @@ func main() {
 	shutdown()
 }
 
-// telemetryFlushGrace bounds the exporter flush during teardown. It is short
-// on purpose: a backend that is not answering must not be able to hold up
-// quitting the app, and losing the last batch costs less than a hang.
+// telemetryFlushGrace is short on purpose: an unreachable backend must not be
+// able to hold up quitting, and losing the last batch costs less than a hang.
 const telemetryFlushGrace = 2 * time.Second
 
-// telemetryEnvironment is the deployment.environment.name every signal
-// carries. A published build reports its release channel; anything else — a
-// plain `go build`, a dev-task binary, a module pseudo-version — is "source",
-// so a working tree's telemetry never lands in the same series as a release's.
+// telemetryEnvironment separates a working tree's signals from a release's. A
+// published build reports its release channel; a plain `go build`, a dev-task
+// binary, or a pseudo-version reports "source".
 func telemetryEnvironment(version string) string {
 	if channel, ok := wailsui.ReleaseChannel(version); ok {
 		return channel
