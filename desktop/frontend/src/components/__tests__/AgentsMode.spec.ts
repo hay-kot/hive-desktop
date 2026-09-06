@@ -394,7 +394,8 @@ describe('AgentsMode', () => {
   // A scheduled chat is usually opened after its agent finished, so the
   // editor's "Open chat" has to relaunch it the way a click on its sidebar row
   // does: writing ?chat alone would do nothing at all. The editor closes with
-  // it, since it covers the pane the chat opens into.
+  // it, since it covers the pane the chat opens into. The history is on the
+  // schedule's page, which loads it as it opens.
   it('relaunches a finished scheduled chat from the run history', async () => {
     const client = fakeClient()
     const dead = { ...chatRow, id: 9, name: 'Weekly summary', terminalId: '' }
@@ -410,7 +411,7 @@ describe('AgentsMode', () => {
 
     wrapper.findComponent(AgentsSidebar).vm.$emit('edit-workspace', workspaceRows[0])
     await flushPromises()
-    document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-0-history"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-0-edit"]')!.click()
     await flushPromises()
     document.querySelector<HTMLButtonElement>('[data-testid="agent-workspace-editor-schedule-open-chat-3"]')!.click()
     await flushPromises()

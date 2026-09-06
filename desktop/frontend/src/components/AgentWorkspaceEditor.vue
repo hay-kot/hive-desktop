@@ -11,6 +11,7 @@
 // menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
 // that expands into an InlineConfirm over a dimmed, inert form.
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import IconArrowLeft from '~icons/lucide/arrow-left'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconFolderCog from '~icons/lucide/folder-cog'
@@ -27,11 +28,12 @@ import AppSwitch from './AppSwitch.vue'
 import BaseButton from './BaseButton.vue'
 import DrawerSheet from './DrawerSheet.vue'
 import InlineConfirm from './InlineConfirm.vue'
+import SettingsError from './settings/SettingsError.vue'
 import { CodeField, SelectField, TextField, TextareaField, type SelectOption } from '../pipeline/fields'
 import { useAgentSchedules } from '../composables/useAgentSchedules'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { timeLabel } from '../lib/activityPresentation'
-import { relativeAge } from '../lib/age'
+import { relativeAge, relativeTimeLabel } from '../lib/age'
 import {
   buildCron, dayAbbreviation, defaultShape, describe, parseCron, WEEK_ORDER, type ScheduleShape,
 } from '../lib/scheduleShape'
@@ -275,24 +277,27 @@ async function openSharedSkills(): Promise<void> {
 // ── Schedules ────────────────────────────────────────────────────────────────
 // A schedule is a manifest key like the lists above, so it is edited here and
 // written by the same Save: the request carries the whole list and the Go side
-// reconciles `schedules:` to it. Cron is still what the manifest stores, but
-// the form never asks for one: a card edits a ScheduleShape and compiles it
-// (lib/scheduleShape.ts), with the cron box reserved for expressions no shape
-// can state. Only Run now and the run history reach the network from here;
-// everything else is form state until Save.
+// reconciles `schedules:` to it. The list is rows; one schedule at a time is
+// edited on a page that takes the sheet over, working on a draft that Done
+// copies back to its row and Cancel drops. Cron is still what the manifest
+// stores, but the page never asks for one: the draft edits a ScheduleShape and
+// compiles it (lib/scheduleShape.ts), with the cron box reserved for
+// expressions no shape can state. Only Run now, the preview and the run
+// history reach the network from here; everything else is form state until
+// Save.
 
 /** Long enough that a keystroke does not cost a round trip, short enough to feel live. */
 const PREVIEW_DEBOUNCE_MS = 300
-/** How many of the preview's occurrences a card shows. */
+/** How many of the preview's occurrences the page shows. */
 const PREVIEW_SHOWN = 3
 const DAY_MS = 24 * 60 * 60 * 1000
-/** Under a minute out, a countdown reads as noise; the card says it is up instead. */
+/** Under a minute out, a countdown reads as noise; the row says it is up instead. */
 const IMMINENT_MS = 60 * 1000
 const SCHEDULE_ID = /^[a-z0-9][a-z0-9-]*$/
 const QUARTER_MINUTES = [0, 15, 30, 45]
 
 interface ScheduleCard {
-  /** Identity for v-for and the per-card preview timer, stable while the id is still being typed. */
+  /** Identity for v-for and the draft, stable while the id still follows the name. */
   key: string
   /** Fixed once saved: the run history and the scheduler's cursor are keyed by it. */
   id: string
@@ -303,56 +308,66 @@ interface ScheduleCard {
   onMissed: string
   /** False until a Save writes it, which is what Run now and the history need. */
   saved: boolean
+  /** A saved timetable the page changed: the next run the server reported no longer holds. */
+  edited: boolean
   nextRunAt: number | null
   lastRun: AgentScheduleRun | null
-  expanded: boolean
-  removing: boolean
+  running: boolean
+  actionError: string
+}
+
+/** The page's working copy of a row. Done writes it back; Cancel drops it. */
+interface ScheduleDraft {
+  /** The row being edited, or null for a schedule that is not in the list yet. */
+  key: string | null
+  id: string
+  name: string
+  shape: ScheduleShape
+  prompt: string
+  disabled: boolean
+  onMissed: string
+  saved: boolean
   /** Whether the minute picker is showing its free number input. */
   minuteFree: boolean
   cronError: string
   promptError: string
   next: number[]
-  running: boolean
-  actionError: string
-  historyOpen: boolean
+  /** Whether a preview has answered; before that the page has nothing to say about next runs. */
+  previewed: boolean
+  /** Set by the first Done, after which the problem line follows the fields. */
+  tried: boolean
+  removing: boolean
+  history: AgentScheduleRun[]
   historyLoaded: boolean
   historyError: string
-  history: AgentScheduleRun[]
 }
 
 const { runs: listScheduleRuns, runNow, preview } = useAgentSchedules()
 
 let cardSeq = 0
 
-function newCard(overrides: Partial<ScheduleCard> = {}): ScheduleCard {
-  return {
-    key: `card-${++cardSeq}`, id: '', name: '', shape: defaultShape(), prompt: '',
-    disabled: false, onMissed: 'run', saved: false, nextRunAt: null, lastRun: null,
-    expanded: false, removing: false, minuteFree: false, cronError: '', promptError: '',
-    next: [], running: false, actionError: '', historyOpen: false, historyLoaded: false,
-    historyError: '', history: [], ...overrides,
-  }
-}
-
 function cardFrom(schedule: AgentSchedule): ScheduleCard {
-  const shape = parseCron(schedule.cron)
-  return newCard({
+  return {
+    key: `card-${++cardSeq}`,
     id: schedule.id,
     // The manifest's own name, blank included: a hand-authored entry that
     // never named itself must not come back with `name: <id>` written into it.
     name: schedule.name,
-    shape,
+    shape: parseCron(schedule.cron),
     prompt: schedule.prompt,
     disabled: schedule.disabled,
     onMissed: schedule.onMissed || 'run',
     saved: true,
+    edited: false,
     nextRunAt: schedule.nextRunAt,
     lastRun: schedule.lastRun,
-    minuteFree: shape.kind === 'hourly' && !QUARTER_MINUTES.includes(shape.minute),
-  })
+    running: false,
+    actionError: '',
+  }
 }
 
 const scheduleCards = ref<ScheduleCard[]>((props.workspace?.schedules ?? []).map(cardFrom))
+const scheduleDraft = ref<ScheduleDraft | null>(null)
 
 const REPEAT_OPTIONS: SelectOption[] = [
   { value: 'hourly', label: 'Hourly' },
@@ -392,211 +407,315 @@ function pad2(value: number): string {
   return String(value).padStart(2, '0')
 }
 
+function scheduleLabel(card: ScheduleCard): string {
+  return card.name || card.id
+}
+
+// ── The page ────────────────────────────────────────────────────────────────
+function copyShape(shape: ScheduleShape): ScheduleShape {
+  return shape.kind === 'weekly' ? { ...shape, days: [...shape.days] } : { ...shape }
+}
+
+function draftFrom(card: ScheduleCard | null): ScheduleDraft {
+  const shape = card ? copyShape(card.shape) : defaultShape()
+  return {
+    key: card?.key ?? null,
+    id: card?.id ?? '',
+    name: card?.name ?? '',
+    shape,
+    prompt: card?.prompt ?? '',
+    disabled: card?.disabled ?? false,
+    onMissed: card?.onMissed ?? 'run',
+    saved: card?.saved ?? false,
+    minuteFree: shape.kind === 'hourly' && !QUARTER_MINUTES.includes(shape.minute),
+    cronError: '',
+    promptError: '',
+    next: [],
+    previewed: false,
+    tried: false,
+    removing: false,
+    history: [],
+    historyLoaded: false,
+    historyError: '',
+  }
+}
+
+const sheet = ref<InstanceType<typeof DrawerSheet> | null>(null)
+const draftNameField = ref<{ focus: () => void } | null>(null)
+let draftOpener: HTMLElement | null = null
+// The page replaces the sheet's body, and the list it replaces is the sheet's
+// last section: without this the page opens scrolled to its bottom, and Done
+// returns to the top of the form rather than to the row it just wrote.
+let listScrollTop = 0
+
+function openScheduleDraft(card: ScheduleCard | null, event?: Event): void {
+  draftOpener = event?.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  listScrollTop = sheet.value?.body?.scrollTop ?? 0
+  scheduleDraft.value = draftFrom(card)
+  queuePreview()
+  if (card?.saved) void loadHistory()
+  void nextTick(() => {
+    if (sheet.value?.body) sheet.value.body.scrollTop = 0
+    draftNameField.value?.focus()
+  })
+}
+
+function closeScheduleDraft(): void {
+  clearTimeout(previewTimer)
+  previewToken++
+  scheduleDraft.value = null
+  void nextTick(() => {
+    if (sheet.value?.body) sheet.value.body.scrollTop = listScrollTop
+    draftOpener?.focus()
+    draftOpener = null
+  })
+}
+
 // A new schedule's id follows its name so the manifest reads as prose; a saved
 // one is fixed, because the id is what the run history and the scheduler's
 // cursor are keyed by. That is also why a name is required to add one and
 // optional to keep one: the id is the only thing that has to exist.
-function scheduleId(card: ScheduleCard): string {
-  if (card.saved) return card.id
-  return card.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+function draftId(draft: ScheduleDraft): string {
+  if (draft.saved) return draft.id
+  return draft.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
-function scheduleLabel(card: ScheduleCard): string {
-  return card.name.trim() || card.id || 'Untitled schedule'
-}
-
-const duplicateScheduleIds = computed(() => {
-  const seen = new Set<string>()
-  const duplicates = new Set<string>()
-  for (const card of scheduleCards.value) {
-    const id = scheduleId(card)
-    if (!id) continue
-    if (seen.has(id)) duplicates.add(id)
-    else seen.add(id)
-  }
-  return duplicates
+const draftSubtitle = computed(() => {
+  const draft = scheduleDraft.value
+  if (!draft) return ''
+  return draftId(draft) || `Starts a chat in ${name.value.trim() || 'this workspace'} on its own timetable`
 })
 
-/** What stops this card being saved, in the order a user would fix it. */
-function scheduleProblem(card: ScheduleCard): string {
-  const id = scheduleId(card)
-  if (!card.saved) {
-    if (!card.name.trim()) return 'A name is required.'
+/** What stops this draft being kept, in the order a user would fix it. */
+function draftProblem(draft: ScheduleDraft): string {
+  const id = draftId(draft)
+  if (!draft.saved) {
+    if (!draft.name.trim()) return 'A name is required.'
     if (!SCHEDULE_ID.test(id)) return 'The name needs a letter or a digit to build an id from.'
   }
-  if (duplicateScheduleIds.value.has(id)) return `Another schedule already uses the id "${id}".`
-  if (card.shape.kind === 'weekly' && !card.shape.days.length) return 'Pick at least one day.'
-  if (card.shape.kind === 'custom' && !card.shape.cron.trim()) return 'A cron expression is required.'
-  if (!card.prompt.trim()) return 'A prompt is required.'
+  // The Go side upserts by id, so two rows on one id would silently drop a
+  // schedule; the collision is the user's to resolve before the manifest is written.
+  if (scheduleCards.value.some((card) => card.key !== draft.key && card.id === id)) {
+    return `Another schedule already uses the id "${id}".`
+  }
+  if (draft.shape.kind === 'weekly' && !draft.shape.days.length) return 'Pick at least one day.'
+  if (draft.shape.kind === 'custom' && !draft.shape.cron.trim()) return 'A cron expression is required.'
+  if (!draft.prompt.trim()) return 'A prompt is required.'
   return ''
 }
 
-function scheduleBlocked(card: ScheduleCard): boolean {
-  return !!scheduleProblem(card) || !!card.cronError || !!card.promptError
+// The cron box shows its own error; a structured shape has no box, so its
+// error, should the Go side ever report one, is said here instead.
+const draftIssue = computed(() => {
+  const draft = scheduleDraft.value
+  if (!draft?.tried) return ''
+  return draftProblem(draft) || (draft.shape.kind === 'custom' ? '' : draft.cronError)
+})
+
+function keepScheduleDraft(): void {
+  const draft = scheduleDraft.value
+  if (!draft) return
+  draft.tried = true
+  if (draftProblem(draft) || draft.cronError || draft.promptError) return
+  const fields = {
+    id: draftId(draft),
+    name: draft.name.trim(),
+    shape: draft.shape,
+    prompt: draft.prompt,
+    disabled: draft.disabled,
+    onMissed: draft.onMissed,
+  }
+  const card = scheduleCards.value.find((row) => row.key === draft.key)
+  if (card) {
+    const retimed = buildCron(draft.shape) !== buildCron(card.shape)
+    Object.assign(card, fields, { edited: card.edited || (card.saved && retimed) })
+  } else {
+    scheduleCards.value = [...scheduleCards.value, {
+      key: `card-${++cardSeq}`, ...fields, saved: false, edited: false,
+      nextRunAt: null, lastRun: null, running: false, actionError: '',
+    }]
+  }
+  closeScheduleDraft()
 }
 
-const schedulesValid = computed(() => scheduleCards.value.every((card) => !scheduleBlocked(card)))
-
-const valid = computed(() =>
-  !!name.value.trim() && !!agent.value && (!creating.value || !!dir.value.trim())
-  && schedulesValid.value && !manifestProblem.value)
-
-function addSchedule(): void {
-  scheduleCards.value = [...scheduleCards.value, newCard({ expanded: true })]
+function removeScheduleDraft(): void {
+  const draft = scheduleDraft.value
+  if (!draft) return
+  scheduleCards.value = scheduleCards.value.filter((card) => card.key !== draft.key)
+  closeScheduleDraft()
 }
 
-function toggleScheduleExpanded(card: ScheduleCard): void {
-  card.expanded = !card.expanded
-  if (card.expanded) queuePreview(card)
+function setDraftRemoving(removing: boolean): void {
+  if (scheduleDraft.value) scheduleDraft.value.removing = removing
 }
 
-function removeSchedule(card: ScheduleCard): void {
-  scheduleCards.value = scheduleCards.value.filter((row) => row.key !== card.key)
+function setName(value: string): void {
+  if (scheduleDraft.value) scheduleDraft.value.name = value
 }
 
-// ── The card's shape controls ───────────────────────────────────────────────
+function setOnMissed(value: string): void {
+  if (scheduleDraft.value) scheduleDraft.value.onMissed = value
+}
+
+// ── The page's shape controls ───────────────────────────────────────────────
 function shapeClock(shape: ScheduleShape): { hour: number; minute: number } {
   if (shape.kind === 'custom') return { hour: 9, minute: 0 }
   if (shape.kind === 'hourly') return { hour: 9, minute: shape.minute }
   return { hour: shape.hour, minute: shape.minute }
 }
 
-function setRepeat(card: ScheduleCard, kind: string): void {
-  if (kind === card.shape.kind) return
-  const { hour, minute } = shapeClock(card.shape)
+function setRepeat(kind: string): void {
+  const draft = scheduleDraft.value
+  if (!draft || kind === draft.shape.kind) return
+  const { hour, minute } = shapeClock(draft.shape)
   switch (kind) {
     case 'hourly':
-      card.shape = { kind: 'hourly', minute }
-      card.minuteFree = !QUARTER_MINUTES.includes(minute)
+      draft.shape = { kind: 'hourly', minute }
+      draft.minuteFree = !QUARTER_MINUTES.includes(minute)
       break
-    case 'daily': card.shape = { kind: 'daily', hour, minute }; break
-    case 'weekly': card.shape = { kind: 'weekly', days: [5], hour, minute }; break
-    case 'monthly': card.shape = { kind: 'monthly', day: 1, hour, minute }; break
+    case 'daily': draft.shape = { kind: 'daily', hour, minute }; break
+    case 'weekly': draft.shape = { kind: 'weekly', days: [5], hour, minute }; break
+    case 'monthly': draft.shape = { kind: 'monthly', day: 1, hour, minute }; break
     // Switching to Custom carries the compiled expression over, so the box
     // opens on what the picker was already saying rather than empty.
-    default: card.shape = { kind: 'custom', cron: buildCron(card.shape) }
+    default: draft.shape = { kind: 'custom', cron: buildCron(draft.shape) }
   }
-  queuePreview(card)
+  queuePreview()
 }
 
-function dayPicked(card: ScheduleCard, day: number): boolean {
-  return card.shape.kind === 'weekly' && card.shape.days.includes(day)
+function dayPicked(day: number): boolean {
+  const shape = scheduleDraft.value?.shape
+  return shape?.kind === 'weekly' && shape.days.includes(day)
 }
 
-function toggleDay(card: ScheduleCard, day: number): void {
-  if (card.shape.kind !== 'weekly') return
-  const days = dayPicked(card, day)
-    ? card.shape.days.filter((picked) => picked !== day)
-    : [...card.shape.days, day].sort((a, b) => a - b)
-  card.shape = { ...card.shape, days }
+function toggleDay(day: number): void {
+  const draft = scheduleDraft.value
+  if (draft?.shape.kind !== 'weekly') return
+  const days = dayPicked(day)
+    ? draft.shape.days.filter((picked) => picked !== day)
+    : [...draft.shape.days, day].sort((a, b) => a - b)
+  draft.shape = { ...draft.shape, days }
   // No days compiles to a four-field expression the Go side rejects, and the
-  // card already says a day is missing; asking would only trade that for a
+  // page already says a day is missing; asking would only trade that for a
   // cron error about the wrong thing.
-  if (days.length) queuePreview(card)
+  if (days.length) queuePreview()
 }
 
-function timeValue(shape: ScheduleShape): string {
-  if (shape.kind === 'custom' || shape.kind === 'hourly') return ''
+const draftTime = computed(() => {
+  const shape = scheduleDraft.value?.shape
+  if (!shape || shape.kind === 'custom' || shape.kind === 'hourly') return ''
   return `${pad2(shape.hour)}:${pad2(shape.minute)}`
+})
+
+function onTimeInput(event: Event): void {
+  const draft = scheduleDraft.value
+  const match = /^(\d{1,2}):(\d{2})/.exec((event.target as HTMLInputElement).value)
+  if (!draft || !match || draft.shape.kind === 'custom' || draft.shape.kind === 'hourly') return
+  draft.shape = { ...draft.shape, hour: Number(match[1]), minute: Number(match[2]) }
+  queuePreview()
 }
 
-function setTime(card: ScheduleCard, value: string): void {
-  const match = /^(\d{1,2}):(\d{2})/.exec(value)
-  if (!match || card.shape.kind === 'custom' || card.shape.kind === 'hourly') return
-  card.shape = { ...card.shape, hour: Number(match[1]), minute: Number(match[2]) }
-  queuePreview(card)
-}
+const minuteSelection = computed(() => {
+  const draft = scheduleDraft.value
+  if (draft?.shape.kind !== 'hourly') return '0'
+  return draft.minuteFree ? 'other' : String(draft.shape.minute)
+})
 
-function minuteSelection(card: ScheduleCard): string {
-  if (card.shape.kind !== 'hourly') return '0'
-  return card.minuteFree ? 'other' : String(card.shape.minute)
-}
-
-function setMinuteSelection(card: ScheduleCard, value: string): void {
+function setMinuteSelection(value: string): void {
+  const draft = scheduleDraft.value
+  if (!draft) return
   if (value === 'other') {
-    card.minuteFree = true
+    draft.minuteFree = true
     return
   }
-  card.minuteFree = false
-  setMinute(card, Number(value))
+  draft.minuteFree = false
+  setMinute(Number(value))
 }
 
-function setMinute(card: ScheduleCard, minute: number): void {
-  if (card.shape.kind !== 'hourly' || !Number.isFinite(minute)) return
-  card.shape = { kind: 'hourly', minute: Math.min(59, Math.max(0, Math.trunc(minute))) }
-  queuePreview(card)
+function setMinute(minute: number): void {
+  const draft = scheduleDraft.value
+  if (draft?.shape.kind !== 'hourly' || !Number.isFinite(minute)) return
+  draft.shape = { kind: 'hourly', minute: Math.min(59, Math.max(0, Math.trunc(minute))) }
+  queuePreview()
 }
 
-function onTimeInput(card: ScheduleCard, event: Event): void {
-  setTime(card, (event.target as HTMLInputElement).value)
+function onMinuteInput(event: Event): void {
+  setMinute(Number((event.target as HTMLInputElement).value))
 }
 
-function onMinuteInput(card: ScheduleCard, event: Event): void {
-  setMinute(card, Number((event.target as HTMLInputElement).value))
+function setMonthDay(value: string): void {
+  const draft = scheduleDraft.value
+  if (draft?.shape.kind !== 'monthly') return
+  draft.shape = { ...draft.shape, day: Number(value) }
+  queuePreview()
 }
 
-function setMonthDay(card: ScheduleCard, value: string): void {
-  if (card.shape.kind !== 'monthly') return
-  card.shape = { ...card.shape, day: Number(value) }
-  queuePreview(card)
+function setCron(cron: string): void {
+  const draft = scheduleDraft.value
+  if (!draft) return
+  draft.shape = { kind: 'custom', cron }
+  queuePreview()
 }
 
-function setCron(card: ScheduleCard, cron: string): void {
-  card.shape = { kind: 'custom', cron }
-  queuePreview(card)
-}
-
-function setPrompt(card: ScheduleCard, prompt: string): void {
-  card.prompt = prompt
-  queuePreview(card)
+function setPrompt(prompt: string): void {
+  const draft = scheduleDraft.value
+  if (!draft) return
+  draft.prompt = prompt
+  queuePreview()
 }
 
 // ── Preview ─────────────────────────────────────────────────────────────────
 // The Go side is the only thing that knows whether a cron and a template are
-// valid, so the card debounces the question and renders the answer beside the
-// field that raised it. One timer and one token per card: two cards open at
-// once must not answer each other's question.
-const previewTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const previewTokens = new Map<string, number>()
+// valid, so the page debounces the question and renders the answer beside the
+// field that raised it. The token drops an answer to a question an older draft
+// asked, including one the page has since closed.
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+let previewToken = 0
 
-function queuePreview(card: ScheduleCard): void {
+function queuePreview(): void {
   // A workspace being created has nothing on disk to preview against; the
   // structured shapes compile to valid cron without asking.
   if (!props.workspace) return
-  clearTimeout(previewTimers.get(card.key))
-  previewTimers.set(card.key, setTimeout(() => { void runPreview(card) }, PREVIEW_DEBOUNCE_MS))
+  clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => { void runPreview() }, PREVIEW_DEBOUNCE_MS)
 }
 
-async function runPreview(card: ScheduleCard): Promise<void> {
-  const token = (previewTokens.get(card.key) ?? 0) + 1
-  previewTokens.set(card.key, token)
+async function runPreview(): Promise<void> {
+  const draft = scheduleDraft.value
+  if (!draft) return
+  const token = ++previewToken
   try {
     const result = await preview({
       workspace: props.workspace!.dir,
-      cron: buildCron(card.shape),
-      prompt: card.prompt,
+      cron: buildCron(draft.shape),
+      prompt: draft.prompt,
     })
-    if (previewTokens.get(card.key) !== token) return
-    card.next = result.next.slice(0, PREVIEW_SHOWN)
-    card.cronError = result.cronError
-    card.promptError = result.promptError
+    if (token !== previewToken) return
+    draft.next = result.next.slice(0, PREVIEW_SHOWN)
+    draft.cronError = result.cronError
+    draft.promptError = result.promptError
   } catch {
     // A preview that could not be asked for is not itself a reason to block
-    // the save: the Go side validates the manifest again on the way in. The
+    // the draft: the Go side validates the manifest again on the way in. The
     // errors go with the occurrences, since they answered an older cron and
-    // prompt and would otherwise disable Save for good.
-    if (previewTokens.get(card.key) !== token) return
-    card.next = []
-    card.cronError = ''
-    card.promptError = ''
+    // prompt and would otherwise block Done for good.
+    if (token !== previewToken) return
+    draft.next = []
+    draft.cronError = ''
+    draft.promptError = ''
   }
+  draft.previewed = true
 }
 
-onBeforeUnmount(() => {
-  for (const timer of previewTimers.values()) clearTimeout(timer)
+const nextRunsLine = computed(() => {
+  const draft = scheduleDraft.value
+  if (!draft?.previewed || draft.cronError) return ''
+  return draft.next.length ? `Next: ${draft.next.map(occurrence).join(' · ')}` : 'No upcoming runs.'
 })
 
-// ── Run now, and what a card says about its runs ────────────────────────────
+onBeforeUnmount(() => clearTimeout(previewTimer))
+
+// ── Run now, and what a row says about its runs ─────────────────────────────
 async function runScheduleNow(card: ScheduleCard): Promise<void> {
   if (!props.workspace || !card.saved || card.running) return
   card.running = true
@@ -606,7 +725,6 @@ async function runScheduleNow(card: ScheduleCard): Promise<void> {
     // newest, which is what lastRun shows. nextRunAt is untouched: a manual
     // run never consumes the window.
     card.lastRun = await runNow(props.workspace.dir, card.id)
-    if (card.historyLoaded) await loadHistory(card, true)
   } catch (failure) {
     card.actionError = failure instanceof Error ? failure.message : 'The schedule could not be run.'
   } finally {
@@ -614,34 +732,30 @@ async function runScheduleNow(card: ScheduleCard): Promise<void> {
   }
 }
 
-async function toggleHistory(card: ScheduleCard): Promise<void> {
-  card.historyOpen = !card.historyOpen
-  if (card.historyOpen && !card.historyLoaded) await loadHistory(card)
-}
-
-async function loadHistory(card: ScheduleCard, refresh = false): Promise<void> {
-  if (!props.workspace || !card.saved) return
-  if (card.historyLoaded && !refresh) return
-  card.historyError = ''
+async function loadHistory(): Promise<void> {
+  const draft = scheduleDraft.value
+  if (!props.workspace || !draft?.saved) return
+  draft.historyError = ''
   try {
-    card.history = await listScheduleRuns(props.workspace.dir, card.id)
-    card.historyLoaded = true
+    draft.history = await listScheduleRuns(props.workspace.dir, draft.id)
+    draft.historyLoaded = true
   } catch (failure) {
-    card.historyError = failure instanceof Error ? failure.message : 'The run history could not be read.'
+    draft.historyError = failure instanceof Error ? failure.message : 'The run history could not be read.'
   }
 }
 
+/** Empty while the timetable is not the scheduler's yet, which the row's unsaved chip already says. */
 function nextRunLabel(card: ScheduleCard): string {
   if (card.disabled) return 'paused'
-  if (!card.saved) return 'not saved yet'
+  if (!card.saved || card.edited) return ''
   if (card.nextRunAt === null) return 'not scheduled'
   const now = Date.now()
   const delta = card.nextRunAt - now
   if (delta <= IMMINENT_MS) return 'due now'
   // relativeAge measures backwards from its second argument, so the two are
   // swapped here to get the same terse form ("2h") for a time still to come.
-  if (delta < DAY_MS) return `in ${relativeAge(now, card.nextRunAt)}`
-  return occurrence(card.nextRunAt)
+  if (delta < DAY_MS) return `next in ${relativeAge(now, card.nextRunAt)}`
+  return `next ${occurrence(card.nextRunAt)}`
 }
 
 function occurrence(at: number): string {
@@ -650,18 +764,24 @@ function occurrence(at: number): string {
   })
 }
 
-const REASON_LABELS: Record<string, string> = { due: 'due', catch_up: 'catch-up', manual: 'manual' }
+const REASON_LABELS: Record<string, string> = { due: 'on schedule', catch_up: 'catch-up', manual: 'by hand' }
 
 function reasonLabel(run: AgentScheduleRun): string {
   return REASON_LABELS[run.reason] ?? run.reason
 }
 
-// JobsPopover's pill vocabulary: a launch reads as success, a failure as an
-// error, and everything else stays neutral chrome.
-function statusClasses(status: string): string {
-  if (status === 'failed') return 'border-severity-error-border bg-severity-error-tint text-severity-error'
-  if (status === 'launched') return 'border-severity-success-border bg-severity-success-tint text-severity-success'
-  return 'border-border bg-chip text-text-2'
+// A run at its scheduled time is the ordinary case, so only the other reasons are said.
+function lastRunLabel(run: AgentScheduleRun): string {
+  const reason = run.reason === 'due' ? '' : ` · ${reasonLabel(run)}`
+  return `Last run ${run.status} ${relativeTimeLabel(run.startedAt)}${reason}`
+}
+
+// The launcher rows' dot vocabulary: a launch reads as success, a failure as
+// an error, and everything else stays neutral chrome.
+function statusDot(status: string): string {
+  if (status === 'failed') return 'bg-severity-error'
+  if (status === 'launched') return 'bg-severity-success'
+  return 'bg-text-4'
 }
 
 // A history spanning days needs the day; a run from today does not.
@@ -673,8 +793,8 @@ function runStamp(at: number): string {
 
 function scheduleEdits(): ScheduleEdit[] {
   return scheduleCards.value.map((card) => ({
-    id: scheduleId(card),
-    name: card.name.trim(),
+    id: card.id,
+    name: card.name,
     cron: buildCron(card.shape),
     prompt: card.prompt,
     disabled: card.disabled,
@@ -736,8 +856,11 @@ async function reveal(): Promise<void> {
   }
 }
 
+const valid = computed(() =>
+  !!name.value.trim() && !!agent.value && (!creating.value || !!dir.value.trim()) && !manifestProblem.value)
+
 function submit(): void {
-  if (props.busy || confirming.value || !valid.value) return
+  if (props.busy || confirming.value || scheduleDraft.value || !valid.value) return
   emit('save', {
     dir: creating.value ? dir.value.trim() : props.workspace!.dir,
     name: name.value.trim(),
@@ -749,7 +872,15 @@ function submit(): void {
   })
 }
 
+// Escape and the backdrop step back one surface: off the schedule page while
+// one is open, and out of the sheet otherwise. The header's X always closes.
 function cancel(): void {
+  if (props.busy || confirming.value) return
+  if (scheduleDraft.value) closeScheduleDraft()
+  else emit('close')
+}
+
+function closeSheet(): void {
   if (!props.busy && !confirming.value) emit('close')
 }
 
@@ -765,27 +896,205 @@ onMounted(async () => {
 
 <template>
   <DrawerSheet
+    ref="sheet"
     :ariaLabel="creating ? 'New workspace' : 'Edit workspace'"
     testid="agent-workspace-editor"
     :default-size="460"
-    :close-on-escape="!confirming"
+    :close-on-escape="!confirming && !scheduleDraft?.removing"
     :close-on-backdrop="!confirming"
     @close="cancel"
   >
     <template #header>
-      <div class="flex items-center gap-3">
+      <div v-if="scheduleDraft" class="flex items-center gap-3">
+        <button
+          type="button"
+          class="flex size-[38px] shrink-0 cursor-pointer items-center justify-center rounded-[10px] border border-card text-text-2 hover:border-strong hover:text-text"
+          aria-label="Back to the workspace"
+          data-testid="agent-workspace-editor-schedule-back"
+          @click="closeScheduleDraft"
+        ><IconArrowLeft class="size-[18px]" /></button>
+        <div class="min-w-0 flex-1">
+          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ scheduleDraft.key === null ? 'New schedule' : 'Edit schedule' }}</div>
+          <div class="truncate font-mono text-[12px] text-text-3">{{ draftSubtitle }}</div>
+        </div>
+        <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy" @click="closeSheet"><IconX class="size-4" /></button>
+      </div>
+      <div v-else class="flex items-center gap-3">
         <span class="flex size-[38px] items-center justify-center rounded-[10px] bg-accent text-accent-contrast"><IconFolderCog class="size-[18px]" /></span>
         <div class="min-w-0 flex-1">
           <div class="text-[15px] font-semibold tracking-[-.01em]">{{ creating ? 'New workspace' : 'Edit workspace' }}</div>
           <div class="truncate font-mono text-[12px] text-text-3">{{ creating ? 'A directory an agent works in' : workspace!.dir }}</div>
         </div>
-        <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy || confirming" @click="cancel"><IconX class="size-4" /></button>
+        <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy || confirming" @click="closeSheet"><IconX class="size-4" /></button>
       </div>
     </template>
 
+    <!-- The schedule page takes the body over, the way the confirm strip takes
+         the footer: one surface at a time, so nothing stacks and Escape has one
+         thing to answer. -->
+    <div
+      v-if="scheduleDraft"
+      class="flex flex-col gap-4 transition-opacity"
+      :class="{ 'pointer-events-none opacity-45': scheduleDraft.removing }"
+      data-testid="agent-workspace-editor-schedule-page"
+    >
+      <TextField
+        ref="draftNameField"
+        :model-value="scheduleDraft.name"
+        label="Name"
+        :placeholder="scheduleDraft.saved ? scheduleDraft.id : 'Weekly product summary'"
+        :hint="scheduleDraft.saved ? 'Optional. The id is what the schedule is called when this is empty.' : 'The id in agent-workspace.yaml follows the name.'"
+        :disabled="busy"
+        testid="agent-workspace-editor-schedule-name"
+        @update:model-value="setName"
+      />
+
+      <div class="grid grid-cols-2 gap-3">
+        <SelectField
+          :model-value="scheduleDraft.shape.kind"
+          label="Repeat"
+          :options="REPEAT_OPTIONS"
+          :disabled="busy"
+          testid="agent-workspace-editor-schedule-repeat"
+          @update:model-value="setRepeat"
+        />
+        <div v-if="scheduleDraft.shape.kind === 'hourly'" class="flex flex-col gap-1.5">
+          <SelectField
+            :model-value="minuteSelection"
+            label="Minute"
+            :options="MINUTE_OPTIONS"
+            :disabled="busy"
+            testid="agent-workspace-editor-schedule-minute"
+            @update:model-value="setMinuteSelection"
+          />
+          <input
+            v-if="scheduleDraft.minuteFree"
+            type="number"
+            min="0"
+            max="59"
+            :value="scheduleDraft.shape.minute"
+            :disabled="busy"
+            aria-label="Minute past the hour"
+            class="w-full rounded-lg border border-strong bg-app px-3 py-2.5 text-[13.5px] text-text outline-none focus:border-accent"
+            data-testid="agent-workspace-editor-schedule-minute-free"
+            @input="onMinuteInput"
+          >
+        </div>
+        <div v-else-if="scheduleDraft.shape.kind !== 'custom'">
+          <div class="mb-1.5 text-[12.5px] text-text-2">Time</div>
+          <input
+            type="time"
+            step="60"
+            :value="draftTime"
+            :disabled="busy"
+            aria-label="Time"
+            class="w-full rounded-lg border border-strong bg-app px-3 py-2.5 text-[13.5px] text-text outline-none focus:border-accent"
+            data-testid="agent-workspace-editor-schedule-time"
+            @input="onTimeInput"
+          >
+        </div>
+      </div>
+
+      <div v-if="scheduleDraft.shape.kind === 'weekly'">
+        <div class="mb-1.5 text-[12.5px] text-text-2">Days</div>
+        <div class="flex flex-wrap gap-1">
+          <button
+            v-for="day in WEEK_ORDER"
+            :key="day"
+            type="button"
+            class="cursor-pointer rounded-[7px] border px-2.5 py-1 text-[11.5px]"
+            :class="dayPicked(day) ? 'border-accent bg-accent text-accent-contrast' : 'border-card text-text-2 hover:text-text'"
+            :aria-pressed="dayPicked(day)"
+            :disabled="busy"
+            :data-testid="`agent-workspace-editor-schedule-day-${day}`"
+            @click="toggleDay(day)"
+          >{{ dayAbbreviation(day) }}</button>
+        </div>
+      </div>
+
+      <SelectField
+        v-if="scheduleDraft.shape.kind === 'monthly'"
+        :model-value="String(scheduleDraft.shape.day)"
+        label="Day of the month"
+        :options="MONTH_DAY_OPTIONS"
+        :disabled="busy"
+        hint="A day past the 28th is skipped in months that are shorter."
+        testid="agent-workspace-editor-schedule-month-day"
+        @update:model-value="setMonthDay"
+      />
+
+      <TextField
+        v-if="scheduleDraft.shape.kind === 'custom'"
+        :model-value="scheduleDraft.shape.cron"
+        label="Cron"
+        monospace
+        placeholder="0 9 * * 5"
+        :disabled="busy"
+        :error="scheduleDraft.cronError"
+        hint="Five fields in local time, or @hourly / @daily / @weekly / @monthly."
+        testid="agent-workspace-editor-schedule-cron"
+        @update:model-value="setCron"
+      />
+
+      <p v-if="nextRunsLine" class="-mt-2 text-xs leading-relaxed text-text-4" data-testid="agent-workspace-editor-schedule-next-runs">{{ nextRunsLine }}</p>
+
+      <SelectField
+        :model-value="scheduleDraft.onMissed"
+        label="When missed"
+        :options="ON_MISSED_OPTIONS"
+        :disabled="busy"
+        hint="What happens when the app was closed at the scheduled time."
+        testid="agent-workspace-editor-schedule-on-missed"
+        @update:model-value="setOnMissed"
+      />
+
+      <TextareaField
+        :model-value="scheduleDraft.prompt"
+        label="Prompt"
+        :rows="6"
+        monospace
+        placeholder="Summarize what changed since the last run."
+        :error="scheduleDraft.promptError"
+        :hint="promptHint"
+        testid="agent-workspace-editor-schedule-prompt"
+        @update:model-value="setPrompt"
+      />
+
+      <SettingsError v-if="draftIssue" :message="draftIssue" testid="agent-workspace-editor-schedule-problem" />
+
+      <div v-if="scheduleDraft.saved" class="flex flex-col gap-1.5">
+        <span class="text-xs text-text-3">Recent runs</span>
+        <p v-if="scheduleDraft.historyError" class="text-xs text-severity-error">{{ scheduleDraft.historyError }}</p>
+        <p v-else-if="!scheduleDraft.historyLoaded" class="text-xs text-text-4">Loading…</p>
+        <p v-else-if="!scheduleDraft.history.length" class="text-xs text-text-4">No runs yet.</p>
+        <div v-else class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised" data-testid="agent-workspace-editor-schedule-history">
+          <div v-for="run in scheduleDraft.history" :key="run.id" class="flex items-start gap-2.5 px-3 py-2">
+            <span class="mt-px shrink-0 font-mono text-[10.5px] text-text-4" :title="new Date(run.startedAt).toLocaleString()">{{ runStamp(run.startedAt) }}</span>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5 text-[11.5px] text-text-2">
+                <span class="size-1.5 shrink-0 rounded-full" :class="statusDot(run.status)" />
+                <span>{{ run.status }} · {{ reasonLabel(run) }}</span>
+                <span v-if="run.missed > 0" class="font-mono text-[10px] text-text-4">{{ run.missed }} missed</span>
+              </div>
+              <p v-if="run.error" class="mt-0.5 text-[10.5px] leading-relaxed text-severity-error">{{ run.error }}</p>
+            </div>
+            <button
+              v-if="run.sessionId"
+              type="button"
+              class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+              title="Open chat"
+              aria-label="Open chat"
+              :data-testid="`agent-workspace-editor-schedule-open-chat-${run.id}`"
+              @click="emit('open-chat', run.sessionId)"
+            ><IconMessageSquare class="size-3" /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- While a delete is pending the form recedes: dimmed and inert, so the
          two states can't be misread for each other (FolderEditModal's rule). -->
-    <div class="flex flex-col gap-4 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming }">
+    <div v-else class="flex flex-col gap-4 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming }">
       <!-- Above the open/reveal actions on purpose: the fix is in the file,
            and those two buttons are what reach it. -->
       <div
@@ -1045,283 +1354,86 @@ onMounted(async () => {
       </div>
 
       <!-- Schedules are manifest state like the lists above, so they are part
-           of this form and travel with its Save. Only Run now and the run
-           history talk to the Go side from in here. -->
+           of this form and travel with its Save. -->
       <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-schedules">
         <span class="text-xs text-text-3">Schedules</span>
-
-        <div v-if="scheduleCards.length" class="flex flex-col gap-2">
+        <div v-if="scheduleCards.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
           <div
             v-for="(card, index) in scheduleCards"
             :key="card.key"
-            class="flex flex-col rounded-lg border border-strong bg-raised"
+            class="flex items-start gap-2.5 px-3 py-2.5"
             :data-testid="`agent-workspace-editor-schedule-${index}`"
           >
-            <div class="flex items-start gap-2.5 px-3 py-2.5">
-              <AppSwitch
-                size="sm"
-                class="mt-0.5"
-                :model-value="!card.disabled"
-                :aria-label="card.disabled ? 'Enable this schedule' : 'Pause this schedule'"
-                :disabled="busy"
-                :testid="`agent-workspace-editor-schedule-${index}-enabled`"
-                @update:model-value="(enabled) => (card.disabled = !enabled)"
-              />
-              <div class="min-w-0 flex-1">
-                <div class="flex min-w-0 items-center gap-1.5">
-                  <span class="min-w-0 truncate text-[13px]" :class="card.disabled ? 'text-text-3' : 'text-text'">{{ scheduleLabel(card) }}</span>
-                  <span
-                    v-if="card.lastRun"
-                    class="shrink-0 rounded-full border px-1.5 py-px text-[10px]"
-                    :class="statusClasses(card.lastRun.status)"
-                    :data-testid="`agent-workspace-editor-schedule-${index}-last-run`"
-                  >{{ card.lastRun.status }} · {{ reasonLabel(card.lastRun) }}</span>
-                </div>
-                <div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-text-4">
-                  <span class="min-w-0 truncate" :data-testid="`agent-workspace-editor-schedule-${index}-summary`">{{ describe(card.shape) }}</span>
-                  <span aria-hidden="true">·</span>
-                  <span class="shrink-0" :data-testid="`agent-workspace-editor-schedule-${index}-next`">{{ nextRunLabel(card) }}</span>
-                </div>
-                <p v-if="card.lastRun?.error" class="mt-0.5 text-[11px] leading-relaxed text-severity-warning">{{ card.lastRun.error }}</p>
-                <p
-                  v-if="scheduleProblem(card)"
-                  class="mt-0.5 text-[11px] leading-relaxed text-severity-error"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-problem`"
-                >{{ scheduleProblem(card) }}</p>
-                <p
-                  v-if="card.actionError"
-                  class="mt-0.5 text-[11px] leading-relaxed text-severity-error"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-action-error`"
-                >{{ card.actionError }}</p>
+            <AppSwitch
+              size="sm"
+              class="mt-0.5"
+              :model-value="!card.disabled"
+              :aria-label="card.disabled ? 'Enable this schedule' : 'Pause this schedule'"
+              :disabled="busy"
+              :testid="`agent-workspace-editor-schedule-${index}-enabled`"
+              @update:model-value="(enabled) => (card.disabled = !enabled)"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="truncate text-[13px]" :class="card.disabled ? 'text-text-3' : 'text-text'">{{ scheduleLabel(card) }}</span>
+                <span
+                  v-if="!card.saved || card.edited"
+                  class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4"
+                  :data-testid="`agent-workspace-editor-schedule-${index}-unsaved`"
+                >unsaved</span>
               </div>
-              <div class="flex shrink-0 items-center gap-1">
-                <button
-                  v-if="card.saved"
-                  type="button"
-                  class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
-                  title="Run now"
-                  aria-label="Run now"
-                  :disabled="busy || card.running"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-run`"
-                  @click="runScheduleNow(card)"
-                ><IconPlay class="size-3" /></button>
-                <button
-                  type="button"
-                  class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-                  :title="card.expanded ? 'Close this schedule' : 'Edit this schedule'"
-                  :aria-label="card.expanded ? 'Close this schedule' : 'Edit this schedule'"
-                  :aria-expanded="card.expanded"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-edit`"
-                  @click="toggleScheduleExpanded(card)"
-                ><IconPencil class="size-3" /></button>
-                <button
-                  type="button"
-                  class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-severity-error"
-                  title="Remove this schedule"
-                  aria-label="Remove this schedule"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-remove`"
-                  @click="card.removing = true"
-                ><IconTrash2 class="size-3" /></button>
+              <div class="mt-0.5 truncate text-[11px] text-text-4">
+                <span :data-testid="`agent-workspace-editor-schedule-${index}-summary`">{{ describe(card.shape) }}</span>
+                <template v-if="nextRunLabel(card)">
+                  <span aria-hidden="true"> · </span>
+                  <span :data-testid="`agent-workspace-editor-schedule-${index}-next`">{{ nextRunLabel(card) }}</span>
+                </template>
               </div>
+              <div
+                v-if="card.lastRun"
+                class="mt-0.5 flex items-center gap-1.5 text-[11px] text-text-4"
+                :data-testid="`agent-workspace-editor-schedule-${index}-last-run`"
+              >
+                <span class="size-1.5 shrink-0 rounded-full" :class="statusDot(card.lastRun.status)" />
+                <span class="truncate">{{ lastRunLabel(card.lastRun) }}</span>
+              </div>
+              <p v-if="card.lastRun?.error" class="mt-0.5 text-[11px] leading-relaxed text-severity-warning">{{ card.lastRun.error }}</p>
+              <p
+                v-if="card.actionError"
+                class="mt-0.5 text-[11px] leading-relaxed text-severity-error"
+                :data-testid="`agent-workspace-editor-schedule-${index}-action-error`"
+              >{{ card.actionError }}</p>
             </div>
-
-            <div v-if="card.expanded" class="flex flex-col gap-3 border-t border-row px-3 py-3">
-              <TextField
-                :model-value="card.name"
-                label="Name"
-                :placeholder="card.saved ? card.id : 'Weekly product summary'"
-                :hint="card.saved ? 'Optional. The id is what the schedule is called when this is empty.' : ''"
-                :disabled="busy"
-                :testid="`agent-workspace-editor-schedule-${index}-name`"
-                @update:model-value="(value) => (card.name = value)"
-              />
-
-              <SelectField
-                :model-value="card.shape.kind"
-                label="Repeat"
-                :options="REPEAT_OPTIONS"
-                :disabled="busy"
-                :testid="`agent-workspace-editor-schedule-${index}-repeat`"
-                @update:model-value="(kind) => setRepeat(card, kind)"
-              />
-
-              <div v-if="card.shape.kind === 'weekly'" class="flex flex-col gap-1.5">
-                <span class="text-[12.5px] text-text-2">Days</span>
-                <div class="flex flex-wrap gap-1">
-                  <button
-                    v-for="day in WEEK_ORDER"
-                    :key="day"
-                    type="button"
-                    class="cursor-pointer rounded-[7px] border px-2 py-1 text-[11.5px]"
-                    :class="dayPicked(card, day) ? 'border-accent bg-accent text-accent-contrast' : 'border-card text-text-2 hover:text-text'"
-                    :aria-pressed="dayPicked(card, day)"
-                    :data-testid="`agent-workspace-editor-schedule-${index}-day-${day}`"
-                    @click="toggleDay(card, day)"
-                  >{{ dayAbbreviation(day) }}</button>
-                </div>
-              </div>
-
-              <SelectField
-                v-if="card.shape.kind === 'monthly'"
-                :model-value="String(card.shape.day)"
-                label="Day of the month"
-                :options="MONTH_DAY_OPTIONS"
-                :disabled="busy"
-                hint="A day past the 28th is skipped in months that are shorter."
-                :testid="`agent-workspace-editor-schedule-${index}-month-day`"
-                @update:model-value="(value) => setMonthDay(card, value)"
-              />
-
-              <template v-if="card.shape.kind === 'hourly'">
-                <SelectField
-                  :model-value="minuteSelection(card)"
-                  label="Minute"
-                  :options="MINUTE_OPTIONS"
-                  :disabled="busy"
-                  :testid="`agent-workspace-editor-schedule-${index}-minute`"
-                  @update:model-value="(value) => setMinuteSelection(card, value)"
-                />
-                <input
-                  v-if="card.minuteFree"
-                  type="number"
-                  min="0"
-                  max="59"
-                  :value="card.shape.minute"
-                  :disabled="busy"
-                  aria-label="Minute past the hour"
-                  class="w-24 rounded-lg border border-strong bg-app px-3 py-2 text-[13.5px] text-text outline-none focus:border-accent"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-minute-free`"
-                  @input="onMinuteInput(card, $event)"
-                >
-              </template>
-
-              <div v-if="card.shape.kind !== 'hourly' && card.shape.kind !== 'custom'" class="flex flex-col gap-1.5">
-                <span class="text-[12.5px] text-text-2">Time</span>
-                <input
-                  type="time"
-                  step="60"
-                  :value="timeValue(card.shape)"
-                  :disabled="busy"
-                  aria-label="Time"
-                  class="w-36 rounded-lg border border-strong bg-app px-3 py-2 text-[13.5px] text-text outline-none focus:border-accent"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-time`"
-                  @input="onTimeInput(card, $event)"
-                >
-              </div>
-
-              <TextField
-                v-if="card.shape.kind === 'custom'"
-                :model-value="card.shape.cron"
-                label="Cron"
-                monospace
-                placeholder="0 9 * * 5"
-                :disabled="busy"
-                :error="card.cronError"
-                hint="Five fields in local time, or @hourly / @daily / @weekly / @monthly."
-                :testid="`agent-workspace-editor-schedule-${index}-cron`"
-                @update:model-value="(value) => setCron(card, value)"
-              />
-
-              <SelectField
-                :model-value="card.onMissed"
-                label="When missed"
-                :options="ON_MISSED_OPTIONS"
-                :disabled="busy"
-                :testid="`agent-workspace-editor-schedule-${index}-on-missed`"
-                @update:model-value="(value) => (card.onMissed = value)"
-              />
-
-              <TextareaField
-                :model-value="card.prompt"
-                label="Prompt"
-                :rows="5"
-                monospace
-                placeholder="Summarize what changed since the last run."
-                :error="card.promptError"
-                :hint="promptHint"
-                :testid="`agent-workspace-editor-schedule-${index}-prompt`"
-                @update:model-value="(value) => setPrompt(card, value)"
-              />
-
-              <div class="flex flex-col gap-1">
-                <span class="text-[12.5px] text-text-2">Next runs</span>
-                <ul
-                  v-if="card.next.length"
-                  class="flex flex-col gap-0.5"
-                  :data-testid="`agent-workspace-editor-schedule-${index}-next-runs`"
-                >
-                  <li v-for="at in card.next" :key="at" class="font-mono text-[11.5px] text-text-3">{{ occurrence(at) }}</li>
-                </ul>
-                <p v-else class="text-[11.5px] text-text-4">
-                  {{ card.cronError ? 'Nothing to show while the cron is invalid.' : 'No upcoming runs.' }}
-                </p>
-              </div>
-            </div>
-
-            <div v-if="card.saved" class="border-t border-row px-3 py-2">
+            <div class="flex shrink-0 items-center gap-1">
+              <button
+                v-if="card.saved"
+                type="button"
+                class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
+                title="Run now"
+                aria-label="Run now"
+                :disabled="busy || card.running"
+                :data-testid="`agent-workspace-editor-schedule-${index}-run`"
+                @click="runScheduleNow(card)"
+              ><IconPlay class="size-3" /></button>
               <button
                 type="button"
-                class="flex cursor-pointer items-center gap-1 text-[11.5px] text-text-4 hover:text-text-3"
-                :aria-expanded="card.historyOpen"
-                :data-testid="`agent-workspace-editor-schedule-${index}-history`"
-                @click="toggleHistory(card)"
-              >
-                Recent runs
-                <IconChevronDown class="size-3 transition-transform" :class="{ '-rotate-90': !card.historyOpen }" />
-              </button>
-              <template v-if="card.historyOpen">
-                <p v-if="card.historyError" class="mt-1 text-[11px] text-severity-error">{{ card.historyError }}</p>
-                <p v-else-if="!card.history.length" class="mt-1 text-[11px] text-text-4">No runs yet.</p>
-                <div v-else class="mt-1 flex flex-col divide-y divide-row">
-                  <div v-for="run in card.history" :key="run.id" class="flex items-start gap-2 py-1.5">
-                    <span class="mt-px shrink-0 font-mono text-[10.5px] text-text-4" :title="new Date(run.startedAt).toLocaleString()">{{ runStamp(run.startedAt) }}</span>
-                    <div class="min-w-0 flex-1">
-                      <div class="flex min-w-0 items-center gap-1.5">
-                        <span
-                          class="shrink-0 rounded-full border px-1.5 py-px text-[10px]"
-                          :class="statusClasses(run.status)"
-                        >{{ run.status }} · {{ reasonLabel(run) }}</span>
-                        <span v-if="run.missed > 0" class="shrink-0 font-mono text-[10px] text-text-4">{{ run.missed }} missed</span>
-                      </div>
-                      <p v-if="run.error" class="mt-0.5 text-[10.5px] leading-relaxed text-severity-error">{{ run.error }}</p>
-                    </div>
-                    <button
-                      v-if="run.sessionId"
-                      type="button"
-                      class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-                      title="Open chat"
-                      aria-label="Open chat"
-                      :data-testid="`agent-workspace-editor-schedule-open-chat-${run.id}`"
-                      @click="emit('open-chat', run.sessionId)"
-                    ><IconMessageSquare class="size-3" /></button>
-                  </div>
-                </div>
-              </template>
-            </div>
-
-            <div
-              v-if="card.removing"
-              class="flex items-center gap-2 border-t border-row bg-severity-error-tint px-3 py-2"
-              :data-testid="`agent-workspace-editor-schedule-${index}-remove-confirm`"
-            >
-              <span class="min-w-0 flex-1 text-[11.5px] leading-relaxed text-severity-error">Remove this schedule? It leaves the manifest when you save.</span>
-              <BaseButton
-                variant="danger-outline"
-                size="sm"
-                :data-testid="`agent-workspace-editor-schedule-${index}-remove-confirm-yes`"
-                @click="removeSchedule(card)"
-              >Remove</BaseButton>
-              <BaseButton variant="secondary" size="sm" @click="card.removing = false">Keep</BaseButton>
+                class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
+                title="Edit this schedule"
+                aria-label="Edit this schedule"
+                :disabled="busy"
+                :data-testid="`agent-workspace-editor-schedule-${index}-edit`"
+                @click="openScheduleDraft(card, $event)"
+              ><IconPencil class="size-3" /></button>
             </div>
           </div>
         </div>
-
+        <span v-else class="text-xs text-text-4">No schedules yet.</span>
         <button
           type="button"
           class="flex cursor-pointer items-center gap-1.5 self-start text-[12px] text-accent hover:underline"
           :disabled="busy"
           data-testid="agent-workspace-editor-schedule-add"
-          @click="addSchedule"
+          @click="openScheduleDraft(null, $event)"
         ><IconPlus class="size-3.5" />Add schedule</button>
         <span class="text-xs text-text-4">A schedule starts a chat in this workspace on its own timetable. Its prompt is a Go template, so one schedule can ask for everything since the last run.</span>
       </div>
@@ -1342,7 +1454,32 @@ onMounted(async () => {
       <!-- The strip escapes the footer's own padding so it reads as the
            sheet's bottom edge, the way InlineConfirm is designed to sit. -->
       <InlineConfirm
-        v-if="confirming"
+        v-if="scheduleDraft?.removing"
+        class="-mx-[18px] -my-[13px]"
+        title="Remove this schedule?"
+        description="It leaves agent-workspace.yaml when you save the workspace."
+        confirm-label="Remove"
+        testid="agent-workspace-editor-schedule-remove-confirm"
+        @confirm="removeScheduleDraft"
+        @cancel="setDraftRemoving(false)"
+      />
+      <div v-else-if="scheduleDraft" class="flex items-center gap-2.5">
+        <button
+          v-if="scheduleDraft.key !== null"
+          type="button"
+          class="cursor-pointer text-[12.5px] text-text-3 hover:text-severity-error disabled:opacity-50"
+          :disabled="busy"
+          data-testid="agent-workspace-editor-schedule-remove"
+          @click="setDraftRemoving(true)"
+        >Remove schedule</button>
+        <div class="flex-1" />
+        <BaseButton variant="secondary" size="sm" :disabled="busy" data-testid="agent-workspace-editor-schedule-cancel" @click="closeScheduleDraft">Cancel</BaseButton>
+        <BaseButton size="sm" :disabled="busy" data-testid="agent-workspace-editor-schedule-keep" @click="keepScheduleDraft">
+          {{ scheduleDraft.key === null ? 'Add schedule' : 'Done' }}
+        </BaseButton>
+      </div>
+      <InlineConfirm
+        v-else-if="confirming"
         class="-mx-[18px] -my-[13px]"
         title="Delete this workspace?"
         :description="`Every live chat in ${workspace!.name || workspace!.dir} closes, its chat history is removed, and ${deletedPath} is deleted from disk with everything in it — AGENTS.md, docs, canvases, and anything else written there. This cannot be undone.`"

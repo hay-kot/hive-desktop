@@ -31,6 +31,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 const sheetRef = ref<HTMLElement | null>(null)
+const bodyRef = ref<HTMLElement | null>(null)
 const resizePanel = props.width === undefined
   ? useResizablePanel({
       storageKey: props.storageKey ?? `hive.panel.${props.testid ?? 'drawer'}`,
@@ -62,6 +63,8 @@ function stepResize(deltaPx: number): void {
   resizePanel?.step(deltaPx)
 }
 
+/** The scrolling body, for a host that swaps its content and has to manage the scroll position. */
+defineExpose({ body: bodyRef })
 </script>
 
 <template>
@@ -81,7 +84,7 @@ function stepResize(deltaPx: number): void {
       <header v-if="$slots.header" class="shrink-0 border-b border-row bg-pane px-[18px] py-[15px]">
         <slot name="header" />
       </header>
-      <div :class="['hive-scroll min-h-0 flex-1 overflow-y-auto px-[18px] py-[15px]', bodyClass]">
+      <div ref="bodyRef" :class="['hive-scroll min-h-0 flex-1 overflow-y-auto px-[18px] py-[15px]', bodyClass]">
         <slot />
       </div>
       <footer v-if="$slots.footer" class="shrink-0 border-t border-row bg-raised px-[18px] py-[13px]">
