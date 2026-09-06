@@ -1775,91 +1775,59 @@ what they mean there.
 
 ### Scheduled chats
 
-A workspace can declare recurring chats it launches on its own: `schedules:`
-in `agent-workspace.yaml` is a list of `{id, name, cron, prompt, disabled,
-on_missed}` entries, written by the same `write.go` node-tree call as `mcps:`
-and `skills:`, for the same reason -- it is user- and agent-authored,
-dotfiles-synced, and already covered by the manifest watcher
+`schedules:` in `agent-workspace.yaml` is a list of `{id, name, cron, prompt,
+disabled, on_missed}` entries, and a manifest key like `mcps:` and `skills:`:
+the same `write.go` node-tree call owns it, `WriteManifest` reconciles the
+sequence to exactly the list it is handed (matched by id, an entry the list no
+longer names is deleted, an empty list removes the key), and the editor saves
+it with the rest of the manifest. The MCP tools' per-entry write is
+`agentws.WriteSchedules` through `AgentWorkspacesService.PutSchedule` and
+`RemoveSchedule`; a `SchedulePatch` field the call omits keeps its stored
+value. Both writers refuse a manifest that does not parse. Run state is
+app-local data in `desktop-pipeline.db`: `schedule_cursor` (how far each
+schedule has been evaluated, with the `cron` it was evaluated against) and
+`schedule_run` (history, pruned per schedule)
 (ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite).
-`WriteManifest` reconciles the sequence to exactly the list it is handed:
-entries are matched by id, one the list no longer names is deleted, and an
-empty list takes the key with it. There is no per-schedule write: a schedule
-is saved atomically with the rest of the manifest, so a workspace never has
-half an edit on disk.
 
-`internal/app/schedule` is a leaf package holding the cron parser, the
-`text/template` prompt renderer, and the catch-up decision. It declares three
-consumer-defined ports -- `Source`, `Store`, `Launcher` -- that `App`
-satisfies with adapters over `agentws` and `store`, so the package itself
-imports neither. A cursor per (workspace, schedule id), kept in
-`desktop-pipeline.db`'s `schedule_cursor` table, is what makes a missed
-launch durable across an app restart: it resets to "now" the first time a
-schedule is seen and whenever its `cron` no longer matches the stored
-cursor, so a new or re-timed schedule never fires for a time before it
-existed. Every occurrence the cursor has passed without a run of its own
-folds into one launch tagged `catch_up` -- or, when the schedule sets
-`on_missed: skip`, is recorded as `skipped` instead -- never one run per
-missed tick. `schedule_run` keeps that history, and a run is also skipped
-when the schedule's previous chat is still live.
+`internal/app/schedule` is a leaf: cron parsing, the `text/template` prompt
+renderer, and `Evaluate`, the pure catch-up decision. It declares the
+consumer-defined ports `Source`, `Store` and `Launcher`; `App` satisfies them
+in `schedule_adapters.go` over `agentws` and `store`, and the package imports
+neither. The rules the planner keeps: a schedule with no cursor, or whose
+`cron` differs from the cursor's, starts from now with no run; every
+occurrence since the cursor folds into one run tagged `catch_up`, or one
+`skipped` record under `on_missed: skip`; a run is skipped while the previous
+run's chat is live; a failed launch is recorded and never retried.
 
-`App.scheduler` is one `*schedule.Scheduler` goroutine on the standing
-App-owned lifecycle: started after the agent-workspace watcher, stopped
-before `terminals.Stop`. `app.SchedulesService` is the facade in front of
-it -- `RunNow`, `Runs`, `Preview` -- and its routes sit under
-`/api/terminal/agents/schedules/...`, the same token-guarded prefix as the
-rest of the agent-workspace control plane, because "run now" spawns a process
-like every other call on that prefix. Writing belongs to
-`AgentWorkspacesService` instead: `WorkspaceEdit.Schedules` rides
-`workspaces/create` and `workspaces/update`, and each entry is validated as a
-`schedule.Spec` before anything is written. A write then fires
-`AgentWorkspacesService.OnSchedulesChanged`, which App points at
-`scheduler.Reload()` plus `events.SchedulesUpdated{Workspace}`, degraded at
-the Wails boundary to the coalesced `schedules:updated` wake-up the frontend
-re-reads on. A run publishes the same event.
+`App.scheduler` is one `*schedule.Scheduler` on the App-owned lifecycle,
+started after the agent-workspace watcher and stopped before
+`terminals.Stop`. It reloads on `AgentWorkspacesService.OnSchedulesChanged`
+and on the watcher's reload, and a write or a run publishes
+`events.SchedulesUpdated{Workspace}`, degraded at the Wails boundary to the
+coalesced `schedules:updated` wake-up. `app.SchedulesService` fronts it with
+`RunNow`, `Runs` and `Preview`, on the token-guarded
+`/api/terminal/agents/schedules/...` prefix because "run now" spawns a
+process. The MCP server carries `list_workspaces`, `list_schedules`,
+`put_schedule`, `remove_schedule`, `preview_schedule` and `schedule_runs`, and
+no run-now: that surface never spawns a process.
 
-The `hive-desktop` MCP server carries the same surface for an agent:
-`list_workspaces`, `list_schedules`, `put_schedule`, `remove_schedule`,
-`preview_schedule` and `schedule_runs`. A put or remove is a per-list
-manifest write, `agentws.WriteSchedules`, through
-`AgentWorkspacesService.PutSchedule` and `RemoveSchedule`, which apply
-`UpdateWorkspace`'s refusal of a manifest that does not parse. `PutSchedule`
-takes a `SchedulePatch` and lays it over the stored entry: a field the call
-omits keeps its value, so re-timing a paused schedule leaves it paused, and a
-new id needs a cron and a prompt. `Runs` answers not_found for a workspace
-that does not exist and for an id that is neither declared nor has ever run;
-an empty list means only that the schedule has not run. The tools' workspace
-argument also accepts the workspace's absolute path, because that is what
-`HIVE_AGENT_WORKSPACE` hands the agent. Running a schedule is not on the MCP
-server: it spawns a process, which that surface never does.
+Schedules are a section of the workspace editor, not a surface of their own:
+a calendar-style form that compiles to cron on the way out.
+`WorkspaceView.schedules` carries each entry with its `nextRunAt` and
+`lastRun`. `name` is the manifest's own, empty when there is none, and the
+client falls back to the id so the editor never writes the id back as a name.
+`SessionView.scheduleId` is a column the launch writes, not a derivation from
+`schedule_run`, because session ids are reused and history is pruned.
 
-Schedules are a section of the workspace editor, not a surface of their own.
-The form is a calendar-style one -- hourly, daily, weekly, monthly, or a raw
-expression -- that compiles to cron on the way out; cron is still what the
-manifest stores. `WorkspaceView.schedules` carries each entry joined with its
-`nextRunAt` and `lastRun`, which is what fills the editor and lets a sidebar
-workspace header name its next run in its tooltip. `name` on that view is the
-manifest's own, empty when the entry has none, and the client falls back to
-the id for display: resolving the fallback in Go would round trip through the
-editor and write the id back as a name nobody typed. `lastRun` is a
-decoration, so a run-history read that fails costs a row its `lastRun` rather
-than the caller its listing.
-`SessionView.scheduleId`, a column the launch writes on the session row, is
-what marks a scheduled chat's row with a clock glyph. It is stored rather
-than derived from `schedule_run`: session ids are reused after a delete and
-run history is pruned, so a derivation would mislabel or lose it.
-
-A scheduled chat ends itself. Every launch mints a capability token, stores
-it on the session row, and hands the process `HIVE_AGENT_SESSION_TOKEN` and
-`HIVE_AGENT_SESSION_END_URL`; `POST /api/sessions/end` with that bearer
-deletes that chat and no other, tmux session and record both, after the
-`agent_workspaces.session_end_delay` grace, and answers 202 with when. A
-schedule therefore leaves no row per run, and a run-history entry drops its
-chat pointer once the chat is gone. It is a base route with its own guard, not
-a `/api/terminal/` one, because a chat must not hold the frontend's token,
-and not an MCP tool, because a workspace need not declare the app's MCP
-server for its schedules to work. `prompts.ScheduledRun` frames the scheduled
-prompt before launch: what started it, that nobody is watching, the
-schedule's own rendered prompt, and the exact `curl` to run when done
+A scheduled chat ends itself: every launch mints a token, stores it on the
+session row, and hands the process `HIVE_AGENT_SESSION_TOKEN` and
+`HIVE_AGENT_SESSION_END_URL`. `POST /api/sessions/end` with that bearer
+deletes that chat and no other after the `agent_workspaces.session_end_delay`
+grace, answering 202 with when. It is a base route, not a `/api/terminal/`
+one, because a chat must not hold the frontend's token, and not an MCP tool,
+because a workspace need not declare the app's server for its schedules to
+work. `prompts.ScheduledRun` frames the prompt with what started it and the
+exact `curl` to run when done
 (ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 
 ## Execution model
