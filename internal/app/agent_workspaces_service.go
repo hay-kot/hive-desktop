@@ -84,8 +84,33 @@ type AgentWorkspacesService struct {
 	mcpBase func(context.Context) string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, sessions *stores.AgentSessionStore, skills *SkillsService, profileCommands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, sessions: sessions, skills: skills, profileCommands: profileCommands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
+// AgentWorkspacesDeps is newAgentWorkspacesService's constructor argument.
+// EditorCommand and MCPBase stay func-typed here; naming them as one-method
+// interfaces is phase 5.
+type AgentWorkspacesDeps struct {
+	Store           *agentws.Store
+	Terminals       *tmuxcc.Manager
+	Sessions        *stores.AgentSessionStore
+	Skills          *SkillsService
+	ProfileCommands map[string]string
+	RootProblem     string
+	ExecEnv         *execenv.Resolver
+	EditorCommand   func(context.Context) (string, error)
+	MCPBase         func(context.Context) string
+}
+
+func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
+	return &AgentWorkspacesService{
+		store:           d.Store,
+		terminals:       d.Terminals,
+		sessions:        d.Sessions,
+		skills:          d.Skills,
+		profileCommands: d.ProfileCommands,
+		rootProblem:     d.RootProblem,
+		execEnv:         d.ExecEnv,
+		editorCommand:   d.EditorCommand,
+		mcpBase:         d.MCPBase,
+	}
 }
 
 // catalogue is the merged catalogue with this install's own entries resolved.

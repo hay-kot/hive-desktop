@@ -389,24 +389,34 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(a.Stores.InboxItems, a.Stores.OutputCommands, a.Stores.NodeRuns, a.actionStore, a.outputs)
-	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
-	a.Sessions = &sessionsDeps{
-		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, git: a.sessions, tmux: a.terminals,
-		jobs: a.Jobs, items: a.Stores.InboxItems, links: a.Stores.ItemSessions, catalog: a.actionStore, dispatcher: a.dispatcher,
-		recorder: a.Activity, logger: cfg.Logger,
-		pullRequests: newSessionPullRequests(
+	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
+	a.Sessions = newSessionsService(SessionsDeps{
+		Launcher: a.launcher, Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
+		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
+		Recorder: a.Activity, Logger: cfg.Logger,
+		PullRequests: newSessionPullRequests(
 			newGitHubForge(gitHubClient, a.credentials),
 			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
 		),
-		execEnv:       a.execEnv,
-		editorCommand: a.Settings.Editor,
-		defaultAgentEnv: func(ctx context.Context) string {
+		ExecEnv:       a.execEnv,
+		EditorCommand: a.Settings.Editor,
+		DefaultAgentEnv: func(ctx context.Context) string {
 			return a.execEnv.Getenv(ctx, config.EnvDefaultAgent)
 		},
-	}
+	})
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
-	a.Flows = newFlowsService(a.flowStore, a.Stores, a.Stores.InboxItems, a.credentials, profileImages, sourceMarks, a.scripts, a.settingsStore, func() { a.PublishFlowsUpdated("save") })
+	a.Flows = newFlowsService(FlowsDeps{
+		Flows:      a.flowStore,
+		Stores:     a.Stores,
+		InboxItems: a.Stores.InboxItems,
+		Creds:      a.credentials,
+		Images:     profileImages,
+		Marks:      sourceMarks,
+		Scripts:    a.scripts,
+		Settings:   a.settingsStore,
+		OnUpdated:  func() { a.PublishFlowsUpdated("save") },
+	})
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
@@ -427,16 +437,29 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
-	a.Terminals = newTerminalsService(a.terminals, a.Sessions, os.UserHomeDir)
+	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir})
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Terminals, a.Sessions, a.actionStore)
-	a.Canvas = newCanvasService(canvas.NewStore(cfg.Paths.AgentWorkspacesDir), a.Stores.AgentSessions,
-		func(session int64) {
+	a.Canvas = newCanvasService(CanvasDeps{
+		Store:    canvas.NewStore(cfg.Paths.AgentWorkspacesDir),
+		Sessions: a.Stores.AgentSessions,
+		OnUpdated: func(session int64) {
 			a.Events.Publish(a.ctx, events.CanvasUpdated{Session: session})
 		},
-		func(session int64, name string, open bool) {
+		OnToggled: func(session int64, name string, open bool) {
 			a.Events.Publish(a.ctx, events.CanvasToggleRequested{Session: session, Name: name, Open: open})
-		})
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Stores.AgentSessions, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL)
+		},
+	})
+	a.AgentWorkspaces = newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store:           a.agentWorkspaceStore,
+		Terminals:       a.terminals,
+		Sessions:        a.Stores.AgentSessions,
+		Skills:          a.Skills,
+		ProfileCommands: a.agentCommands,
+		RootProblem:     a.agentWorkspaceRootProblem,
+		ExecEnv:         a.execEnv,
+		EditorCommand:   a.Settings.Editor,
+		MCPBase:         a.mcpBaseURL,
+	})
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
 	// Tasks answering KindUnavailable instead.
@@ -941,7 +964,15 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	if a.fetchers == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.SourceHeads, a.sources, a.pollInterval, a.PublishLogAppended, logger)
+	producer := ingest.NewProducer(ingest.ProducerDeps{
+		Ingester:   a.Stores.InboxItems,
+		Snapshots:  a.Stores.EventLog,
+		Heads:      a.Stores.SourceHeads,
+		Sources:    a.sources,
+		Interval:   a.pollInterval,
+		OnAppended: a.PublishLogAppended,
+		Logger:     logger,
+	})
 	producer.SetRecorder(a.Activity)
 	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
 	return producer

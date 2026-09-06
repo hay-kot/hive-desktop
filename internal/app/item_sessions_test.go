@@ -45,10 +45,7 @@ func (f *fakeItemSessionStore) Unlink(_ context.Context, sessionIDs []string) er
 }
 
 func itemSessionsService(manager *fakeSessionManager, links *fakeItemSessionStore) *SessionsService {
-	return &sessionsDeps{
-		launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager,
-		tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}, items: links, links: links, logger: zerolog.Nop(),
-	}
+	return newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Items: links, Links: links, Logger: zerolog.Nop()})
 }
 
 func TestSessionsService_ItemSessionsJoinsLinksToLiveHiveState(t *testing.T) {
@@ -174,11 +171,7 @@ func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
 	manager, _ := activeSession()
 	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
 	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{7: ref}}
-	svc := &sessionsDeps{
-		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
-		jobs: &fakeJobRunner{}, items: fake, links: fake,
-		logger: zerolog.Nop(),
-	}
+	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Items: fake, Links: fake, Logger: zerolog.Nop()})
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 7})
 	require.NoError(t, err)
@@ -192,11 +185,7 @@ func TestSessionsService_CreateSessionLaunchesUnlinkedWhenTheItemHasGone(t *test
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
 	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{}}
-	svc := &sessionsDeps{
-		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
-		jobs: &fakeJobRunner{}, items: fake, links: fake,
-		logger: zerolog.Nop(),
-	}
+	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Items: fake, Links: fake, Logger: zerolog.Nop()})
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 404})
 	require.NoError(t, err)

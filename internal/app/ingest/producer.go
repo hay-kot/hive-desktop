@@ -79,20 +79,32 @@ func (pr *Producer) SetRecorder(r activity.Recorder) { pr.recorder = r }
 // SetDebugPause injects the development-only post-hydration pause.
 func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = duration }
 
-// NewProducer builds a Producer. interval <= 0 is rejected by the caller's
+// ProducerDeps is NewProducer's constructor argument. OnAppended stays a
+// func in this phase; naming it as a one-method interface is phase 5.
+type ProducerDeps struct {
+	Ingester   Ingester
+	Snapshots  SnapshotAppender
+	Heads      SourceHeads
+	Sources    Sources
+	Interval   time.Duration
+	OnAppended func(nextOffset int64)
+	Logger     zerolog.Logger
+}
+
+// NewProducer builds a Producer. Interval <= 0 is rejected by the caller's
 // choice of default (App passes feed.DefaultPollInterval); Producer itself
 // has no opinion on the default so this package does not need to import feed
 // just for a constant.
-func NewProducer(ingester Ingester, snapshots SnapshotAppender, heads SourceHeads, sources Sources, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
+func NewProducer(d ProducerDeps) *Producer {
 	return &Producer{
-		ingester:    ingester,
-		snapshots:   snapshots,
-		heads:       heads,
-		sources:     sources,
-		interval:    interval,
+		ingester:    d.Ingester,
+		snapshots:   d.Snapshots,
+		heads:       d.Heads,
+		sources:     d.Sources,
+		interval:    d.Interval,
 		intervalCh:  make(chan time.Duration, 1),
-		onAppended:  onAppended,
-		logger:      logger,
+		onAppended:  d.OnAppended,
+		logger:      d.Logger,
 		now:         time.Now,
 		lastRun:     map[string]time.Time{},
 		lastFailure: map[string]time.Time{},

@@ -167,7 +167,15 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 // Stores.
 func newTestProducer(db *queries.DB, sources Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *Producer {
 	st := stores.New(db, stores.Options{})
-	return NewProducer(st.InboxItems, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
+	return NewProducer(ProducerDeps{
+		Ingester:   st.InboxItems,
+		Snapshots:  st.EventLog,
+		Heads:      st.SourceHeads,
+		Sources:    sources,
+		Interval:   interval,
+		OnAppended: onAppended,
+		Logger:     logger,
+	})
 }
 
 // readFrom is ReadFrom's test-side equivalent, now that it lives on
@@ -376,7 +384,15 @@ func TestProducer_NoSourcesAppendsNothingAndDoesNotWake(t *testing.T) {
 
 	appender := &fakeAppender{}
 	woke := false
-	producer := NewProducer(appender, appender, appender, stubSources{}, time.Hour, func(int64) { woke = true }, zerolog.Nop())
+	producer := NewProducer(ProducerDeps{
+		Ingester:   appender,
+		Snapshots:  appender,
+		Heads:      appender,
+		Sources:    stubSources{},
+		Interval:   time.Hour,
+		OnAppended: func(int64) { woke = true },
+		Logger:     zerolog.Nop(),
+	})
 
 	producer.Tick(t.Context())
 	assert.Equal(t, 0, appender.callCount())

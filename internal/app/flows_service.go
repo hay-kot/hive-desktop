@@ -35,8 +35,36 @@ type FlowsService struct {
 	onUpdated  func()
 }
 
-func newFlowsService(flows *flow.FlowStore, st *stores.Stores, inboxItems *stores.InboxItemStore, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, stores: st, inboxItems: inboxItems, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
+// FlowsDeps is newFlowsService's constructor argument. OnUpdated stays a
+// field in this phase and becomes an events.Bus publish in phase 5.
+type FlowsDeps struct {
+	Flows *flow.FlowStore
+	// Stores is only purgeProfile's: deleting a profile's rows spans
+	// aggregates, so it is the one operation in this service allowed to open
+	// Stores.Tx (clause 3). InboxItems is every other read this service
+	// makes and must not go through the aggregate.
+	Stores     *stores.Stores
+	InboxItems *stores.InboxItemStore
+	Creds      credentials.Store
+	Images     *profileimg.Store
+	Marks      *sourcemark.Store
+	Scripts    *runtime.ScriptRegistry
+	Settings   *settings.Store
+	OnUpdated  func()
+}
+
+func newFlowsService(d FlowsDeps) *FlowsService {
+	return &FlowsService{
+		flows:      d.Flows,
+		stores:     d.Stores,
+		inboxItems: d.InboxItems,
+		creds:      d.Creds,
+		images:     d.Images,
+		marks:      d.Marks,
+		scripts:    d.Scripts,
+		settings:   d.Settings,
+		onUpdated:  d.OnUpdated,
+	}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there

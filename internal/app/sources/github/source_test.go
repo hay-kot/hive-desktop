@@ -76,7 +76,15 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 // Stores.
 func newTestProducer(db *queries.DB, sources ingest.Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *ingest.Producer {
 	st := stores.New(db, stores.Options{})
-	return ingest.NewProducer(st.InboxItems, st.EventLog, st.SourceHeads, sources, interval, onAppended, logger)
+	return ingest.NewProducer(ingest.ProducerDeps{
+		Ingester:   st.InboxItems,
+		Snapshots:  st.EventLog,
+		Heads:      st.SourceHeads,
+		Sources:    sources,
+		Interval:   interval,
+		OnAppended: onAppended,
+		Logger:     logger,
+	})
 }
 
 // readFrom is ReadFrom's test-side equivalent, now that it lives on

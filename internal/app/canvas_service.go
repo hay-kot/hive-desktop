@@ -39,8 +39,16 @@ type CanvasService struct {
 	onToggled func(session int64, name string, open bool)
 }
 
-func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpdated func(int64), onToggled func(int64, string, bool)) *CanvasService {
-	return &CanvasService{store: store, sessions: sessions, onUpdated: onUpdated, onToggled: onToggled}
+// CanvasDeps is newCanvasService's constructor argument.
+type CanvasDeps struct {
+	Store     *canvas.Store
+	Sessions  canvasSessionResolver
+	OnUpdated func(session int64)
+	OnToggled func(session int64, name string, open bool)
+}
+
+func newCanvasService(d CanvasDeps) *CanvasService {
+	return &CanvasService{store: d.Store, sessions: d.Sessions, onUpdated: d.OnUpdated, onToggled: d.OnToggled}
 }
 
 // Get returns one canvas in the calling session's workspace. A name nothing

@@ -38,13 +38,16 @@ func testCanvasService(t *testing.T) (*CanvasService, *canvasSignals) {
 	sessions := fakeCanvasSessions{
 		1: {ID: 1, Workspace: "ws", Name: "chat", Agent: "claude"},
 	}
-	svc := newCanvasService(canvas.NewStore(t.TempDir()), sessions,
-		func(session int64) {
+	svc := newCanvasService(CanvasDeps{
+		Store:    canvas.NewStore(t.TempDir()),
+		Sessions: sessions,
+		OnUpdated: func(session int64) {
 			signals.updates = append(signals.updates, session)
 		},
-		func(session int64, name string, open bool) {
+		OnToggled: func(session int64, name string, open bool) {
 			signals.toggles = append(signals.toggles, canvasToggle{session, name, open})
-		})
+		},
+	})
 	return svc, signals
 }
 

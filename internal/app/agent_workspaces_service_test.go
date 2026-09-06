@@ -42,8 +42,14 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, manager, stores.New(db, stores.Options{}).AgentSessions, newTestSkillsService(t), commands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL })
+	return newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store:           awStore,
+		Terminals:       manager,
+		Sessions:        stores.New(db, stores.Options{}).AgentSessions,
+		Skills:          newTestSkillsService(t),
+		ProfileCommands: commands,
+		MCPBase:         func(context.Context) string { return testMCPBaseURL },
+	})
 }
 
 // testMCPBaseURL stands in for this run's loopback base URL, which the
@@ -96,8 +102,10 @@ func newManifestOnlyService(t *testing.T, root string, profileCommands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, nil, stores.New(db, stores.Options{}).AgentSessions, newTestSkillsService(t), profileCommands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL })
+	return newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store: awStore, Sessions: stores.New(db, stores.Options{}).AgentSessions, Skills: newTestSkillsService(t),
+		ProfileCommands: profileCommands, MCPBase: func(context.Context) string { return testMCPBaseURL },
+	})
 }
 
 // resumableCommand is a fake-agent command that distinguishes a resume from a

@@ -112,10 +112,53 @@ type SessionsService struct {
 	logger          zerolog.Logger
 }
 
-// sessionsDeps is the construction-site name for the service's dependencies:
-// the service reaches enough subsystems that a positional call stopped saying
-// which nil was which.
-type sessionsDeps = SessionsService
+// SessionsDeps is newSessionsService's constructor argument: the service
+// reaches enough subsystems that a positional call stopped saying which nil
+// was which.
+type SessionsDeps struct {
+	Launcher     sessionLauncher
+	Manager      sessionManager
+	Statuses     sessionStatusSource
+	Git          sessionGitSource
+	Tmux         sessionTmux
+	Jobs         sessionJobRunner
+	Items        inboxItemRefReader
+	Links        itemSessionStore
+	Catalog      *actions.ActionStore
+	Dispatcher   *dispatch.Dispatcher
+	Recorder     activity.Recorder
+	PullRequests *sessionPullRequests
+	ExecEnv      *execenv.Resolver
+	// EditorCommand reads the configured editor from settings on every call,
+	// so a settings change applies without restarting. Empty means none
+	// configured.
+	EditorCommand func(context.Context) (string, error)
+	// DefaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
+	// would. nil leaves the agent hive's config resolved.
+	DefaultAgentEnv func(context.Context) string
+	Logger          zerolog.Logger
+}
+
+func newSessionsService(d SessionsDeps) *SessionsService {
+	return &SessionsService{
+		launcher:        d.Launcher,
+		manager:         d.Manager,
+		statuses:        d.Statuses,
+		git:             d.Git,
+		tmux:            d.Tmux,
+		jobs:            d.Jobs,
+		items:           d.Items,
+		links:           d.Links,
+		catalog:         d.Catalog,
+		dispatcher:      d.Dispatcher,
+		recorder:        d.Recorder,
+		pullRequests:    d.PullRequests,
+		execEnv:         d.ExecEnv,
+		editorCommand:   d.EditorCommand,
+		defaultAgentEnv: d.DefaultAgentEnv,
+		logger:          d.Logger,
+	}
+}
 
 // SessionLaunchOptions supplies the configured repository and agent choices the
 // New Session form presents.
