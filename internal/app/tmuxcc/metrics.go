@@ -26,10 +26,17 @@ var (
 		metric.WithUnit("By"),
 	))
 
+	// Boundaries climb to defaultBufferBytes, the broker's own bound. The SDK
+	// default tops out at 10 KB, which puts every interesting backlog in the
+	// overflow bucket and makes a quantile report the bound rather than the
+	// depth.
 	bufferDepth = observe.Must(meter.Int64Histogram(
 		"tmux.stream.buffer.depth",
 		metric.WithDescription("Broker backlog depth measured after a publish."),
 		metric.WithUnit("By"),
+		metric.WithExplicitBucketBoundaries(
+			1<<10, 4<<10, 16<<10, 64<<10, 256<<10, 1<<20, 2<<20, 4<<20, 8<<20,
+		),
 	))
 
 	lifecycleTransitions = observe.Must(meter.Int64Counter(
@@ -37,10 +44,18 @@ var (
 		metric.WithDescription("Stream pause and resume transitions."),
 	))
 
+	// Boundaries are seconds, and this path is measured in tens of
+	// microseconds. The SDK default starts at 5, so every observation lands in
+	// the first bucket and a quantile interpolates across it -- a 92us p99
+	// reports as 4.95s. Explicit boundaries are not optional on a histogram
+	// whose unit is seconds.
 	frameLatency = observe.Must(meter.Float64Histogram(
 		"tmux.stream.frame.latency",
 		metric.WithDescription("Delay from tmux %output decode to the frame reaching the transport."),
 		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(
+			0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1,
+		),
 	))
 )
 
