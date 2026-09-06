@@ -33,8 +33,10 @@ type Job struct {
 	CommandID *int64    `json:"commandId,omitempty"`
 }
 
-// stepFor returns the human step label for a status transition.
-func stepFor(status JobStatus) string {
+// StepFor returns the human step label for a status transition. JobService
+// calls it when it persists a transition; the label is what a viewer reads,
+// not something the store has any business computing.
+func StepFor(status JobStatus) string {
 	switch status {
 	case JobStatusQueued:
 		return "Queued"

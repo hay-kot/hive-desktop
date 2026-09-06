@@ -40,9 +40,8 @@ func activityClassifier(key string) testClassifier {
 }
 
 // testClock is a hand-advanced clock for tests whose assertions depend on
-// controlled timestamps -- Options.Now is the seam that replaces what
-// jobs.Options.Now and activity.Options.Now gave the old packages for the
-// same reason.
+// controlled timestamps -- Options.Now is the seam every store, including
+// ActivityEventStore and JobStore, takes it through.
 type testClock struct{ now time.Time }
 
 func newTestClock() *testClock { return &testClock{now: time.UnixMilli(1)} }

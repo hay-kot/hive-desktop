@@ -6,8 +6,6 @@ import (
 	"strconv"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/gitea"
@@ -106,46 +104,6 @@ func (s *ActionsService) DeleteLauncher(_ context.Context, id string) error {
 	}
 	s.wake()
 	return nil
-}
-
-// ActivityService owns the user-facing audit log.
-type ActivityService struct{ store *activity.Store }
-
-func newActivityService(store *activity.Store) *ActivityService {
-	return &ActivityService{store: store}
-}
-
-// List returns up to limit events with id < before, newest first. Pass
-// before <= 0 to start from the most recent event.
-func (s *ActivityService) List(ctx context.Context, before int64, limit int) ([]activity.Event, error) {
-	events, err := s.store.List(ctx, before, limit)
-	return events, Wrap(err, KindInternal, "listing activity events")
-}
-
-// Append records an event and returns the stored row. It is the path for
-// surfacing something only a caller knows about — a failed save, a deleted
-// profile — and publishes the same wake-up as any backend recording.
-func (s *ActivityService) Append(ctx context.Context, e activity.Event) (activity.Event, error) {
-	stored, err := s.store.Append(ctx, e)
-	return stored, Wrap(err, KindInternal, "recording an activity event")
-}
-
-// JobService owns live action-run jobs.
-type JobService struct{ store *jobs.Store }
-
-func newJobService(store *jobs.Store) *JobService { return &JobService{store: store} }
-
-// List returns up to limit jobs with id < before, newest first.
-func (s *JobService) List(ctx context.Context, before int64, limit int) ([]jobs.Job, error) {
-	out, err := s.store.List(ctx, before, limit)
-	return out, Wrap(err, KindInternal, "listing jobs")
-}
-
-// ListActive returns non-terminal jobs plus terminal jobs completed within
-// the lingering window, so a just-finished run stays visible briefly.
-func (s *JobService) ListActive(ctx context.Context) ([]jobs.Job, error) {
-	out, err := s.store.ListActive(ctx, jobs.DefaultLingerWindow)
-	return out, Wrap(err, KindInternal, "listing active jobs")
 }
 
 // GitHubService wraps the GitHub connector's connection with context

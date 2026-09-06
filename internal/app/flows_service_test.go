@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -208,7 +209,7 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	service := newFlowsService(flows, st, st.InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
+	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
@@ -238,7 +239,7 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	service := newFlowsService(flows, st, st.InboxItems, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil, nil)
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
+	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
@@ -264,30 +265,29 @@ func seedPurgeProfileRows(t *testing.T, db *queries.DB, profileID string) purgeP
 	t.Helper()
 	ctx := t.Context()
 	topic := "source:" + profileID + "/src"
+	st := stores.New(db, stores.Options{})
+	seed := stores.NewSeed(db)
 
-	item, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
+	item, err := seed.InboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: profileID, SourceKind: "github", SourceScope: "s", ExternalID: profileID + "-item",
 		Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
-	_, err = db.InsertInboxEvent(ctx, queries.InsertInboxEventParams{
+	_, err = seed.InboxEvent(ctx, queries.InsertInboxEventParams{
 		ItemID: item.ID, Kind: "observed", Transition: "none", Attention: "trivial", Detail: []byte(`{}`), CreatedAt: 1,
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.UpsertFeedMembershipClaim(ctx, queries.UpsertFeedMembershipClaimParams{
+	require.NoError(t, st.FeedClaims.Upsert(ctx, stores.FeedClaim{
 		ProfileID: profileID, FeedID: profileID + "/feed", ItemID: item.ID, SourceID: topic,
 	}))
-	require.NoError(t, db.LinkItemSession(ctx, queries.LinkItemSessionParams{
-		SessionID: profileID + "-sess", ProfileID: profileID, SourceKind: "github", SourceScope: "s",
-		ExternalID: profileID + "-item", CreatedAt: 1,
+	require.NoError(t, st.ItemSessions.Link(ctx, profileID+"-sess", models.ItemRef{
+		ProfileID: profileID, SourceKind: "github", SourceScope: "s", ExternalID: profileID + "-item",
 	}))
-	_, err = db.AppendEvent(ctx, queries.AppendEventParams{Topic: topic, Key: profileID + "-item", Payload: []byte(`{}`), CreatedAt: 1})
+	_, err = st.EventLog.Append(ctx, topic, profileID+"-item", []byte(`{}`))
 	require.NoError(t, err)
-	require.NoError(t, db.CommitConsumerOffset(ctx, queries.CommitConsumerOffsetParams{Consumer: profileID, Offset: 1}))
-	require.NoError(t, db.UpsertSourceHead(ctx, queries.UpsertSourceHeadParams{Topic: topic, Key: profileID + "-item", Payload: []byte(`{}`)}))
-	require.NoError(t, db.UpsertNodeKV(ctx, queries.UpsertNodeKVParams{
-		FlowID: profileID, NodeID: "node-a", Scope: stores.KVScopeNode, Key: "k", Value: "v", UpdatedAt: 1,
-	}))
+	require.NoError(t, seed.ConsumerOffset(ctx, profileID, 1))
+	require.NoError(t, st.SourceHeads.Upsert(ctx, topic, profileID+"-item", []byte(`{}`)))
+	require.NoError(t, st.NodeKV.Set(ctx, profileID, "node-a", "k", "v", 0))
 	return purgeProfileFixture{itemID: item.ID, topic: topic}
 }
 

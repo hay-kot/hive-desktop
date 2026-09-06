@@ -41,7 +41,7 @@ func (db *DB) boundTo(tx *sql.Tx) *DB {
 // back.
 //
 // No store call runs on a goroutine that did not open the transaction.
-// jobs.Store.Track is the one store-work path that starts a goroutine. It
+// JobService.Track is the one store-work path that starts a goroutine. It
 // calls `bg := context.WithoutCancel(ctx)` before it starts that goroutine and
 // remains correct because it has no transactional callers. WithoutCancel
 // copies context values, including a transaction, so Track must not run inside

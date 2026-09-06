@@ -12,8 +12,9 @@ import (
 )
 
 // JobStore owns job: the tracked background work the jobs strip and Activity
-// view read. It is the persistence half of jobs.Store; phase 3c rewires that
-// package onto this store and deletes its own database access.
+// view read. Status and step stay plain strings here -- this leaf package
+// does not import the jobs package's typed enum -- so JobService owns the
+// JobStatus/label mapping.
 type JobStore struct {
 	q      *queries.DB
 	now    func() time.Time
@@ -28,7 +29,7 @@ func NewJobStore(q *queries.DB, opts Options) *JobStore {
 // stamping CreatedAt and UpdatedAt with the store's own clock.
 func (s *JobStore) Insert(ctx context.Context, in JobCreate) (Job, error) {
 	now := s.now().UnixMilli()
-	row, err := s.q.Ctx(ctx).Queries.InsertJob(ctx, queries.InsertJobParams{
+	row, err := s.q.Ctx(ctx).InsertJob(ctx, queries.InsertJobParams{
 		CreatedAt: now,
 		UpdatedAt: now,
 		Status:    in.Status,
@@ -44,7 +45,7 @@ func (s *JobStore) Insert(ctx context.Context, in JobCreate) (Job, error) {
 // SetRunning advances a job to running and links its output_command. This is
 // the only job update that writes command_id.
 func (s *JobStore) SetRunning(ctx context.Context, id int64, step string, commandID int64) (Job, error) {
-	row, err := s.q.Ctx(ctx).Queries.SetJobRunning(ctx, queries.SetJobRunningParams{
+	row, err := s.q.Ctx(ctx).SetJobRunning(ctx, queries.SetJobRunningParams{
 		UpdatedAt: s.now().UnixMilli(),
 		Status:    "running",
 		Step:      step,
@@ -57,7 +58,7 @@ func (s *JobStore) SetRunning(ctx context.Context, id int64, step string, comman
 // SetStatus advances a job's status, step, and error without changing its
 // command_id link.
 func (s *JobStore) SetStatus(ctx context.Context, id int64, status, step, errText string) (Job, error) {
-	row, err := s.q.Ctx(ctx).Queries.SetJobStatus(ctx, queries.SetJobStatusParams{
+	row, err := s.q.Ctx(ctx).SetJobStatus(ctx, queries.SetJobStatusParams{
 		UpdatedAt: s.now().UnixMilli(),
 		Status:    status,
 		Step:      step,
@@ -70,7 +71,7 @@ func (s *JobStore) SetStatus(ctx context.Context, id int64, status, step, errTex
 // FindRunningByCommand returns the running job linked to commandID. The
 // boolean is false when no such job exists.
 func (s *JobStore) FindRunningByCommand(ctx context.Context, commandID int64) (Job, bool, error) {
-	row, err := s.q.Ctx(ctx).Queries.FindRunningJobByCommandID(ctx, sql.NullInt64{Int64: commandID, Valid: true})
+	row, err := s.q.Ctx(ctx).FindRunningJobByCommandID(ctx, sql.NullInt64{Int64: commandID, Valid: true})
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, nil
 	}
@@ -86,7 +87,7 @@ func (s *JobStore) List(ctx context.Context, before int64, limit int) ([]Job, er
 	if before <= 0 {
 		before = math.MaxInt64
 	}
-	rows, err := s.q.Ctx(ctx).Queries.ListJobs(ctx, queries.ListJobsParams{
+	rows, err := s.q.Ctx(ctx).ListJobs(ctx, queries.ListJobsParams{
 		ID:    before,
 		Limit: int64(limit),
 	})
@@ -96,6 +97,13 @@ func (s *JobStore) List(ctx context.Context, before int64, limit int) ([]Job, er
 // ListActive returns non-terminal jobs and terminal jobs updated at or after
 // since, newest first.
 func (s *JobStore) ListActive(ctx context.Context, since int64) ([]Job, error) {
-	rows, err := s.q.Ctx(ctx).Queries.ListActiveJobs(ctx, since)
+	rows, err := s.q.Ctx(ctx).ListActiveJobs(ctx, since)
 	return s.mapper.SliceErr(rows, wrap("listing active jobs", err))
+}
+
+// ListActiveWithin returns non-terminal jobs plus terminal jobs updated
+// within window of the store's own clock, newest first. It exists so the
+// caller never has to read the store's clock to compute the boundary itself.
+func (s *JobStore) ListActiveWithin(ctx context.Context, window time.Duration) ([]Job, error) {
+	return s.ListActive(ctx, s.now().Add(-window).UnixMilli())
 }

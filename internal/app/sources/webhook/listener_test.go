@@ -100,7 +100,7 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 	// The wake-up carries the snapshot row's offset (the last append).
 	assert.Equal(t, msgs[1].ID, fmt.Sprint(*lastOffset))
 
-	capture, err := db.GetWebhookCapture(ctx, "source:triage/hook")
+	capture, err := stores.New(db, stores.Options{}).WebhookCaptures.Get(ctx, "source:triage/hook")
 	require.NoError(t, err)
 	assert.JSONEq(t, body, string(capture.Body))
 	assert.Positive(t, capture.ReceivedAt)
@@ -149,8 +149,9 @@ func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 	handler := listener.Handler()
 	body := `{"id":"x","title":"same"}`
 
+	captures := stores.New(db, stores.Options{}).WebhookCaptures
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", body, nil).Code)
-	first, err := db.GetWebhookCapture(t.Context(), "source:triage/hook")
+	first, err := captures.Get(t.Context(), "source:triage/hook")
 	require.NoError(t, err)
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", body, nil).Code)
@@ -161,7 +162,7 @@ func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 	assert.Len(t, msgs, 2, "an unchanged re-delivery must not append new event rows")
 
 	// The capture still tracks the latest request.
-	second, err := db.GetWebhookCapture(ctx, "source:triage/hook")
+	second, err := captures.Get(ctx, "source:triage/hook")
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, second.ReceivedAt, first.ReceivedAt)
 }
@@ -196,9 +197,7 @@ func TestWebhookListenerContentHashKeyWithoutID(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"event":"b"}`, nil).Code)
 
 	ctx := t.Context()
-	rows, err := db.ListUnarchivedInboxItemsBySource(ctx, queries.ListUnarchivedInboxItemsBySourceParams{
-		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook",
-	})
+	rows, err := stores.New(db, stores.Options{}).InboxItems.ListUnarchivedBySource(ctx, "triage", SourceKind, "hook")
 	require.NoError(t, err)
 	require.Len(t, rows, 2, "distinct bodies without ids are distinct items")
 	assert.Len(t, rows[0].ExternalID, 64, "content-hash key is the sha256 hex")
@@ -348,7 +347,7 @@ func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
 	assert.Equal(t, "resolved", item.SourceState.String)
 	assert.Equal(t, "terminal", item.Lifecycle)
 
-	events, err := db.ListInboxEventsByItem(ctx, queries.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
+	events, err := stores.New(db, stores.Options{}).InboxItems.Events(ctx, item.ID, 10)
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
 	assert.Equal(t, "resolved", events[0].Kind, "latest event is first (ORDER BY id DESC)")
@@ -374,7 +373,7 @@ func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
 	assert.Equal(t, "active", item.Lifecycle)
 	assert.Equal(t, "open", item.SourceState.String)
 
-	events, err := db.ListInboxEventsByItem(ctx, queries.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
+	events, err := stores.New(db, stores.Options{}).InboxItems.Events(ctx, item.ID, 10)
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
 	assert.Equal(t, "reopened", events[0].Kind)

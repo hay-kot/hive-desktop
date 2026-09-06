@@ -23,7 +23,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	item, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
+	item, err := stores.NewSeed(db).InboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: "triage", SourceKind: "github", SourceScope: "src", ExternalID: "acme/api#12",
 		Payload: []byte(`{"repo":"acme/api","title":"Fix the flake"}`), Lifecycle: "active",
 	})

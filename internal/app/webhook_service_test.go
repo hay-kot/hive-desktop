@@ -36,16 +36,15 @@ func TestWebhookServiceCapture(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	service := newWebhookService(testSettingsStore(t), stores.New(db, stores.Options{}).WebhookCaptures, nil, "127.0.0.1", 24483)
+	captures := stores.New(db, stores.Options{}).WebhookCaptures
+	service := newWebhookService(testSettingsStore(t), captures, nil, "127.0.0.1", 24483)
 
 	view, err := service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.Zero(t, view.ReceivedAt)
 
 	ctx := t.Context()
-	require.NoError(t, db.UpsertWebhookCapture(ctx, queries.UpsertWebhookCaptureParams{
-		Topic: "source:triage/hook", ReceivedAt: 42, Body: []byte(`{"event":"deploy"}`),
-	}))
+	require.NoError(t, captures.Upsert(ctx, "source:triage/hook", 42, []byte(`{"event":"deploy"}`)))
 	view, err = service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), view.ReceivedAt)

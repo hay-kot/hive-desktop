@@ -26,7 +26,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
-	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
@@ -136,10 +135,10 @@ type App struct {
 	// wrote through flowStore directly (queries.SetEnabled), duplicating
 	// FlowsService.SetEnabled minus its typed-error wrapping and its
 	// notifyUpdated event. A domain's need is a method on its service, not
-	// the store underneath it. activityStore and jobStore are unexported for
-	// the same reason despite looking store-shaped: ActivityService and
-	// JobService above already front them, so nothing else may reach past
-	// those either.
+	// the store underneath it. Activity and Jobs above are the same rule for
+	// activity_event and job: each service holds its store directly and is
+	// itself the activity.Recorder / jobs.Recorder every other subsystem
+	// holds, so there is no separate unexported store field to bypass.
 	actionStore         *actions.ActionStore
 	flowStore           *flow.FlowStore
 	agentWorkspaceStore *agentws.Store
@@ -148,8 +147,6 @@ type App struct {
 	// openAgentWorkspaces sets it; the Agents area is what surfaces it to the
 	// user (phase 6) rather than silently creating a second root elsewhere.
 	agentWorkspaceRootProblem string
-	activityStore             *activity.Store
-	jobStore                  *jobs.Store
 	fetchers                  *ghsource.Fetchers
 	credentials               credentials.Store
 
@@ -311,17 +308,18 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.db = db
 	a.Stores = datastores.New(db, datastores.Options{Logger: cfg.Logger})
 
-	// The activity recorder is shared by every subsystem that reports to the
-	// Activity view (producer, worker, session launcher, config watchers) and
-	// by the ActivityService the frontend reads and writes.
-	a.activityStore = activity.NewStore(db, activity.Options{Emit: func(id int64) {
+	// Activity is shared by every subsystem that reports to the Activity view
+	// (producer, worker, session launcher, config watchers) as the
+	// activity.Recorder it holds, and by the frontend RPC surface that reads
+	// and writes it directly. Jobs is the same shape for jobs.Recorder.
+	a.Activity = newActivityService(a.Stores.ActivityEvents, func(id int64) {
 		a.Events.Publish(a.ctx, events.ActivityAppended{ID: id})
-	}})
-	a.jobStore = jobs.NewStore(db, jobs.Options{Emit: func(id int64) {
+	})
+	a.Jobs = newJobService(a.Stores.Jobs, func(id int64) {
 		a.Events.Publish(a.ctx, events.JobsUpdated{JobID: id})
-	}})
+	})
 	if a.fetchers != nil {
-		a.fetchers.SetRecorder(a.activityStore)
+		a.fetchers.SetRecorder(a.Activity)
 	}
 
 	if err := a.openHiveRuntime(runCtx, cfg); err != nil {
@@ -394,8 +392,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
 	a.Sessions = &sessionsDeps{
 		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, git: a.sessions, tmux: a.terminals,
-		jobs: a.jobStore, items: a.Stores.InboxItems, links: a.Stores.ItemSessions, catalog: a.actionStore, dispatcher: a.dispatcher,
-		recorder: a.activityStore, logger: cfg.Logger,
+		jobs: a.Jobs, items: a.Stores.InboxItems, links: a.Stores.ItemSessions, catalog: a.actionStore, dispatcher: a.dispatcher,
+		recorder: a.Activity, logger: cfg.Logger,
 		pullRequests: newSessionPullRequests(
 			newGitHubForge(gitHubClient, a.credentials),
 			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
@@ -420,8 +418,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.PostHog = newPostHogService(a.posthogAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
-	a.Activity = newActivityService(a.activityStore)
-	a.Jobs = newJobService(a.jobStore)
 	a.Prompts = newPromptsService(cfg.Paths, cfg.SettingsStore, a.Webhooks)
 	a.Skills = newSkillsService(a.Prompts)
 	// The retired global installer left an index beside the state dir. Nothing
@@ -741,7 +737,7 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: count})
 		// A hand edit (or the app's own write) reloaded actions.yml: record
 		// the now-effective action count so the change is auditable.
-		a.activityStore.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
+		a.Activity.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
 	}, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("actions.yml hot-reload unavailable")
@@ -890,7 +886,7 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 			a.Events.Publish(a.ctx, events.InboxUpdated{})
 		},
 		OnFlowError: func(flowID string, err error) {
-			a.activityStore.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
+			a.Activity.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
 		},
 	})
 }
@@ -946,7 +942,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 		return nil
 	}
 	producer := ingest.NewProducer(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.SourceHeads, a.sources, a.pollInterval, a.PublishLogAppended, logger)
-	producer.SetRecorder(a.activityStore)
+	producer.SetRecorder(a.Activity)
 	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
 	return producer
 }
@@ -963,8 +959,8 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
 	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Stores.InboxItems, a.execEnv, cfg.Logger))
 	worker := dispatch.NewWorker(a.Stores.OutputCommands, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), a.dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
-	worker.SetRecorder(a.activityStore)
-	worker.SetJobRecorder(a.jobStore)
+	worker.SetRecorder(a.Activity)
+	worker.SetJobRecorder(a.Jobs)
 	return worker
 }
 
@@ -1029,7 +1025,7 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 	}
 
 	a.webhook = webhook.NewListener(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.WebhookCaptures, a.Stores.InboxItems, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
-	a.webhook.SetRecorder(a.activityStore)
+	a.webhook.SetRecorder(a.Activity)
 }
 
 // openHiveRuntime opens the Hive dependencies desktop actions need. The
@@ -1104,7 +1100,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	)
 
 	a.launcher = dispatch.NewHiveSessionLauncher(sessions)
-	a.launcher.SetRecorder(a.activityStore)
+	a.launcher.SetRecorder(a.Activity)
 	a.launcher.SetItemSessionLinker(a.Stores.ItemSessions, cfg.Logger)
 
 	var statusService *hive.StatusService

@@ -77,6 +77,14 @@ func (s *NodeKVStore) Delete(ctx context.Context, flowID, nodeID, key string) er
 	}))
 }
 
+// DeleteExpired removes every node_kv row whose expiry has passed as of now
+// (unix ms). Prune (queries.DB) sweeps expiry as part of whole-database
+// retention and does not call this; it exists for a caller that wants the
+// same sweep scoped to one store call, such as a test.
+func (s *NodeKVStore) DeleteExpired(ctx context.Context, now int64) error {
+	return wrap("deleting expired node kv", s.q.Ctx(ctx).DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: now, Valid: true}))
+}
+
 // DeleteByFlow removes every node_kv row for flowID. Used by
 // FlowsService.purgeProfile when a workspace is deleted, and by
 // EventLogStore.ActivateReplay when a flow has no KV-capable nodes left.

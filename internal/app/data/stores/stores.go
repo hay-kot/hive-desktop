@@ -33,9 +33,9 @@ type Stores struct {
 
 // Options configures every store built by New. Both fields are optional.
 type Options struct {
-	// Now supplies write timestamps; defaults to time.Now. It replaces
-	// activity.Options.Now and jobs.Options.Now, and the bare time.Now()
-	// calls the hand-written store files made before this package existed.
+	// Now supplies write timestamps; defaults to time.Now. It is the one
+	// clock seam for every store, including ActivityEventStore and JobStore,
+	// which used to each carry their own before this package existed.
 	Now func() time.Time
 	// Logger is where a store reports a recoverable anomaly it chose to skip
 	// rather than fail on -- today only EventLogStore.Commit's keyless feed

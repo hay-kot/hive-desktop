@@ -1,7 +1,6 @@
 package stores
 
 import (
-	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,18 +39,18 @@ func TestNodeKV_MissingKeyReadsAbsent(t *testing.T) {
 }
 
 func TestNodeKV_Delete(t *testing.T) {
-	st, db := openTestStores(t)
+	st, _ := openTestStores(t)
 	ctx := t.Context()
 
 	require.NoError(t, st.NodeKV.Set(ctx, "flow-1", "dedup", "seen", `true`, 0))
-	require.NoError(t, db.DeleteNodeKV(ctx, queries.DeleteNodeKVParams{FlowID: "flow-1", NodeID: "dedup", Scope: KVScopeNode, Key: "seen"}))
+	require.NoError(t, st.NodeKV.Delete(ctx, "flow-1", "dedup", "seen"))
 
 	_, found, err := st.NodeKV.Get(ctx, "flow-1", "dedup", "seen", 1000)
 	require.NoError(t, err)
 	assert.False(t, found)
 
 	// Deleting a key that never existed is a no-op, not an error.
-	require.NoError(t, db.DeleteNodeKV(ctx, queries.DeleteNodeKVParams{FlowID: "flow-1", NodeID: "dedup", Scope: KVScopeNode, Key: "never"}))
+	require.NoError(t, st.NodeKV.Delete(ctx, "flow-1", "dedup", "never"))
 }
 
 // Two nodes in one flow never see each other's keys: node_id is part of the
@@ -166,7 +165,7 @@ func TestNodeKV_DeleteExpiredSweep(t *testing.T) {
 	require.NoError(t, st.NodeKV.Set(ctx, "flow-1", "dedup", "live", `1`, now+1))
 	require.NoError(t, st.NodeKV.Set(ctx, "flow-1", "dedup", "forever", `1`, 0))
 
-	require.NoError(t, db.DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: now, Valid: true}))
+	require.NoError(t, st.NodeKV.DeleteExpired(ctx, now))
 
 	assert.Equal(t, 2, countNodeKVRows(t, db, "flow-1"))
 	_, found, err := st.NodeKV.Get(ctx, "flow-1", "dedup", "forever", now)

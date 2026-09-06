@@ -99,9 +99,9 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, st.OutputCommands.MarkDone(ctx, command.ID, `{"ok":true}`, "out", "err"))
-	_, err = db.AppendActivityEvent(ctx, queries.ActivityRecord{CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "mutated"})
+	_, err = st.ActivityEvents.Append(ctx, appstores.ActivityEventCreate{Category: "action", Severity: "info", Title: "mutated"})
 	require.NoError(t, err)
-	_, err = db.InsertJob(ctx, queries.JobRecord{CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "done", Label: "mutated"})
+	_, err = st.Jobs.Insert(ctx, appstores.JobCreate{Status: "done", Label: "mutated"})
 	require.NoError(t, err)
 	require.NoError(t, db.InsertNodeRun(ctx, queries.InsertNodeRunParams{FlowID: MockFlowID, NodeID: MockSourceNodeID, Ok: 1, EndedAt: time.Now().UnixMilli()}))
 

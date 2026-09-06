@@ -3,6 +3,7 @@ package queries
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -163,7 +164,7 @@ func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 		require.NoError(t, err)
 	}
 	for i, status := range []string{"done", "failed", "done", "queued", "running"} {
-		_, err := database.InsertJob(ctx, JobRecord{
+		_, err := database.InsertJob(ctx, InsertJobParams{
 			CreatedAt: int64(i), UpdatedAt: int64(i), Status: status, Label: fmt.Sprintf("job-%d", i),
 		})
 		require.NoError(t, err)
@@ -190,7 +191,7 @@ func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{"failed", "done", "pending", "running"}, statuses)
 
-	jobs, err := database.ListJobs(ctx, 0, 10)
+	jobs, err := database.ListJobs(ctx, ListJobsParams{ID: math.MaxInt64, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, jobs, 4)
 	assert.Equal(t, []string{"running", "queued", "done", "failed"}, []string{

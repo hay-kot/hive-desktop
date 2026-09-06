@@ -73,7 +73,7 @@ func insertActionItemSource(t *testing.T, db *queries.DB, sourceKind, id, kind, 
 	maps.Copy(fields, extra)
 	payload, err := json.Marshal(fields)
 	require.NoError(t, err)
-	row, err := db.InsertInboxItem(t.Context(), queries.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
+	row, err := stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
 	require.NoError(t, err)
 	return row.ID
 }

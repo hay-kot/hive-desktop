@@ -1,6 +1,8 @@
 package queries
 
 import (
+	"database/sql"
+	"math"
 	"path/filepath"
 	"testing"
 
@@ -49,11 +51,13 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	require.NoError(t, err)
 	command, err := first.ConfirmOutputCommand(ctx, ConfirmOutputCommandParams{ActionID: "review", Key: "item-1", Payload: []byte(`{}`), CreatedAt: 1})
 	require.NoError(t, err)
-	job, err := first.InsertJob(ctx, JobRecord{CreatedAt: 1, UpdatedAt: 1, Status: "queued", Label: "Review"})
+	job, err := first.InsertJob(ctx, InsertJobParams{CreatedAt: 1, UpdatedAt: 1, Status: "queued", Label: "Review"})
 	require.NoError(t, err)
-	_, err = first.SetJobRunning(ctx, job.ID, 2, "Running…", command.ID)
+	_, err = first.SetJobRunning(ctx, SetJobRunningParams{
+		UpdatedAt: 2, Status: "running", Step: "Running…", CommandID: sql.NullInt64{Int64: command.ID, Valid: true}, ID: job.ID,
+	})
 	require.NoError(t, err)
-	_, err = first.InsertJob(ctx, JobRecord{CreatedAt: 3, UpdatedAt: 3, Status: "queued", Label: "Interrupted before link"})
+	_, err = first.InsertJob(ctx, InsertJobParams{CreatedAt: 3, UpdatedAt: 3, Status: "queued", Label: "Interrupted before link"})
 	require.NoError(t, err)
 	require.NoError(t, first.Close())
 
@@ -68,7 +72,7 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	rows, err := reopened.ListRunnableOutputCommandsAfter(ctx, ListRunnableOutputCommandsAfterParams{ID: 0, Limit: 10})
 	require.NoError(t, err)
 	assert.Empty(t, rows)
-	jobs, err := reopened.ListJobs(ctx, 0, 10)
+	jobs, err := reopened.ListJobs(ctx, ListJobsParams{ID: math.MaxInt64, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, jobs, 2)
 	for _, job := range jobs {

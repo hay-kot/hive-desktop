@@ -24,6 +24,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
@@ -82,7 +83,7 @@ func testSession(t *testing.T, seedConfig ...func(t *testing.T, configDir string
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
 	t.Helper()
-	item, err := core.PipelineDB().InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
+	item, err := stores.NewSeed(core.PipelineDB()).InboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: profile, SourceKind: "github", SourceScope: "s", ExternalID: external,
 		Payload: []byte(payload), Lifecycle: "active",
 	})
@@ -169,16 +170,17 @@ func TestInboxToolsMatchGolden(t *testing.T) {
 	core, session := testSession(t)
 	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
 
-	item, err := core.PipelineDB().InsertInboxItem(t.Context(), queries.InsertInboxItemParams{
+	seed := stores.NewSeed(core.PipelineDB())
+	item, err := seed.InboxItem(t.Context(), queries.InsertInboxItemParams{
 		ProfileID: "hooks", SourceKind: "webhook", SourceScope: "ci", ExternalID: "golden-1",
 		Title: "Golden item", Url: "https://example.test/items/golden-1", Payload: []byte(`{"number":1}`),
 		Unread: 1, Lifecycle: "active", FirstSeenAt: 1_700_000_000_000, LastEventAt: 1_700_000_001_000,
 	})
 	require.NoError(t, err)
-	require.NoError(t, core.PipelineDB().UpsertFeedMembershipClaim(t.Context(), queries.UpsertFeedMembershipClaimParams{
+	require.NoError(t, core.Stores.FeedClaims.Upsert(t.Context(), stores.FeedClaim{
 		ProfileID: "hooks", FeedID: "hooks/inbox", ItemID: item.ID, SourceID: "source:hooks/hook",
 	}))
-	_, err = core.PipelineDB().InsertInboxEvent(t.Context(), queries.InsertInboxEventParams{
+	_, err = seed.InboxEvent(t.Context(), queries.InsertInboxEventParams{
 		ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Summary: sql.NullString{String: "Golden event", Valid: true},
 		Detail: []byte(`{"changed":"title"}`), CreatedAt: 1_700_000_002_000,
 	})

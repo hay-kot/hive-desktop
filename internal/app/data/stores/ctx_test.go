@@ -65,12 +65,12 @@ func seedCtxFixture(t *testing.T, st *Stores, db *queries.DB) ctxFixture {
 		Topic: "source:flow-1/a", Key: "item-1", Payload: []byte(`{}`),
 	}))
 
-	_, err = db.AppendActivityEvent(ctx, queries.ActivityRecord{
+	_, err = db.AppendActivityEvent(ctx, queries.AppendActivityEventParams{
 		CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "seed", Source: "test",
 	})
 	require.NoError(t, err)
 
-	_, err = db.InsertJob(ctx, queries.JobRecord{
+	_, err = db.InsertJob(ctx, queries.InsertJobParams{
 		CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "queued", Label: "seed",
 	})
 	require.NoError(t, err)
@@ -376,6 +376,9 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		}},
 		{"NodeKVStore.Set", func(ctx context.Context) error {
 			return st.NodeKV.Set(ctx, "flow-1", "node-a", "k2", "v2", 0)
+		}},
+		{"NodeKVStore.DeleteExpired", func(ctx context.Context) error {
+			return st.NodeKV.DeleteExpired(ctx, time.Now().UnixMilli())
 		}},
 		{"NodeKVStore.DeleteByFlow", func(ctx context.Context) error {
 			return st.NodeKV.DeleteByFlow(ctx, "no-such-flow")
