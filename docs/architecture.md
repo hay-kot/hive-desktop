@@ -186,7 +186,7 @@ column is the section that specifies it.
 | A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR terminal-transport |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
-| A new **metric, span, or log field** | Package-level instrument via `app/observe` against the global provider; bounded attributes only; the SDK stays in `app/telemetry` | [Telemetry](#telemetry) |
+| A new **metric, span, or log field** | Package-level instrument via `app/observe` against the global provider; bounded attributes only; a span is a trigger or a wait; the SDK stays in `app/telemetry` | [Telemetry](#telemetry), ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing. A secret-bearing field holds an `internal/app/secrets` reference, never a value | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
@@ -855,6 +855,38 @@ repository names and action targets are per-user and unbounded; as a metric
 dimension each one is a series that is paid for on every export forever. They
 belong on a span or in a log line. `tmux.stream.lifecycle` carries `state` and
 nothing else for this reason.
+
+**A span is a trigger or a wait, and nothing else gets one**
+(ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration). A *trigger* span is a root: a distinct cause
+entering the app — process start, a poll tick, a webhook, an agent tool call.
+A *wait* span is a child: work handed to something outside this process — an
+HTTP round trip, a subprocess, a batch database write — opened through
+`observe.StartConditionalSpan`, so a wait with no trigger above it emits
+nothing.
+
+Three tests, all of which must pass:
+
+1. Is it a trigger, or does it wait on something outside this process?
+2. Does its duration vary for a reason the parent's own duration cannot show?
+3. Is the number of them per trigger bounded by **configuration** rather than by
+   **data size**?
+
+Test 3 is the one that decides the hard cases. A span per item, per row, or per
+statement inside a batch fails it: the count becomes an attribute on the
+enclosing span instead. That is why `store` spans `CommitBatch` and not each
+statement within it.
+
+**A span name is a search key.** Name the operation and the layer, never the
+target: `ingest.source github`, `http.github GET`. Unbounded identity — a source
+id, a repository, a session slug — is an attribute, where it costs nothing.
+
+**Trace correlation in logs is a `zerolog.Hook`, not a writer arm** — the
+mirror of the log bridge above, and for the same reason. A Hook cannot read an
+event's fields but it is the only thing that can *add* them, so
+`observe.TraceHook` writes `trace_id` and `span_id` from the context an event
+carries. It fires only where a call site wrote `.Ctx(ctx)`. The bridge then
+promotes both onto the OTLP record's own trace context and drops them from the
+attributes, because that is the field a backend joins logs to traces on.
 
 **Prefer a library's instrumentation to your own.** `sourcehttp` gets client
 spans and semconv HTTP metrics from `otelhttp.NewTransport`; `store` gets a span

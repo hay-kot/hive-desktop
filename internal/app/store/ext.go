@@ -23,7 +23,7 @@ func (db *DB) Ctx(ctx context.Context) *DB {
 func (db *DB) boundTo(tx *sql.Tx) *DB {
 	bound := *db
 	bound.tx = tx
-	bound.queries = New(newTracingDBTX(tx))
+	bound.queries = db.queries.WithTx(tx)
 	return &bound
 }
 

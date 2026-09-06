@@ -71,9 +71,9 @@ type DB struct {
 // transaction.
 func (db *DB) querier() DBTX {
 	if db.tx != nil {
-		return newTracingDBTX(db.tx)
+		return db.tx
 	}
-	return newTracingDBTX(db.conn)
+	return db.conn
 }
 
 // DatabasePath returns the desktop-pipeline.db file path within dir. It is the
@@ -138,7 +138,7 @@ func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 
 	db := &DB{
 		conn:        conn,
-		queries:     New(newTracingDBTX(conn)),
+		queries:     New(conn),
 		pauseCommit: opts.PauseCommit,
 		logger:      opts.Logger,
 	}
@@ -193,7 +193,7 @@ func (db *DB) WithTx(ctx context.Context, fn func(*Queries) error) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	queries := New(newTracingDBTX(tx))
+	queries := db.queries.WithTx(tx)
 	if err := fn(queries); err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			return fmt.Errorf("transaction failed: %w (rollback also failed: %w)", err, rbErr)
