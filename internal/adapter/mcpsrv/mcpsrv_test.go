@@ -2,7 +2,9 @@ package mcpsrv_test
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"image"
 	"image/png"
@@ -10,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -25,6 +28,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
+
+var update = flag.Bool("update", false, "rewrite golden files")
 
 // testSession builds the app over a fresh config root and drives the real MCP
 // server through a real MCP client over the SDK's in-memory transport pair.
@@ -149,6 +154,66 @@ func TestToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 		"get_node_image", "set_node_image", "clear_node_image",
 		"execute_flow",
 	}, names)
+}
+
+func TestToolsListMatchesGolden(t *testing.T) {
+	_, session := testSession(t)
+
+	res, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	sort.Slice(res.Tools, func(i, j int) bool { return res.Tools[i].Name < res.Tools[j].Name })
+	assertGoldenJSON(t, "tools_list.json", res.Tools)
+}
+
+func TestInboxToolsMatchGolden(t *testing.T) {
+	core, session := testSession(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
+
+	item, err := core.Store.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+		ProfileID: "hooks", SourceKind: "webhook", SourceScope: "ci", ExternalID: "golden-1",
+		Title: "Golden item", Url: "https://example.test/items/golden-1", Payload: []byte(`{"number":1}`),
+		Unread: 1, Lifecycle: "active", FirstSeenAt: 1_700_000_000_000, LastEventAt: 1_700_000_001_000,
+	})
+	require.NoError(t, err)
+	require.NoError(t, core.Store.Queries().UpsertFeedMembershipClaim(t.Context(), store.UpsertFeedMembershipClaimParams{
+		ProfileID: "hooks", FeedID: "hooks/inbox", ItemID: item.ID, SourceID: "source:hooks/hook",
+	}))
+	_, err = core.Store.Queries().InsertInboxEvent(t.Context(), store.InsertInboxEventParams{
+		ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Summary: sql.NullString{String: "Golden event", Valid: true},
+		Detail: []byte(`{"changed":"title"}`), CreatedAt: 1_700_000_002_000,
+	})
+	require.NoError(t, err)
+
+	assertGoldenToolResponse(t, session, "list_feeds", map[string]any{"profile": "hooks"})
+	assertGoldenToolResponse(t, session, "list_inbox", map[string]any{"profile": "hooks", "detail": "full"})
+	assertGoldenToolResponse(t, session, "list_inbox_item_events", map[string]any{"itemId": item.ID, "detail": "full"})
+	assertGoldenToolResponse(t, session, "list_item_sessions", map[string]any{"itemId": item.ID})
+}
+
+func assertGoldenToolResponse(t *testing.T, session *mcp.ClientSession, name string, args any) {
+	t.Helper()
+	res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: args})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "tool %s reported an error: %s", name, textOf(res))
+	require.NotNil(t, res.StructuredContent, "tool %s returned no structured content", name)
+	assertGoldenJSON(t, "inbox_"+name+".json", res.StructuredContent)
+}
+
+func assertGoldenJSON(t *testing.T, name string, value any) {
+	t.Helper()
+	got, err := json.MarshalIndent(value, "", "  ")
+	require.NoError(t, err)
+	got = append(got, '\n')
+
+	path := filepath.Join("testdata", name)
+	if *update {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, got, 0o600))
+		return
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "run go test ./internal/adapter/mcpsrv/ -run %s -update", t.Name())
+	assert.Equal(t, string(want), string(got))
 }
 
 func TestGetStatusReportsTheBuildAndWebhookListener(t *testing.T) {
