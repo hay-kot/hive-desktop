@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 )
 
 func TestOffEmitsNothing(t *testing.T) {
@@ -19,10 +20,35 @@ func TestOffEmitsNothing(t *testing.T) {
 	assert.Nil(t, p.LogWriter())
 	assert.Empty(t, p.LogWriters())
 	require.NoError(t, p.Shutdown(t.Context()))
+}
 
-	require.NotNil(t, p.Tracer())
-	_, span := p.Tracer().Start(t.Context(), "noop")
+// The whole point of registering globally: a package declares an instrument
+// against otel.Meter and it reaches this provider's readers with nothing handed
+// to it (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape).
+func TestNewRegistersTheGlobalMeterProvider(t *testing.T) {
+	p, err := New(t.Context(), Options{Scrape: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Shutdown(context.WithoutCancel(t.Context())) })
+
+	counter, err := otel.Meter("telemetry-test").Int64Counter("registration.probe")
+	require.NoError(t, err)
+	counter.Add(t.Context(), 3)
+
+	assert.Contains(t, scrape(t, p.MetricsHandler()), "registration_probe")
+}
+
+// Spans have no local sink, so the scrape gate alone must leave the global
+// tracer no-op: a span opened with nothing exporting stays non-recording rather
+// than accumulating in a provider no reader drains.
+func TestScrapeAloneLeavesTheGlobalTracerNoop(t *testing.T) {
+	p, err := New(t.Context(), Options{Scrape: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Shutdown(context.WithoutCancel(t.Context())) })
+
+	_, span := otel.Tracer("telemetry-test").Start(t.Context(), "probe")
 	span.End()
+
+	assert.False(t, span.SpanContext().IsValid())
 }
 
 func TestNewWithBothGatesOffIsOff(t *testing.T) {

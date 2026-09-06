@@ -84,6 +84,12 @@ exporters already pulled in.
   `app.startup`. `tmuxcc.MetricsSink` stays on `NopMetrics`: it is the
   interface that keeps the SDK out of `tmuxcc`, and a real implementation is
   the next change.
+
+  **Superseded by ADR a-package-declares-its-own-opentelemetry-instruments-against-the-global-provider.** The consumer-defined interface was
+  the wrong shape and `MetricsSink` is deleted. `telemetry.New` registers the
+  providers globally, and a package declares its own instruments against them;
+  the boundary this ADR meant to draw is the API/SDK split, not the package.
+  Everything else here stands.
 - `internal/app/perf` is untouched and still the only way to read UI spans
   without a backend. Replacing it with a JSONL `SpanExporter` beside the OTLP
   one is a separate decision.

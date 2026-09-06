@@ -50,7 +50,9 @@ func TestCtx_AmbientTransactionReturnsABoundDB(t *testing.T) {
 	bound := db.Ctx(txCtx)
 	require.NotSame(t, db, bound)
 	assert.Same(t, tx, bound.tx)
-	assert.Same(t, tx, bound.querier(), "hand-written SQL on a bound DB must run in the transaction")
+	traced, ok := bound.querier().(tracingDBTX)
+	require.True(t, ok, "every querier is traced")
+	assert.Same(t, tx, traced.db, "hand-written SQL on a bound DB must run in the transaction")
 }
 
 // TestWithinTx_JoinsRatherThanNesting is the property that keeps this from

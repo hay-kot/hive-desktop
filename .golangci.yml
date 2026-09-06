@@ -63,6 +63,32 @@ linters:
                 A core package that needs something from an adapter has the
                 interface backwards — declare it in app and let the adapter
                 satisfy it structurally.
+        # The OpenTelemetry API/SDK split (docs/architecture.md, "Telemetry").
+        # Any package may import the API — go.opentelemetry.io/otel, /trace,
+        # /metric — and declare its own instruments against the global
+        # provider, which is the no-op provider until internal/app/telemetry
+        # registers a real one. What stays in one place is the SDK: the
+        # providers, the readers and the exporters are what cost 4.52 MiB and
+        # what a second construction site would let drift. Test files are
+        # exempt because asserting on telemetry is what the SDK's in-memory
+        # readers are for (sdkmetric.NewManualReader), and a fake instrument
+        # interface is the thing this rule exists to prevent.
+        otelsdk:
+          files:
+            - "$all"
+            - "!$test"
+            - "!**/internal/app/telemetry/**"
+          deny:
+            - pkg: go.opentelemetry.io/otel/sdk
+              desc: |
+                The OTel SDK is internal/app/telemetry's. A package that emits
+                declares package-level instruments through internal/app/observe
+                and needs no SDK type to do it. See docs/architecture.md,
+                "Telemetry".
+            - pkg: go.opentelemetry.io/otel/exporters
+              desc: |
+                An exporter is wired once, in internal/app/telemetry. See
+                docs/architecture.md, "Telemetry".
         # internal/hivecore is vendored and read-only (docs/architecture.md,
         # "Bounded Context"): its types stop at the Anti-Corruption Layer and
         # never appear in an app signature. The files list below is the

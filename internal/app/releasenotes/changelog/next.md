@@ -45,7 +45,10 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
 - **Send the app's own metrics, logs and traces to your OpenTelemetry
   backend.** Turn on `telemetry` in `settings.yaml` with an OTLP endpoint and
   instance id, and Hive exports Go runtime metrics, its log stream, and a
-  startup trace over OTLP — no collector to run. Every signal is tagged with
+  startup trace over OTLP — no collector to run. Terminal streaming reports
+  throughput, backlog depth, pause and resume, and frame latency; calls to a
+  source's API report request duration and status; database statements appear
+  on the trace they belong to. Every signal is tagged with
   the build's version and release channel, so a dev build's data never mixes
   with a release's. `development.metrics` serves the same metrics at
   `/metrics` on the local server for a scrape, with or without an endpoint

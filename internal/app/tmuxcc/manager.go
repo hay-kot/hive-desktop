@@ -21,7 +21,6 @@ const (
 
 // ManagerOptions configures the client set.
 type ManagerOptions struct {
-	Metrics     MetricsSink
 	Logger      zerolog.Logger
 	BufferBytes int
 
@@ -38,6 +37,7 @@ type ManagerOptions struct {
 
 	versionProbe func(context.Context, string) (string, error)
 	newProcess   func(Options) process
+	onEmit       func()
 	runTmux      func(context.Context, string, []string, ...string) ([]string, error)
 }
 
@@ -52,11 +52,11 @@ type managedClient struct {
 // Manager owns one control-mode client per session slug.
 type Manager struct {
 	log         zerolog.Logger
-	metrics     MetricsSink
 	locate      func() (string, error)
 	environ     func(context.Context) []string
 	probe       func(context.Context, string) (string, error)
 	newProcess  func(Options) process
+	onEmit      func()
 	run         func(context.Context, string, []string, ...string) ([]string, error)
 	bufferBytes int
 
@@ -84,19 +84,16 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 
 	m := &Manager{
 		log:         opts.Logger,
-		metrics:     opts.Metrics,
 		locate:      opts.Binary,
 		environ:     opts.Environ,
 		probe:       opts.versionProbe,
 		newProcess:  opts.newProcess,
+		onEmit:      opts.onEmit,
 		run:         opts.runTmux,
 		bufferBytes: opts.BufferBytes,
 		cancelAll:   cancel,
 		derive:      func() (context.Context, context.CancelFunc) { return context.WithCancel(lifetime) },
 		clients:     map[string]*managedClient{},
-	}
-	if m.metrics == nil {
-		m.metrics = NopMetrics
 	}
 	if m.locate == nil {
 		m.locate = func() (string, error) { return defaultBinary, nil }
@@ -209,10 +206,10 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 		Binary:      binary,
 		Environ:     m.environ(ctx),
 		BufferBytes: m.bufferBytes,
-		Metrics:     m.metrics,
 		Logger:      m.log,
 		OnExit:      func(slug, _ string) { m.remove(slug, gen) },
 		newProcess:  m.newProcess,
+		onEmit:      m.onEmit,
 	})
 	if err != nil {
 		cancel()

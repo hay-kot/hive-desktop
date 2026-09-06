@@ -1,9 +1,12 @@
-// Package telemetry exports the app's own metrics, logs, and traces over OTLP,
-// and serves its metrics for a local scrape (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape).
+// Package telemetry configures the OpenTelemetry SDK: it builds the providers,
+// registers them globally, and owns their shutdown (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape).
+// It is SDK setup, not an instrumentation API — a package that emits reaches
+// the registered providers through internal/app/observe.
 //
 // Export and scrape are independent gates over one MeterProvider, so an
 // instrument is declared once and both readers collect it. With neither on,
-// [New] returns what [Off] returns.
+// [New] returns what [Off] returns and the globals keep the API's no-op
+// default.
 package telemetry
 
 import (
@@ -20,6 +23,7 @@ import (
 	promclient "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	runtimemetrics "go.opentelemetry.io/contrib/instrumentation/runtime"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -27,8 +31,6 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	"go.opentelemetry.io/otel/trace"
-	"go.opentelemetry.io/otel/trace/noop"
 )
 
 const (
@@ -84,7 +86,6 @@ func (o Options) validate() error {
 }
 
 type Provider struct {
-	tracer  trace.Tracer
 	handler http.Handler
 	logw    io.Writer
 
@@ -92,11 +93,10 @@ type Provider struct {
 	shutdown []func(context.Context) error
 }
 
-// Off returns a provider that emits nothing. Its Tracer is a no-op tracer, so a
-// span is safe to open without checking whether telemetry is configured.
-func Off() *Provider {
-	return &Provider{tracer: noop.NewTracerProvider().Tracer(ScopeName)}
-}
+// Off returns a provider that emits nothing and registers nothing. The global
+// TracerProvider and MeterProvider keep the API's no-op default, so a span or a
+// measurement is safe to take without checking whether telemetry is configured.
+func Off() *Provider { return &Provider{} }
 
 // New returns [Off] when both gates are off, and an error when export is on but
 // misconfigured: a stated endpoint that cannot be used is worth reporting
@@ -120,7 +120,10 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 		return nil, err
 	}
 
-	var readers []sdkmetric.Option
+	var (
+		readers []sdkmetric.Option
+		tp      *sdktrace.TracerProvider
+	)
 	if opts.Scrape {
 		// A private registry, never promclient.DefaultRegisterer — the reason
 		// PprofHandler builds its own mux.
@@ -154,8 +157,7 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 		if err != nil {
 			return fail(fmt.Errorf("telemetry: trace exporter: %w", err))
 		}
-		tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(traceExp), sdktrace.WithResource(res))
-		p.tracer = tp.Tracer(ScopeName)
+		tp = sdktrace.NewTracerProvider(sdktrace.WithBatcher(traceExp), sdktrace.WithResource(res))
 		p.shutdown = append(p.shutdown, tp.Shutdown)
 
 		logExp, err := otlploghttp.New(ctx,
@@ -181,11 +183,21 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 		return fail(fmt.Errorf("telemetry: runtime metrics: %w", err))
 	}
 
+	// Registered last, so a construction failure never leaves a provider that
+	// fail() has already shut down reachable through the global. The
+	// MeterProvider is registered whichever gate is on: scrape alone is enough
+	// for an instrument to reach /metrics. There is no local sink for spans, so
+	// the TracerProvider is registered only when export is on and the global
+	// tracer otherwise stays no-op.
+	if tp != nil {
+		otel.SetTracerProvider(tp)
+	}
+	otel.SetMeterProvider(mp)
+
 	return p, nil
 }
 
 func (p *Provider) Enabled() bool                { return len(p.shutdown) > 0 || p.handler != nil }
-func (p *Provider) Tracer() trace.Tracer         { return p.tracer }
 func (p *Provider) MetricsHandler() http.Handler { return p.handler }
 func (p *Provider) LogWriter() io.Writer         { return p.logw }
 
