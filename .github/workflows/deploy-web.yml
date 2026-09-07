@@ -22,18 +22,21 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      # web/mise.toml pins Python, uv, and Node, so the site builds with the same
+      # toolchain a contributor's `mise run build` in web/ uses.
+      - name: Set up mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          working_directory: web
+          install_args: python uv node
 
-      - run: npm ci
+      - name: Install dependencies
+        run: mise run install
 
       - name: Build site
-        run: npm run build
+        run: mise run build
 
-      # Deploys the Astro output in web/dist plus the Worker that serves it.
+      # Deploys the Zensical output in web/site plus the Worker that serves it.
       - name: Deploy worker
         run: npx wrangler deploy
         env:

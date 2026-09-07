@@ -1,7 +1,7 @@
 /**
  * hivedesktop.com
  *
- * Static assets (the Astro build in dist/) are served by the platform before
+ * Static assets (the MkDocs build in site/) are served by the platform before
  * this Worker runs; it only sees the /api/* routes below and anything the
  * asset router did not match.
  */
@@ -21,6 +21,31 @@ const MANIFEST_URL =
 /** Manifests are written with `no-cache`; a short edge TTL keeps the CTA fresh. */
 const MANIFEST_TTL_SECONDS = 300;
 
+/**
+ * The site's URLs changed when it became a Zensical site: the docs lost their
+ * /docs prefix and were regrouped, and the install and compare pages went
+ * away. The installed app's About pane still links /docs and
+ * /docs/help/updates, and the README linked /install. Redirected here rather
+ * than by a _redirects file, which the platform does not apply to requests
+ * this Worker answers.
+ */
+const LEGACY_DOCS = /^\/docs(?:\/(.*))?$/;
+const LEGACY_PAGES: Record<string, string> = {
+  "/install": "/getting-started/#install",
+  "/compare": "/",
+};
+const MOVED_DOCS: Record<string, string> = {
+  "concepts/how-it-works": "/inbox/how-it-works/",
+  "concepts/flows": "/inbox/flows/",
+  "concepts/sources": "/inbox/sources/",
+  "concepts/actions": "/inbox/actions/",
+  "concepts/terminal-mode": "/code/terminal-mode/",
+  "concepts/agent-workspaces": "/chats/agent-workspaces/",
+  "help/troubleshooting": "/getting-started/troubleshooting/",
+  "help/reporting-a-problem": "/getting-started/troubleshooting/#report-a-problem",
+  "help/updates": "/configuration/settings/#updates",
+};
+
 const MAX_REPORT_BYTES = 5 * 1024 * 1024;
 const REPORT_ID_PATTERN = /^rpt_[0-9a-f]{32}$/;
 const META_MAX_LENGTH = 128;
@@ -35,6 +60,11 @@ export default {
 
     if (url.pathname === "/api/report") {
       return handleReport(request, env);
+    }
+
+    const legacy = legacyTarget(url.pathname);
+    if (legacy) {
+      return Response.redirect(new URL(legacy, url).toString(), 301);
     }
 
     return env.ASSETS.fetch(request);
@@ -138,6 +168,29 @@ export async function handleReport(request: Request, env: Env): Promise<Response
   }
 
   return json({ id: reportId });
+}
+
+/**
+ * /docs goes to the overview, a moved page to its new home, and any other
+ * /docs/<path> to /<path>/. /install and /compare* go where their content went.
+ */
+function legacyTarget(pathname: string): string | null {
+  const bare = pathname.replace(/\/+$/, "");
+  if (bare in LEGACY_PAGES) {
+    return LEGACY_PAGES[bare];
+  }
+  if (bare.startsWith("/compare/")) {
+    return "/";
+  }
+  const docs = LEGACY_DOCS.exec(pathname);
+  if (!docs) {
+    return null;
+  }
+  const path = (docs[1] ?? "").replace(/\/+$/, "");
+  if (path === "") {
+    return "/getting-started/";
+  }
+  return MOVED_DOCS[path] ?? `/${path}/`;
 }
 
 function bearerToken(header: string | null): string {

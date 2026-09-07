@@ -20,8 +20,8 @@ curl -fsSL https://hivedesktop.com/install.sh | bash
 The script detects your OS and CPU, resolves the newest build from the same
 channel manifest the in-app updater reads, verifies its SHA-256 before touching
 disk, installs the app, and symlinks `hive` onto your PATH. Drop the `| bash` to
-read it first. [hivedesktop.com/install](https://hivedesktop.com/install) has the
-same command with the per-platform notes.
+read it first. [hivedesktop.com/getting-started](https://hivedesktop.com/getting-started/#install)
+has the same command with the per-platform notes.
 
 ## What it does
 
@@ -52,11 +52,13 @@ that generate the config your coding agent reads.
 
 ## Documentation
 
-- [hivedesktop.com/docs](https://hivedesktop.com/docs) -- using the app: first
-  run, flows, sources and webhooks, actions, agent workspaces, terminal mode,
-  the `settings.yaml` reference, keyboard shortcuts, troubleshooting, and
-  building from source. Also served as [llms.txt](https://hivedesktop.com/llms.txt)
-  for an agent to read. Source in [`web/src/content/docs/`](web/src/content/docs/).
+- [hivedesktop.com/getting-started](https://hivedesktop.com/getting-started/) --
+  using the app: install and first run, then the Inbox, Code, and Chats areas
+  (flows, sources and webhooks, actions, terminal mode, agent workspaces),
+  building from source, and troubleshooting. The `settings.yaml` and keyboard
+  shortcut references are under [Configuration](https://hivedesktop.com/configuration/settings/).
+  Also served as [llms.txt](https://hivedesktop.com/llms.txt) for an agent to
+  read. Source in [`web/docs/`](web/docs/).
 - [`docs/architecture.md`](docs/architecture.md) -- how the app is structured and
   how it should grow. Read this before adding a subsystem or an extension point.
 - [`docs/source-pipeline.md`](docs/source-pipeline.md) -- the pipeline at runtime:

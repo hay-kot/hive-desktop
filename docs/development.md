@@ -10,7 +10,7 @@ work is reviewed against it.
 | ----------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Desktop app (Wails v3, Vue 3) | `desktop/` + `internal/app/` + `internal/adapter/` | The Wails shell and its native behaviour are in `desktop/README.md`                           |
 | Vendored hive core            | `internal/hivecore/`                               | CLI-managed by `cmd/vendorhive` — **read-only**                                              |
-| Landing page and public docs  | `web/`                                             | Astro on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com)       |
+| Landing page and public docs  | `web/`                                             | Zensical on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com); `cd web && mise run build` |
 | Development and release tools | `cmd/`                                             | Release publisher, vendor sync, ADR tool, dev GitHub proxy. None of it ships inside the app.  |
 
 - Root Go module `github.com/hay-kot/hive-desktop` owns the desktop app and the vendored core.

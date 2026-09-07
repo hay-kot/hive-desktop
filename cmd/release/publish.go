@@ -400,9 +400,12 @@ func (p *publisher) webEnabled() bool {
 	return !p.options.skipUpload && !p.options.skipWeb && !p.options.resume
 }
 
+// deployWeb runs the site's own mise tasks from inside web/, so the release
+// builds the site with the toolchain web/mise.toml pins and the same steps
+// the deploy workflow runs. `deploy` depends on `build`.
 func (p *publisher) deployWeb(ctx context.Context) error {
-	fmt.Println("==> deploying web (landing page + worker)")
-	for _, step := range [][]string{{"npm", "ci"}, {"npm", "run", "deploy"}} {
+	fmt.Println("==> deploying web (site + worker)")
+	for _, step := range [][]string{{"mise", "run", "install"}, {"mise", "run", "deploy"}} {
 		command := exec.CommandContext(ctx, step[0], step[1:]...)
 		command.Dir = "web"
 		command.Stdout = os.Stdout
