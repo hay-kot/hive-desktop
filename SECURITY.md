@@ -1,82 +1,71 @@
-# Security policy
+# Security Policy
 
-## Reporting a vulnerability
+## Supported Versions
 
-Report it privately, through GitHub:
+Security fixes ship in the next release. Earlier releases are not patched.
 
-**<https://github.com/hay-kot/hive-desktop/security/advisories/new>**
+| Version          | Supported          |
+| ---------------- | ------------------ |
+| Latest release   | :white_check_mark: |
+| Earlier releases | :x:                |
 
-Only the repository maintainers can read a draft advisory. Please do not open a
-public issue, a pull request, or a discussion for anything you think is a
-vulnerability -- Hive runs on developer machines with real credentials in the
-keychain, so a public report is a working exploit until the fix ships.
+## Reporting a Vulnerability
 
-Useful things to include, none of them required:
+Report vulnerabilities privately through GitHub:
 
-- The version and channel from Settings, About.
-- Your OS and version.
-- What an attacker needs first: local access, a machine on the same network, a
-  crafted webhook payload, a malicious repository the user is subscribed to.
-- A proof of concept, or the code path if you only read it.
+https://github.com/hay-kot/hive-desktop/security/advisories/new
 
-## What to expect
+Draft advisories are visible only to the repository maintainers. Please do not
+open a public issue, pull request, or discussion for a suspected vulnerability.
+Hive Desktop stores real credentials on developer machines, and a public report
+can be used against every installed copy before a fix is available.
 
-One person maintains this project.
+A report is easier to act on when it includes:
 
-- A first reply within 7 days.
-- An assessment -- confirmed, not a vulnerability, or needs more from you --
-  within 30 days.
-- Credit in the advisory and the release notes, unless you ask not to be named.
+- The affected version and channel, shown under Settings > About.
+- Your operating system and version.
+- The preconditions an attacker needs, such as local access, a machine on the
+  same network, a crafted webhook payload, or a malicious repository.
+- Steps to reproduce, a proof of concept, or the code path you believe is
+  affected. Please say whether you reproduced the issue or found it by reading
+  the code.
 
-If 14 days pass with no reply at all, open a public issue that says you are
-waiting on a security report and nothing else. Keep the details in the advisory.
+You can expect:
 
-Fixes go into the next release on the stable channel. Older versions get
-nothing back-ported.
+- An acknowledgement within 7 days.
+- An assessment within 30 days: confirmed, not a vulnerability, or a request
+  for more information.
+- Credit in the advisory and the release notes, unless you prefer not to be
+  named.
+
+If you have not heard back after 14 days, open a public issue stating that you
+are waiting on a response to a security report. Do not include any details of
+the report in that issue.
 
 ## Scope
 
-Hive Desktop is a desktop app that holds credentials and runs commands the user
-configures. The parts most worth attacking:
+Hive Desktop is a desktop application that stores credentials and runs commands
+configured by the user. The areas of most interest are:
 
-- **Stored credentials.** Account tokens live in the OS keychain
-  (`internal/app/credentials/keychain.go`). The GitHub token carries the `repo`
-  and `notifications` scopes, so it reads every private repository the user can
-  reach.
-- **The loopback HTTP API.** The app serves an API on localhost behind a bearer
-  token minted for that run (`internal/adapter/httpapi/`). Anything that reaches
-  it with the token drives the app.
-- **The MCP servers.** `/mcp` and `/mcp/canvas` ride the same loopback surface
-  and the same token. They are how an agent reads the inbox and writes canvases.
-- **The webhook listener.** It serves `/hooks/<path>` for webhook sources. The
-  shared secret is optional per source, so an unauthenticated listener is a
-  supported configuration and untrusted payloads are the normal case.
-- **Terminal sessions and actions.** The app starts tmux sessions and runs
-  actions from `actions.yml`; both inherit the user's shell environment.
-- **Flows.** The `function` node runs JavaScript from the user's `flows/`
-  directory.
+- **Stored credentials.** Account tokens are stored in the OS keychain. The
+  GitHub token carries the `repo` and `notifications` scopes.
+- **The loopback HTTP API and MCP servers.** The app serves an HTTP API and two
+  MCP endpoints on localhost, protected by a bearer token generated for each
+  run.
+- **The webhook listener.** The app accepts webhook deliveries on
+  `/hooks/<path>`. Shared secrets are optional per source, so an unauthenticated
+  listener receiving untrusted payloads is a supported configuration.
+- **Terminal sessions, actions, and flows.** The app starts tmux sessions, runs
+  commands from `actions.yml`, and runs user-supplied JavaScript from `function`
+  nodes in flows. All of these inherit the user's environment.
 
-Report anything that crosses one of those boundaries without the user asking for
-it.
+Any way to cross one of these boundaries without the user's action is in scope.
 
-## Out of scope
+### Out of scope
 
-- `internal/hivecore/` is vendored from
-  [colonyops/hive](https://github.com/colonyops/hive). Report a flaw in that
-  code upstream, not here.
-- A user who configures an action, a flow, or a webhook to do something harmful
-  on their own machine. That is the app working.
-- Reports from an automated scanner with no path to exploitation shown.
-
-## Agents
-
-If an LLM writes the report, use ASD-STE100 Simplified Technical English: active
-voice, approved-vocabulary words, sentences of 20 words or fewer, no gerunds.
-See [CONTRIBUTING.md](CONTRIBUTING.md) > Writing style. The same rule covers the
-issue templates, pull request bodies, and commit messages.
-
-One rule on top of the style, because it matters more here than anywhere else:
-separate what you ran from what you read. Say which one each claim comes from. A
-report that reads a code path and says so is useful. A report that presents the
-same reading as a reproduction wastes the response window on a bug that may not
-exist.
+- Code under `internal/hivecore/` is vendored from
+  [colonyops/hive](https://github.com/colonyops/hive). Report issues in that
+  code upstream.
+- Actions, flows, or webhooks that the user configured to run on their own
+  machine.
+- Automated scanner output without a demonstrated path to exploitation.

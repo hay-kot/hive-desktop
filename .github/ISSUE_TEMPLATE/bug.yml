@@ -1,49 +1,43 @@
 name: Bug report
-description: Something in the app does not do what it should.
+description: Report something that does not work as expected.
 labels: ["bug"]
 body:
-  - type: markdown
+  - type: checkboxes
+    id: checks
     attributes:
-      value: |
-        Two things make a bug report useful here: what you saw, and where in the
-        code you think it comes from. Only the first is required -- file it
-        without the second if you did not get that far.
+      label: Checklist
+      description: Please confirm the following before filing.
+      options:
+        - label: I searched the existing issues and did not find a report of this bug.
+          required: true
+        - label: This is not a security vulnerability. Vulnerabilities are reported through a private security advisory, not a public issue.
+          required: true
 
   - type: textarea
-    id: what-happens
+    id: description
     attributes:
-      label: What happens
-      description: What you did, what the app did instead, and whether it repeats.
-      placeholder: |
-        Deleting a workspace from the UI appears to work -- the row goes away --
-        but the workspace is back as soon as the page is refreshed.
+      label: What happened?
+      description: Describe the bug. Include the exact text of any error message.
     validations:
       required: true
 
   - type: textarea
-    id: why
+    id: reproduction
     attributes:
-      label: Why
-      description: |
-        What you found. Where the message comes from, what the logs show, which
-        code path you think is at fault. Cite `file:line`. Say plainly if you did
-        not confirm it -- a read of the code is still worth having.
+      label: Steps to reproduce
+      description: The steps needed to trigger the bug, and whether it happens every time.
       placeholder: |
-        Delete and list disagree about what a workspace is.
-        `POST /api/terminal/agents/workspaces/delete` ends sessions, but the list
-        endpoint scans the filesystem, so the next scan finds the directory again.
+        1. Open Settings > Sources
+        2. Delete a source that has an active feed
+        3. Refresh the page
     validations:
-      required: false
+      required: true
 
   - type: textarea
-    id: bundle
+    id: expected
     attributes:
-      label: Diagnostic bundle
-      description: |
-        If Report a problem gave you a bundle, drag the file into this box. It
-        holds build info, a log tail, and whichever of your settings, flows, and
-        actions you opted in to, with secrets scrubbed. Open it and read it first
-        if you want to.
+      label: Expected behavior
+      description: What you expected to happen instead.
     validations:
       required: false
 
@@ -51,8 +45,8 @@ body:
     id: version
     attributes:
       label: Version
-      description: Settings, About shows the version and the channel. Say "built from source" if you built it.
-      placeholder: 0.4.2 (beta)
+      description: Settings > About shows the version and channel. Write "built from source" if you built the app yourself.
+      placeholder: 0.2.0 (beta)
     validations:
       required: true
 
@@ -60,31 +54,17 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: |
-        Your OS and version, plus anything else the bug touches -- tmux version
-        for a terminal bug, where your workspace root lives, which agent you run.
+      description: Your operating system and version, plus anything else the bug involves, such as the tmux version for a terminal bug or the coding agent you use.
       placeholder: |
-        - macOS, Darwin 25.6.0
-        - tmux 3.7b (homebrew)
+        - macOS 26.0
+        - tmux 3.5a (Homebrew)
     validations:
       required: true
 
-  - type: checkboxes
-    id: checks
+  - type: textarea
+    id: bundle
     attributes:
-      label: Before you file
-      options:
-        - label: I searched the open issues for this.
-          required: true
-        - label: This is not a security vulnerability. Those go to a private advisory, not here.
-
-  - type: markdown
-    attributes:
-      value: |
-        **Agents.** If an LLM writes this issue, use ASD-STE100 Simplified
-        Technical English: active voice, approved-vocabulary words, sentences of
-        20 words or fewer, no gerunds. See
-        [CONTRIBUTING.md, Writing
-        style](https://github.com/hay-kot/hive-desktop/blob/main/CONTRIBUTING.md#writing-style).
-        Separate what you ran from what you read, and say which one each claim
-        comes from.
+      label: Diagnostic bundle or logs
+      description: If you saved a bundle from Report a problem, drag the file into this box. Otherwise paste the relevant part of the log file. The bundle contains build info, a log tail, and the settings you chose to include, with secrets removed.
+    validations:
+      required: false
