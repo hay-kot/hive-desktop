@@ -1,117 +1,187 @@
 ---
 name: web-docs
-description: Add, edit, or restructure a page on the public documentation site served at hivedesktop.com/docs — the `docs` content collection under web/src/content/docs. Use only for user-facing product docs; docs/architecture.md, ADRs, and in-app copy are not this site.
-compatibility: Requires Node 22 and `npm ci` in web/ (node_modules is not checked in). No mise task covers web/, and PR CI does not build it — validate locally.
+description: Add, edit, or restructure a page on the public documentation site at hivedesktop.com, the Zensical site under web/docs whose nav lives in web/zensical.toml. Use only for user-facing product docs; docs/architecture.md, ADRs, and in-app copy are not this site.
+compatibility: Requires mise. web/mise.toml pins Python, uv, and Node and owns the site's tasks; run `mise run install` from inside web/ once in a fresh worktree (web/.venv and web/node_modules are gitignored). PR CI builds the site in the `web-build` job, so a broken link fails the PR.
 ---
 
 # Update the docs site
 
-Docs are an Astro content collection, so a page is a content change: drop a
-Markdown file in the right place and the sidebar, pager, on-this-page TOC,
-search index, `llms.txt`, `llms-full.txt`, and the page's own Markdown twin all
-follow. Every path below is relative to `web/`.
+The site is Zensical, the successor of Material for MkDocs by the same team,
+configured in `zensical.toml` as a copy of the hive CLI's docs configuration
+(ADR the-site-is-zensical-built-under-mise-served-as-worker-static-assets).
+A page is a Markdown file under `docs/` plus one line in the nav. Every path
+below is relative to `web/`, and every `mise run` below runs from inside it.
 
 To decide *whether* a change needs a page, and which one, use the
 `docs-audit` skill; this one is the mechanics.
 
 ## Where a page lives
 
-`src/content/docs/<group-dir>/<slug>.md`. The file's path is its URL:
-`help/updates.md` → `/docs/help/updates`; `index.md` is the section root at
-`/docs`. A leading underscore excludes a file from the collection glob.
+`docs/<directory>/<slug>.md`. The file's path is its URL: `inbox/flows.md` is
+`/inbox/flows/`, and a directory's `index.md` is its root
+(`getting-started/index.md` is `/getting-started/`). There is no `/docs`
+prefix any more; the Worker redirects the old URLs (see Guardrails).
 
-Directory layout mirrors the groups by convention, but the sidebar reads
-`group` frontmatter — not the directory.
+The nav has two tabs beside Home (`index.md`, the landing page):
 
-The groups, in sidebar order, mirror the `hive` CLI's docs: **Getting
-started** (install, first run, build from source), **Concepts** (one page per
-subject: how it works, flows, sources, actions, agent workspaces, terminal
-mode), **Configuration** (`settings.yaml`, keyboard shortcuts), **Help**
-(troubleshooting, reporting, updates).
+- **Getting started** is the reading path. `getting-started/index.md` (with
+  the `## Install` section) comes first, then four sidebar groups, then
+  `getting-started/build-from-source.md` and
+  `getting-started/troubleshooting.md`. The groups are **First run**
+  (`getting-started/sign-in.md`, `notifications.md`, `first-feed.md`) and
+  one group per area of the app, each with its own directory: **Inbox**
+  (`inbox/how-it-works.md`, `flows.md`, `sources.md`, `actions.md`),
+  **Code** (`code/terminal-mode.md`), and **Chats**
+  (`chats/agent-workspaces.md`).
+- **Configuration** is the reference tab: `configuration/settings.md` and
+  `configuration/keybindings.md`.
 
-## Frontmatter is schema-enforced
+A sidebar group is an area of the app, one to one. That is the placement
+rule: a page about something the user does in Inbox goes in `inbox/` and in
+the Inbox group; a new area gets a new directory and a new group. A setting
+or a key goes on the Configuration page that owns it, not on a new page.
 
-`src/content.config.ts` validates every page; a violation fails the build.
+## The nav is hand-maintained
+
+`zensical.toml` holds the nav, and the nav is the site's structure. Its order
+is the tab order and the sidebar order, a nested table is a sidebar group,
+and a nav entry is a bare path, so the page names itself with its `# Title`.
+Adding a page is two edits: the file and its line in the nav.
+
+A page that is not in the nav still builds and is reachable by URL, and the
+strict build does not warn about it. It has no tab or sidebar entry, no line
+in `llms.txt`, and no Markdown twin, so nobody finds it. Check the nav
+whenever you add a file.
+
+## Frontmatter and body
 
 ```yaml
 ---
-title: Updates & channels
-description: How Hive auto-updates, and how to pick a release channel.
-group: Help          # must be a value in DOC_GROUPS (src/lib/docs.ts)
-order: 1             # sort within the group; ties break on title
-draft: false         # true generates no page at all
+icon: lucide/settings   # shown beside the title in the nav
+description: Every setting the app reads, section by section, with its default and the environment variable that overrides it.
 ---
+
+# settings.yaml
+
+Every setting the app reads, section by section, with its default and the environment variable that overrides it.
+
+## Where the files live
 ```
 
-A new sidebar group is one edit to `DOC_GROUPS` in `src/lib/docs.ts` — the
-array's order is the sidebar's order, and the collection's `z.enum` rejects any
-group not listed there.
+- `icon` is a `lucide/<name>` icon.
+- The body starts with `# Title`, then the description repeated as the lede
+  paragraph, then `##` sections. The right-hand table of contents is built
+  from the headings.
+- `description` also becomes the page's line in `llms.txt`
+  (`scripts/llms.py` reads the frontmatter).
+
+`docs/getting-started/index.md` and `docs/configuration/settings.md` are the
+models.
 
 ## Writing conventions
 
-- **Body content starts at `##`.** `src/layouts/Docs.astro` renders the
-  `title` as the page's `<h1>` and the `description` as its lede, so the body
-  does not restate either. The TOC lists `h2` and `h3` only.
+- **Callouts are admonitions.** `!!! tip "Title"` on its own line, body
+  indented four spaces. The pages use `tip`, `note`, and `info`; `???` in
+  place of `!!!` makes one collapsible (`pymdownx.details`). Use one for a
+  precondition a user would otherwise discover by failing, and for the Hive
+  workspace pointer on a config page.
+- **Content tabs** are `=== "macOS"` / `=== "Linux"` blocks, body indented
+  four spaces (`pymdownx.tabbed`). The `## Install` section of
+  `getting-started/index.md` is the example.
 - **Configuration is shown as YAML blocks**, one per section, with the
-  default as the value and the environment variable and range in a trailing
-  comment. Not a schema table. `configuration/settings.md` is the model.
-- **Callouts** are GitHub-style alerts: a blockquote whose first line is
-  `[!TIP] Optional title`, with `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, or
-  `CAUTION`. `src/lib/remark-callouts.mjs` turns them into
-  `<aside class="callout">`; the styles are in `src/styles/docs.css`. Use one
-  for a precondition a user would otherwise discover by failing, and for the
-  Hive-workspace pointer on a config page.
+  default as the value and the environment variable in a trailing comment.
+  Not a schema table. `configuration/settings.md` is the model.
 - **Point config pages at the Hive workspace.** The app seeds a Chats
-  workspace named `Hive` carrying every shipped `hive-*` skill. A page about a
-  file the agent can edit carries a short `[!TIP]` naming that skill.
+  workspace named `Hive` carrying every shipped `hive-*` skill. A page about
+  a file the agent can edit carries a short `!!! tip "Ask the Hive workspace"`
+  naming that skill (`hive-settings`, `hive-flows`, `hive-actions`, ...).
 - **Name things what the app names them.** `Settings ▸ Integrations`, the
-  Inbox / Code / Chats areas, workspace, feed. Check `sectionMeta.ts` and the
-  keybinding catalog before writing a label.
-- Keys are `<kbd>` elements. Internal links are root-relative (`/docs/...`);
-  the Markdown endpoints rewrite them to absolute URLs.
+  Inbox / Code / Chats areas, workspace, feed. Check
+  `desktop/frontend/src/components/settings/sectionMeta.ts` and
+  `desktop/frontend/src/keybindings/catalog.ts` before writing a label.
+- **Keys are `<kbd>` elements**: press `<kbd>g</kbd>` then `<kbd>a</kbd>`.
+- **Internal links are relative Markdown-file links**, with an anchor when
+  one is needed: `../configuration/settings.md#updates`, `sign-in.md`. The
+  strict build validates them, and `scripts/llms.py` rewrites them to
+  absolute URLs in the Markdown twins. A root-relative link (`/llms.txt`) is
+  for a file at the site root, not for a page.
+- Mermaid fences, `attr_list`, `md_in_html`, and emoji shortcodes are
+  enabled in `zensical.toml`; the hive CLI's docs show when each is worth
+  using.
 
-## Do not hand-maintain what is derived
+## What is derived and what is not
 
-The sidebar, prev/next pager, and `llms.txt` grouping come from the group
-order. Search is Pagefind, regenerated by the `pagefind` step in `npm run
-build` and scoped by `data-pagefind-body`. `src/pages/llms.txt.ts`,
-`src/pages/llms-full.txt.ts`, and `src/pages/docs/[...slug].md.ts` read the
-collection at build time, so a new page appears in all three with no edit.
+The build derives these from the nav and the pages; never hand-edit them:
 
-Nav and footer links are data in `src/data/site.json` (schema-checked in
-`src/data/index.ts`), not markup — an `"href": null` link is simply not
-rendered. The docs header's own links are in
-`src/components/docs/DocsHeader.astro`.
+- the tabs, the sidebar and its groups, the prev/next footer, and the
+  per-page table of contents;
+- search (`site/search.json`) and `site/sitemap.xml`;
+- `site/llms.txt`, `site/llms-full.txt`, and a Markdown twin of every nav
+  page at its URL plus `.md` (`/inbox/flows.md` beside `/inbox/flows/`,
+  `/getting-started.md` beside `/getting-started/`). `scripts/llms.py` writes
+  them after `zensical build`, skipping the landing page because it is HTML.
+  `overrides/main.html` adds a `<link rel="alternate" type="text/markdown">`
+  pointing at `/llms.txt` to every page's head.
+
+These are hand-maintained:
+
+- the nav in `zensical.toml`;
+- the landing page, `docs/index.md`: HTML sections styled by
+  `docs/stylesheets/extra.css`, the same shape as the hive CLI's landing
+  page. There is no component model; a change is an edit to those two files;
+- files under `docs/` that are not Markdown. The build copies them to the
+  site root unchanged: `install.sh`, `robots.txt`, `assets/favicon.svg`, and
+  `javascripts/install.js`, which fills the version span in the `## Install`
+  section.
 
 ## Validate
 
 ```bash
 cd web
-npm ci                 # first time in a fresh worktree; node_modules is gitignored
-npm run build          # astro build + pagefind — the same command the deploy runs
+mise run install     # first time in a fresh worktree
+mise run build       # zensical build --clean --strict, then scripts/llms.py
+mise run dev         # live reload on http://127.0.0.1:8000
 ```
 
-The build is the gate: Astro validates the collection schema while building, so
-a bad `group` or a missing `description` fails it by name. Do not reach for
-`npm run check` — `@astrojs/check` is not a declared dependency, so it stops to
-prompt for an install.
+`web/mise.toml` stands on its own, so the tasks run from inside `web/`; there
+is no repository-root form.
 
-The build does not check links. After it, grep the changed pages for
-`](/docs/` and confirm each target exists under `dist/docs/`.
+`--strict` aborts the build on any warning. A link to a page that does not
+exist, a link to an anchor that is not a heading on its target, and a nav
+entry whose file is missing all report `page does not exist` with a
+file:line:column. Strict does not catch a page absent from the nav (see
+above) or a fact that is wrong, so re-read the diff beside the page.
 
-Always run the build. PR CI (`.github/workflows/ci.yml`) covers Go and the
-desktop frontend only, and `mise run check` / the git hooks never touch `web/`.
-The one build of this site is the deploy job on `main`, so anything you skip
-locally surfaces there — after merge.
+`mise run preview` builds and then serves `site/` through the Worker with
+`wrangler dev`, the way production does. Use it for a change to the Worker
+or a redirect, not for a page edit.
+
+PR CI runs the same build (`web-build` in `.github/workflows/ci.yml`), so a
+broken link fails the PR rather than the deploy.
 
 ## Guardrails
 
-- **Never deploy.** `npm run deploy` and `wrangler deploy` publish to
-  hivedesktop.com; deployment is CI's job on `main`.
-- `web/dist`, `.astro`, and `node_modules` are gitignored build output — never
-  commit them or edit generated HTML.
+- **Never deploy.** `mise run deploy`, `npm run deploy`, and
+  `npx wrangler deploy` publish to hivedesktop.com; deployment is
+  `.github/workflows/deploy-web.yml`'s job on `main`, and the release tool's
+  (`cmd/release/publish.go`, the `release` skill).
+- `site/` is build output; `.venv/`, `node_modules/`, and `.wrangler/` are
+  local state. All four are gitignored. Never edit a file under `site/` and
+  never commit any of them.
 - These pages are product documentation for users. Internal shape belongs in
   `docs/architecture.md`, and a decision belongs in an ADR under
   `docs/decisions/`.
-- The in-app About pane links to `/docs` and `/docs/help/updates`
-  (`useAboutSettings.ts`). Moving either page means changing the app.
+- Old URLs are redirected by the Worker (`worker/index.ts`), with 301s, and
+  two of them are load-bearing: the installed app's About pane links
+  `https://hivedesktop.com/docs` and `https://hivedesktop.com/docs/help/updates`
+  (`desktop/frontend/src/composables/useAboutSettings.ts`). The table:
+  `/docs` to `/getting-started/`; `/install` to `/getting-started/#install`;
+  `/compare` and `/compare/*` to `/`; the moved pages `/docs/concepts/*` to
+  `/inbox/*`, `/code/*`, or `/chats/*`, `/docs/help/troubleshooting` to
+  `/getting-started/troubleshooting/`, `/docs/help/reporting-a-problem` to
+  `/getting-started/troubleshooting/#report-a-problem`, and
+  `/docs/help/updates` to `/configuration/settings/#updates`; any other
+  `/docs/<path>` to `/<path>/`. Moving or renaming a page, or the `## Install`,
+  `## updates`, or `## Report a problem` heading, means updating that table.
+- Zensical is pinned in `pyproject.toml` and resolved into `uv.lock`. A
+  version bump is an edit to `pyproject.toml` followed by `mise run lock`.

@@ -1,6 +1,6 @@
 ---
 name: docs-audit
-description: Check the work on this branch (or a PR) for anything a user would need to read about and is not documented, then add or update the page on hivedesktop.com/docs. Use when asked to audit the docs, to decide whether a change needs a docs page, or as a pre-PR pass over a feature that added a setting, a node, an action type, a surface, or a failure mode.
+description: Check the work on this branch (or a PR) for anything a user would need to read about and is not documented, then add or update the page on hivedesktop.com. Use when asked to audit the docs, to decide whether a change needs a docs page, or as a pre-PR pass over a feature that added a setting, a node, an action type, a surface, or a failure mode.
 ---
 
 # Audit the docs
@@ -10,9 +10,9 @@ silent: a setting ships, a node type lands, a surface is renamed, and the page
 that described it keeps describing the old one. Nothing fails a build over it.
 This audit is the check.
 
-It covers `web/src/content/docs/` only. `docs/architecture.md`, ADRs, and the
-shipped agent skills are other surfaces with their own skills; step 3 says
-which change belongs where.
+It covers `web/docs/` only. `docs/architecture.md`, ADRs, and the shipped
+agent skills are other surfaces with their own skills; step 3 says which
+change belongs where.
 
 ## 1. Scope the change
 
@@ -49,24 +49,34 @@ is a valid outcome and is reported as one.
 ## 3. Decide where each one belongs
 
 **A user-facing fact goes on the docs site**, on the page that already owns
-its subject. The site's structure mirrors the app:
+its subject. The site's structure mirrors the app: the sidebar groups of the
+Getting started tab are the app's areas (Inbox, Code, Chats), each with its
+own directory under `web/docs/`, and the Configuration tab is the reference.
 
 | Subject | Page |
 | --- | --- |
-| a setting, a path, an environment variable | `configuration/settings.md` |
-| a command id or a default combo | `configuration/keybindings.md` |
-| a source node, what an account needs, the webhook contract | `concepts/sources.md` |
-| a flow node type, wiring, the editor | `concepts/flows.md` |
-| an action type, inputs, targets, launchers | `concepts/actions.md` |
-| a workspace manifest field, a skill package, an MCP entry | `concepts/agent-workspaces.md` |
-| Code: attach, windows, launchers, typography | `concepts/terminal-mode.md` |
-| a failure and its way out | `help/troubleshooting.md` |
-| first run, the starter feeds | `getting-started/*.md` |
-| building the app | `getting-started/build-from-source.md` |
+| a setting, a path, an environment variable | `web/docs/configuration/settings.md` |
+| the updater, a release channel | `web/docs/configuration/settings.md`, the `## updates` section |
+| a command id or a default combo | `web/docs/configuration/keybindings.md` |
+| items, feeds, and notifications as one model | `web/docs/inbox/how-it-works.md` |
+| a source node, what an account needs, the webhook contract | `web/docs/inbox/sources.md` |
+| a flow node type, wiring, the editor | `web/docs/inbox/flows.md` |
+| an action type, inputs, targets, launchers | `web/docs/inbox/actions.md` |
+| a workspace manifest field, a skill package, an MCP entry | `web/docs/chats/agent-workspaces.md` |
+| Code: attach, windows, launchers, typography | `web/docs/code/terminal-mode.md` |
+| a failure and its way out | `web/docs/getting-started/troubleshooting.md` |
+| the problem reporter and what a report contains | `web/docs/getting-started/troubleshooting.md`, the `## Report a problem` section |
+| installing a release | `web/docs/getting-started/index.md`, the `## Install` section |
+| sign-in, notification permission, the starter feeds | `web/docs/getting-started/sign-in.md`, `notifications.md`, `first-feed.md` |
+| building the app | `web/docs/getting-started/build-from-source.md` |
 
 A new page is rare. It is right when a subject has no owner in that table and
-would not fit as a section of one, not when a feature is big. Adding one is
-the `web-docs` skill's procedure: the file, its frontmatter, and the group.
+would not fit as a section of one, not when a feature is big. It goes in the
+directory and sidebar group of the area it belongs to; a new area is a new
+directory and a new group. Adding a page is the `web-docs` skill's
+procedure: the file, its frontmatter, and its line in the nav in
+`web/zensical.toml`. A page left out of the nav builds without a warning and
+is reachable by URL only, which is the same as not existing.
 
 **These are not docs-site changes**, and saying so is half the audit:
 
@@ -88,7 +98,7 @@ the `web-docs` skill's procedure: the file, its frontmatter, and the group.
 
 ## 4. Write it
 
-The `web-docs` skill covers the mechanics: frontmatter, groups, the build.
+The `web-docs` skill covers the mechanics: frontmatter, the nav, the build.
 The conventions that keep the pages consistent:
 
 - **Show configuration as YAML, not as a schema table.** A block with the
@@ -101,20 +111,23 @@ The conventions that keep the pages consistent:
   workspace is a flow. Read `sectionMeta.ts` and the catalog's `group` values
   rather than guessing.
 - **Say what a thing needs before what it does.** tmux 3.2, an agent on
-  PATH, a scope on a token, a permission: the precondition goes first, in a
-  callout if a user would otherwise discover it by failing.
+  PATH, a scope on a token, a permission: the precondition goes first, in an
+  admonition if a user would otherwise discover it by failing.
 - **Point at the Hive workspace where an agent could do the work.** Every
-  config page carries a short callout naming the skill the seeded `Hive`
-  workspace has for that file. Add one to a page that gains a config
-  surface; do not add one to a page about a thing an agent cannot drive.
-- **A callout is `> [!TIP] Title` on the first line of a blockquote**, with
-  `NOTE`, `TIP`, `IMPORTANT`, `WARNING`, or `CAUTION`. See
-  `web/src/lib/remark-callouts.mjs`.
-- **Body content starts at `##`.** The layout renders `title` as the `h1`
-  and `description` as the lede.
-- **Do not hand-maintain what is derived.** The sidebar, the pager, the
-  search index, `llms.txt`, `llms-full.txt`, and each page's `.md` twin are
-  all generated from the collection. Adding a page adds it everywhere.
+  config page carries a short `!!! tip "Ask the Hive workspace"` naming the
+  skill the seeded `Hive` workspace has for that file. Add one to a page that
+  gains a config surface; do not add one to a page about a thing an agent
+  cannot drive.
+- **A callout is an admonition**: `!!! tip "Title"` on its own line, body
+  indented four spaces. `tip`, `note`, and `info` are the types in use.
+- **The body starts with `# Title`**, then the description repeated as the
+  lede, then `##` sections. The frontmatter is `icon:` and `description:`.
+- **Internal links are relative Markdown-file links**
+  (`../configuration/settings.md#updates`), which the strict build validates.
+- **Do not hand-maintain what is derived.** The tabs, the sidebar and its
+  groups, the prev/next footer, search, the sitemap, `llms.txt`,
+  `llms-full.txt`, and each page's `.md` twin all come from the nav and the
+  pages. A page in the nav appears everywhere with no further edit.
 
 A fact you cannot verify in the code does not go on the page. Read the
 struct, the descriptor, or the component; the docs are reviewed as a spec.
@@ -122,21 +135,23 @@ struct, the descriptor, or the component; the docs are reviewed as a spec.
 ## 5. Verify
 
 ```bash
-cd web && npm ci && npm run build
+cd web && mise run build
 ```
 
-The build validates frontmatter and fails on a bad group by name. Then check
-the two things the build cannot:
+(`mise run install` first in a fresh worktree; both run from inside `web/`.)
+The build runs `zensical build --strict` and aborts on any warning: a link to
+a page that does not exist, an anchor that is not a heading on its target, or
+a nav entry whose file is missing. Then check the two things the build
+cannot:
 
-1. **Every internal link resolves.** Grep the new text for `](/docs/` and
-   confirm each target is a page id in `src/content/docs/` (plus an anchor
-   that is a real `##` heading, slugified).
+1. **Every new page is in the nav** in `web/zensical.toml`. The build does
+   not warn about a page that is not.
 2. **The page says what the code does.** Re-read the diff beside the page.
    A default, a range, a scope name, and a key are the four things most often
    wrong.
 
-Nothing in PR CI builds `web/`; the deploy job on `main` is the only other
-build. What you skip here surfaces after merge.
+PR CI runs the same build (`web-build`), so a broken link fails the PR. It
+cannot tell a wrong default from a right one; only this step can.
 
 ## Report
 
