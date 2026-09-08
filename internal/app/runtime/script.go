@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // ScriptRuntime is a driven port: one language a function node can be written
@@ -54,7 +54,7 @@ type ScriptInstance interface {
 	// `node` argument; kv is the node's per-message durable-KV handle and
 	// console its per-message console sink. A returned error is always a
 	// *ScriptError.
-	OnMessage(ctx context.Context, msg store.Msg, config any, kv NodeKV, console ConsoleSink) ([][]store.Msg, error)
+	OnMessage(ctx context.Context, msg models.Msg, config any, kv NodeKV, console ConsoleSink) ([][]models.Msg, error)
 	// Close releases the instance. An instance whose evaluation timed out may
 	// still be running, in which case Close interrupts it and returns without
 	// waiting.

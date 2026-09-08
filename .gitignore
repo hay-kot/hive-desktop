@@ -8,8 +8,10 @@ bin/
 node_modules/
 dist/
 
-# Astro generated types / wrangler local dev state (web/)
-.astro/
+# web/: the Zensical build and cache, the uv virtualenv, wrangler local dev state
+web/site/
+web/.cache/
+.venv/
 .wrangler/
 
 # Local env

@@ -103,7 +103,7 @@ watch(() => props.active, (active) => {
 // ── The tree ─────────────────────────────────────────────────────────────
 // One node per workspace, carrying its own chats. They keep the order the
 // cross-workspace read hands over (newest record first, stable under a resume —
-// internal/app/store/queries: ListAllAgentWorkspaceSessions), so grouping costs
+// internal/app/data/queries: ListAllAgentWorkspaceSessions), so grouping costs
 // no ordering. `live` is here for the fold default, which opens a workspace with
 // something running in it.
 interface WorkspaceNode {
@@ -212,7 +212,7 @@ watch(() => props.selectedWorkspace, (dir) => {
 // down the sidebar.
 function workspaceTooltip(node: WorkspaceNode): string {
   if (!node.workspace) return `${node.dir}\nThis directory is no longer in the workspace root.`
-  const parts = [node.name, `${node.workspace.agent} · ${node.workspace.autonomy || '—'}`]
+  const parts = [node.name, node.workspace.command]
   const next = nextScheduleLine(node.workspace)
   if (next) parts.push(next)
   if (node.workspace.problem) parts.push(node.workspace.problem)

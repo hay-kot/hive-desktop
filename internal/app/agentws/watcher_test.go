@@ -28,7 +28,7 @@ func assertNoWorkspaceChange(t *testing.T, changed <-chan struct{}) {
 	}
 }
 
-const minimalManifest = "version: 2\nname: X\nagent: claude\nautonomy: ask\n"
+const minimalManifest = "version: 2\nname: X\nagent: claude\ncommand: claude\n"
 
 func TestWatcher(t *testing.T) {
 	t.Run("NewWorkspaceDirectoryIsPickedUp", func(t *testing.T) {
@@ -62,7 +62,7 @@ func TestWatcher(t *testing.T) {
 		w.Start()
 		t.Cleanup(w.Close)
 
-		require.NoError(t, os.WriteFile(manifest, []byte("version: 2\nname: Y\nagent: claude\nautonomy: ask\n"), 0o600))
+		require.NoError(t, os.WriteFile(manifest, []byte("version: 2\nname: Y\nagent: claude\ncommand: claude\n"), 0o600))
 		waitForWorkspaceChange(t, changed)
 
 		select {
@@ -91,7 +91,7 @@ func TestWatcher(t *testing.T) {
 		t.Cleanup(w.Close)
 
 		tmp := manifest + ".tmp"
-		require.NoError(t, os.WriteFile(tmp, []byte("version: 2\nname: Z\nagent: claude\nautonomy: ask\n"), 0o600))
+		require.NoError(t, os.WriteFile(tmp, []byte("version: 2\nname: Z\nagent: claude\ncommand: claude\n"), 0o600))
 		require.NoError(t, os.Rename(tmp, manifest))
 		waitForWorkspaceChange(t, changed)
 	})
@@ -153,7 +153,7 @@ func TestWatcher(t *testing.T) {
 		// Recreating the same name proves the old watch was actually dropped
 		// (and freshly re-added), not left dangling.
 		require.NoError(t, os.MkdirAll(wsDir, 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(wsDir, manifestFileName), []byte("version: 2\nname: Recreated\nagent: claude\nautonomy: ask\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(wsDir, manifestFileName), []byte("version: 2\nname: Recreated\nagent: claude\ncommand: claude\n"), 0o600))
 		waitForWorkspaceChange(t, changed)
 	})
 
@@ -178,7 +178,7 @@ func TestWatcher(t *testing.T) {
 		// The strongest proof the rename's resync re-pointed the watch
 		// (rather than merely dropping the old one): an edit under the new
 		// name must still fire.
-		require.NoError(t, os.WriteFile(filepath.Join(newDir, manifestFileName), []byte("version: 2\nname: Renamed\nagent: claude\nautonomy: ask\n"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(newDir, manifestFileName), []byte("version: 2\nname: Renamed\nagent: claude\ncommand: claude\n"), 0o600))
 		waitForWorkspaceChange(t, changed)
 	})
 

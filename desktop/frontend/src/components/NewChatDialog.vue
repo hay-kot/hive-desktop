@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // New-chat dialog for the Chats area. A chat is a workspace plus a name —
-// the agent, autonomy, and MCP servers it launches with are the workspace's
+// the command and MCP servers it launches with are the workspace's
 // own declaration, so there is nothing else to ask for.
 import { computed, ref, useId } from 'vue'
 import IconBot from '~icons/lucide/bot'

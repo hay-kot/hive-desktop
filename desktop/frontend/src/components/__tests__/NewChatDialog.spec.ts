@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import NewChatDialog from '../NewChatDialog.vue'
 
 const workspaces = [
-  { dir: 'web-app', name: 'Web App', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
-  { dir: 'api', name: 'API', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
+  { dir: 'web-app', name: 'Web App', command: 'claude', danger: false, mcps: [], skills: [], schedules: [], problem: '', notice: '' },
+  { dir: 'api', name: 'API', command: 'claude', danger: false, mcps: [], skills: [], schedules: [], problem: '', notice: '' },
 ]
 
 function mountDialog(overrides: Record<string, unknown> = {}) {

@@ -45,7 +45,6 @@ type ScratchTerminal struct {
 // terminal is reached over is the adapter's, not the core's (ADR terminal-transport).
 type TerminalsService struct {
 	manager *tmuxcc.Manager
-	metrics tmuxcc.MetricsSink
 	starter terminalStarter
 	home    func() (string, error)
 	// foreground answers whether a pid holds its terminal's foreground process
@@ -54,8 +53,14 @@ type TerminalsService struct {
 	foreground func(ctx context.Context, pid int) (bool, error)
 }
 
-func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink, starter terminalStarter, home func() (string, error)) *TerminalsService {
-	return &TerminalsService{manager: manager, metrics: metrics, starter: starter, home: home, foreground: processForeground}
+type TerminalsDeps struct {
+	Manager *tmuxcc.Manager
+	Starter terminalStarter
+	Home    func() (string, error)
+}
+
+func newTerminalsService(d TerminalsDeps) *TerminalsService {
+	return &TerminalsService{manager: d.Manager, starter: d.Starter, home: d.Home, foreground: processForeground}
 }
 
 // Scratch declares the scratch terminal. It is a constant rather than a probe:
@@ -381,8 +386,8 @@ func (s *TerminalsService) Detach(ctx context.Context, slug string) error {
 // ObserveFrameLatency records how long an output frame took from tmux decode to
 // the moment a transport put it on the wire. Only the transport knows when the
 // send happened, so it measures and reports it here.
-func (s *TerminalsService) ObserveFrameLatency(slug, windowID string, latency time.Duration) {
-	s.metrics.FrameLatency(slug, windowID, latency)
+func (s *TerminalsService) ObserveFrameLatency(ctx context.Context, latency time.Duration) {
+	tmuxcc.ObserveFrameLatency(ctx, latency)
 }
 
 func (s *TerminalsService) client(slug string) (*tmuxcc.Client, error) {

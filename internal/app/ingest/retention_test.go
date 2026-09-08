@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
 type retentionStore struct {
@@ -19,7 +20,7 @@ type retentionStore struct {
 	pruned chan struct{}
 }
 
-func (s *retentionStore) Prune(_ context.Context, _ store.RetentionPolicy) error {
+func (s *retentionStore) Prune(_ context.Context, _ queries.RetentionPolicy) error {
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
@@ -36,7 +37,7 @@ func TestMaintenanceTick_Prunes(t *testing.T) {
 	pruner := &retentionStore{}
 	maintenance := NewMaintenance(
 		pruner,
-		store.DefaultRetentionPolicy(),
+		queries.DefaultRetentionPolicy(),
 		time.Hour,
 		zerolog.Nop(),
 	)
@@ -52,7 +53,7 @@ func TestMaintenanceStop_WaitsForScheduledLoop(t *testing.T) {
 	pruner := &retentionStore{pruned: make(chan struct{}, 1)}
 	maintenance := NewMaintenance(
 		pruner,
-		store.DefaultRetentionPolicy(),
+		queries.DefaultRetentionPolicy(),
 		time.Millisecond,
 		zerolog.Nop(),
 	)

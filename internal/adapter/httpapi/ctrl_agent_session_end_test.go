@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 )
 
 // The route takes the session's own token and nothing else: no bearer and the
@@ -26,7 +26,7 @@ func TestAgentSessionEndTakesTheSessionsOwnToken(t *testing.T) {
 	_ = frontend.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, frontend.StatusCode, "the terminal token is not a session's")
 
-	rec, err := h.core.Store.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
+	rec, err := h.core.Stores.AgentSessions.Create(t.Context(), stores.AgentSessionCreate{
 		Workspace: seededWorkspace, Name: "s1", Agent: "claude", AgentSessionID: "a", EndToken: "tok-1",
 	})
 	require.NoError(t, err)

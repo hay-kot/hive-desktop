@@ -4,7 +4,7 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 
-migration_dir=internal/app/store/migrations
+migration_dir=internal/app/data/queries/migrations
 current=$(find "$migration_dir" -maxdepth 1 -type f -name '*.up.sql' -print | LC_ALL=C sort)
 if [[ -z "$current" ]]; then
   echo "no migrations found under $migration_dir" >&2
@@ -36,37 +36,51 @@ if [[ -z $base_ref ]]; then
 fi
 
 base=$(git ls-tree -r --name-only "$base_ref" -- "$migration_dir" | grep '\.up\.sql$' | LC_ALL=C sort || true)
+base_dir=$migration_dir
+
+# historical_dir is where migrations lived before the internal/app/store ->
+# internal/app/data/queries package move. A release tag cut before that move
+# lists its migrations there instead: without this fallback, git ls-tree at
+# the new path finds nothing, this script reports "no desktop migrations",
+# and released-history immutability goes unchecked from that tag forward.
+historical_dir=internal/app/store/migrations
+if [[ -z $base ]]; then
+  base=$(git ls-tree -r --name-only "$base_ref" -- "$historical_dir" | grep '\.up\.sql$' | LC_ALL=C sort || true)
+  base_dir=$historical_dir
+fi
 if [[ -z $base ]]; then
   echo "migration order valid against $base_ref; it has no desktop migrations"
   exit 0
 fi
 
 base_max=0
-while IFS= read -r path; do
-  name=${path##*/}
+while IFS= read -r base_path; do
+  name=${base_path##*/}
   if [[ ! $name =~ ^([0-9]{4})_[a-z0-9_]+\.up\.sql$ ]]; then
-    echo "invalid migration filename in $base_ref: $path" >&2
+    echo "invalid migration filename in $base_ref: $base_path" >&2
     exit 1
   fi
   version=$((10#${BASH_REMATCH[1]}))
   if [[ $version -gt $base_max ]]; then
     base_max=$version
   fi
+  path="$migration_dir/$name"
   if [[ ! -f $path ]]; then
-    echo "released migration was removed: $path (from $base_ref)" >&2
+    echo "released migration was removed: $path (from $base_ref:$base_path)" >&2
     exit 1
   fi
-  if ! cmp -s <(git show "$base_ref:$path") "$path"; then
-    echo "released migration was modified: $path (from $base_ref)" >&2
+  if ! cmp -s <(git show "$base_ref:$base_path") "$path"; then
+    echo "released migration was modified: $path (from $base_ref:$base_path)" >&2
     exit 1
   fi
 done <<< "$base"
 
 while IFS= read -r path; do
-  if git cat-file -e "$base_ref:$path" 2>/dev/null; then
+  name=${path##*/}
+  base_path="$base_dir/$name"
+  if git cat-file -e "$base_ref:$base_path" 2>/dev/null; then
     continue
   fi
-  name=${path##*/}
   version=$((10#${name%%_*}))
   if [[ $version -le $base_max ]]; then
     printf 'new migration %s reuses released version %04d from %s\n' "$path" "$version" "$base_ref" >&2

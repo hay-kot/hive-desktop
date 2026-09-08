@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana/client"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // metricsSource polls one node's PromQL query, emitting one message per tick
@@ -36,7 +36,7 @@ type payload struct {
 
 // Produce runs the query and emits one message. A fetch error returns without
 // emitting, leaving the previous snapshot in place rather than clearing it.
-func (s *metricsSource) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *metricsSource) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	result, err := s.fetcher.Query(ctx, s.dsUID, s.expr)
 	if err != nil {
 		return fmt.Errorf("grafana metrics %q: %w", s.key, err)
@@ -45,7 +45,7 @@ func (s *metricsSource) Produce(ctx context.Context, emit func(store.Msg) error)
 	if err != nil {
 		return fmt.Errorf("grafana metrics %q: encoding payload: %w", s.key, err)
 	}
-	return emit(store.Msg{Key: s.key, Topic: s.topic, SourceKind: SourceKind, Payload: body})
+	return emit(models.Msg{Key: s.key, Topic: s.topic, SourceKind: SourceKind, Payload: body})
 }
 
 func (s *metricsSource) itemTitle() string {

@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // connectedFetchers wires a fetcher registry onto a running test server with
@@ -31,14 +31,14 @@ func connectedFetchers(t *testing.T, baseURL string) (*Fetchers, string) {
 }
 
 // produce drains one instance built from cfg, returning the messages it emitted.
-func produce(t *testing.T, fetchers *Fetchers, cfg *Config) ([]store.Msg, error) {
+func produce(t *testing.T, fetchers *Fetchers, cfg *Config) ([]models.Msg, error) {
 	t.Helper()
 	require.NoError(t, cfg.Validate())
 	instance, err := NewFactory(fetchers).New(connector.Node{FlowID: "flow", NodeID: "src"}, cfg)
 	require.NoError(t, err)
 
-	var msgs []store.Msg
-	err = instance.Pull.Produce(t.Context(), func(msg store.Msg) error {
+	var msgs []models.Msg
+	err = instance.Pull.Produce(t.Context(), func(msg models.Msg) error {
 		msgs = append(msgs, msg)
 		return nil
 	})

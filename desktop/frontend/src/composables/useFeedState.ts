@@ -2,7 +2,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
 import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, MarkImages, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled, SetFlowOrder, SetProfileImage } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
-import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, RenderClipboardAction, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import { ActionRun, ActionViews, Events, FeedCounts, InvokeAction, ListArchivedByFeed, ListByFeed, ListTrash, MarkRead, RenderClipboardAction, SetUnread, ToggleArchived, ToggleIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { appErrorKind, appErrorMessage } from '../lib/appError'
@@ -560,7 +560,7 @@ export function useFeedState() {
     if (!activeProfileId.value) return
     const seq = ++loadSeq
     try {
-      const loaded = (await ListInboxItemsTrash(activeProfileId.value, 500)) ?? []
+      const loaded = (await ListTrash(activeProfileId.value, 500)) ?? []
       if (seq !== loadSeq) return
       loadError.value = null
       items.value = loaded.map(asInboxItem)
@@ -576,11 +576,11 @@ export function useFeedState() {
     if (!activeProfileId.value) return
     const seq = ++loadSeq
     try {
-      const loaded = (await ListInboxItemsByFeed(activeProfileId.value, feedID, 500)) ?? []
+      const loaded = (await ListByFeed(activeProfileId.value, feedID, 500)) ?? []
       // The archived section reloads with the active list only while expanded;
       // collapsed sections stay unloaded until the user opens them.
       const archivedLoaded = archivedExpanded.value
-        ? (await ListArchivedInboxItemsByFeed(activeProfileId.value, feedID, 500)) ?? []
+        ? (await ListArchivedByFeed(activeProfileId.value, feedID, 500)) ?? []
         : []
       if (seq !== loadSeq) return
       loadError.value = null
@@ -613,7 +613,7 @@ export function useFeedState() {
   async function loadEvents(itemID: number): Promise<InboxEvent[]> {
     // The storage query returns newest-first for efficient recent-event reads;
     // the observed timeline is deliberately chronological for human reading.
-    return ((await InboxItemEvents(itemID, 100) ?? [])
+    return ((await Events(itemID, 100) ?? [])
       .map((event) => ({ ...event, summary: event.summary ?? null, detail: event.detail ?? null }))
       .reverse())
   }
@@ -690,7 +690,7 @@ export function useFeedState() {
 
   async function markItemUnread(item: InboxItem, unread: boolean): Promise<void> {
     try {
-      applyItemUpdate(await MarkInboxItemUnread(item.id, item.revision, unread))
+      applyItemUpdate(await SetUnread(item.id, item.revision, unread))
     } catch (error) {
       console.warn('Unable to update inbox item unread state', error)
       await reloadCurrentSelection()
@@ -711,7 +711,7 @@ export function useFeedState() {
     if (!activeProfileId.value || markingAllRead.value) return
     markingAllRead.value = true
     try {
-      const marked = await MarkInboxItemsRead(activeProfileId.value, feedID ?? '')
+      const marked = await MarkRead(activeProfileId.value, feedID ?? '')
       showToast(marked > 0 ? `Marked ${marked} ${marked === 1 ? 'item' : 'items'} as read` : 'Nothing to mark as read', { severity: 'success' })
     } catch (error) {
       console.warn('Unable to mark inbox items as read', error)
@@ -731,7 +731,7 @@ export function useFeedState() {
 
   async function toggleArchive(item: InboxItem): Promise<void> {
     try {
-      await ToggleInboxItemArchived(item.id, item.revision)
+      await ToggleArchived(item.id, item.revision)
       // Archiving moves the item between a feed's active list and its
       // archived section, so the current selection always reloads.
       await reloadCurrentSelection()
@@ -744,7 +744,7 @@ export function useFeedState() {
 
   async function toggleIgnored(item: InboxItem): Promise<void> {
     try {
-      await ToggleInboxItemIgnored(item.id, item.revision)
+      await ToggleIgnored(item.id, item.revision)
       await reloadCurrentSelection()
     } catch (error) {
       console.warn('Unable to toggle inbox item ignored state', error)

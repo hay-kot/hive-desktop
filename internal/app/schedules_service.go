@@ -8,8 +8,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 const (
@@ -75,13 +75,24 @@ type PreviewView struct {
 // AgentWorkspacesService's, because a schedule is a manifest key.
 type SchedulesService struct {
 	workspaces *agentws.Store
-	db         *store.DB
+	history    scheduleHistory
 	scheduler  *schedule.Scheduler
-	logger     zerolog.Logger
 }
 
-func newSchedulesService(workspaces *agentws.Store, db *store.DB, scheduler *schedule.Scheduler, logger zerolog.Logger) *SchedulesService {
-	return &SchedulesService{workspaces: workspaces, db: db, scheduler: scheduler, logger: logger}
+type SchedulesDeps struct {
+	Workspaces *agentws.Store
+	Schedules  *stores.ScheduleStore
+	Sessions   *stores.AgentSessionStore
+	Scheduler  *schedule.Scheduler
+	Logger     zerolog.Logger
+}
+
+func newSchedulesService(d SchedulesDeps) *SchedulesService {
+	return &SchedulesService{
+		workspaces: d.Workspaces,
+		history:    scheduleHistory{store: d.Schedules, sessions: d.Sessions, logger: d.Logger},
+		scheduler:  d.Scheduler,
+	}
 }
 
 // List refuses a manifest that does not parse rather than answering with
@@ -97,7 +108,7 @@ func (s *SchedulesService) List(ctx context.Context, workspace string) ([]Schedu
 	if !st.Valid {
 		return nil, Errorf(KindInvalid, "agent-workspace.yaml has a problem (%s)", st.Err)
 	}
-	return scheduleRows(ctx, s.db, s.logger, st.Workspace.Schedules, time.Now()), nil
+	return s.history.rows(ctx, st.Workspace.Schedules, time.Now()), nil
 }
 
 // RunNow leaves the cursor untouched, so the next real occurrence still happens.
@@ -139,19 +150,14 @@ func (s *SchedulesService) Runs(ctx context.Context, workspace, id string, limit
 		limit = defaultRunHistory
 	}
 
-	records, err := s.db.ListScheduleRunsFor(ctx, workspace, id, limit)
+	runs, err := s.history.runs(ctx, workspace, id, limit)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing runs for schedule %q in workspace %q", id, workspace)
 	}
-	if len(records) == 0 && !declaresSchedule(st.Workspace, id) {
+	if len(runs) == 0 && !declaresSchedule(st.Workspace, id) {
 		return nil, Errorf(KindNotFound, "schedule %q is not declared in workspace %q and has never run there", id, workspace)
 	}
-
-	out := make([]RunView, 0, len(records))
-	for _, rec := range records {
-		out = append(out, withoutDeletedChat(ctx, s.db, runView(scheduleRunFromRecord(rec))))
-	}
-	return out, nil
+	return runs, nil
 }
 
 func declaresSchedule(workspace agentws.Workspace, id string) bool {
@@ -161,19 +167,6 @@ func declaresSchedule(workspace agentws.Workspace, id string) bool {
 		}
 	}
 	return false
-}
-
-// A scheduled chat deletes itself when its task is done, and a history entry
-// must not offer to open a chat nobody can. A lookup that fails leaves the
-// pointer as recorded: the history is still worth answering with.
-func withoutDeletedChat(ctx context.Context, db *store.DB, run RunView) RunView {
-	if run.SessionID == nil {
-		return run
-	}
-	if _, ok, err := db.GetAgentWorkspaceSession(ctx, *run.SessionID); err == nil && !ok {
-		run.SessionID = nil
-	}
-	return run
 }
 
 func (s *SchedulesService) Preview(_ context.Context, req PreviewRequest) (PreviewView, error) {
@@ -204,10 +197,19 @@ func (s *SchedulesService) Preview(_ context.Context, req PreviewRequest) (Previ
 	return view, nil
 }
 
+// scheduleHistory joins a schedule's manifest entry with its run state. Both
+// services that list schedules read through it, so the workspace view and the
+// MCP tools cannot disagree about what a row's last run says.
+type scheduleHistory struct {
+	store    *stores.ScheduleStore
+	sessions *stores.AgentSessionStore
+	logger   zerolog.Logger
+}
+
 // A run-history read that fails leaves that row's LastRun nil rather than
 // failing the listing: losing the editor's form and the workspace list behind
 // it over a decoration on one row is the wrong trade.
-func scheduleRows(ctx context.Context, db *store.DB, logger zerolog.Logger, specs []schedule.Spec, now time.Time) []ScheduleView {
+func (h scheduleHistory) rows(ctx context.Context, specs []schedule.Spec, now time.Time) []ScheduleView {
 	out := make([]ScheduleView, 0, len(specs))
 	for _, spec := range specs {
 		view := ScheduleView{
@@ -226,19 +228,43 @@ func scheduleRows(ctx context.Context, db *store.DB, logger zerolog.Logger, spec
 			}
 		}
 
-		records, err := db.ListScheduleRunsFor(ctx, spec.Workspace, spec.ID, 1)
+		last, err := h.runs(ctx, spec.Workspace, spec.ID, 1)
 		switch {
 		case err != nil:
-			logger.Warn().Err(err).
+			h.logger.Warn().Err(err).
 				Str("workspace", spec.Workspace).Str("schedule", spec.ID).
 				Msg("reading a schedule's last run")
-		case len(records) > 0:
-			last := withoutDeletedChat(ctx, db, runView(scheduleRunFromRecord(records[0])))
-			view.LastRun = &last
+		case len(last) > 0:
+			view.LastRun = &last[0]
 		}
 		out = append(out, view)
 	}
 	return out
+}
+
+func (h scheduleHistory) runs(ctx context.Context, workspace, id string, limit int) ([]RunView, error) {
+	records, err := h.store.ListRuns(ctx, workspace, id, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RunView, 0, len(records))
+	for _, rec := range records {
+		out = append(out, h.withoutDeletedChat(ctx, runView(scheduleRunFromRecord(rec))))
+	}
+	return out, nil
+}
+
+// A scheduled chat deletes itself when its task is done, and a history entry
+// must not offer to open a chat nobody can. A lookup that fails leaves the
+// pointer as recorded: the history is still worth answering with.
+func (h scheduleHistory) withoutDeletedChat(ctx context.Context, run RunView) RunView {
+	if run.SessionID == nil {
+		return run
+	}
+	if _, err := h.sessions.Get(ctx, *run.SessionID); stores.IsNotFound(err) {
+		run.SessionID = nil
+	}
+	return run
 }
 
 // The file omits on_missed at its default; the wire has no "unset".

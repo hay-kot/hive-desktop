@@ -9,13 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-func msg(payload string) store.Msg {
-	return store.Msg{
+func msg(payload string) models.Msg {
+	return models.Msg{
 		ID: "1", Key: "k", Topic: "source:f/src", Ts: 7,
 		Payload: json.RawMessage(payload), SourceKind: "github", SourceScope: "acme/app",
 	}
@@ -29,7 +29,7 @@ func instance(t *testing.T, src string, outputs int) runtime.ScriptInstance {
 	return inst
 }
 
-func run(t *testing.T, inst runtime.ScriptInstance, m store.Msg) [][]store.Msg {
+func run(t *testing.T, inst runtime.ScriptInstance, m models.Msg) [][]models.Msg {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -276,7 +276,7 @@ func TestScriptErrorMessageIncludesPositionWhenKnown(t *testing.T) {
 	require.Equal(t, "timeout: slow", without.Error())
 }
 
-func empty(ports [][]store.Msg) bool {
+func empty(ports [][]models.Msg) bool {
 	for _, port := range ports {
 		if len(port) > 0 {
 			return false

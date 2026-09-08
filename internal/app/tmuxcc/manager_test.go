@@ -346,8 +346,8 @@ func TestManagerDropsAClientThatDiedDuringAttach(t *testing.T) {
 	f.setWindows("@1 1 %1 120 40 claude")
 	f.setCapture("%1", "ready")
 
-	gate := &gatedMetrics{blocked: make(chan struct{}), release: make(chan struct{})}
-	m := newTestManager(t, f, ManagerOptions{Metrics: gate})
+	gate := &firstPaintGate{blocked: make(chan struct{}), release: make(chan struct{})}
+	m := newTestManager(t, f, ManagerOptions{onEmit: gate.hook})
 
 	type attachResult struct {
 		windows []Window
@@ -422,22 +422,21 @@ func TestManagerStopReleasesAStalledSubscriber(t *testing.T) {
 	})
 }
 
-// gatedMetrics parks the first output it is told about, which is the attach
-// sequence's first paint. It is how a test gets inside the window between a
-// client finishing its attach and the manager registering it.
-type gatedMetrics struct {
-	fakeMetrics
+// firstPaintGate parks the first output frame the client forwards, which is
+// the attach sequence's synchronous first paint. It is how a test gets inside
+// the window between a client finishing its attach and the manager registering
+// it.
+type firstPaintGate struct {
 	once    sync.Once
 	blocked chan struct{}
 	release chan struct{}
 }
 
-func (m *gatedMetrics) BytesStreamed(session, window string, n int) {
-	m.once.Do(func() {
-		close(m.blocked)
-		<-m.release
+func (g *firstPaintGate) hook() {
+	g.once.Do(func() {
+		close(g.blocked)
+		<-g.release
 	})
-	m.fakeMetrics.BytesStreamed(session, window, n)
 }
 
 func TestManagerStopClosesEveryClient(t *testing.T) {

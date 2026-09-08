@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 type fakeKV struct {
@@ -53,7 +53,7 @@ func (f *fakeKV) Keys(_ context.Context, prefix string) ([]string, error) {
 	return keys, nil
 }
 
-func runWithKV(t *testing.T, inst runtime.ScriptInstance, m store.Msg, kv runtime.NodeKV) ([][]store.Msg, error) {
+func runWithKV(t *testing.T, inst runtime.ScriptInstance, m models.Msg, kv runtime.NodeKV) ([][]models.Msg, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()

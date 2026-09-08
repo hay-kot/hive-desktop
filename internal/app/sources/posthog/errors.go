@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog/client"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // ItemKind is the canonical `kind` every error item carries. Without one an
@@ -199,7 +199,7 @@ type issuePayload struct {
 	Project     string  `json:"project,omitempty"`
 }
 
-func (s *errorsSource) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *errorsSource) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	issues, binding, err := s.fetcher.Issues(ctx, s.request)
 	if err != nil {
 		return fmt.Errorf("posthog errors: %w", err)
@@ -226,7 +226,7 @@ func (s *errorsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 		if err != nil {
 			return fmt.Errorf("posthog errors: encoding %q: %w", issue.ID, err)
 		}
-		if err := emit(store.Msg{Key: issue.ID, Topic: s.topic, SourceKind: SourceKind, Payload: body}); err != nil {
+		if err := emit(models.Msg{Key: issue.ID, Topic: s.topic, SourceKind: SourceKind, Payload: body}); err != nil {
 			return err
 		}
 	}
@@ -325,18 +325,18 @@ func epochMillis(ts string) int64 {
 // again, and one that gets resolved.
 type errorsClassifier struct{}
 
-var _ store.Classifier = errorsClassifier{}
+var _ models.Classifier = errorsClassifier{}
 
-func (errorsClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (errorsClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	state := issueStateOf(current.Payload)
-	lifecycle := store.LifecycleActive
+	lifecycle := models.LifecycleActive
 	if isTerminalIssueState(state) {
-		lifecycle = store.LifecycleTerminal
+		lifecycle = models.LifecycleTerminal
 	}
-	out := store.Classification{
+	out := models.Classification{
 		Kind:        "issue",
-		Transition:  store.TransitionNone,
-		Attention:   store.AttentionActivity,
+		Transition:  models.TransitionNone,
+		Attention:   models.AttentionActivity,
 		Lifecycle:   lifecycle,
 		SourceState: state,
 		// Keyed on when the issue was last seen, not on when it was polled, so
@@ -351,13 +351,13 @@ func (errorsClassifier) Classify(previous *store.Observation, current store.Obse
 	}
 	switch prev := issueStateOf(previous.Payload); {
 	case !isTerminalIssueState(prev) && isTerminalIssueState(state):
-		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, "Resolved", store.TransitionEnteredTerminal, state
+		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, "Resolved", models.TransitionEnteredTerminal, state
 	case isTerminalIssueState(prev) && !isTerminalIssueState(state):
-		out.Kind, out.Summary, out.Transition = "regressed", "Regressed", store.TransitionLeftTerminal
+		out.Kind, out.Summary, out.Transition = "regressed", "Regressed", models.TransitionLeftTerminal
 	case occurrenceStamp(current) != occurrenceStamp(*previous):
 		out.Kind = "occurred"
 	default:
-		out.Kind, out.Attention = "updated", store.AttentionTrivial
+		out.Kind, out.Attention = "updated", models.AttentionTrivial
 	}
 	return out
 }
@@ -366,7 +366,7 @@ func (errorsClassifier) Classify(previous *store.Observation, current store.Obse
 // raw lastSeen string rather than the parsed ObservedAt so that a timestamp
 // format this connector cannot parse degrades to "no new occurrence" instead
 // of to a fresh one every tick — the latter would re-notify on every poll.
-func occurrenceStamp(obs store.Observation) string {
+func occurrenceStamp(obs models.Observation) string {
 	var wire struct {
 		LastSeen string `json:"lastSeen"`
 	}
@@ -379,7 +379,7 @@ func occurrenceStamp(obs store.Observation) string {
 }
 
 func issueStateOf(payload []byte) string {
-	_, _, state := store.CanonicalFields(payload)
+	_, _, state := models.CanonicalFields(payload)
 	return strings.ToLower(strings.TrimSpace(state))
 }
 

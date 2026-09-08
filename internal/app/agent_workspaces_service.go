@@ -16,12 +16,13 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
@@ -53,22 +54,25 @@ const (
 
 // AgentWorkspacesService opens agent workspaces and drives the sessions run
 // inside them: an agent CLI in a tmux session named agentws-<record id>,
-// resolved through the launch table in agentws (autonomy flags, MCP wiring,
-// session/resume args) and addressed by a durable store.AgentWorkspaceSession
-// record. Sessions are tmux's, not this process's -- they outlive App.Close
+// resolved through the workspace's command template (agentws.Resolve) and
+// addressed by a durable stores.AgentSession record. Sessions are tmux's, not this process's -- they outlive App.Close
 // by design, which is what makes reopening a codex session (no resume form)
 // a real reattach instead of a fresh relaunch.
 type AgentWorkspacesService struct {
 	store     *agentws.Store
 	terminals *tmuxcc.Manager
-	db        *store.DB
+	// tx spans the session and schedule aggregates a workspace delete clears.
+	tx        transactionRunner
+	sessions  *stores.AgentSessionStore
+	schedules *stores.ScheduleStore
+	history   scheduleHistory
 	skills    *SkillsService
-	// commands is agentCommands' result (app.go): hive's configured agent
-	// profiles projected onto their bare command, with Flags dropped at the
-	// seam (ADR a-workspace-declares-its-own-authority). An agent key absent here is unknown to hive at all;
-	// present here but absent from agentws's launch table is the second,
-	// distinct refusal.
-	commands map[string]string
+	// profileCommands is agentCommands' result (app.go): hive's configured
+	// agent profiles projected onto a full command line, flags included. It
+	// seeds the editor's preset list and nothing else — no launch reads it, so
+	// a hive.yaml edit cannot change what an existing workspace runs
+	// (ADR the-workspace-command-is-a-template).
+	profileCommands map[string]string
 	// rootProblem carries EnsureRoot's error, verbatim, when the configured
 	// root could not be created or opened at startup -- empty otherwise.
 	rootProblem string
@@ -79,24 +83,99 @@ type AgentWorkspacesService struct {
 	// editorCommand reads the configured editor from settings on every call,
 	// so a settings change applies without restarting. Empty means none
 	// configured.
-	editorCommand func(context.Context) (string, error)
+	editorCommand EditorCommandReader
 	// mcpBase reads this run's own loopback base URL, empty when the server
 	// is down. Read per call rather than captured, because the listener's
 	// port is not known when this service is built and can change if it
 	// rebinds.
-	mcpBase func(context.Context) string
+	mcpBase  MCPBaseReader
+	endDelay SessionEndDelayReader
+	events   *events.Bus
 	// OnSchedulesChanged is a field rather than a constructor argument because
 	// the scheduler it reloads is built after this service, over it.
 	OnSchedulesChanged func(workspace string)
-	OnSessionEnded     func(SessionView)
-	// endDelay reads agent_workspaces.session_end_delay; nil or a non-positive
-	// answer takes the shipped value.
-	endDelay func(context.Context) time.Duration
-	logger   zerolog.Logger
+	logger             zerolog.Logger
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string, logger zerolog.Logger) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase, logger: logger}
+type transactionRunner interface {
+	WithinTx(ctx context.Context, fn func(context.Context) error) error
+}
+
+// EditorCommandReader reads the configured editor on each call, so settings
+// changes take effect without a restart. Empty means no configured editor.
+type EditorCommandReader interface {
+	Editor(ctx context.Context) (string, error)
+}
+
+// MCPBaseReader reads this run's loopback base URL. Empty means the server is
+// down. Read per call, because the port is unknown when the service is built.
+type MCPBaseReader interface {
+	MCPBaseURL(ctx context.Context) string
+}
+
+type NopMCPBaseReader struct{}
+
+func (NopMCPBaseReader) MCPBaseURL(context.Context) string { return "" }
+
+// SessionEndDelayReader reads agent_workspaces.session_end_delay on each
+// call. A non-positive answer takes the shipped value.
+type SessionEndDelayReader interface {
+	SessionEndDelay(ctx context.Context) time.Duration
+}
+
+type FixedSessionEndDelay time.Duration
+
+func (d FixedSessionEndDelay) SessionEndDelay(context.Context) time.Duration {
+	return time.Duration(d)
+}
+
+type AgentWorkspacesDeps struct {
+	Store     *agentws.Store
+	Terminals *tmuxcc.Manager
+	// Stores supplies the session and schedule stores and the transaction a
+	// workspace delete spans them with.
+	Stores          *stores.Stores
+	Skills          *SkillsService
+	ProfileCommands map[string]string
+	RootProblem     string
+	ExecEnv         *execenv.Resolver
+	// EditorCommand nil means NopEditorCommandReader.
+	EditorCommand EditorCommandReader
+	// MCPBase nil means NopMCPBaseReader.
+	MCPBase MCPBaseReader
+	// EndDelay nil means the shipped defaultEndDelay.
+	EndDelay SessionEndDelayReader
+	Events   *events.Bus
+	Logger   zerolog.Logger
+}
+
+func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
+	if d.EditorCommand == nil {
+		d.EditorCommand = NopEditorCommandReader{}
+	}
+	if d.MCPBase == nil {
+		d.MCPBase = NopMCPBaseReader{}
+	}
+	if d.EndDelay == nil {
+		d.EndDelay = FixedSessionEndDelay(defaultEndDelay)
+	}
+	return &AgentWorkspacesService{
+		store:           d.Store,
+		terminals:       d.Terminals,
+		tx:              d.Stores,
+		sessions:        d.Stores.AgentSessions,
+		schedules:       d.Stores.Schedules,
+		history:         scheduleHistory{store: d.Stores.Schedules, sessions: d.Stores.AgentSessions, logger: d.Logger},
+		skills:          d.Skills,
+		profileCommands: d.ProfileCommands,
+		rootProblem:     d.RootProblem,
+		execEnv:         d.ExecEnv,
+		editorCommand:   d.EditorCommand,
+		mcpBase:         d.MCPBase,
+		endDelay:        d.EndDelay,
+		events:          d.Events,
+		logger:          d.Logger,
+	}
 }
 
 // catalogue is the merged catalogue with this install's own entries resolved.
@@ -108,10 +187,7 @@ func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, 
 // not on PATH.
 func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.CatalogueEntry {
 	entries := agentws.Catalogue(ctx, s.store.Library().Library, s.lookPath())
-	base := ""
-	if s.mcpBase != nil {
-		base = s.mcpBase(ctx)
-	}
+	base := s.mcpBase.MCPBaseURL(ctx)
 	for i, entry := range entries {
 		descriptor, ok := mcpcatalog.Lookup(entry.ID)
 		// Shipped is false for a user entry shadowing this id, and the user's
@@ -139,17 +215,22 @@ func (s *AgentWorkspacesService) lookPath() func(context.Context, string) (strin
 	return s.execEnv.LookPath
 }
 
-// WorkspaceView is one row of the area's list. Autonomy is on it because a
+// WorkspaceView is one row of the area's list. Command is on it because a
 // workspace that can actuate the physical world says so where it is opened,
-// not where it was configured (spec §7.2).
+// not where it was configured (spec §7.2) — and with a free-form command the
+// only honest way to say it is to show the command.
 type WorkspaceView struct {
-	Dir      string   `json:"dir"`
-	Name     string   `json:"name"`
-	Agent    string   `json:"agent"`
-	Autonomy string   `json:"autonomy"`
-	MCPs     []string `json:"mcps"`
-	Skills   []string `json:"skills"`
-	Problem  string   `json:"problem"`
+	Dir     string   `json:"dir"`
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	MCPs    []string `json:"mcps"`
+	Skills  []string `json:"skills"`
+	Problem string   `json:"problem"`
+	// Danger reports that Command carries a known permission bypass. It
+	// replaces the posture enum's self-labelling: `full` used to name itself,
+	// a free-form command has to be read
+	// (ADR the-workspace-command-is-a-template).
+	Danger bool `json:"danger"`
 	// Notice mirrors SessionView.Notice's MCP explanation, shown on the
 	// workspace row itself: an agent whose wiring cannot bound its tool set to
 	// what the workspace declares says so before any session is even started
@@ -312,7 +393,7 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 		return OpenResult{}, err
 	}
 
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return OpenResult{}, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
@@ -376,7 +457,7 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	if !validWorkspaceDir(dir) {
 		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 	}
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
@@ -393,10 +474,10 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 // live tmux session is omitted rather than reported dead -- a row's
 // TerminalID already carries that.
 func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string) ([]SessionActivityItem, error) {
-	var records []store.AgentWorkspaceSession
+	var records []stores.AgentSession
 	var err error
 	if dir == "" {
-		records, err = s.db.ListAllAgentWorkspaceSessions(ctx)
+		records, err = s.sessions.ListAll(ctx)
 		if err != nil {
 			return nil, Wrap(err, KindInternal, "listing all sessions")
 		}
@@ -404,7 +485,7 @@ func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string
 		if !validWorkspaceDir(dir) {
 			return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 		}
-		records, err = s.db.ListAgentWorkspaceSessions(ctx, dir)
+		records, err = s.sessions.List(ctx, dir)
 		if err != nil {
 			return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 		}
@@ -433,22 +514,16 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	}
 	ws := st.Workspace
 
-	command, ok := s.commands[ws.Agent]
-	if !ok {
-		return SessionView{}, Errorf(KindInvalid, "agent %q is not configured", ws.Agent)
-	}
-
 	workspaceDir := filepath.Join(s.store.Root(), req.Workspace)
 	agentSessionID := uuid.NewString()
-	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), agentSessionID, false, req.Prompt)
+	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), agentSessionID, false, req.Prompt)
 	if err != nil {
-		return SessionView{}, agentLaunchError(err, ws.Agent)
+		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
 
-	now := time.Now().UnixMilli()
-	rec, err := s.db.CreateAgentWorkspaceSession(ctx, store.AgentWorkspaceSession{
-		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent, AgentSessionID: agentSessionID,
-		CreatedAt: now, LastOpenedAt: now, ScheduleID: req.ScheduleID,
+	rec, err := s.sessions.Create(ctx, stores.AgentSessionCreate{
+		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
+		ScheduleID: req.ScheduleID,
 		// The token is minted once and reused by every resume, so the
 		// process's environment is the same across launches.
 		EndToken: uuid.NewString(),
@@ -485,10 +560,7 @@ func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req 
 }
 
 func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
-	if s.mcpBase == nil {
-		return ""
-	}
-	base := s.mcpBase(ctx)
+	base := s.mcpBase.MCPBaseURL(ctx)
 	if base == "" {
 		return ""
 	}
@@ -503,25 +575,25 @@ func (s *AgentWorkspacesService) EndOwnSession(ctx context.Context, token string
 	if token == "" {
 		return SessionEnding{}, Errorf(KindUnauthenticated, "a session token is required")
 	}
-	rec, ok, err := s.db.GetAgentWorkspaceSessionByEndToken(ctx, token)
+	rec, err := s.sessions.GetByEndToken(ctx, token)
+	if stores.IsNotFound(err) {
+		return SessionEnding{}, Errorf(KindUnauthenticated, "no session holds that token")
+	}
 	if err != nil {
 		return SessionEnding{}, Wrap(err, KindInternal, "looking up the session a token names")
 	}
-	if !ok {
-		return SessionEnding{}, Errorf(KindUnauthenticated, "no session holds that token")
-	}
 
-	delay := defaultEndDelay
-	if s.endDelay != nil {
-		if configured := s.endDelay(ctx); configured > 0 {
-			delay = configured
-		}
+	delay := s.endDelay.SessionEndDelay(ctx)
+	if delay <= 0 {
+		delay = defaultEndDelay
 	}
-	view := s.sessionViews(ctx, []store.AgentWorkspaceSession{rec})[0]
+	view := s.sessionViews(ctx, []stores.AgentSession{rec})[0]
 	go s.endAfter(context.WithoutCancel(ctx), delay, view)
 	return SessionEnding{Session: view, EndsAt: time.Now().Add(delay)}, nil
 }
 
+// A scheduled chat that ended itself is what the Chats area is showing as
+// live, so the same wake-up a schedule write sends makes it re-read the list.
 func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Duration, view SessionView) {
 	time.Sleep(delay)
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -535,8 +607,8 @@ func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Durati
 		return
 	}
 	s.logger.Info().Int64("session", view.ID).Msg("a chat ended itself")
-	if s.OnSessionEnded != nil {
-		s.OnSessionEnded(view)
+	if view.ScheduleID != "" {
+		s.events.Publish(ctx, events.SchedulesUpdated{Workspace: view.Workspace})
 	}
 }
 
@@ -556,13 +628,18 @@ func (s *AgentWorkspacesService) SessionLive(ctx context.Context, id int64) (boo
 // persisted a conversation for (closed before its first message) also
 // relaunches fresh, silently, instead of dying on the agent's own
 // unknown-session error.
-func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
-	if err != nil {
-		return SessionView{}, Wrap(err, KindInternal, "loading session %d", id)
+func (s *AgentWorkspacesService) getSession(ctx context.Context, id int64) (stores.AgentSession, error) {
+	rec, err := s.sessions.Get(ctx, id)
+	if stores.IsNotFound(err) {
+		return stores.AgentSession{}, Errorf(KindNotFound, "session %d not found", id)
 	}
-	if !ok {
-		return SessionView{}, Errorf(KindNotFound, "session %d not found", id)
+	return rec, Wrap(err, KindInternal, "loading session %d", id)
+}
+
+func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
+	rec, err := s.getSession(ctx, id)
+	if err != nil {
+		return SessionView{}, err
 	}
 
 	name := sessionName(rec.ID)
@@ -575,14 +652,14 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		if err != nil {
 			return SessionView{}, err
 		}
-		if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
+		if err := s.sessions.Touch(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
 			return SessionView{}, Wrap(err, KindInternal, "recording session %q as opened", rec.Name)
 		}
 		return SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
 			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID,
 			Cols: window.Width, Rows: window.Height,
-			ResumeAttempted: agentws.SupportsResume(rec.Agent),
+			ResumeAttempted: true,
 		}, nil
 	}
 
@@ -592,17 +669,12 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 	ws := st.Workspace
 
-	command, ok := s.commands[ws.Agent]
-	if !ok {
-		return SessionView{}, Errorf(KindInvalid, "agent %q is not configured", ws.Agent)
-	}
-
-	resumeAttempted := agentws.SupportsResume(ws.Agent)
+	resumeAttempted := agentws.SupportsResume(ws.Command)
 	var resumeNotice string
 	switch {
 	case !resumeAttempted:
 		resumeNotice = "the previous conversation could not be resumed; this is a fresh session"
-	case !agentws.HasConversation(ws.Agent, rec.AgentSessionID):
+	case !agentws.HasConversation(ws.Agent(), rec.AgentSessionID):
 		// The agent persisted nothing under this id — the session ended before
 		// its first message — so its resume form would die in the pane ("No
 		// conversation found with session ID"). A fresh launch IS the
@@ -619,13 +691,13 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 
 	workspaceDir := filepath.Join(s.store.Root(), rec.Workspace)
-	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), sessionID, resumeAttempted, "")
+	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), sessionID, resumeAttempted, "")
 	if err != nil {
-		return SessionView{}, agentLaunchError(err, ws.Agent)
+		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
 
 	if sessionID != rec.AgentSessionID {
-		if err := s.db.SetAgentWorkspaceSessionAgentID(ctx, rec.ID, sessionID); err != nil {
+		if err := s.sessions.SetAgentID(ctx, rec.ID, sessionID); err != nil {
 			return SessionView{}, Wrap(err, KindInternal, "recording session %q", rec.Name)
 		}
 		rec.AgentSessionID = sessionID
@@ -640,12 +712,9 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 // CloseSession ends a session's live tmux session and reports whether there
 // was one running. The record is untouched, so it still lists afterward.
 func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bool, error) {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, err := s.getSession(ctx, id)
 	if err != nil {
-		return false, Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return false, Errorf(KindNotFound, "session %d not found", id)
+		return false, err
 	}
 	closed, err := s.terminals.KillSession(ctx, sessionName(rec.ID))
 	if err != nil {
@@ -662,14 +731,10 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 	if name == "" {
 		return Errorf(KindInvalid, "a session needs a name")
 	}
-	_, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
-	if err != nil {
-		return Wrap(err, KindInternal, "loading session %d", id)
+	if _, err := s.getSession(ctx, id); err != nil {
+		return err
 	}
-	if !ok {
-		return Errorf(KindNotFound, "session %d not found", id)
-	}
-	return Wrap(s.db.RenameAgentWorkspaceSession(ctx, id, name), KindInternal, "renaming session %d", id)
+	return Wrap(s.sessions.Rename(ctx, id, name), KindInternal, "renaming session %d", id)
 }
 
 // DeleteSession ends any live tmux session, then removes the record. The
@@ -677,17 +742,14 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 // the record around a live one would orphan a running agent no UI could
 // address again until it happened to be found by name.
 func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) error {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, err := s.getSession(ctx, id)
 	if err != nil {
-		return Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return Errorf(KindNotFound, "session %d not found", id)
+		return err
 	}
 	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
 		return terminalError(err, "closing session %q", rec.Name)
 	}
-	if err := s.db.DeleteAgentWorkspaceSession(ctx, id); err != nil {
+	if err := s.sessions.Delete(ctx, id); err != nil {
 		return Wrap(err, KindInternal, "deleting session %q", rec.Name)
 	}
 	return nil
@@ -706,7 +768,7 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if _, err := s.knownWorkspaceDir(dir); err != nil {
 		return err
 	}
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
@@ -718,16 +780,14 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if err := agentws.RemoveWorkspace(s.store.Root(), dir); err != nil {
 		return Wrap(err, KindInternal, "deleting workspace %q", dir)
 	}
-	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
-		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
-	}
-	// A cursor left behind would let a workspace rebuilt under the same
-	// directory name back-fire every occurrence its predecessor missed.
-	if err := s.db.DeleteScheduleRuns(ctx, dir); err != nil {
-		return Wrap(err, KindInternal, "deleting schedule runs for workspace %q", dir)
-	}
-	if err := s.db.DeleteScheduleCursors(ctx, dir); err != nil {
-		return Wrap(err, KindInternal, "deleting schedule cursors for workspace %q", dir)
+	err = s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.sessions.DeleteByWorkspace(ctx, dir); err != nil {
+			return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
+		}
+		return Wrap(s.schedules.DeleteByWorkspace(ctx, dir), KindInternal, "deleting schedule state for workspace %q", dir)
+	})
+	if err != nil {
+		return err
 	}
 	if err := s.store.Reload(); err != nil {
 		return Wrap(err, KindInternal, "reloading workspaces")
@@ -735,46 +795,57 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	return nil
 }
 
-// Agents lists the agent keys this build can launch, sorted — the choices a
-// workspace editor offers for its agent field.
-func (s *AgentWorkspacesService) Agents(context.Context) []string {
-	agents := make([]string, 0, len(s.commands))
-	for agent := range s.commands {
-		agents = append(agents, agent)
+// Presets lists the starter command templates the editor offers: the ones
+// this build ships, plus one per agent profile in hive's own config. A hive
+// profile contributes its command AND its flags, unlike the old seam that
+// stripped them — the flags are the reason to pick that profile, and here
+// they land in a manifest field the user reviews and can edit rather than
+// being spliced in at every launch (ADR the-workspace-command-is-a-template).
+//
+// Nothing here gates a launch. A user who ignores every preset and types
+// their own command gets exactly that.
+func (s *AgentWorkspacesService) Presets(context.Context) []agentws.Preset {
+	presets := agentws.BuiltinPresets()
+	shipped := make(map[string]bool, len(presets))
+	for _, p := range presets {
+		shipped[p.Agent] = true
 	}
-	sort.Strings(agents)
-	return agents
-}
-
-// AutonomyFlags reports, per agent, the CLI flags each autonomy posture
-// launches with — the launch table projected for the editor, so a posture
-// shows the authority it actually grants (--dangerously-skip-permissions is
-// something to read, not a euphemism to hide; ADR a-workspace-declares-its-own-authority §5's posture applied
-// to autonomy). A posture absent from an agent's map is one the launch would
-// refuse, which the editor disables.
-func (s *AgentWorkspacesService) AutonomyFlags(context.Context) map[string]map[string][]string {
-	table := agentws.AutonomyFlags()
-	out := make(map[string]map[string][]string, len(table))
-	for agent, postures := range table {
-		m := make(map[string][]string, len(postures))
-		for posture, flags := range postures {
-			m[string(posture)] = flags
+	for agent, command := range s.profileCommands {
+		if shipped[agent] {
+			// A shipped agent already has postures spelled out; hive's single
+			// profile line would only duplicate one of them, less precisely.
+			continue
 		}
-		out[agent] = m
+		// A profile is a command word plus flags and carries no wiring, so a
+		// profile running a CLI this build does know (a model-pinned "fable"
+		// profile running claude) gets that CLI's wiring appended — otherwise
+		// the preset would launch with no MCP servers and a session Hive
+		// cannot address.
+		command += agentws.WiringTailFor(command)
+		presets = append(presets, agentws.Preset{
+			ID: "hive-" + agent,
+			// A model-pinned "fable" profile keeps its own name and still
+			// marks itself as the claude it runs.
+			Agent:   agentws.AgentFor(command),
+			Label:   agent,
+			Command: command,
+			Danger:  agentws.CommandIsDangerous(command),
+			Source:  agentws.PresetSourceHive,
+		})
 	}
-	return out
+	agentws.SortPresets(presets)
+	return presets
 }
 
 // WorkspaceEdit names the manifest fields the in-app editor writes. Anything
 // else the manifest says is untouched — WriteManifest edits the document in
 // place, so comments and keys the editor does not own stay the user's.
 type WorkspaceEdit struct {
-	Dir      string
-	Name     string
-	Agent    string
-	Autonomy string
-	MCPs     []string
-	Skills   []string
+	Dir     string
+	Name    string
+	Command string
+	MCPs    []string
+	Skills  []string
 	// Schedules is the whole list: a write reconciles the manifest to exactly
 	// this, so an entry the editor dropped is deleted by the same call.
 	Schedules []ScheduleEdit
@@ -833,7 +904,7 @@ func (p SchedulePatch) apply(base schedule.Spec) schedule.Spec {
 
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
 	return agentws.ManifestEdit{
-		Name: strings.TrimSpace(e.Name), Agent: e.Agent, Autonomy: agentws.Autonomy(e.Autonomy),
+		Name: strings.TrimSpace(e.Name), Command: strings.TrimSpace(e.Command),
 		MCPs: e.MCPs, Skills: e.Skills, Schedules: e.specs(),
 	}
 }
@@ -853,11 +924,15 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return Errorf(KindInvalid, "a workspace needs a name")
 	}
-	if _, ok := s.commands[req.Agent]; !ok {
-		return Errorf(KindInvalid, "agent %q is not configured in this build", req.Agent)
+	command := strings.TrimSpace(req.Command)
+	if command == "" {
+		return Errorf(KindInvalid, "a workspace needs a command")
 	}
-	if !agentws.Autonomy(req.Autonomy).IsValid() {
-		return Errorf(KindInvalid, "autonomy %q is not valid (expected %s)", req.Autonomy, strings.Join(agentws.AutonomyNames(), ", "))
+	// The template is checked here rather than at launch, so a command that
+	// cannot render is refused by the editor that wrote it instead of by the
+	// session someone starts a day later.
+	if err := agentws.ValidateCommand(command); err != nil {
+		return Wrap(err, KindInvalid, "the command template is not valid")
 	}
 	for _, list := range []struct {
 		label  string
@@ -876,6 +951,9 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 			}
 			seen[id] = true
 		}
+	}
+	if len(req.Schedules) > 0 && !agentws.SupportsPrompt(command) {
+		return promptlessCommandError()
 	}
 	// The id shape, cron and prompt rules are the spec's own; repeating them
 	// here would be a second place for them to drift.
@@ -928,6 +1006,12 @@ func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, pa
 	st, err := s.editableWorkspace(dir)
 	if err != nil {
 		return ScheduleView{}, err
+	}
+	// Refused before the write rather than found by the loader after it: a
+	// schedule saved into a workspace whose command drops the prompt would
+	// turn the whole workspace into a problem the agent never asked for.
+	if !agentws.SupportsPrompt(st.Workspace.Command) {
+		return ScheduleView{}, promptlessCommandError()
 	}
 
 	id := strings.TrimSpace(patch.ID)
@@ -994,6 +1078,10 @@ func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id str
 	}
 	_, err = s.savedView(ctx, dir)
 	return err
+}
+
+func promptlessCommandError() error {
+	return Errorf(KindInvalid, "the workspace command does not pass a prompt to the agent, so it cannot run schedules; pick a shipped command or add%s to it", agentws.PromptTail)
 }
 
 // editableWorkspace refuses a manifest that does not parse: on the first load
@@ -1209,10 +1297,7 @@ func (s *AgentWorkspacesService) RemoveMCPServer(_ context.Context, id string) e
 // settings and the display title the UI labels the action with. An empty
 // command means none is configured.
 func (s *AgentWorkspacesService) Editor(ctx context.Context) (command, title string) {
-	if s.editorCommand == nil {
-		return "", ""
-	}
-	command, err := s.editorCommand(ctx)
+	command, err := s.editorCommand.Editor(ctx)
 	if err != nil || command == "" {
 		return "", ""
 	}
@@ -1281,6 +1366,7 @@ func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (Wor
 	if s.OnSchedulesChanged != nil {
 		s.OnSchedulesChanged(dir)
 	}
+	s.events.Publish(ctx, events.SchedulesUpdated{Workspace: dir})
 	return view, nil
 }
 
@@ -1289,12 +1375,9 @@ func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (Wor
 // stream with a window 'resized' event, which is what actually sets the
 // pane's grid; see AgentsMode's resize wiring.
 func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, cols, rows int) error {
-	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	rec, err := s.getSession(ctx, id)
 	if err != nil {
-		return Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return Errorf(KindNotFound, "session %d not found", id)
+		return err
 	}
 	client, ok := s.terminals.Client(sessionName(rec.ID))
 	if !ok {
@@ -1320,7 +1403,7 @@ type terminalLaunch struct {
 // the UI shows. Both StartSession and ResumeSession's relaunch branch always
 // want a fresh session here — ResumeSession's still-alive branch attaches
 // directly instead, without going through this method.
-func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, opts terminalLaunch) (SessionView, error) {
+func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.AgentSession, opts terminalLaunch) (SessionView, error) {
 	count, err := s.liveSessionCount(ctx)
 	if err != nil {
 		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "counting live agent sessions"))
@@ -1350,7 +1433,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "launching session %q", rec.Name))
 	}
 
-	if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
+	if err := s.sessions.Touch(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "recording session %q as opened", rec.Name)
 	}
 
@@ -1391,11 +1474,11 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 // one has no such reader, and a schedule firing every minute against a
 // reached cap would otherwise add a dead row a minute to the sidebar. Failing
 // to delete is not worth losing the launch error over.
-func (s *AgentWorkspacesService) discardDetached(ctx context.Context, rec store.AgentWorkspaceSession, opts terminalLaunch, cause error) error {
+func (s *AgentWorkspacesService) discardDetached(ctx context.Context, rec stores.AgentSession, opts terminalLaunch, cause error) error {
 	if !opts.detached {
 		return cause
 	}
-	_ = s.db.DeleteAgentWorkspaceSession(ctx, rec.ID)
+	_ = s.sessions.Delete(ctx, rec.ID)
 	return cause
 }
 
@@ -1534,7 +1617,7 @@ func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.W
 // sessionViews reports read-only rows for records -- unlike launchTerminal's
 // view, nothing here launches or attaches, so WindowID, ResumeAttempted and
 // Notice stay zero-valued.
-func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []store.AgentWorkspaceSession) []SessionView {
+func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []stores.AgentSession) []SessionView {
 	views := make([]SessionView, 0, len(records))
 	for _, rec := range records {
 		name := sessionName(rec.ID)
@@ -1556,16 +1639,18 @@ func (s *AgentWorkspacesService) workspaceView(ctx context.Context, st agentws.W
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
 	} else if st.Valid {
-		// A workspace whose manifest failed to parse has no trustworthy Agent
-		// field to explain, so the MCP notice is skipped rather than shown
-		// against whatever the zero value happens to be.
-		notice = mcpNotice(st.Workspace.Agent)
+		// A workspace whose manifest failed to parse has no trustworthy
+		// command to derive an agent from, so the MCP notice is skipped rather
+		// than shown against whatever the zero value happens to be.
+		notice = mcpNotice(st.Workspace.Agent())
 	}
 	return WorkspaceView{
-		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
-		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs,
-		Skills: st.Workspace.Skills, Problem: problem, Notice: notice,
-		Schedules: scheduleRows(ctx, s.db, s.logger, st.Workspace.Schedules, time.Now()),
+		Dir: st.Dir, Name: st.Workspace.Name,
+		Command: st.Workspace.Command, MCPs: st.Workspace.MCPs,
+		Skills: st.Workspace.Skills, Problem: problem,
+		Danger:    agentws.CommandIsDangerous(st.Workspace.Command),
+		Notice:    notice,
+		Schedules: s.history.rows(ctx, st.Workspace.Schedules, time.Now()),
 	}
 }
 
@@ -1626,7 +1711,7 @@ func skillIDFromSlug(slug string) (id string, ok bool) {
 // first — the sidebar's cross-workspace read, unlike Sessions which scopes
 // to one workspace.
 func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView, error) {
-	records, err := s.db.ListAllAgentWorkspaceSessions(ctx)
+	records, err := s.sessions.ListAll(ctx)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing all sessions")
 	}
@@ -1634,20 +1719,17 @@ func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView
 }
 
 // agentLaunchError classifies an agentws launch-resolution failure by
-// sentinel rather than by message (architecture.md, Errors). Every case here
-// traces back to an authored file being wrong -- the workspace's agent or
-// autonomy, or hive's own agent config -- so all are KindInvalid.
-func agentLaunchError(err error, agent string) error {
+// sentinel rather than by message (architecture.md, Errors). Both cases trace
+// back to the workspace's own command template, so both are KindInvalid — and
+// both are normally caught by validateEdit long before a launch, leaving this
+// for a manifest hand-edited on disk.
+func agentLaunchError(err error, dir string) error {
 	switch {
-	case errors.Is(err, agentws.ErrUnknownAgent):
-		return Wrap(err, KindInvalid, "agent %q has no launch mapping in this build", agent)
-	case errors.Is(err, agentws.ErrNoAutonomyMapping):
-		return Wrap(err, KindInvalid, "agent %q has no mapping for this workspace's autonomy posture", agent)
-	case errors.Is(err, agentws.ErrPostureUnavailable):
-		return Wrap(err, KindInvalid, "agent %q has no known MCP wiring, so this autonomy posture is unavailable", agent)
-	case errors.Is(err, agentws.ErrCommandNotASingleWord):
-		return Wrap(err, KindInvalid, "agent %q's configured command must be a single word", agent)
+	case errors.Is(err, agentws.ErrCommandEmpty):
+		return Wrap(err, KindInvalid, "workspace %q has a command that renders to nothing", dir)
+	case errors.Is(err, agentws.ErrCommandTemplate):
+		return Wrap(err, KindInvalid, "workspace %q has an invalid command template", dir)
 	default:
-		return Wrap(err, KindInternal, "resolving the launch for agent %q", agent)
+		return Wrap(err, KindInternal, "resolving the launch for workspace %q", dir)
 	}
 }

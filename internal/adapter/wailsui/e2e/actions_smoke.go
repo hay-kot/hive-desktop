@@ -11,10 +11,12 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	_ "modernc.org/sqlite"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // actionSmokePath is intentionally available only in the dedicated Docker e2e
@@ -63,17 +65,17 @@ type actionSmokeState struct {
 // core is the raw connection to the vendored Hive action database (sessions,
 // messages) — the caller passes app.App.HiveConn() rather than the vendored
 // *coredb.DB itself.
-func SmokeMiddleware(pipeline *store.DB, core *sql.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
+func SmokeMiddleware(pipeline *queries.DB, st *stores.Stores, core *sql.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
 	mock := ""
 	if reset != nil {
 		mock = reset.mock
 	}
 	return func(next http.Handler) http.Handler {
-		return actionSmokeMiddleware(pipeline, core, mock)(sourceToCommitSmokeMiddleware(pipeline, mock, onAppended)(stateResetMiddleware(reset)(next)))
+		return actionSmokeMiddleware(pipeline, core, mock)(sourceToCommitSmokeMiddleware(pipeline, st, mock, onAppended)(stateResetMiddleware(reset)(next)))
 	}
 }
 
-func actionSmokeMiddleware(pipeline *store.DB, core *sql.DB, mock string) application.Middleware {
+func actionSmokeMiddleware(pipeline *queries.DB, core *sql.DB, mock string) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if !actionSmokeHarnessEnabled(mock) {
 			return next
@@ -105,7 +107,7 @@ func actionSmokeMiddleware(pipeline *store.DB, core *sql.DB, mock string) applic
 // It compares the live snapshot to separately reopened, read-only SQLite
 // connections and returns the reopened rows. Neither reopen can migrate,
 // recover commands, or create a database file.
-func readActionSmokeState(ctx context.Context, pipeline *store.DB, core *sql.DB) (actionSmokeState, error) {
+func readActionSmokeState(ctx context.Context, pipeline *queries.DB, core *sql.DB) (actionSmokeState, error) {
 	runID := desktopSmokeRunID()
 	if runID == "" {
 		return actionSmokeState{}, fmt.Errorf("action smoke run id is required")

@@ -54,7 +54,7 @@ import { useAppPaletteRows } from './composables/useAppPaletteRows'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
-import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import { Feed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
   isApplicationSettingsSection,
@@ -502,7 +502,7 @@ async function revealNotification(activation: NotificationActivation): Promise<v
   }
   let feedId = ''
   try {
-    feedId = (await InboxItemFeed(profileId, itemId)) ?? ''
+    feedId = (await Feed(profileId, itemId)) ?? ''
   } catch (error) {
     console.warn('Unable to locate the notified item', error)
   }

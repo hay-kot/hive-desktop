@@ -1,0 +1,538 @@
+.md-header__button.md-logo img,.md-header__button.md-logo svg  {
+  color: var(--md-accent-fg-color) !important;
+}
+
+.md-main__inner:has(.hive-hero) {
+  max-width: min(94vw, 86rem);
+}
+
+html:has(.hive-hero) .md-header .md-grid,
+html:has(.hive-hero) .md-tabs .md-grid {
+  max-width: min(94vw, 86rem);
+}
+
+.md-main__inner:has(.hive-hero) > .md-sidebar {
+  display: none;
+}
+
+.md-main__inner:has(.hive-hero) > .md-content {
+  margin-inline: 0;
+  max-width: none;
+}
+
+.md-content__inner:has(.hive-hero) {
+  margin-inline: 0;
+  max-width: none;
+}
+
+.md-content__inner:has(.hive-hero)::before {
+  display: none;
+}
+
+.md-typeset .hive-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  max-width: 54rem;
+  margin: 1.6rem auto 2.4rem;
+  padding-top: 1.2rem;
+  text-align: center;
+}
+
+.md-typeset .hive-hero::before {
+  position: absolute;
+  inset: -3rem 0 auto;
+  z-index: -1;
+  height: 26rem;
+  background:
+    radial-gradient(55% 45% at 50% 40%, color-mix(in srgb, var(--md-accent-fg-color) 14%, transparent), transparent 70%),
+    radial-gradient(32% 40% at 28% 30%, color-mix(in srgb, #9ccfd8 8%, transparent), transparent 70%);
+  content: "";
+  pointer-events: none;
+}
+
+.md-typeset .hive-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.8rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 38%, transparent);
+  border-radius: 999px;
+  color: var(--md-accent-fg-color);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.md-typeset .hive-eyebrow svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.md-typeset .hive-hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5.2vw, 3.5rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+}
+
+.md-typeset .hive-lede {
+  max-width: 42rem;
+  margin: 1rem 0 0.4rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.md-typeset .hive-hero__actions,
+.md-typeset .hive-cta__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.7rem;
+  margin: 1rem 0;
+}
+
+.md-typeset .hive-hero__actions {
+  margin: 1.1rem 0 0.9rem;
+}
+
+.md-typeset .hive-hero__actions .md-button,
+.md-typeset .hive-cta__actions .md-button {
+  border-color: color-mix(in srgb, var(--md-accent-fg-color) 48%, transparent);
+  border-radius: 999px;
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .hive-hero__actions .md-button--primary,
+.md-typeset .hive-cta__actions .md-button--primary {
+  background: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+
+.md-typeset .hive-hero__actions .md-button:not(.md-button--primary) {
+  background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+}
+
+.md-typeset .hive-hero__actions .md-button:hover,
+.md-typeset .hive-cta__actions .md-button:hover {
+  background: color-mix(in srgb, var(--md-accent-fg-color) 86%, white);
+  border-color: color-mix(in srgb, var(--md-accent-fg-color) 86%, white);
+  color: var(--md-accent-bg-color);
+}
+
+.md-typeset .hive-install {
+  width: min(100%, 30rem);
+  min-width: 0;
+  margin-top: 0.4rem;
+  text-align: left;
+}
+
+.md-typeset .hive-install pre {
+  margin: 0;
+}
+
+.md-typeset .hive-install pre > code {
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 22%, var(--md-default-fg-color--lightest));
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--md-code-bg-color) 88%, var(--md-accent-fg-color) 12%);
+}
+
+.md-typeset .hive-hero__note {
+  margin: 0.5rem 0 0;
+  color: var(--md-default-fg-color--light);
+  font-family: var(--md-code-font-family), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.02em;
+}
+
+.md-typeset .hive-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 2rem 0 3rem;
+}
+
+.md-typeset .hive-strip a,
+.md-typeset .hive-cta {
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 20%, var(--md-default-fg-color--lightest));
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--md-default-bg-color) 96%, var(--md-accent-fg-color) 4%);
+}
+
+.md-typeset .hive-strip a {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.15rem 0.75rem;
+  align-content: start;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  color: var(--md-default-fg-color);
+  text-decoration: none;
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.md-typeset .hive-strip a:hover {
+  border-color: color-mix(in srgb, var(--md-accent-fg-color) 42%, transparent);
+  background: color-mix(in srgb, var(--md-default-bg-color) 92%, var(--md-accent-fg-color) 8%);
+}
+
+.md-typeset .hive-strip__icon {
+  display: inline-grid;
+  place-items: center;
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 2.1rem;
+  height: 2.1rem;
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 30%, transparent);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .hive-strip__icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.md-typeset .hive-strip strong {
+  font-size: 0.95rem;
+}
+
+.md-typeset .hive-strip__desc {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.md-typeset .hive-showcase {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 2rem 3rem;
+  align-items: center;
+  margin: 3.2rem 0;
+  scroll-margin-top: 4.5rem;
+}
+
+.md-typeset .hive-showcase + .hive-showcase {
+  padding-top: 3.2rem;
+  border-top: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 12%, var(--md-default-fg-color--lightest));
+}
+
+.md-typeset .hive-showcase--flip .hive-showcase__copy {
+  order: 2;
+}
+
+.md-typeset .hive-showcase__copy {
+  min-width: 0;
+}
+
+.md-typeset .hive-showcase__copy h2 {
+  margin: 0 0 0.8rem;
+  font-size: clamp(1.7rem, 3.4vw, 2.4rem);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.md-typeset .hive-showcase__copy > p {
+  margin: 0;
+  color: var(--md-default-fg-color--light);
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.md-typeset .hive-showcase__copy ul {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1.3rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.md-typeset .hive-showcase__copy li {
+  position: relative;
+  margin: 0;
+  padding-left: 1.3rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.md-typeset .hive-showcase__copy li::before {
+  position: absolute;
+  top: 0.55rem;
+  left: 0;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--md-accent-fg-color);
+  content: "";
+}
+
+.md-typeset .hive-showcase__copy li strong {
+  color: var(--md-default-fg-color);
+}
+
+.md-typeset .hive-showcase__link {
+  display: inline-block;
+  margin-top: 1.4rem;
+  color: var(--md-accent-fg-color);
+  font-weight: 700;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.md-typeset .hive-showcase__link::after {
+  margin-left: 0.35rem;
+  content: "\2192";
+}
+
+.md-typeset .hive-demo {
+  width: auto;
+  max-width: none;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 34%, var(--md-default-fg-color--lightest));
+  border-radius: 1rem;
+  background: #111318;
+  box-shadow:
+    0 1.2rem 3.5rem rgba(0, 0, 0, 0.28),
+    0 0 5rem color-mix(in srgb, var(--md-accent-fg-color) 10%, transparent);
+  text-align: left;
+}
+
+.md-typeset .hive-demo__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.md-typeset .hive-demo__bar span {
+  width: 0.68rem;
+  height: 0.68rem;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.md-typeset .hive-demo__bar span:nth-child(2) { background: #ffbd2e; }
+.md-typeset .hive-demo__bar span:nth-child(3) { background: #28c840; }
+
+.md-typeset .hive-demo__bar strong {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.md-typeset .hive-demo__video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto 16 / 10;
+  background: #0d0f13;
+}
+
+.md-typeset .hive-demo__placeholder {
+  display: none;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  color: rgba(232, 235, 241, 0.5);
+  font-family: var(--md-code-font-family), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.md-typeset .hive-demo--missing .hive-demo__video {
+  display: none;
+}
+
+.md-typeset .hive-demo--missing .hive-demo__placeholder {
+  display: grid;
+}
+
+.md-typeset .hive-cta p {
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .hive-cta {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 2rem 0;
+  padding: 1.3rem;
+}
+
+.md-typeset .hive-cta h2 {
+  margin: 0;
+}
+
+.md-typeset .hive-hero__meta {
+  margin: 0.1rem 0 0.9rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.78rem;
+}
+
+.md-typeset .hive-downloads {
+  margin: 1rem 0 1.4rem;
+}
+
+.md-typeset .hive-downloads__release {
+  display: inline-block;
+  margin: 0 0 0.6rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 38%, transparent);
+  border-radius: 999px;
+  color: var(--md-accent-fg-color);
+  font-family: var(--md-code-font-family), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.md-typeset .hive-downloads__list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.md-typeset .hive-downloads__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.3rem 1rem;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--md-accent-fg-color) 20%, var(--md-default-fg-color--lightest));
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--md-default-bg-color) 96%, var(--md-accent-fg-color) 4%);
+}
+
+.md-typeset .hive-downloads__name {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.md-typeset .hive-downloads__name strong {
+  font-size: 0.85rem;
+}
+
+.md-typeset .hive-downloads__note {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.75rem;
+}
+
+.md-typeset .hive-downloads__size {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.md-typeset .hive-downloads__row .md-button {
+  margin: 0;
+  padding: 0.2rem 0.8rem;
+  border-color: var(--md-accent-fg-color);
+  border-radius: 999px;
+  background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+  font-size: 0.72rem;
+}
+
+.md-typeset .hive-downloads__row .md-button:hover {
+  background: color-mix(in srgb, var(--md-accent-fg-color) 86%, white);
+  border-color: color-mix(in srgb, var(--md-accent-fg-color) 86%, white);
+  color: var(--md-accent-bg-color);
+}
+
+.md-typeset details.hive-downloads__checksums {
+  margin: 0.7rem 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 0.76rem;
+}
+
+.md-typeset details.hive-downloads__checksums > summary {
+  padding: 0 0 0 1.1rem;
+  border: 0;
+  background: none;
+  color: var(--md-default-fg-color--light);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.md-typeset details.hive-downloads__checksums > summary::before,
+.md-typeset details.hive-downloads__checksums > summary::after {
+  top: 0.15rem;
+  left: 0;
+  width: 0.8rem;
+  height: 0.8rem;
+  background-color: currentcolor;
+}
+
+/* The theme draws the admonition icon in ::before and the twisty in ::after. */
+.md-typeset details.hive-downloads__checksums > summary::before {
+  display: none;
+}
+
+.md-typeset details.hive-downloads__checksums > pre {
+  margin: 0.5rem 0 0;
+}
+
+.md-typeset details.hive-downloads__checksums code {
+  font-size: 0.66rem;
+}
+
+@media screen and (max-width: 960px) {
+  .md-typeset .hive-strip,
+  .md-typeset .hive-showcase {
+    grid-template-columns: 1fr;
+  }
+
+  .md-typeset .hive-showcase {
+    gap: 1.4rem;
+    margin: 2.6rem 0;
+  }
+
+  .md-typeset .hive-showcase + .hive-showcase {
+    padding-top: 2.6rem;
+  }
+
+  .md-typeset .hive-showcase--flip .hive-showcase__copy {
+    order: 0;
+  }
+
+  .md-typeset .hive-cta {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+}
+
+@media screen and (max-width: 560px) {
+  .md-typeset .hive-downloads__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .md-typeset .hive-downloads__name {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .hive-strip a {
+    transition: none;
+  }
+}

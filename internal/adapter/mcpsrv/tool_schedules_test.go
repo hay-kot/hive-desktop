@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 )
 
 // seedWorkspace writes one agent workspace's manifest under the config dir
@@ -41,8 +43,8 @@ type scheduleRow struct {
 func TestScheduleToolsEditOneWorkspaceEntryInPlace(t *testing.T) {
 	var demoManifest string
 	_, session := testSession(t,
-		seedWorkspace("demo", "# keep me\nversion: 2\nname: Demo\nagent: claude\nautonomy: ask\n", &demoManifest),
-		seedWorkspace("broken", "version: 2\nname: Broken\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n", nil),
+		seedWorkspace("demo", "# keep me\nversion: 5\nname: Demo\ncommand: claude"+agentws.PromptTail+"\n", &demoManifest),
+		seedWorkspace("broken", "version: 5\nname: Broken\ncommand: claude"+agentws.PromptTail+"\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n", nil),
 	)
 
 	var workspaces struct {

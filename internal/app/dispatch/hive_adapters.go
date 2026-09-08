@@ -8,14 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
-	"github.com/rs/zerolog"
 )
 
 // AgentActivityStatus is this app's own vocabulary for a captured tmux pane's
@@ -226,7 +227,7 @@ type SessionPullRequest struct {
 // session created for it, so the item can find the session again after a
 // restart. Consumer-defined: the launcher needs one write, not a store.
 type ItemSessionLinker interface {
-	LinkItemSession(ctx context.Context, sessionID string, ref store.ItemRef) error
+	Link(ctx context.Context, sessionID string, ref models.ItemRef) error
 }
 
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
@@ -282,7 +283,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	// returned: reporting the launch as failed would be a lie, and would
 	// invite a retry that creates a second session.
 	if l.links != nil && linked {
-		if linkErr := l.links.LinkItemSession(ctx, s.ID, req.Origin); linkErr != nil {
+		if linkErr := l.links.Link(ctx, s.ID, req.Origin); linkErr != nil {
 			l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Msg("linking session to its inbox item")
 		}
 	}

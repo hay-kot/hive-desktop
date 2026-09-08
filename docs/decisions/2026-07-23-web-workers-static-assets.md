@@ -1,6 +1,6 @@
 # Landing page as Cloudflare Workers static assets
 
-- **Status:** accepted
+- **Status:** accepted; the site behind the assets is amended by [ADR the-site-is-zensical-built-under-mise-served-as-worker-static-assets](2026-09-07-the-site-is-zensical-built-under-mise-served-as-worker-static-assets.md) — the hosting decision here still holds
 - **Date:** 2026-07-23
 
 ## Context

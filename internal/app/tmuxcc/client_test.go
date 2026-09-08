@@ -9,7 +9,6 @@ import (
 	"io"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -527,14 +526,14 @@ func TestOversizedOutputReachesTheSubscriber(t *testing.T) {
 }
 
 // v1 renders one pane per window. The others are consumed so tmux never
-// stalls on us, and measured, but never forwarded.
+// stalls on us, and measured, but never forwarded. That they are measured is
+// TestDrainedPaneOutputIsStillCounted's to assert.
 func TestOutputFromANonActivePaneIsDrainedNotForwarded(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
 	f.setWindows("@1 1 %1 120 1 claude")
-	metrics := &fakeMetrics{}
-	client := attachFake(t, f, Options{Metrics: metrics})
+	client := attachFake(t, f, Options{})
 
 	f.emit("%window-pane-changed @1 %2")
 	f.emit(`%output %1 background\015\012`)
@@ -544,8 +543,6 @@ func TestOutputFromANonActivePaneIsDrainedNotForwarded(t *testing.T) {
 	defer unsubscribe()
 
 	require.NotContains(t, outputData(events, "@1"), "background")
-	require.Equal(t, len("background\r\nforeground\r\n"), metrics.bytes("hive-demo", "@1"),
-		"the drained pane is still measured")
 }
 
 func TestWriteSendsHexChunks(t *testing.T) {
@@ -913,14 +910,17 @@ func TestProtocolDesyncTearsDownTheClient(t *testing.T) {
 	require.True(t, sawError, "the desync is reported before the exit")
 }
 
-func TestMetricsSinkReceivesTelemetry(t *testing.T) {
-	t.Parallel()
-
+// Not parallel, and neither is TestDrainedPaneOutputIsStillCounted: the
+// instruments carry no session attribute, so every client in the process writes
+// to the same series and a concurrent test would land in this delta. Go defers
+// parallel tests to the end of the package, which leaves these two alone.
+func TestStreamInstrumentsRecord(t *testing.T) {
 	f := newFakeTmux(t, "hive-demo")
 	f.setWindows("@1 1 %1 120 1 claude")
 	f.setCapture("%1", "ready")
-	metrics := &fakeMetrics{}
-	client := attachFake(t, f, Options{Metrics: metrics})
+
+	before := readStreamCounts(t)
+	client := attachFake(t, f, Options{})
 
 	f.emit(`%output %1 live\015\012`)
 	f.emit("%pause %1")
@@ -929,10 +929,29 @@ func TestMetricsSinkReceivesTelemetry(t *testing.T) {
 	_, unsubscribe := subscribeAndCollect(t, client, lifecycleIs(LifecycleResumed))
 	defer unsubscribe()
 
-	require.Equal(t, len("ready")+len("live\r\n"), metrics.bytes("hive-demo", "@1"))
-	require.Equal(t, 1, metrics.pauses())
-	require.Equal(t, 1, metrics.resumes())
-	require.True(t, metrics.sawDepth())
+	after := readStreamCounts(t)
+	require.Equal(t, int64(len("ready")+len("live\r\n")), after.bytes-before.bytes)
+	require.Equal(t, int64(1), after.paused-before.paused)
+	require.Equal(t, int64(1), after.resumed-before.resumed)
+	require.Greater(t, after.depth, before.depth, "a publish records the backlog depth")
+}
+
+func TestDrainedPaneOutputIsStillCounted(t *testing.T) {
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 1 claude")
+
+	before := readStreamCounts(t)
+	client := attachFake(t, f, Options{})
+
+	f.emit("%window-pane-changed @1 %2")
+	f.emit(`%output %1 background\015\012`)
+	f.emit(`%output %2 foreground\015\012`)
+
+	_, unsubscribe := subscribeAndCollect(t, client, outputContains("@1", "foreground"))
+	defer unsubscribe()
+
+	after := readStreamCounts(t)
+	require.Equal(t, int64(len("background\r\nforeground\r\n")), after.bytes-before.bytes)
 }
 
 func TestAttachRejectsBadOptions(t *testing.T) {
@@ -963,66 +982,4 @@ func subscribeAndCollect(t *testing.T, client *Client, stop func(Event) bool) ([
 	t.Helper()
 	ch, unsubscribe := client.Subscribe()
 	return collect(t, ch, stop), unsubscribe
-}
-
-type fakeMetrics struct {
-	mu       sync.Mutex
-	streamed map[string]int
-	pause    int
-	resume   int
-	depth    int
-}
-
-func (m *fakeMetrics) BytesStreamed(session, window string, n int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.streamed == nil {
-		m.streamed = map[string]int{}
-	}
-	m.streamed[session+"/"+window] += n
-}
-
-func (m *fakeMetrics) FrameLatency(string, string, time.Duration) {}
-
-func (m *fakeMetrics) PauseEvent(string, string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.pause++
-}
-
-func (m *fakeMetrics) ResumeEvent(string, string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.resume++
-}
-
-func (m *fakeMetrics) StreamBufferDepth(_, _ string, depth int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.depth++
-	_ = depth
-}
-
-func (m *fakeMetrics) bytes(session, window string) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.streamed[session+"/"+window]
-}
-
-func (m *fakeMetrics) pauses() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.pause
-}
-
-func (m *fakeMetrics) resumes() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.resume
-}
-
-func (m *fakeMetrics) sawDepth() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.depth > 0
 }

@@ -3,6 +3,7 @@ package mcpsrv_test
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"image"
 	"image/png"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -20,11 +22,14 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
+
+var update = flag.Bool("update", false, "rewrite golden files")
 
 // testSession builds the app over a fresh config root and drives the real MCP
 // server through a real MCP client over the SDK's in-memory transport pair.
@@ -77,7 +82,7 @@ func testSession(t *testing.T, seedConfig ...func(t *testing.T, configDir string
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
 	t.Helper()
-	item, err := core.Store.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+	item, err := stores.NewSeed(core.PipelineDB()).InboxItem(t.Context(), stores.InboxItem{
 		ProfileID: profile, SourceKind: "github", SourceScope: "s", ExternalID: external,
 		Payload: []byte(payload), Lifecycle: "active",
 	})
@@ -151,6 +156,67 @@ func TestToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 		"list_workspaces", "list_schedules", "put_schedule", "remove_schedule",
 		"preview_schedule", "schedule_runs",
 	}, names)
+}
+
+func TestToolsListMatchesGolden(t *testing.T) {
+	_, session := testSession(t)
+
+	res, err := session.ListTools(t.Context(), nil)
+	require.NoError(t, err)
+	sort.Slice(res.Tools, func(i, j int) bool { return res.Tools[i].Name < res.Tools[j].Name })
+	assertGoldenJSON(t, "tools_list.json", res.Tools)
+}
+
+func TestInboxToolsMatchGolden(t *testing.T) {
+	core, session := testSession(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
+
+	seed := stores.NewSeed(core.PipelineDB())
+	item, err := seed.InboxItem(t.Context(), stores.InboxItem{
+		ProfileID: "hooks", SourceKind: "webhook", SourceScope: "ci", ExternalID: "golden-1",
+		Title: "Golden item", URL: "https://example.test/items/golden-1", Payload: []byte(`{"number":1}`),
+		Unread: true, Lifecycle: "active", FirstSeenAt: 1_700_000_000_000, LastEventAt: 1_700_000_001_000,
+	})
+	require.NoError(t, err)
+	require.NoError(t, core.Stores.FeedClaims.Upsert(t.Context(), models.FeedClaim{
+		ProfileID: "hooks", FeedID: "hooks/inbox", ItemID: item.ID, SourceID: "source:hooks/hook",
+	}))
+	_, err = seed.InboxEvent(t.Context(), stores.InboxEvent{
+		ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Summary: "Golden event",
+		Detail: []byte(`{"changed":"title"}`), CreatedAt: 1_700_000_002_000,
+	})
+	require.NoError(t, err)
+
+	assertGoldenToolResponse(t, session, "list_feeds", map[string]any{"profile": "hooks"})
+	assertGoldenToolResponse(t, session, "list_inbox", map[string]any{"profile": "hooks", "detail": "full"})
+	assertGoldenToolResponse(t, session, "list_inbox_item_events", map[string]any{"itemId": item.ID, "detail": "full"})
+	assertGoldenToolResponse(t, session, "list_item_sessions", map[string]any{"itemId": item.ID})
+}
+
+func assertGoldenToolResponse(t *testing.T, session *mcp.ClientSession, name string, args any) {
+	t.Helper()
+	res, err := session.CallTool(t.Context(), &mcp.CallToolParams{Name: name, Arguments: args})
+	require.NoError(t, err)
+	require.False(t, res.IsError, "tool %s reported an error: %s", name, textOf(res))
+	require.NotNil(t, res.StructuredContent, "tool %s returned no structured content", name)
+	assertGoldenJSON(t, "inbox_"+name+".json", res.StructuredContent)
+}
+
+func assertGoldenJSON(t *testing.T, name string, value any) {
+	t.Helper()
+	got, err := json.MarshalIndent(value, "", "  ")
+	require.NoError(t, err)
+	got = append(got, '\n')
+
+	path := filepath.Join("testdata", name)
+	if *update {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, got, 0o600))
+		return
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err, "run go test ./internal/adapter/mcpsrv/ -run %s -update", t.Name())
+	assert.Equal(t, string(want), string(got))
 }
 
 func TestGetStatusReportsTheBuildAndWebhookListener(t *testing.T) {
@@ -393,9 +459,9 @@ func TestListItemSessionsResolvesAnItemAndReconcilesOnRead(t *testing.T) {
 	assert.Contains(t, callErr(t, session, "list_item_sessions", map[string]any{"externalId": "PR_1"}),
 		string(app.KindConflict), "one external id matched two items")
 
-	ref, err := core.Store.ItemRefByID(t.Context(), id)
+	ref, err := core.Stores.InboxItems.RefByID(t.Context(), id)
 	require.NoError(t, err)
-	require.NoError(t, core.Store.LinkItemSession(t.Context(), "sess-a", ref))
+	require.NoError(t, core.Stores.ItemSessions.Link(t.Context(), "sess-a", ref))
 
 	var got struct {
 		Sessions []struct {
@@ -405,7 +471,7 @@ func TestListItemSessionsResolvesAnItemAndReconcilesOnRead(t *testing.T) {
 	call(t, session, "list_item_sessions", map[string]any{"itemId": id}, &got)
 	assert.Empty(t, got.Sessions, "a link hive cannot account for is dropped rather than reported as a ghost")
 
-	links, err := core.Store.ItemSessions(t.Context(), ref)
+	links, err := core.Stores.ItemSessions.List(t.Context(), ref)
 	require.NoError(t, err)
 	assert.Empty(t, links)
 }
@@ -787,8 +853,8 @@ func TestExecuteFlowNeedsExactlyOneFlowSource(t *testing.T) {
 }
 
 // A JSON-object payload has to survive the schema and reach the node. It is
-// worth asserting because store.Msg carries its payload as json.RawMessage,
-// whose inferred schema is an array — passing store.Msg straight through as
+// worth asserting because models.Msg carries its payload as json.RawMessage,
+// whose inferred schema is an array — passing models.Msg straight through as
 // the tool's input type makes every real payload unrepresentable.
 func TestExecuteFlowDeliversAnObjectPayloadAndCommitsNothing(t *testing.T) {
 	core, session := testSession(t)

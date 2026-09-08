@@ -123,7 +123,7 @@ func TestCheckRefsSkipsReleasedMigrations(t *testing.T) {
 
 	adrs := []ADR{{Name: "2026-07-28-terminal-transport.md", Slug: "terminal-transport"}}
 	files := []sourceFile{{
-		Path:    "internal/app/store/migrations/0007_item_session.up.sql",
+		Path:    "internal/app/data/queries/migrations/0007_item_session.up.sql",
 		Content: "-- the item an action ran against (ADR 0060).",
 	}}
 	if got := checkRefs(adrs, files); len(got) > 0 {

@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func isolateSettings(t *testing.T) {
@@ -24,7 +25,7 @@ func testSettingsStore(t *testing.T) *settings.Store {
 }
 
 func TestWebhookServiceInfoWithoutListener(t *testing.T) {
-	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 24483)
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 24483})
 	running, port := service.Endpoint(t.Context())
 	assert.False(t, running)
 	assert.Equal(t, 24483, port)
@@ -32,19 +33,18 @@ func TestWebhookServiceInfoWithoutListener(t *testing.T) {
 }
 
 func TestWebhookServiceCapture(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	service := newWebhookService(testSettingsStore(t), db, nil, "127.0.0.1", 24483)
+	captures := stores.New(db, stores.Options{}).WebhookCaptures
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: captures, Listener: nil, Host: "127.0.0.1", Port: 24483})
 
 	view, err := service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.Zero(t, view.ReceivedAt)
 
 	ctx := t.Context()
-	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
-		Topic: "source:triage/hook", ReceivedAt: 42, Body: []byte(`{"event":"deploy"}`),
-	}))
+	require.NoError(t, captures.Upsert(ctx, "source:triage/hook", 42, []byte(`{"event":"deploy"}`)))
 	view, err = service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), view.ReceivedAt)
@@ -54,7 +54,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 
 func TestWebhookServiceSettingsDefaultEnabled(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 0})
 
 	view, err := service.State(t.Context())
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestWebhookServiceSettingsDefaultEnabled(t *testing.T) {
 func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 	isolateSettings(t)
 	t.Setenv(settings.EnvHTTPPort, "24499")
-	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 24499)
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 24499})
 
 	view, err := service.State(t.Context())
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 
 func TestWebhookServiceSetSettings(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 0})
 	cfg := settings.DefaultSettings()
 	cfg.Polling.Interval = settings.Duration(2 * time.Minute)
 	require.NoError(t, settings.SaveSettings(cfg))
@@ -99,7 +99,7 @@ func TestWebhookServiceSetSettings(t *testing.T) {
 
 func TestWebhookServiceSetSettingsValidation(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 0})
 
 	for _, tc := range []struct {
 		host string
@@ -114,7 +114,7 @@ func TestWebhookServiceSetSettingsValidation(t *testing.T) {
 
 func TestWebhookServiceGeneratePort(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(WebhookDeps{Settings: testSettingsStore(t), Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 0})
 	port, err := service.GeneratePort(t.Context())
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, port, settings.WebhookPortMin)

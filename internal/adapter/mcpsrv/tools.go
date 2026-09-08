@@ -183,7 +183,7 @@ func (ctrl *Controller) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:  "list_workspaces",
 		Title: "List agent workspaces",
-		Description: "List every agent workspace with its agent, autonomy posture and schedule ids. " +
+		Description: "List every agent workspace with its command template, whether that command carries a permission bypass (danger), and its schedule ids. " +
 			"dir is what every schedule tool's workspace argument takes. A workspace whose manifest does not parse still lists, " +
 			"with problem set; it refuses schedule writes until the file is fixed.",
 	}, ctrl.ListWorkspaces)

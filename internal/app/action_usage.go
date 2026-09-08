@@ -6,21 +6,21 @@ import (
 	"sort"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // actionUsage answers "is anything still using this action?" by joining the
 // loaded flows with the nonterminal output-command queue. It satisfies
 // actions.ActionUsageChecker, which is deliberately narrow so the actions
-// catalog depends on neither flow nor the store.
+// catalog depends on neither flow nor the stores.
 type actionUsage struct {
-	flows *flow.FlowStore
-	db    *store.DB
+	flows    *flow.FlowStore
+	commands *stores.OutputCommandStore
 }
 
-func newActionUsage(flows *flow.FlowStore, db *store.DB) actionUsage {
-	return actionUsage{flows: flows, db: db}
+func newActionUsage(flows *flow.FlowStore, commands *stores.OutputCommandStore) actionUsage {
+	return actionUsage{flows: flows, commands: commands}
 }
 
 func (c actionUsage) Usage(ctx context.Context, id string) (actions.ActionUsage, error) {
@@ -34,7 +34,7 @@ func (c actionUsage) Usage(ctx context.Context, id string) (actions.ActionUsage,
 		}
 	}
 
-	count, err := c.db.Queries().CountNonterminalCommandsForAction(ctx, id)
+	count, err := c.commands.CountNonterminalForAction(ctx, id)
 	if err != nil {
 		return usage, fmt.Errorf("counting nonterminal output commands: %w", err)
 	}

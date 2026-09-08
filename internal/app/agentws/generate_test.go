@@ -15,7 +15,7 @@ import (
 )
 
 func testWorkspace() Workspace {
-	return Workspace{Dir: "demo", Version: 1, Name: "Demo", Agent: "claude", Autonomy: AutonomyAsk}
+	return Workspace{Dir: "demo", Version: 1, Name: "Demo", Command: "claude"}
 }
 
 func testServers() map[string]mcpcatalog.Server {
@@ -168,7 +168,7 @@ func TestGenerateReplacesGeneratedAndLeavesAuthored(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "AGENTS.md"), "# Demo\n")
-	writeFile(t, filepath.Join(dir, manifestFileName), "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeFile(t, filepath.Join(dir, manifestFileName), "version: 2\nname: Demo\nagent: claude\ncommand: claude\n")
 	writeFile(t, filepath.Join(dir, "docs", "notes.md"), "agent notes\n")
 
 	in := GenerateInput{Dir: dir, Workspace: testWorkspace(), Servers: testServers()}

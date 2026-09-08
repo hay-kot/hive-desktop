@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 )
 
 // seededWorkspace is the workspace openAgentWorkspaces creates the first time
@@ -52,7 +53,7 @@ func TestAgentWorkspaceViewCarriesTheSchedulesTheEditorWrote(t *testing.T) {
 func (h *terminalHarness) saveWorkspaceSchedules(t *testing.T, schedules ...agentWorkspaceScheduleEdit) agentWorkspaceView {
 	t.Helper()
 	resp := h.post(t, AgentWorkspacesPathPrefix+"workspaces/update", testToken, agentWorkspaceEditRequest{
-		Dir: seededWorkspace, Name: "Hive", Agent: "claude", Autonomy: "ask", Schedules: schedules,
+		Dir: seededWorkspace, Name: "Hive", Command: "claude" + agentws.PromptTail, Schedules: schedules,
 	})
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -68,13 +69,13 @@ func TestAgentScheduleRunsAppliesTheDefaultLimit(t *testing.T) {
 
 	// A run points at its chat only while the chat exists, so the runs here
 	// share one real session record.
-	chat, err := h.core.Store.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
-		Workspace: seededWorkspace, Name: "s1", Agent: "claude", AgentSessionID: "a", CreatedAt: 1, LastOpenedAt: 1,
+	chat, err := h.core.Stores.AgentSessions.Create(t.Context(), stores.AgentSessionCreate{
+		Workspace: seededWorkspace, Name: "s1", Agent: "claude", AgentSessionID: "a",
 	})
 	require.NoError(t, err)
 	const inserted = 55
 	for i := range inserted {
-		_, err := h.core.Store.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
+		_, err := h.core.Stores.Schedules.InsertRun(t.Context(), stores.ScheduleRun{
 			Workspace: seededWorkspace, ScheduleID: "weekly", ScheduleName: "Weekly summary",
 			ScheduledFor: int64(i), StartedAt: int64(i),
 			Reason: "due", Status: "launched", SessionID: chat.ID,

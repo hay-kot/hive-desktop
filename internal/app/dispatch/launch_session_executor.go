@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/colonyops/hive/pkg/tmpl"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to
@@ -19,7 +20,7 @@ type LaunchSessionRequest struct {
 	Repo   string
 	// Origin is the inbox item the session is being created for, or a zero ref
 	// for a session that has no item behind it.
-	Origin store.ItemRef
+	Origin models.ItemRef
 }
 
 // SessionLauncher spawns a hive session for a launch-session action.

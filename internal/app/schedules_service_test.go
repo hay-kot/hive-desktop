@@ -11,12 +11,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // brokenScheduleManifest is a manifest the loader refuses: its cron is not one.
-const brokenScheduleManifest = "version: 2\nname: Broken\nagent: claude\nautonomy: ask\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n"
+const brokenScheduleManifest = "version: 5\nname: Broken\ncommand: claude" + agentws.PromptTail + "\nschedules:\n  - id: weekly\n    cron: not a cron\n    prompt: go\n"
 
 // fakeScheduleLauncher stands in for the agent-workspace service: launching a
 // chat for real needs tmux and an agent CLI, and neither says anything about
@@ -54,7 +55,8 @@ func (f *fakeScheduleLauncher) requests() []schedule.LaunchRequest {
 
 type scheduleFixture struct {
 	svc        *SchedulesService
-	db         *store.DB
+	db         *queries.DB
+	stores     *stores.Stores
 	root       string
 	workspaces *agentws.Store
 	scheduler  *schedule.Scheduler
@@ -69,11 +71,12 @@ func newTestSchedulesService(t *testing.T) scheduleFixture {
 	t.Helper()
 
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", "claude"+agentws.PromptTail, ""))
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	t.Cleanup(func() { _ = db.Close() })
+	st := stores.New(db, stores.Options{})
 
 	workspaces := agentws.NewStore(root)
 	require.NoError(t, workspaces.Reload())
@@ -83,14 +86,17 @@ func newTestSchedulesService(t *testing.T) scheduleFixture {
 	scheduler := schedule.New(schedule.Options{
 		Source:   adapters,
 		Names:    adapters,
-		Store:    scheduleStore{db: db},
+		Store:    scheduleStore{schedules: st.Schedules},
 		Launcher: launcher,
 		Logger:   zerolog.Nop(),
 	})
 
-	svc := newSchedulesService(workspaces, db, scheduler, zerolog.Nop())
+	svc := newSchedulesService(SchedulesDeps{
+		Workspaces: workspaces, Schedules: st.Schedules, Sessions: st.AgentSessions,
+		Scheduler: scheduler, Logger: zerolog.Nop(),
+	})
 	return scheduleFixture{
-		svc: svc, db: db, root: root, workspaces: workspaces,
+		svc: svc, db: db, stores: st, root: root, workspaces: workspaces,
 		scheduler: scheduler, launcher: launcher,
 	}
 }
@@ -101,7 +107,7 @@ func newTestSchedulesService(t *testing.T) scheduleFixture {
 func (f scheduleFixture) declare(t *testing.T, specs ...schedule.Spec) {
 	t.Helper()
 	require.NoError(t, agentws.WriteManifest(f.root, "demo", agentws.ManifestEdit{
-		Name: "Demo", Agent: "claude", Autonomy: agentws.AutonomyAsk, Schedules: specs,
+		Name: "Demo", Command: "claude" + agentws.PromptTail, Schedules: specs,
 	}))
 	require.NoError(t, f.workspaces.Reload())
 	f.scheduler.Reload()
@@ -207,7 +213,7 @@ func TestSchedulesServiceRunsAnswerForARemovedSchedule(t *testing.T) {
 
 	for i, id := range []string{"alpha", "beta"} {
 		for n := range 2 {
-			_, err := f.db.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
+			_, err := f.stores.Schedules.InsertRun(t.Context(), stores.ScheduleRun{
 				Workspace: "demo", ScheduleID: id, ScheduleName: id,
 				ScheduledFor: int64(1_000 + i*10 + n), StartedAt: int64(1_000 + i*10 + n),
 				Reason: "due", Status: "launched", SessionID: int64(1 + n),
@@ -263,15 +269,15 @@ func TestSchedulesServiceRunsDropAChatThatWasDeleted(t *testing.T) {
 	f := newTestSchedulesService(t)
 	f.declare(t, schedule.Spec{ID: "alpha", Cron: "@daily", Prompt: "go"})
 
-	chat, err := f.db.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
-		Workspace: "demo", Name: "s1", Agent: "claude", AgentSessionID: "a", CreatedAt: 1, LastOpenedAt: 1,
+	chat, err := f.stores.AgentSessions.Create(t.Context(), stores.AgentSessionCreate{
+		Workspace: "demo", Name: "s1", Agent: "claude", AgentSessionID: "a",
 	})
 	require.NoError(t, err)
-	for _, run := range []store.ScheduleRunRecord{
+	for _, run := range []stores.ScheduleRun{
 		{Workspace: "demo", ScheduleID: "alpha", ScheduleName: "alpha", ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched", SessionID: chat.ID},
 		{Workspace: "demo", ScheduleID: "alpha", ScheduleName: "alpha", ScheduledFor: 200, StartedAt: 200, Reason: "due", Status: "launched", SessionID: chat.ID + 1000},
 	} {
-		_, err := f.db.InsertScheduleRun(t.Context(), run)
+		_, err := f.stores.Schedules.InsertRun(t.Context(), run)
 		require.NoError(t, err)
 	}
 

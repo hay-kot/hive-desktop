@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +15,11 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
@@ -23,7 +27,7 @@ import (
 // newTestAgentWorkspacesService builds a service over root with a real
 // tmuxcc.Manager pointed at a private tmux server (requireTmux/privateTmux,
 // terminals_service_test.go — a session's liveness is a real tmux fact, and a
-// faked one would only prove the fake), a real sqlite-backed store.DB, and a
+// faked one would only prove the fake), a real sqlite-backed queries.DB, and a
 // real SkillsService (newTestSkillsService). commands stands in for
 // agentCommands(hiveCfg) — the caller picks which agent keys are "configured"
 // and what they run.
@@ -31,7 +35,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	t.Helper()
 	privateTmux(t)
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -41,13 +45,28 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL }, zerolog.Nop())
+	return newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store:           awStore,
+		Terminals:       manager,
+		Stores:          stores.New(db, stores.Options{}),
+		Skills:          newTestSkillsService(t),
+		ProfileCommands: commands,
+		MCPBase:         mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+		Events:          events.New(zerolog.Nop()),
+	})
 }
 
 // testMCPBaseURL stands in for this run's loopback base URL, which the
 // catalogue joins with each app-hosted entry's RuntimePath.
 const testMCPBaseURL = "http://127.0.0.1:24917"
+
+type mcpBaseFunc func(context.Context) string
+
+func (f mcpBaseFunc) MCPBaseURL(ctx context.Context) string { return f(ctx) }
+
+type editorCommandFunc func(context.Context) (string, error)
+
+func (f editorCommandFunc) Editor(ctx context.Context) (string, error) { return f(ctx) }
 
 // liveAgentSessionCount is the test-side equivalent of the service's own
 // liveSessionCount, used to assert how many agentws-* tmux sessions a call
@@ -80,6 +99,46 @@ func writeSharedSkill(t *testing.T, root, slug, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600))
 }
 
+// newManifestOnlyService builds the service without a tmux manager, for the
+// reads that never launch anything (presets, the agent list, manifest
+// validation). newTestAgentWorkspacesService needs a real tmux server and so
+// skips outside CI; these assertions do not, and skipping them locally would
+// hide the parts of this surface a developer is most likely to break.
+func newManifestOnlyService(t *testing.T, root string, profileCommands map[string]string) *AgentWorkspacesService {
+	t.Helper()
+
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	awStore := agentws.NewStore(root)
+	require.NoError(t, awStore.Reload())
+
+	return newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store: awStore, Stores: stores.New(db, stores.Options{}), Skills: newTestSkillsService(t),
+		ProfileCommands: profileCommands, MCPBase: mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+		Events: events.New(zerolog.Nop()),
+	})
+}
+
+// resumableCommand is a fake-agent command that distinguishes a resume from a
+// fresh launch, the way the shipped claude presets do. Resume support is a
+// property of the template now (agentws.SupportsResume renders it both ways
+// and compares), so a test about resuming has to write one that branches --
+// a bare binary path cannot resume no matter which agent labels it.
+func resumableCommand(binary string) string {
+	return binary + " {{ if .Resume }}--resume{{ else }}--session-id{{ end }} {{ .SessionID }}"
+}
+
+// agentWorkspaceYAML is a current-version manifest whose command: is exactly
+// the given launch line. The tests drive a fake binary rather than a real
+// agent CLI, and the command is now the manifest's own field, so a launching
+// test has to write it there instead of configuring it on the service.
+func agentWorkspaceYAML(name, command, extra string) string {
+	return fmt.Sprintf("version: %d\nname: %s\ncommand: %s\n%s",
+		configmigrate.AgentWorkspaceSet.Current, name, command, extra)
+}
+
 func writeSkillPackages(t *testing.T, root, body string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(root, 0o700))
@@ -89,11 +148,14 @@ func writeSkillPackages(t *testing.T, root, body string) {
 // fakeAgentBinary writes a script that ignores every argument it is invoked
 // with and execs body -- standing in for a real agent CLI, which would
 // otherwise be required to exercise a live, addressable terminal. Because the
-// script never references its own $@, the autonomy/MCP/session flags
-// agentws.Resolve appends have nowhere to land and cannot break it.
-func fakeAgentBinary(t *testing.T, body string) string {
+// script never references its own $@, the MCP/session flags a command template
+// carries have nowhere to land and cannot break it.
+//
+// Its name is the agent it stands in for: AgentFor reads the command's first
+// word, so the file name decides which probe and classifier a test exercises.
+func fakeAgentBinary(t *testing.T, agent, body string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "fake-agent")
+	path := filepath.Join(t.TempDir(), agent)
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nexec "+body+"\n"), 0o755))
 	return path
 }
@@ -103,7 +165,7 @@ func TestOpenResolvesMCPsAndSkills(t *testing.T) {
 	root := t.TempDir()
 	writeMCPLibrary(t, root, "version: 1\nservers:\n  my-user-mcp:\n    command: \"true\"\n")
 	writeSkillPackages(t, root, "version: 1\npackages:\n  hive:\n    include: [\"hive-mcp\"]\n")
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n"+
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\ncommand: true\n"+
 		"mcps:\n  - playwright\n  - my-user-mcp\nskills:\n  - hive\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
@@ -113,7 +175,6 @@ func TestOpenResolvesMCPsAndSkills(t *testing.T) {
 	assert.Empty(t, result.MissingMCPs)
 	assert.Equal(t, "demo", result.Workspace.Dir)
 	assert.Equal(t, "Demo", result.Workspace.Name)
-	assert.Equal(t, "claude", result.Workspace.Agent)
 	assert.ElementsMatch(t, []string{"playwright", "my-user-mcp"}, result.Workspace.MCPs)
 	assert.Empty(t, result.Sessions)
 
@@ -135,7 +196,7 @@ func TestOpenResolvesMCPsAndSkills(t *testing.T) {
 func TestOpenOmitsAndReportsAnUnknownMCP(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\n  - ghost\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\ncommand: true\nmcps:\n  - playwright\n  - ghost\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
@@ -168,8 +229,9 @@ func TestOpenRejectsAWorkspaceOutsideTheRoot(t *testing.T) {
 func TestResumeFallsBackToFreshLaunch(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: codex\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "codex", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -190,8 +252,9 @@ func TestResumeFallsBackToFreshLaunch(t *testing.T) {
 func TestResumeReattachesTheSameTerminal(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -219,14 +282,14 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(claudeCfg, "projects", "-elsewhere"), 0o700))
 
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", resumableCommand(agentCmd), ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	before, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	before, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 
 	closed, err := svc.CloseSession(t.Context(), started.ID)
 	require.NoError(t, err)
@@ -238,9 +301,8 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 	assert.Empty(t, resumed.Notice, "an empty conversation relaunching fresh is a continuation, not a loss to announce")
 	assert.NotEmpty(t, resumed.TerminalID)
 
-	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	after, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.NotEqual(t, before.AgentSessionID, after.AgentSessionID,
 		"the fresh launch mints a fresh id — reusing one the agent might hold would wedge on 'already in use'")
 }
@@ -253,14 +315,14 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeCfg)
 
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", resumableCommand(agentCmd), ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 
 	projectDir := filepath.Join(claudeCfg, "projects", "-demo")
 	require.NoError(t, os.MkdirAll(projectDir, 0o700))
@@ -275,17 +337,17 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 	assert.True(t, resumed.ResumeAttempted)
 	assert.Empty(t, resumed.Notice)
 
-	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	after, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.Equal(t, rec.AgentSessionID, after.AgentSessionID, "a real resume keeps addressing the same conversation")
 }
 
 func TestCloseSessionEndsTheTerminalAndKeepsTheRecord(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -305,8 +367,9 @@ func TestCloseSessionEndsTheTerminalAndKeepsTheRecord(t *testing.T) {
 func TestDeleteEndsLiveTerminals(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	s1, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -319,18 +382,16 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
-	_, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), s1.ID)
-	require.NoError(t, err)
-	assert.False(t, ok, "the record is gone too")
-	_, ok, err = canvases.Load("demo", "plan")
+	_, err = svc.sessions.Get(t.Context(), s1.ID)
+	assert.True(t, stores.IsNotFound(err), "the record is gone too")
+	_, ok, err := canvases.Load("demo", "plan")
 	require.NoError(t, err)
 	assert.True(t, ok, "the canvas outlives the chat that made it")
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
-	_, ok, err = svc.db.GetAgentWorkspaceSession(t.Context(), s2.ID)
-	require.NoError(t, err)
-	assert.False(t, ok)
+	_, err = svc.sessions.Get(t.Context(), s2.ID)
+	assert.True(t, stores.IsNotFound(err))
 	metas, err := canvases.List("demo")
 	require.NoError(t, err)
 	assert.Empty(t, metas, "canvases live in the workspace folder, which the delete takes with it")
@@ -340,8 +401,9 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "this-binary-does-not-exist-anywhere-12345"})
+	agentCmd := "this-binary-does-not-exist-anywhere-12345"
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err, "a command not on PATH is a live shell that exits 127, not an exec error")
@@ -359,8 +421,9 @@ func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 func TestDetachedLaunchThatNeverStartedLeavesNoRecord(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	// tmux refuses a session name it already holds, which is how a launch is
 	// made to fail after its record exists. Both ids are taken because the
@@ -373,50 +436,65 @@ func TestDetachedLaunchThatNeverStartedLeavesNoRecord(t *testing.T) {
 
 	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "scheduled", Detached: true})
 	require.Error(t, err)
-	records, err := svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	records, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, records, "a scheduled launch that never started must not leave a row the sidebar lists")
 
 	_, err = svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "by hand", Cols: 80, Rows: 24})
 	require.Error(t, err)
-	records, err = svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	records, err = svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Len(t, records, 1, "a launch the user made keeps its record to retry from")
 }
 
-func TestLaunchRefusesAnUnknownAgent(t *testing.T) {
+// TestLaunchAcceptsAnAgentNoConfigNames is the regression this schema change
+// exists for. Both cases used to be hard refusals at launch: an agent absent
+// from hive's config, and one present there but absent from agentws's launch
+// table ("pi"). Neither is a gate now — the command template is.
+func TestLaunchAcceptsAnAgentNoConfigNames(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 
-	t.Run("AbsentFromHiveConfig", func(t *testing.T) {
-		writeAgentWorkspaceManifest(t, root, "unknown-to-hive", "version: 2\nname: Demo\nagent: mystery-agent\nautonomy: ask\n")
-		svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	for _, tc := range []struct{ dir, agent string }{
+		{"unknown-to-hive", "mystery-agent"},
+		{"unknown-to-agentws", "pi"},
+	} {
+		t.Run(tc.dir, func(t *testing.T) {
+			agentCmd := fakeAgentBinary(t, tc.agent, "cat")
+			writeAgentWorkspaceManifest(t, root, tc.dir, agentWorkspaceYAML("Demo", agentCmd, ""))
+			svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
-		_, err := svc.StartSession(t.Context(), StartSession{Workspace: "unknown-to-hive", Name: "s1", Cols: 80, Rows: 24})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "mystery-agent")
-		assert.Equal(t, KindInvalid, KindOf(err))
-	})
+			started, err := svc.StartSession(t.Context(), StartSession{Workspace: tc.dir, Name: "s1", Cols: 80, Rows: 24})
+			require.NoError(t, err)
+			assert.NotEmpty(t, started.TerminalID, "the session is live")
+			require.NoError(t, svc.DeleteSession(t.Context(), started.ID))
+		})
+	}
+}
 
-	// "pi" is present in the caller's config but has no entry in agentws's
-	// launch table at all -- the fail-closed path a fourth, unimplemented
-	// agent takes.
-	t.Run("AbsentFromLaunchTable", func(t *testing.T) {
-		writeAgentWorkspaceManifest(t, root, "unknown-to-agentws", "version: 2\nname: Demo\nagent: pi\nautonomy: ask\n")
-		svc := newTestAgentWorkspacesService(t, root, map[string]string{"pi": "true"})
+// TestLaunchRefusesABrokenCommandTemplate is what replaced the unknown-agent
+// refusals: the only launch-time refusal left is the workspace's own template,
+// and it names the workspace rather than an agent key.
+func TestLaunchRefusesABrokenCommandTemplate(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "broken",
+		agentWorkspaceYAML("Broken", "claude {{ .Nope }}", ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
-		_, err := svc.StartSession(t.Context(), StartSession{Workspace: "unknown-to-agentws", Name: "s1", Cols: 80, Rows: 24})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "pi")
-		assert.Equal(t, KindInvalid, KindOf(err))
-	})
+	// A template this broken fails to load at all, so the workspace is listed
+	// with a problem rather than started -- the earlier of the two refusals.
+	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "broken", Name: "s1", Cols: 80, Rows: 24})
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
 func TestTwoSessionsMayShareAName(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	first, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "dup", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -433,8 +511,9 @@ func TestTwoSessionsMayShareAName(t *testing.T) {
 func TestSessionsListsWithoutRegeneratingArtifacts(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -456,7 +535,7 @@ func TestSessionsListsWithoutRegeneratingArtifacts(t *testing.T) {
 func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\ncommand: true\n")
 	require.NoError(t, os.WriteFile(filepath.Join(root, "demo", "AGENTS.md"), []byte("# Demo\n"), 0o600))
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
@@ -465,10 +544,10 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 
 	// Schedule state is app-local like the session records, and a cursor left
 	// behind would back-fire for a workspace rebuilt under the same name.
-	require.NoError(t, svc.db.UpsertScheduleCursor(t.Context(), store.ScheduleCursorRecord{
+	require.NoError(t, svc.schedules.SaveCursor(t.Context(), stores.ScheduleCursor{
 		Workspace: "demo", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly",
 	}))
-	_, err = svc.db.InsertScheduleRun(t.Context(), store.ScheduleRunRecord{
+	_, err = svc.schedules.InsertRun(t.Context(), stores.ScheduleRun{
 		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "weekly",
 		ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched", SessionID: 1,
 	})
@@ -476,14 +555,14 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 
-	sessions, err := svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	sessions, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
 
-	runs, err := svc.db.ListScheduleRunsFor(t.Context(), "demo", "weekly", 10)
+	runs, err := svc.schedules.ListRuns(t.Context(), "demo", "weekly", 10)
 	require.NoError(t, err)
 	assert.Empty(t, runs)
-	_, ok, err := svc.db.GetScheduleCursor(t.Context(), "demo", "weekly")
+	_, ok, err := svc.schedules.Cursor(t.Context(), "demo", "weekly")
 	require.NoError(t, err)
 	assert.False(t, ok)
 
@@ -497,7 +576,7 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 func TestDeleteWorkspaceRefusesAPathTheRootDoesNotList(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\ncommand: true\n")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".shared", "skills"), 0o700))
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
@@ -522,9 +601,10 @@ func TestDeleteWorkspaceRefusesAPathTheRootDoesNotList(t *testing.T) {
 func TestAllSessionsSpansEveryWorkspaceInStableCreationOrder(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo-a", "version: 2\nname: Demo A\nagent: claude\nautonomy: ask\n")
-	writeAgentWorkspaceManifest(t, root, "demo-b", "version: 2\nname: Demo B\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo-a", agentWorkspaceYAML("Demo A", agentCmd, ""))
+	writeAgentWorkspaceManifest(t, root, "demo-b", "version: 2\nname: Demo B\nagent: claude\ncommand: true\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	a1, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo-a", Name: "a1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -548,8 +628,9 @@ func TestAllSessionsSpansEveryWorkspaceInStableCreationOrder(t *testing.T) {
 func TestRenameSession(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "New Chat", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -573,53 +654,53 @@ func TestRenameSession(t *testing.T) {
 func TestCreateAndUpdateWorkspace(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true", "codex": "true"})
+	svc := newManifestOnlyService(t, root, map[string]string{"claude": "true", "codex": "true"})
 
-	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude"})
 	require.NoError(t, err)
 	assert.Equal(t, "demo", created.Dir)
 	assert.Equal(t, "Demo", created.Name)
-	assert.Equal(t, "claude", created.Agent)
-	assert.Equal(t, "ask", created.Autonomy)
+	assert.Equal(t, "claude", created.Command)
 	assert.FileExists(t, filepath.Join(root, "demo", "agent-workspace.yaml"))
 
-	_, err = svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	_, err = svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude"})
 	require.ErrorContains(t, err, "already exists")
 
-	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Renamed", Agent: "codex", Autonomy: "auto"})
+	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Renamed", Command: "codex --sandbox workspace-write"})
 	require.NoError(t, err)
 	assert.Equal(t, "Renamed", updated.Name)
-	assert.Equal(t, "codex", updated.Agent)
-	assert.Equal(t, "auto", updated.Autonomy)
+	assert.Equal(t, "codex --sandbox workspace-write", updated.Command)
 
 	list, err := svc.List(t.Context())
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "Renamed", list[0].Name)
 
-	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "X", Agent: "no-such-agent", Autonomy: "ask"})
-	require.ErrorContains(t, err, "not configured")
-	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "missing", Name: "X", Agent: "claude", Autonomy: "ask"})
-	require.ErrorContains(t, err, "not found")
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "X", Command: "no-such-agent"})
+	require.NoError(t, err, "a CLI this build does not know is not a refusal")
 
-	assert.Equal(t, []string{"claude", "codex"}, svc.Agents(t.Context()))
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "X", Command: "claude {{ .Nope }}"})
+	require.ErrorContains(t, err, "command template", "a template the launch would refuse is refused by the editor that wrote it")
+	assert.Equal(t, KindInvalid, KindOf(err))
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "missing", Name: "X", Command: "claude"})
+	require.ErrorContains(t, err, "not found")
 }
 
 func TestWorkspaceEditOwnsTheMCPList(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	svc := newManifestOnlyService(t, root, map[string]string{"claude": "true"})
 
-	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", MCPs: []string{"playwright"}})
+	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude", MCPs: []string{"playwright"}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"playwright"}, created.MCPs)
 	assert.FileExists(t, filepath.Join(root, "demo", "AGENTS.md"), "a created workspace starts with prose to shape")
 
-	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude"})
 	require.NoError(t, err)
 	assert.Empty(t, updated.MCPs)
 
-	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", MCPs: []string{"playwright", "playwright"}})
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude", MCPs: []string{"playwright", "playwright"}})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
@@ -627,20 +708,20 @@ func TestWorkspaceEditOwnsTheMCPList(t *testing.T) {
 func TestWorkspaceEditOwnsTheSkillPackageList(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	svc := newManifestOnlyService(t, root, map[string]string{"claude": "true"})
 
 	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{
-		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive"},
+		Dir: "demo", Name: "Demo", Command: "claude", Skills: []string{"hive"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"hive"}, created.Skills)
 
-	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude"})
 	require.NoError(t, err)
 	assert.Empty(t, updated.Skills)
 
 	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{
-		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive", "hive"},
+		Dir: "demo", Name: "Demo", Command: "claude", Skills: []string{"hive", "hive"},
 	})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
@@ -656,7 +737,7 @@ func TestWorkspaceEditOwnsTheScheduleList(t *testing.T) {
 	var changed []string
 	svc.OnSchedulesChanged = func(workspace string) { changed = append(changed, workspace) }
 
-	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"}
+	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude" + agentws.PromptTail}
 	created := base
 	created.Schedules = []ScheduleEdit{
 		{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
@@ -691,7 +772,7 @@ func TestWorkspaceEditRejectsAnInvalidSchedule(t *testing.T) {
 	root := t.TempDir()
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
-	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"}
+	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude" + agentws.PromptTail}
 	_, err := svc.CreateWorkspace(t.Context(), base)
 	require.NoError(t, err)
 
@@ -737,7 +818,7 @@ func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{
-		Dir: "demo", Name: "Renamed", Agent: "claude", Autonomy: "ask",
+		Dir: "demo", Name: "Renamed", Command: "claude",
 	})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
@@ -756,17 +837,18 @@ func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
 func TestEndOwnSessionDeletesTheChatAfterTheDelay(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
-	svc.endDelay = func(context.Context) time.Duration { return 100 * time.Millisecond }
-	ended := make(chan SessionView, 1)
-	svc.OnSessionEnded = func(view SessionView) { ended <- view }
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
+	svc.endDelay = FixedSessionEndDelay(100 * time.Millisecond)
+	ended := make(chan events.SchedulesUpdated, 1)
+	cancel := events.Subscribe(t.Context(), svc.events, "test.ended", events.Buffer(1), func(_ context.Context, e events.SchedulesUpdated) { ended <- e })
+	t.Cleanup(cancel)
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24, ScheduleID: "weekly"})
 	require.NoError(t, err)
-	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	require.NotEmpty(t, rec.EndToken, "every launch mints a token")
 
 	_, err = svc.EndOwnSession(t.Context(), "not-a-token")
@@ -783,9 +865,8 @@ func TestEndOwnSessionDeletesTheChatAfterTheDelay(t *testing.T) {
 	assert.True(t, live, "the session outlives the call itself")
 
 	select {
-	case view := <-ended:
-		assert.Equal(t, started.ID, view.ID)
-		assert.Equal(t, "weekly", view.ScheduleID)
+	case e := <-ended:
+		assert.Equal(t, "demo", e.Workspace, "a scheduled chat that ended itself wakes the Chats area")
 	case <-time.After(5 * time.Second):
 		t.Fatal("the session was not ended after the delay")
 	}
@@ -804,21 +885,19 @@ func TestEndOwnSessionDeletesTheChatAfterTheDelay(t *testing.T) {
 func TestStartScheduledSessionFramesThePromptAndHandsOutTheToken(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
 	captured := filepath.Join(t.TempDir(), "launch")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{
-		"claude": fakeAgentBinary(t, `sh -c 'printf "%s\n" "$@" > "$0.args"; env > "$0.env"; exec cat' `+captured+` "$@"`),
-	})
-	svc.mcpBase = func(context.Context) string { return "http://127.0.0.1:4321" }
+	agentCmd := fakeAgentBinary(t, "claude", `sh -c 'printf "%s\n" "$@" > "$0.args"; env > "$0.env"; exec cat' `+captured+` "$@"`)
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
+	svc.mcpBase = mcpBaseFunc(func(context.Context) string { return "http://127.0.0.1:4321" })
 
 	started, err := svc.StartScheduledSession(t.Context(), StartScheduledSession{
 		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "Weekly summary",
 		Name: "Weekly summary - Sep 6 09:00", Prompt: "Summarize the week.",
 	})
 	require.NoError(t, err)
-	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.Equal(t, "weekly", rec.ScheduleID, "the record wears its schedule's id, which is what marks the row in the sidebar")
 
 	var args, env string
@@ -842,7 +921,7 @@ func TestStartScheduledSessionFramesThePromptAndHandsOutTheToken(t *testing.T) {
 func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "# keep me\nversion: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps: [playwright]\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "# keep me\n"+agentWorkspaceYAML("Demo", "claude"+agentws.PromptTail, "mcps: [playwright]\n"))
 	writeAgentWorkspaceManifest(t, root, "broken", brokenScheduleManifest)
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 	changed := 0
@@ -968,9 +1047,9 @@ func TestOpenInstallsWhatThePackagesSelect(t *testing.T) {
 	writeSharedSkill(t, root, "terraform-plan", "# Terraform plan\n\nRun it.\n")
 	writeSharedSkill(t, root, "release-notes", "# Release notes\n")
 	writeSkillPackages(t, root, "version: 1\npackages:\n  infra:\n    include: [\"terraform-*\"]\n")
-	writeAgentWorkspaceManifest(t, root, "with", "version: 2\nname: With\nagent: claude\nautonomy: ask\n"+
+	writeAgentWorkspaceManifest(t, root, "with", "version: 2\nname: With\nagent: claude\ncommand: true\n"+
 		"skills:\n  - infra\n  - ghost\n")
-	writeAgentWorkspaceManifest(t, root, "without", "version: 2\nname: Without\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "without", "version: 2\nname: Without\nagent: claude\ncommand: true\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
@@ -999,7 +1078,7 @@ func TestOpenAddsASkillToEveryWorkspaceThatMatched(t *testing.T) {
 	root := t.TempDir()
 	writeSharedSkill(t, root, "terraform-plan", "# plan\n")
 	writeSkillPackages(t, root, "version: 1\npackages:\n  infra:\n    include: [\"terraform-*\"]\n")
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nskills:\n  - infra\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\ncommand: true\nskills:\n  - infra\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 	_, err := svc.Open(t.Context(), "demo")
@@ -1078,7 +1157,7 @@ func TestCatalogueReportsAProblemWhenTheServerIsDown(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
-	svc.mcpBase = func(context.Context) string { return "" }
+	svc.mcpBase = mcpBaseFunc(func(context.Context) string { return "" })
 
 	byID := make(map[string]MCPCatalogueItem)
 	for _, item := range svc.MCPCatalogue(t.Context()) {
@@ -1130,7 +1209,7 @@ func TestGeneratedMCPConfigCarriesTheLiveEndpoint(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeAgentWorkspaceManifest(t, root, "demo",
-		"version: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - hive-desktop\n")
+		"version: 2\nname: Demo\nagent: claude\ncommand: true\nmcps:\n  - hive-desktop\n")
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
 	res, err := svc.Open(t.Context(), "demo")
@@ -1145,7 +1224,7 @@ func TestGeneratedMCPConfigCarriesTheLiveEndpoint(t *testing.T) {
 func TestOpenWorkspaceInEditor(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\ncommand: true\n")
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
 	err := svc.OpenWorkspaceInEditor(t.Context(), "demo")
@@ -1156,11 +1235,11 @@ func TestOpenWorkspaceInEditor(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, KindNotFound, KindOf(err))
 
-	fake := fakeAgentBinary(t, "true")
+	fake := fakeAgentBinary(t, "editor", "true")
 	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
 		return map[string]string{"PATH": "/usr/bin:/bin"}, nil
 	}})
-	svc.editorCommand = func(context.Context) (string, error) { return fake, nil }
+	svc.editorCommand = editorCommandFunc(func(context.Context) (string, error) { return fake, nil })
 	command, title := svc.Editor(t.Context())
 	assert.Equal(t, fake, command)
 	assert.Equal(t, fake, title, "a command outside the known catalogue labels itself")
@@ -1170,8 +1249,9 @@ func TestOpenWorkspaceInEditor(t *testing.T) {
 func TestResizeSessionResizesTheLiveTerminal(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
@@ -1202,7 +1282,7 @@ func TestOpenNamesTheFixWhenAnEnabledNameIsASkill(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeSkillPackages(t, root, "version: 1\npackages:\n  hive:\n    include: [\"hive-*\"]\n")
-	writeAgentWorkspaceManifest(t, root, "legacy", "version: 3\nname: Legacy\nagent: claude\nautonomy: ask\n"+
+	writeAgentWorkspaceManifest(t, root, "legacy", "version: 3\nname: Legacy\nagent: claude\ncommand: true\n"+
 		"skills:\n  - hive-flows\n  - nonsense\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
@@ -1213,4 +1293,46 @@ func TestOpenNamesTheFixWhenAnEnabledNameIsASkill(t *testing.T) {
 		{Name: "hive-flows", Skill: true, SelectedBy: []string{"hive"}},
 		{Name: "nonsense"},
 	}, result.MissingPackages)
+}
+
+// TestPresetsSeedFromHiveProfiles covers the seam this change reversed: hive's
+// profiles used to reach a workspace with their flags stripped, and now reach
+// the editor as presets carrying them. A shipped agent is not duplicated, and
+// a profile running a CLI this build knows gets that CLI's wiring appended so
+// the preset is launchable rather than merely present.
+func TestPresetsSeedFromHiveProfiles(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newManifestOnlyService(t, root, map[string]string{
+		"claude": "claude --dangerously-skip-permissions",
+		"pi":     "pi",
+		"fable":  "claude --dangerously-skip-permissions --model claude-fable-5",
+	})
+
+	byID := map[string]agentws.Preset{}
+	for _, p := range svc.Presets(t.Context()) {
+		byID[p.ID] = p
+	}
+
+	require.Contains(t, byID, "claude-ask", "the shipped postures are still offered")
+	assert.NotContains(t, byID, "hive-claude",
+		"a shipped agent's own presets are more precise than hive's single profile line")
+
+	pi, ok := byID["hive-pi"]
+	require.True(t, ok, "an agent only hive names is offered")
+	assert.Equal(t, "pi", pi.Command)
+	assert.False(t, pi.Danger)
+
+	fable, ok := byID["hive-fable"]
+	require.True(t, ok)
+	assert.Equal(t, "fable", fable.Label, "the row keeps the profile key the user recognizes")
+	assert.Equal(t, "claude", fable.Agent, "the mark beside it is the CLI the command actually runs")
+	assert.Contains(t, fable.Command, "--model claude-fable-5", "the profile's flags cross, unlike before")
+	assert.Contains(t, fable.Command, "--strict-mcp-config", "a profile running claude gets claude's wiring")
+	assert.True(t, fable.Danger)
+
+	// Every preset the editor offers must produce a manifest that launches.
+	for id, p := range byID {
+		require.NoError(t, agentws.ValidateCommand(p.Command), "preset %q", id)
+	}
 }

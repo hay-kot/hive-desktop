@@ -7,6 +7,9 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // sensitiveParams are query keys whose values are redacted before logging.
@@ -23,18 +26,31 @@ type transport struct {
 	name string
 	log  zerolog.Logger
 	next http.RoundTripper
+	// Built once: metric.WithAttributes allocates and this is a per-request path.
+	attrs metric.MeasurementOption
 }
 
 func NewTransport(name string, log zerolog.Logger, next http.RoundTripper) http.RoundTripper {
 	if next == nil {
 		next = http.DefaultTransport
 	}
-	return transport{name: name, log: log, next: next}
+	return transport{
+		name:  name,
+		log:   log,
+		next:  next,
+		attrs: metric.WithAttributes(attribute.String(attrSource, name)),
+	}
 }
 
 func (t transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	ctx := r.Context()
 	target := redactQuery(r.URL)
+
+	// otelhttp wraps this transport, so the Labeler is already on the context and
+	// is read back after this returns.
+	if labeler, ok := otelhttp.LabelerFromContext(ctx); ok {
+		labeler.Add(attribute.String(attrSource, t.name))
+	}
 
 	t.log.Debug().
 		Ctx(ctx).
@@ -74,6 +90,7 @@ func (t transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		Dur("elapsed", elapsed)
 	if remaining, ok := rateLimitRemaining(resp.Header); ok {
 		event = event.Int("ratelimit_remaining", remaining)
+		rateLimitGauge.Record(ctx, int64(remaining), t.attrs)
 	}
 	event.Msg("response")
 

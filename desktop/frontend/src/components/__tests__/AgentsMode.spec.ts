@@ -121,8 +121,8 @@ const weeklySummary = {
 }
 
 const workspaceRows = [
-  { dir: 'web-app', name: 'Web App', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [weeklySummary], problem: '', notice: '' },
-  { dir: 'api', name: 'API', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
+  { dir: 'web-app', name: 'Web App', command: 'claude', danger: false, mcps: [], skills: [], schedules: [weeklySummary], problem: '', notice: '' },
+  { dir: 'api', name: 'API', command: 'claude', danger: false, mcps: [], skills: [], schedules: [], problem: '', notice: '' },
 ]
 
 // A chat row as the cross-workspace listing reports it: terminalId set means
@@ -137,7 +137,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
   return {
     workspaces: vi.fn().mockResolvedValue({
       root: '/tmp/agents', rootProblem: '', available: true, error: '',
-      workspaces: workspaceRows, agents: ['claude'], autonomyFlags: {}, editor,
+      workspaces: workspaceRows, agents: ['claude'], presets: [], editor,
     }),
     openWorkspace: vi.fn((dir: string) => Promise.resolve({
       workspace: workspaceRows.find((ws) => ws.dir === dir) ?? workspaceRows[0],

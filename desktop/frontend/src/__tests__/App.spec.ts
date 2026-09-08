@@ -42,14 +42,14 @@ const mocks = vi.hoisted(() => ({
   UpdateAction: vi.fn(),
   DeleteAction: vi.fn(),
   // pipelineservice
-  ListInboxItemsByFeed: vi.fn(),
-  ListArchivedInboxItemsByFeed: vi.fn(),
-  ListInboxItemsTrash: vi.fn(),
+  ListByFeed: vi.fn(),
+  ListArchivedByFeed: vi.fn(),
+  ListTrash: vi.fn(),
   FeedCounts: vi.fn(),
-  MarkInboxItemUnread: vi.fn(),
-  ToggleInboxItemArchived: vi.fn(),
-  ToggleInboxItemIgnored: vi.fn(),
-  InboxItemEvents: vi.fn(),
+  SetUnread: vi.fn(),
+  ToggleArchived: vi.fn(),
+  ToggleIgnored: vi.fn(),
+  Events: vi.fn(),
   ActionRun: vi.fn(),
   SessionLaunchOptions: vi.fn(),
   CreateSession: vi.fn(),
@@ -123,14 +123,14 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
-  ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
-  ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed,
-  ListInboxItemsTrash: mocks.ListInboxItemsTrash,
+  ListByFeed: mocks.ListByFeed,
+  ListArchivedByFeed: mocks.ListArchivedByFeed,
+  ListTrash: mocks.ListTrash,
   FeedCounts: mocks.FeedCounts,
-  MarkInboxItemUnread: mocks.MarkInboxItemUnread,
-  ToggleInboxItemArchived: mocks.ToggleInboxItemArchived,
-  ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored,
-  InboxItemEvents: mocks.InboxItemEvents,
+  SetUnread: mocks.SetUnread,
+  ToggleArchived: mocks.ToggleArchived,
+  ToggleIgnored: mocks.ToggleIgnored,
+  Events: mocks.Events,
   ActionRun: mocks.ActionRun,
   NewSessionDraft: mocks.NewSessionDraft,
   ActionViews: mocks.ActionViews,
@@ -329,11 +329,11 @@ describe('App', () => {
     mocks.GetLayout.mockResolvedValue({ nodes: {} })
     mocks.GetSidebar.mockResolvedValue({ items: [] })
     mocks.SaveSidebar.mockResolvedValue(undefined)
-    mocks.ListInboxItemsByFeed.mockResolvedValue([])
-    mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([])
-    mocks.ListInboxItemsTrash.mockResolvedValue([])
+    mocks.ListByFeed.mockResolvedValue([])
+    mocks.ListArchivedByFeed.mockResolvedValue([])
+    mocks.ListTrash.mockResolvedValue([])
     mocks.FeedCounts.mockResolvedValue([{ feedId: 'personal/desktop', total: 1, unread: 0, archived: 0 }])
-    mocks.InboxItemEvents.mockResolvedValue([])
+    mocks.Events.mockResolvedValue([])
     mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' })
     mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [], defaultRepository: '', agents: [], defaultAgent: '' })
     mocks.ActionViews.mockResolvedValue([])
@@ -557,7 +557,7 @@ describe('App', () => {
       { id: 'review', label: 'Review PR', type: 'shell', inputs: [] },
     ])
     mocks.InvokeAction.mockResolvedValue({ commandId: 7, status: 'completed', stdout: '', stderr: '' })
-    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
     const wrapper = await mountApp()
     await wrapper.findAll('[data-testid="feed-item"]')[0]!.trigger('click')
     await flushPromises()
@@ -1224,7 +1224,7 @@ describe('App', () => {
     it('groups a chat row under the workspace display name once the workspaces list has a matching dir', async () => {
       const { wrapper } = await mountAppWithRouter()
       useAgentWorkspaces().workspaces.value = [
-        { dir: 'my-workspace', name: 'Travel', agent: 'claude', autonomy: '', mcps: [], skills: [], schedules: [], problem: '', notice: '' },
+        { dir: 'my-workspace', name: 'Travel', command: 'claude', danger: false, mcps: [], skills: [], schedules: [], problem: '', notice: '' },
       ]
       useAgentSessionsAll().recents.value = [{
         id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
@@ -1404,7 +1404,7 @@ describe('App', () => {
   })
 
   it('reopens the collapsed preview on a double-click, not on the click that selects', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
     const wrapper = await mountApp()
 
     await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
@@ -1435,7 +1435,7 @@ describe('App', () => {
   })
 
   it('navigates the feed by keyboard silently, and reopens the preview on the row it activates', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
     const wrapper = await mountApp()
 
     await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
@@ -1454,8 +1454,8 @@ describe('App', () => {
   })
 
   it('leaves the collapsed preview shut for row controls and the list header menus', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
-    mocks.MarkInboxItemUnread.mockImplementation(async (id: number, revision: number, unread: boolean) =>
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
+    mocks.SetUnread.mockImplementation(async (id: number, revision: number, unread: boolean) =>
       ({ ...inboxItems().find((item) => item.id === id)!, revision: revision + 1, unread }))
     const wrapper = await mountApp()
 
@@ -1465,14 +1465,14 @@ describe('App', () => {
     const row = () => wrapper.findAll('[data-testid="feed-item"]')[1]!
     await row().get('[data-testid="row-archive"]').trigger('click')
     await flushPromises()
-    expect(mocks.ToggleInboxItemArchived).toHaveBeenCalledWith(2, 1)
+    expect(mocks.ToggleArchived).toHaveBeenCalledWith(2, 1)
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
 
     await row().get('[data-testid="row-menu-toggle"]').trigger('click')
     await flushPromises()
     await row().get('[data-testid="menu-toggle-read"]').trigger('click')
     await flushPromises()
-    expect(mocks.MarkInboxItemUnread).toHaveBeenCalledWith(2, 1, true)
+    expect(mocks.SetUnread).toHaveBeenCalledWith(2, 1, true)
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
@@ -1490,7 +1490,7 @@ describe('App', () => {
   })
 
   it('persists the reopen as the remembered last state', async () => {
-    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
     const wrapper = await mountApp()
 
     await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
@@ -1506,7 +1506,7 @@ describe('App', () => {
 
   it('starts collapsed when that is the persisted last state', async () => {
     localStorage.setItem('hive.panel.detailpane.collapsed', 'true')
-    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
     const wrapper = await mountApp()
 
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
@@ -1746,7 +1746,7 @@ describe('App', () => {
     await wrapper.get('[data-testid="sidebar-trash"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query).toEqual({ view: 'trash' })
-    expect(mocks.ListInboxItemsTrash).toHaveBeenLastCalledWith('personal', 500)
+    expect(mocks.ListTrash).toHaveBeenLastCalledWith('personal', 500)
     expect(wrapper.get('[data-testid="sidebar-trash"]').classes()).toContain('footer-entry-selected')
     wrapper.unmount()
   })
@@ -1758,8 +1758,8 @@ describe('App', () => {
     ]
     let rejectSecond!: (error: Error) => void
     const secondEvents = new Promise<never>((_, reject) => { rejectSecond = reject })
-    mocks.ListInboxItemsByFeed.mockResolvedValue(items)
-    mocks.InboxItemEvents.mockImplementation((id: number) => id === 1
+    mocks.ListByFeed.mockResolvedValue(items)
+    mocks.Events.mockImplementation((id: number) => id === 1
       ? Promise.resolve([{ id: 1, itemId: 1, kind: 'observed', transition: 'none', attention: 'activity', summary: 'first event', detail: {}, createdAt: 1 }])
       : secondEvents)
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

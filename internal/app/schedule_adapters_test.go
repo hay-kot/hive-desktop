@@ -8,16 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func newTestScheduleStore(t *testing.T) scheduleStore {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	return scheduleStore{db: db}
+	return scheduleStore{schedules: stores.New(db, stores.Options{}).Schedules}
 }
 
 // The adapter is the only place time.Time meets the tables' unix milliseconds,
@@ -66,45 +67,29 @@ func TestScheduleStoreAdapterRoundTripsTimes(t *testing.T) {
 	assert.Equal(t, stored.ID, last.ID)
 }
 
-// PruneCursors is how a deleted schedule stops leaving a cursor that would
-// back-fire if its id were reused, so what it must drop is every cursor
-// outside the live set -- but only inside the workspaces the pass could read.
-// A workspace whose manifest did not parse, or that was not in the root at
-// all, contributed no schedules to keep, and pruning it would delete the state
-// that says how far its schedules got.
-func TestScheduleStoreAdapterPrunesCursorsOutsideKeep(t *testing.T) {
+// The scheduler hands over whole cursors; only their identity reaches the
+// store's prune.
+func TestScheduleStoreAdapterPrunesByCursorIdentity(t *testing.T) {
 	adapter := newTestScheduleStore(t)
 	now := time.UnixMilli(1_764_500_100_000)
 
 	for _, cursor := range []schedule.Cursor{
 		{Workspace: "demo", ID: "keep", EvaluatedThrough: now, Cron: "@daily"},
 		{Workspace: "demo", ID: "gone", EvaluatedThrough: now, Cron: "@daily"},
-		{Workspace: "emptied", ID: "gone", EvaluatedThrough: now, Cron: "@daily"},
-		{Workspace: "broken", ID: "held", EvaluatedThrough: now, Cron: "@daily"},
 	} {
 		require.NoError(t, adapter.SaveCursor(t.Context(), cursor))
 	}
 
-	require.NoError(t, adapter.PruneCursors(t.Context(), []string{"demo", "emptied"}, []schedule.Cursor{
-		{Workspace: "demo", ID: "keep", EvaluatedThrough: now, Cron: "@daily"},
+	require.NoError(t, adapter.PruneCursors(t.Context(), []string{"demo"}, []schedule.Cursor{
+		{Workspace: "demo", ID: "keep", EvaluatedThrough: now.Add(time.Hour), Cron: "@hourly"},
 	}))
 
 	_, ok, err := adapter.Cursor(t.Context(), "demo", "keep")
 	require.NoError(t, err)
-	assert.True(t, ok, "a live schedule keeps its cursor")
-
-	_, ok, err = adapter.Cursor(t.Context(), "broken", "held")
+	assert.True(t, ok, "a cursor is kept by identity, whatever else the scheduler's copy says")
+	_, ok, err = adapter.Cursor(t.Context(), "demo", "gone")
 	require.NoError(t, err)
-	assert.True(t, ok, "a workspace the pass could not read keeps its cursors")
-
-	for _, dropped := range []struct{ workspace, id string }{
-		{"demo", "gone"},
-		{"emptied", "gone"},
-	} {
-		_, ok, err := adapter.Cursor(t.Context(), dropped.workspace, dropped.id)
-		require.NoError(t, err)
-		assert.False(t, ok, "%s/%s is inside a readable workspace and outside the live set", dropped.workspace, dropped.id)
-	}
+	assert.False(t, ok)
 }
 
 // TestScheduleSnapshotListsOnlyTheValidWorkspaces: the workspaces are the
@@ -113,7 +98,7 @@ func TestScheduleStoreAdapterPrunesCursorsOutsideKeep(t *testing.T) {
 // the two can never disagree about which workspaces exist.
 func TestScheduleSnapshotListsOnlyTheValidWorkspaces(t *testing.T) {
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", "claude", ""))
 	writeAgentWorkspaceManifest(t, root, "broken", brokenScheduleManifest)
 
 	workspaces := agentws.NewStore(root)
@@ -131,8 +116,8 @@ func TestScheduleSnapshotListsOnlyTheValidWorkspaces(t *testing.T) {
 func TestScheduleLauncherFailsOnAnImmediateExit(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
-	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "this-binary-does-not-exist-anywhere-12345"})
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", "this-binary-does-not-exist-anywhere-12345"+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, nil)
 
 	launcher := scheduleLauncher{workspaces: svc}
 	_, err := launcher.Launch(t.Context(), schedule.LaunchRequest{Workspace: "demo", Name: "weekly", Prompt: "go"})

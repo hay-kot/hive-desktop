@@ -3,6 +3,7 @@ import {
   createAgentWorkspacesClient,
   getAgentsEndpoint,
   type AgentEditor,
+  type AgentPreset,
   type AgentSession,
   type AgentWorkspace,
   type AgentWorkspaceOpenResult,
@@ -35,9 +36,8 @@ const workspacesLoading = ref(false)
 const workspacesLoaded = ref(false)
 const workspacesError = ref<string | null>(null)
 const root = ref('')
-const agents = ref<string[]>([])
 const editor = ref<AgentEditor>({ command: '', title: '' })
-const autonomyFlags = ref<Record<string, Record<string, string[]>>>({})
+const presets = ref<AgentPreset[]>([])
 const mcpCatalogue = ref<MCPCatalogueEntry[]>([])
 const skillPackages = ref<SkillPackage[]>([])
 const skillNames = ref<SkillName[]>([])
@@ -80,9 +80,8 @@ async function reloadWorkspaces(): Promise<void> {
   try {
     const payload = await client.value.workspaces()
     root.value = payload.root
-    agents.value = payload.agents
     editor.value = payload.editor
-    autonomyFlags.value = payload.autonomyFlags
+    presets.value = payload.presets
     rootProblem.value = payload.rootProblem
     workspaces.value = payload.workspaces
   } catch (e) {
@@ -260,9 +259,8 @@ export function useAgentWorkspaces(): {
   workspacesError: Ref<string | null>
   root: Ref<string>
   rootProblem: Ref<string>
-  agents: Ref<string[]>
   editor: Ref<AgentEditor>
-  autonomyFlags: Ref<Record<string, Record<string, string[]>>>
+  presets: Ref<AgentPreset[]>
   mcpCatalogue: Ref<MCPCatalogueEntry[]>
   skillPackages: Ref<SkillPackage[]>
   skillNames: Ref<SkillName[]>
@@ -294,7 +292,7 @@ export function useAgentWorkspaces(): {
   return {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-    root, rootProblem, agents, editor, autonomyFlags, mcpCatalogue,
+    root, rootProblem, editor, presets, mcpCatalogue,
     skillPackages, skillNames, skillPackagesProblem, missingMCPs, missingPackages,
     ready: ensureProbed,
     reloadWorkspaces, openWorkspace, regenerateWorkspace,
@@ -318,9 +316,8 @@ export function resetAgentWorkspacesForTests(): void {
   workspacesError.value = null
   root.value = ''
   rootProblem.value = ''
-  agents.value = []
   editor.value = { command: '', title: '' }
-  autonomyFlags.value = {}
+  presets.value = []
   mcpCatalogue.value = []
   skillPackages.value = []
   skillNames.value = []

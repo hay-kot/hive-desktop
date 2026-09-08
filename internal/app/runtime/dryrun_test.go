@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	whsource "github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func dryRunScripts() *runtime.ScriptRegistry {
@@ -59,7 +59,7 @@ func TestDryRunReportsWhatEachNodeEmitted(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	result, err := runner.DryRun(t.Context(), "src", []store.Msg{
+	result, err := runner.DryRun(t.Context(), "src", []models.Msg{
 		testMsg("1", `{"series":[{"name":"a"},{"name":"b"}]}`),
 	})
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestDryRunReportsWhatEachNodeEmitted(t *testing.T) {
 	assert.Empty(t, inbox.Emitted)
 	require.Len(t, inbox.Received, 2)
 	require.Len(t, result.Outputs, 2)
-	assert.Equal(t, store.SinkKindFeed, result.Outputs[0].Sink.Kind)
+	assert.Equal(t, models.SinkKindFeed, result.Outputs[0].Sink.Kind)
 	assert.Equal(t, "f/inbox", result.Outputs[0].Sink.TargetID)
 }
 
@@ -94,8 +94,8 @@ func TestDryRunReportsReconciliationForAnEmptySnapshot(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	result, err := runner.DryRun(t.Context(), "src", []store.Msg{{
-		ID: "1", Topic: "source:f/src", Snapshot: []store.SnapshotItem{},
+	result, err := runner.DryRun(t.Context(), "src", []models.Msg{{
+		ID: "1", Topic: "source:f/src", Snapshot: []models.SnapshotItem{},
 	}})
 	require.NoError(t, err)
 
@@ -115,7 +115,7 @@ func TestDryRunInjectsAtAnArbitraryNode(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{"n":1}`)})
+	result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{"n":1}`)})
 	require.NoError(t, err)
 
 	for _, node := range result.Nodes {
@@ -146,7 +146,7 @@ func TestDryRunReportsAnUnwiredPort(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{}`)})
+	result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{}`)})
 	require.NoError(t, err)
 
 	fn := traceOf(t, result, "fn")
@@ -168,7 +168,7 @@ func TestDryRunCountsDropsAndErrors(t *testing.T) {
 		require.NoError(t, err)
 		defer runner.Close()
 
-		result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{}`)})
+		result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{}`)})
 		require.NoError(t, err)
 
 		fn := traceOf(t, result, "fn")
@@ -184,7 +184,7 @@ func TestDryRunCountsDropsAndErrors(t *testing.T) {
 		require.NoError(t, err)
 		defer runner.Close()
 
-		result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{}`)})
+		result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{}`)})
 		require.NoError(t, err)
 
 		fn := traceOf(t, result, "fn")
@@ -209,7 +209,7 @@ func TestDryRunCollectsConsoleOutput(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{}`)})
+	result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{}`)})
 	require.NoError(t, err)
 
 	fn := traceOf(t, result, "fn")
@@ -236,7 +236,7 @@ func TestDryRunSandboxesKV(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{}`), testMsg("2", `{}`)})
+	result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{}`), testMsg("2", `{}`)})
 	require.NoError(t, err)
 
 	fn := traceOf(t, result, "fn")
@@ -264,7 +264,7 @@ func TestDryRunIsRepeatableOnAFreshRunner(t *testing.T) {
 		require.NoError(t, err)
 		defer runner.Close()
 
-		result, err := runner.DryRun(t.Context(), "fn", []store.Msg{testMsg("1", `{}`)})
+		result, err := runner.DryRun(t.Context(), "fn", []models.Msg{testMsg("1", `{}`)})
 		require.NoError(t, err)
 		return traceOf(t, result, "fn").Emitted[0].Messages[0].Payload
 	}
@@ -280,6 +280,6 @@ func TestDryRunRejectsAnUnknownEntryNode(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	_, err = runner.DryRun(t.Context(), "nope", []store.Msg{testMsg("1", `{}`)})
+	_, err = runner.DryRun(t.Context(), "nope", []models.Msg{testMsg("1", `{}`)})
 	require.ErrorContains(t, err, `no node "nope"`)
 }

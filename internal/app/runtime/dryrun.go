@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // maxConsoleLines caps how many console lines one dry run collects, across
@@ -17,26 +17,22 @@ import (
 // grow with the input; the cap is reported rather than applied silently.
 const maxConsoleLines = 1000
 
-// DryRunResult is one dry run's observation of the graph: what every node that
-// received a message did with it, and what the run *would* have committed.
-//
-// It is deliberately not a store.CommitBatch. A CommitBatch is something a
-// caller can apply, and handing one back from a dry run would make "execute
-// this flow without touching live state" one call away from not being true.
+// DryRunResult is not a models.CommitBatch, so callers cannot accidentally
+// commit a preview.
 type DryRunResult struct {
 	// Nodes is one entry per node a message reached, in execution order.
 	Nodes []NodeTrace `json:"nodes"`
 	// Outputs is what the terminals would have committed — feed memberships,
 	// notifications and enqueued actions — had this been a live run.
-	Outputs []store.Output `json:"outputs"`
+	Outputs []models.Output `json:"outputs"`
 	// FeedSnapshots is the reconciliation scope each snapshot input declared.
 	// An empty snapshot still produces one: it is how a clean poll clears a
 	// feed, so a dry run has to show it.
-	FeedSnapshots []store.FeedSnapshot `json:"feedSnapshots"`
+	FeedSnapshots []models.FeedSnapshot `json:"feedSnapshots"`
 	// KVMutations is what the run would have written to durable node KV. The
 	// values are the sandbox's, so this reads as "given the kv you seeded, here
 	// is what the flow would store".
-	KVMutations []store.KVMutation `json:"kvMutations"`
+	KVMutations []models.KVMutation `json:"kvMutations"`
 	// ConsoleTruncated reports that the run produced more console output than
 	// it kept.
 	ConsoleTruncated bool `json:"consoleTruncated,omitempty"`
@@ -62,7 +58,7 @@ type NodeTrace struct {
 	DurationMs int64 `json:"durationMs"`
 	// Received is every message that arrived at this node's input, snapshots
 	// already expanded into their items.
-	Received []store.Msg `json:"received"`
+	Received []models.Msg `json:"received"`
 	// Emitted is what the node put on each of its output ports, in port order.
 	// A port with no wire behind it is still reported — what the node produced
 	// does not depend on what is listening. Terminals emit nothing; read
@@ -74,8 +70,8 @@ type NodeTrace struct {
 
 // PortEmission is one output port's messages.
 type PortEmission struct {
-	Port     int         `json:"port"`
-	Messages []store.Msg `json:"messages"`
+	Port     int          `json:"port"`
+	Messages []models.Msg `json:"messages"`
 }
 
 // NodeError is a node failure as a dry run reports it. Kind, Line and Column
@@ -110,7 +106,7 @@ type ConsoleLine struct {
 // applied. Call it on a Runner built for this run alone — a Runner carries each
 // function node's `state` object between messages, so dry-running through the
 // engine's installed one would mutate live node state.
-func (r *Runner) DryRun(ctx context.Context, entryNodeID string, batch []store.Msg) (DryRunResult, error) {
+func (r *Runner) DryRun(ctx context.Context, entryNodeID string, batch []models.Msg) (DryRunResult, error) {
 	if r.graph.Node(entryNodeID) == nil {
 		return DryRunResult{}, fmt.Errorf("flow %q has no node %q to inject at", r.flow.ID, entryNodeID)
 	}
@@ -174,7 +170,7 @@ func (s *runState) nodeTraces() []NodeTrace {
 	return traces
 }
 
-func portEmissions(byPort map[int][]store.Msg) []PortEmission {
+func portEmissions(byPort map[int][]models.Msg) []PortEmission {
 	ports := make([]int, 0, len(byPort))
 	for port := range byPort {
 		ports = append(ports, port)
@@ -267,12 +263,12 @@ func (t *runTrace) truncated() bool {
 // there is nothing older than the run itself to expire.
 type MemoryKV map[string]map[string]string
 
-func (m MemoryKV) NodeKVGet(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
+func (m MemoryKV) Get(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
 	value, ok := m[nodeID][key]
 	return value, ok, nil
 }
 
-func (m MemoryKV) NodeKVKeys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
+func (m MemoryKV) Keys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
 	var keys []string
 	for key := range m[nodeID] {
 		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {

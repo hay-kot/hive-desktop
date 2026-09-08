@@ -7,11 +7,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/rs/zerolog"
 )
 
 const (
@@ -50,7 +52,7 @@ type OutputData struct {
 	IsRerun   bool
 	// Origin is the inbox item this command was routed from — attribution, not
 	// payload, and zero when the command has no inbox item behind it.
-	Origin store.ItemRef
+	Origin models.ItemRef
 }
 type Executor interface {
 	Execute(context.Context, actions.Action, OutputData, ActionInvocationInput) (ExecutionResult, error)
@@ -73,13 +75,13 @@ type ActionLister interface {
 	Get(string) (actions.Action, bool)
 }
 type OutputCommandStore interface {
-	ListRunnableOutputCommandsAfter(context.Context, int64, int) ([]store.OutputCommand, error)
-	ConfirmOutputCommand(context.Context, string, string, []byte, store.ItemRef) (store.OutputCommand, bool, error)
-	RerunOutputCommand(context.Context, string, string, []byte, store.ItemRef) (store.OutputCommand, error)
-	OutputCommand(context.Context, int64) (store.OutputCommand, error)
-	MarkOutputCommandDone(context.Context, int64, ...string) error
-	MarkOutputCommandFailed(context.Context, int64, string, ...string) error
-	RetryOutputCommand(context.Context, int64, string, ...string) error
+	ListRunnableAfter(context.Context, int64, int) ([]stores.OutputCommand, error)
+	Confirm(context.Context, string, string, []byte, models.ItemRef) (stores.OutputCommand, bool, error)
+	Rerun(context.Context, string, string, []byte, models.ItemRef) (stores.OutputCommand, error)
+	Get(context.Context, int64) (stores.OutputCommand, error)
+	MarkDone(context.Context, int64, ...string) error
+	MarkFailed(context.Context, int64, string, ...string) error
+	Retry(context.Context, int64, string, ...string) error
 }
 type Worker struct {
 	db          OutputCommandStore
@@ -174,16 +176,16 @@ func (w *Worker) Start(ctx context.Context) {
 	}()
 }
 func (w *Worker) Stop() { w.stopOnce.Do(func() { close(w.stop) }) }
-func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, origin store.ItemRef, input ActionInvocationInput) (ActionRunView, error) {
+func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, origin models.ItemRef, input ActionInvocationInput) (ActionRunView, error) {
 	w.runMu.Lock()
 	defer w.runMu.Unlock()
-	var row store.OutputCommand
+	var row stores.OutputCommand
 	var err error
 	if input.Rerun {
-		row, err = w.db.RerunOutputCommand(ctx, actionID, key, payload, origin)
+		row, err = w.db.Rerun(ctx, actionID, key, payload, origin)
 	} else {
 		var created bool
-		row, created, err = w.db.ConfirmOutputCommand(ctx, actionID, key, payload, origin)
+		row, created, err = w.db.Confirm(ctx, actionID, key, payload, origin)
 		if err == nil && !created {
 			if row.Status == "pending" || row.Status == "running" {
 				return ActionRunView{}, fmt.Errorf("action %q is already running for %q", actionID, key)
@@ -208,7 +210,7 @@ func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []by
 
 	if !ok {
 		err = fmt.Errorf("unknown action %q", actionID)
-		if markErr := w.db.MarkOutputCommandFailed(ctx, row.ID, err.Error()); markErr != nil {
+		if markErr := w.db.MarkFailed(ctx, row.ID, err.Error()); markErr != nil {
 			logger.Error().Err(markErr).Msg("output worker: marking command failed")
 			return ActionRunView{}, markErr
 		}
@@ -224,7 +226,7 @@ func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []by
 		// A detail-pane confirmation is an explicit, one-shot attempted side
 		// effect. Persist its diagnostics and make it terminal rather than
 		// retrying later without the interactive input that authorized it.
-		if markErr := w.db.MarkOutputCommandFailed(ctx, row.ID, err.Error(), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr)); markErr != nil {
+		if markErr := w.db.MarkFailed(ctx, row.ID, err.Error(), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr)); markErr != nil {
 			logger.Error().Err(markErr).Msg("output worker: marking command failed")
 			return ActionRunView{}, markErr
 		}
@@ -256,7 +258,7 @@ func (w *Worker) Tick(ctx context.Context) {
 	defer w.runMu.Unlock()
 	var after int64
 	for done := 0; done < w.batch; {
-		rows, err := w.db.ListRunnableOutputCommandsAfter(ctx, after, w.batch-done)
+		rows, err := w.db.ListRunnableAfter(ctx, after, w.batch-done)
 		if err != nil {
 			w.logger.Warn().Err(err).Msg("output worker: listing runnable commands failed")
 			return
@@ -275,7 +277,7 @@ func (w *Worker) Tick(ctx context.Context) {
 	}
 }
 
-func (w *Worker) process(ctx context.Context, row store.OutputCommand) {
+func (w *Worker) process(ctx context.Context, row stores.OutputCommand) {
 	a, ok := w.actions.Get(row.ActionID)
 	label := row.ActionID
 	if ok {
@@ -331,7 +333,7 @@ func actionLabel(action actions.Action) string {
 
 func (w *Worker) execute(
 	ctx context.Context,
-	row store.OutputCommand,
+	row stores.OutputCommand,
 	a actions.Action,
 	input ActionInvocationInput,
 	logger zerolog.Logger,
@@ -350,20 +352,20 @@ func (w *Worker) execute(
 	}
 	return w.dispatch.Execute(ctx, a, OutputData{
 		Key: row.Key, Payload: payload, Raw: json.RawMessage(row.Payload), Inputs: inputs,
-		CreatedAt: row.CreatedAt, CommandID: row.ID, IsRerun: row.IsRerun != 0, Origin: row.ItemRef(),
+		CreatedAt: row.CreatedAt, CommandID: row.ID, IsRerun: row.IsRerun, Origin: row.ItemRef(),
 	}, input)
 }
 
 func (w *Worker) fail(
 	ctx context.Context,
-	row store.OutputCommand,
+	row stores.OutputCommand,
 	result ExecutionResult,
 	execErr error,
 	jobID int64,
 	logger zerolog.Logger,
 ) {
 	if row.Attempts+1 >= MaxOutputCommandAttempts {
-		if err := w.db.MarkOutputCommandFailed(ctx, row.ID, execErr.Error(), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr)); err != nil {
+		if err := w.db.MarkFailed(ctx, row.ID, execErr.Error(), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr)); err != nil {
 			logger.Error().Err(err).Msg("output worker: mark failed")
 			return
 		}
@@ -378,7 +380,7 @@ func (w *Worker) fail(
 		w.record(ctx, activity.ActionFailed(label, execErr.Error()))
 		return
 	}
-	if err := w.db.RetryOutputCommand(ctx, row.ID, execErr.Error(), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr)); err != nil {
+	if err := w.db.Retry(ctx, row.ID, execErr.Error(), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr)); err != nil {
 		logger.Error().Err(err).Msg("output worker: retry")
 		return
 	}
@@ -386,7 +388,7 @@ func (w *Worker) fail(
 }
 
 func (w *Worker) view(ctx context.Context, id int64) ActionRunView {
-	row, err := w.db.OutputCommand(ctx, id)
+	row, err := w.db.Get(ctx, id)
 	if err != nil {
 		return ActionRunView{CommandID: id, Status: "unknown", Error: err.Error()}
 	}
@@ -402,19 +404,19 @@ func boundExecutionStream(stream string) string {
 	return stream[:maxExecutionStreamBytes-len(truncatedStreamMarker)] + truncatedStreamMarker
 }
 
-func actionRunView(row store.OutputCommand) ActionRunView {
+func actionRunView(row stores.OutputCommand) ActionRunView {
 	v := ActionRunView{CommandID: row.ID, Status: row.Status}
-	if row.LastError.Valid {
-		v.Error = row.LastError.String
+	if row.LastError != "" {
+		v.Error = row.LastError
 	}
-	if row.Stdout.Valid {
-		v.Stdout = row.Stdout.String
+	if row.Stdout != "" {
+		v.Stdout = row.Stdout
 	}
-	if row.Stderr.Valid {
-		v.Stderr = row.Stderr.String
+	if row.Stderr != "" {
+		v.Stderr = row.Stderr
 	}
-	if row.ResultJson.Valid {
-		_ = json.Unmarshal([]byte(row.ResultJson.String), &v.Result)
+	if row.ResultJSON != "" {
+		_ = json.Unmarshal([]byte(row.ResultJSON), &v.Result)
 	}
 	return v
 }
@@ -424,5 +426,5 @@ func (w *Worker) done(ctx context.Context, id int64, result ExecutionResult) err
 	if err != nil {
 		return err
 	}
-	return w.db.MarkOutputCommandDone(ctx, id, string(raw), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr))
+	return w.db.MarkDone(ctx, id, string(raw), boundExecutionStream(result.Log.Stdout), boundExecutionStream(result.Log.Stderr))
 }

@@ -12,9 +12,9 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // testCanvasSession is testSession's canvas-server twin: same app, same
@@ -51,8 +51,8 @@ func testCanvasSession(t *testing.T) (*app.App, *mcp.ClientSession) {
 
 func seedAgentSession(t *testing.T, core *app.App, workspace, name string) int64 {
 	t.Helper()
-	rec, err := core.Store.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
-		Workspace: workspace, Name: name, Agent: "claude", CreatedAt: 1, LastOpenedAt: 1,
+	rec, err := core.Stores.AgentSessions.Create(t.Context(), stores.AgentSessionCreate{
+		Workspace: workspace, Name: name, Agent: "claude",
 	})
 	require.NoError(t, err)
 	return rec.ID

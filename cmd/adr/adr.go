@@ -135,7 +135,7 @@ type sourceFile struct {
 // against the last release tag. Their comments cannot be rewritten, so the
 // legacy citations a few of them carry are exempt rather than fixable.
 func isReleasedMigration(path string) bool {
-	return strings.HasPrefix(path, "internal/app/store/migrations/")
+	return strings.HasPrefix(path, "internal/app/data/queries/migrations/")
 }
 
 // isCheckerFixture reports this tool's own sources, whose test fixtures are

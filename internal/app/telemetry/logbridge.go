@@ -10,6 +10,9 @@ import (
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	otellog "go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 const (
@@ -34,11 +37,21 @@ type logWriter struct {
 // emitter binds a context to a log emit the way credentials.Bind binds a
 // Resolver. An io.Writer has no context parameter, and the bound context is
 // detached from app cancellation so shutdown lines are not the ones dropped.
-type emitter func(otellog.Record)
+//
+// It takes a SpanContext because correlation on an OTLP record comes from the
+// context handed to Emit, not from an attribute, and the ids arrive here as
+// fields on the encoded event.
+type emitter func(trace.SpanContext, otellog.Record)
 
 func bindEmitter(ctx context.Context, logger otellog.Logger) emitter {
-	ctx = context.WithoutCancel(ctx)
-	return func(rec otellog.Record) { logger.Emit(ctx, rec) }
+	base := context.WithoutCancel(ctx)
+	return func(sc trace.SpanContext, rec otellog.Record) {
+		if !sc.IsValid() {
+			logger.Emit(base, rec)
+			return
+		}
+		logger.Emit(trace.ContextWithSpanContext(base, sc), rec)
+	}
 }
 
 func newLogWriter(ctx context.Context, logger otellog.Logger) io.Writer {
@@ -89,6 +102,9 @@ func (w *logWriter) forward(p []byte) {
 		switch key {
 		case zerolog.TimestampFieldName, zerolog.LevelFieldName, zerolog.MessageFieldName:
 			continue
+		// Promoted to the record's own trace context below.
+		case observe.LogTraceIDKey, observe.LogSpanIDKey:
+			continue
 		}
 		if len(attrs) == maxAttrs {
 			break
@@ -99,7 +115,33 @@ func (w *logWriter) forward(p []byte) {
 		rec.AddAttributes(attrs...)
 	}
 
-	w.emit(rec)
+	w.emit(spanContextFrom(fields), rec)
+}
+
+// An unparseable or absent pair yields the zero value, which emits an
+// uncorrelated record rather than failing the write.
+func spanContextFrom(fields map[string]json.RawMessage) trace.SpanContext {
+	traceHex, err := decodeString(fields[observe.LogTraceIDKey])
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	spanHex, err := decodeString(fields[observe.LogSpanIDKey])
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	traceID, err := trace.TraceIDFromHex(traceHex)
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	spanID, err := trace.SpanIDFromHex(spanHex)
+	if err != nil {
+		return trace.SpanContext{}
+	}
+	return trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+	})
 }
 
 func attrValue(raw json.RawMessage) attribute.Value {

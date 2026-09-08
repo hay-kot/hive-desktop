@@ -8,9 +8,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 type nodeImageInput struct {
@@ -144,7 +144,7 @@ type executeFlowInput struct {
 // per thing that happened, not one per hop.
 const detailEmitted = "emitted"
 
-// flowMessage mirrors store.Msg for the wire. It exists because store.Msg
+// flowMessage mirrors models.Msg for the wire. It exists because models.Msg
 // carries its raw JSON as json.RawMessage, whose Go type is []byte, and the
 // SDK's schema inferrer therefore describes Payload as an array — a schema
 // that rejects the JSON object every real payload is, before the handler is
@@ -152,7 +152,7 @@ const detailEmitted = "emitted"
 // wire type says it here and converts at the seam, which is where a
 // transport-shaped DTO belongs anyway.
 //
-// Field names match store.Msg's own JSON (Go names, not lowercased) so a
+// Field names match models.Msg's own JSON (Go names, not lowercased) so a
 // payload captured from the app round-trips unchanged.
 type flowMessage struct {
 	ID            string         `json:"ID,omitempty"            jsonschema:"Message id; a synthetic one is generated when empty."`
@@ -198,7 +198,7 @@ type executeFlowResult struct {
 // collections are non-nil precisely so tooling can count them.
 type nodeTraceView struct {
 	runtime.NodeTrace
-	Received *[]store.Msg            `json:"received,omitempty"`
+	Received *[]models.Msg           `json:"received,omitempty"`
 	Emitted  *[]runtime.PortEmission `json:"emitted,omitempty"`
 }
 
@@ -323,29 +323,29 @@ func seedKV(seed map[string]map[string]any) (map[string]map[string]string, error
 
 // toStoreMessages converts the wire messages into the engine's own envelope.
 //
-// A nil Snapshot stays nil and an empty one stays empty: store.Msg treats a
+// A nil Snapshot stays nil and an empty one stays empty: models.Msg treats a
 // present-but-empty snapshot as a successful poll that returned zero items,
 // which declares feed reconciliation, while an absent one is an ordinary
 // item message. Collapsing the two silently changes what the run means.
-func toStoreMessages(in []flowMessage) ([]store.Msg, error) {
-	out := make([]store.Msg, len(in))
+func toStoreMessages(in []flowMessage) ([]models.Msg, error) {
+	out := make([]models.Msg, len(in))
 	for i, m := range in {
 		payload, err := rawJSON(m.Payload)
 		if err != nil {
 			return nil, err
 		}
-		msg := store.Msg{
+		msg := models.Msg{
 			ID: m.ID, Key: m.Key, Topic: m.Topic, Ts: m.Ts, Payload: payload,
 			SourceKind: m.SourceKind, SourceScope: m.SourceScope, OccurrenceKey: m.OccurrenceKey,
 		}
 		if m.Snapshot != nil {
-			snapshot := make([]store.SnapshotItem, len(m.Snapshot))
+			snapshot := make([]models.SnapshotItem, len(m.Snapshot))
 			for j, item := range m.Snapshot {
 				itemPayload, err := rawJSON(item.Payload)
 				if err != nil {
 					return nil, err
 				}
-				snapshot[j] = store.SnapshotItem{Key: item.Key, Payload: itemPayload}
+				snapshot[j] = models.SnapshotItem{Key: item.Key, Payload: itemPayload}
 			}
 			msg.Snapshot = snapshot
 		}

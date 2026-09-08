@@ -106,7 +106,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.12.2
+          version: v2.13.2
           args: --timeout=6m
 
       # Neither is in `mise run check` — deadcode builds the program's SSA
@@ -142,6 +142,34 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  # The site's only other build is the deploy job on main, so a broken page
+  # would otherwise surface after merge. Same toolchain as the deploy:
+  # web/mise.toml pins Python, uv, and Node.
+  web-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    env:
+      # mise merges the repo-root config into web/, so a task run here tries to
+      # install wails3, which needs GTK dev packages this runner does not have.
+      # The three tools the site needs come from the mise-action step below.
+      MISE_TASK_RUN_AUTO_INSTALL: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4
+        with:
+          working_directory: web
+          install_args: python uv node
+
+      - name: Install site dependencies
+        run: mise run install
+
+      - name: Build site
+        run: mise run build
 
   desktop-frontend-test:
     runs-on: ubuntu-latest

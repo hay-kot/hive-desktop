@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 // hostEnvironment is the resolver's stand-in: tests exercise decoding and
@@ -33,10 +33,10 @@ func newSource(t *testing.T, command string) *source {
 // produce collects what one run emitted, which for a failed run must be
 // nothing at all: a half-emitted snapshot would tell the producer the items the
 // command never reached are gone.
-func produce(t *testing.T, s *source) ([]store.Msg, error) {
+func produce(t *testing.T, s *source) ([]models.Msg, error) {
 	t.Helper()
-	var got []store.Msg
-	err := s.Produce(t.Context(), func(msg store.Msg) error {
+	var got []models.Msg
+	err := s.Produce(t.Context(), func(msg models.Msg) error {
 		got = append(got, msg)
 		return nil
 	})
@@ -129,7 +129,7 @@ func TestProduce_CancellationReportsTheCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	err := newSource(t, `echo '[]'`).Produce(ctx, func(store.Msg) error { return nil })
+	err := newSource(t, `echo '[]'`).Produce(ctx, func(models.Msg) error { return nil })
 
 	require.ErrorIs(t, err, context.Canceled)
 }

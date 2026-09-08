@@ -7,34 +7,37 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// Store is what the engine needs from the pipeline database. It is declared
-// here because the engine is its consumer; *store.DB satisfies it.
-type Store interface {
+type LogStore interface {
 	// ReadForConsumer returns the next page after a consumer's committed
 	// offset.
-	ReadForConsumer(ctx context.Context, consumer string, limit int) ([]store.Msg, error)
-	// CommitBatch applies one run's outputs and advances the offset, atomically.
-	CommitBatch(ctx context.Context, batch store.CommitBatch) error
-	// EventLogTailOffset is the log's high-water mark, the point a replay
+	ReadForConsumer(ctx context.Context, consumer string, limit int) ([]models.Msg, error)
+	// TailOffset is the log's high-water mark, the point a replay
 	// fast-forwards its consumer to.
-	EventLogTailOffset(ctx context.Context) (int64, error)
-	// ListUnarchivedInboxItems returns the items a replay may claim. Archived
-	// items are deliberately absent: their membership is frozen.
-	ListUnarchivedInboxItems(ctx context.Context, profileID string) ([]store.InboxItemView, error)
-	// ListReplaySourceSnapshots returns each source's newest authoritative
-	// snapshot at or before an offset.
-	ListReplaySourceSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]store.Msg, error)
+	TailOffset(ctx context.Context) (int64, error)
+	// ListLatestSnapshots returns each source's newest authoritative snapshot
+	// at or before an offset.
+	ListLatestSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]models.Msg, error)
+}
+
+// InboxReader excludes archived items because replay must preserve their
+// frozen memberships.
+type InboxReader interface {
+	ListUnarchived(ctx context.Context, profileID string) ([]stores.InboxItem, error)
+}
+
+type CommitStore interface {
+	// Commit applies one run's outputs and advances the offset, atomically.
+	Commit(ctx context.Context, batch models.CommitBatch) error
 	// ActivateReplay installs a prepared replay: claims, removed structure,
 	// node-KV reconciliation, and the consumer checkpoint, in one transaction.
-	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []store.FeedMembershipClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
-	// NodeKVGet and NodeKVKeys are the KVReader port live runners read
-	// durable node KV through.
-	NodeKVGet(ctx context.Context, flowID, nodeID, key string, now int64) (string, bool, error)
-	NodeKVKeys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
+	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []models.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
 }
 
 // Flows is the engine's view of the flow set: whatever loaded successfully,
@@ -48,21 +51,21 @@ const DefaultPageSize = 500
 
 // EngineOptions configure an Engine. Only Logger and PageSize are optional.
 type EngineOptions struct {
-	Store   Store
+	Log     LogStore
+	Items   InboxReader
+	Commits CommitStore
+	KV      KVReader
 	Flows   Flows
 	Scripts *ScriptRegistry
 	Logger  zerolog.Logger
 	// PageSize bounds one read. Zero means DefaultPageSize.
 	PageSize int
-	// OnCommitted is called after a pass in which at least one flow committed
-	// something. It is how a UI learns that feed membership may have changed —
-	// the log growing is not that signal, because a message can be appended
-	// and routed nowhere.
-	OnCommitted func()
-	// OnFlowError reports a flow that could not be installed. The engine keeps
-	// running the last known-good version of that flow, so this is the only
-	// way the failure becomes visible.
-	OnFlowError func(flowID string, err error)
+	// Events receives InboxUpdated after a pass commits at least one flow.
+	// Appending an unrouted log message does not emit this event.
+	Events *events.Bus
+	// Recorder reports install failures while the engine keeps the last known-good
+	// flow active.
+	Recorder activity.Recorder
 }
 
 // Engine runs every enabled flow against the event log. One per process: the
@@ -200,8 +203,8 @@ func (e *Engine) install(ctx context.Context) {
 			// an authoring error, and taking a working flow offline for it would
 			// lose messages that the last-known-good version handles fine.
 			e.opts.Logger.Warn().Err(err).Str("flow", id).Msg("flow could not be installed; keeping the last known-good runtime")
-			if e.opts.OnFlowError != nil {
-				e.opts.OnFlowError(id, err)
+			if e.opts.Recorder != nil {
+				e.opts.Recorder.Record(ctx, activity.FlowRuntimeFailed(id, err))
 			}
 		}
 	}
@@ -217,7 +220,7 @@ func (e *Engine) install(ctx context.Context) {
 // that were already run for those items. The recompute is a plain Run whose
 // result is not committed — only its feed claims are installed.
 func (e *Engine) installFlow(ctx context.Context, f flow.Flow) error {
-	runner, err := NewRunner(f, Options{Scripts: e.opts.Scripts, KV: e.opts.Store})
+	runner, err := NewRunner(f, Options{Scripts: e.opts.Scripts, KV: e.opts.KV})
 	if err != nil {
 		return err
 	}
@@ -237,14 +240,14 @@ func (e *Engine) installFlow(ctx context.Context, f flow.Flow) error {
 // replay prepares and installs one flow's membership, then advances its
 // consumer to the captured log tail.
 func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error {
-	tail, err := e.opts.Store.EventLogTailOffset(ctx)
+	tail, err := e.opts.Log.TailOffset(ctx)
 	if err != nil {
 		return fmt.Errorf("reading the event log tail: %w", err)
 	}
 
 	feedIDs, sourceIDs := flowTargets(f)
 
-	items, err := e.opts.Store.ListUnarchivedInboxItems(ctx, f.ID)
+	items, err := e.opts.Items.ListUnarchived(ctx, f.ID)
 	if err != nil {
 		return fmt.Errorf("reading claimable inbox items: %w", err)
 	}
@@ -253,7 +256,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 		byIdentity[identityKey(item.SourceKind, item.SourceScope, item.ExternalID)] = item.ID
 	}
 
-	snapshots, err := e.opts.Store.ListReplaySourceSnapshots(ctx, f.ID, tail)
+	snapshots, err := e.opts.Log.ListLatestSnapshots(ctx, f.ID, tail)
 	if err != nil {
 		return fmt.Errorf("reading source snapshots: %w", err)
 	}
@@ -275,9 +278,9 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 		return fmt.Errorf("recomputing membership: %w", err)
 	}
 
-	claims := make([]store.FeedMembershipClaim, 0, len(result.Outputs))
+	claims := make([]models.FeedClaim, 0, len(result.Outputs))
 	for _, output := range result.Outputs {
-		if output.Sink.Kind != store.SinkKindFeed {
+		if output.Sink.Kind != models.SinkKindFeed {
 			continue
 		}
 		itemID, ok := byIdentity[identityKey(output.SourceKind, output.SourceScope, output.Key)]
@@ -287,7 +290,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 			// claim.
 			continue
 		}
-		claims = append(claims, store.FeedMembershipClaim{
+		claims = append(claims, models.FeedClaim{
 			ProfileID: f.ID,
 			FeedID:    output.Sink.TargetID,
 			ItemID:    itemID,
@@ -298,7 +301,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 	// One transaction installs the claims, removes the structure this flow no
 	// longer has, reconciles node KV, and moves the checkpoint. A failure here
 	// leaves the previous flow's claims, KV and offset exactly as they were.
-	if err := e.opts.Store.ActivateReplay(ctx, f.ID, tail, claims, feedIDs, sourceIDs, flowKVNodeIDs(f)); err != nil {
+	if err := e.opts.Commits.ActivateReplay(ctx, f.ID, tail, claims, feedIDs, sourceIDs, flowKVNodeIDs(f)); err != nil {
 		return fmt.Errorf("activating replay: %w", err)
 	}
 	return nil
@@ -324,15 +327,15 @@ func (e *Engine) drain(ctx context.Context) {
 			committed = true
 		}
 	}
-	if committed && e.opts.OnCommitted != nil {
-		e.opts.OnCommitted()
+	if committed && e.opts.Events != nil {
+		e.opts.Events.Publish(ctx, events.InboxUpdated{})
 	}
 }
 
 // pump reads one page for a flow, runs it, and commits. It reports whether
 // there was anything to do.
 func (e *Engine) pump(ctx context.Context, id string, runner *Runner) (bool, error) {
-	batch, err := e.opts.Store.ReadForConsumer(ctx, id, e.opts.PageSize)
+	batch, err := e.opts.Log.ReadForConsumer(ctx, id, e.opts.PageSize)
 	if err != nil {
 		return false, fmt.Errorf("reading the log: %w", err)
 	}
@@ -344,7 +347,7 @@ func (e *Engine) pump(ctx context.Context, id string, runner *Runner) (bool, err
 	if err != nil {
 		return false, fmt.Errorf("running the flow: %w", err)
 	}
-	if err := e.opts.Store.CommitBatch(ctx, result); err != nil {
+	if err := e.opts.Commits.Commit(ctx, result); err != nil {
 		return false, fmt.Errorf("committing: %w", err)
 	}
 	return true, nil

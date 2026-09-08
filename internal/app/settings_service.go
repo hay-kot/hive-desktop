@@ -25,21 +25,22 @@ type SettingsService struct {
 	lookPath func(context.Context, string) (string, error)
 }
 
-// newSettingsService builds the service. producer and fetchers are nil in
-// mock mode, where persistence still works and there is simply nothing live
-// to apply a change to.
-func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers, lookPath func(context.Context, string) (string, error)) *SettingsService {
-	return &SettingsService{store: store, producer: producer, fetchers: fetchers, lookPath: lookPath}
+// Producer and Fetchers may be nil when no live source subsystem is available.
+type SettingsDeps struct {
+	Store    *settings.Store
+	Producer *ingest.Producer
+	Fetchers *ghsource.Fetchers
+	LookPath func(context.Context, string) (string, error)
 }
 
-// NewSettingsService builds a settings-only view of the core's settings
-// service, over the same *settings.Store App itself reads and writes. It
-// exists for a driven port the adapter must construct before App does:
-// app.Config's notification Gate is one of the two arguments New itself
-// needs, so it cannot wait for core.Settings to exist. Nothing built this way
-// calls SetGithub, so a nil producer and fetchers cost it nothing.
+func newSettingsService(d SettingsDeps) *SettingsService {
+	return &SettingsService{store: d.Store, producer: d.Producer, fetchers: d.Fetchers, lookPath: d.LookPath}
+}
+
+// NewSettingsService builds the settings-only service an adapter can use
+// before App exists. It does not wire live source updates.
 func NewSettingsService(store *settings.Store) *SettingsService {
-	return newSettingsService(store, nil, nil, nil)
+	return newSettingsService(SettingsDeps{Store: store})
 }
 
 // Keybindings returns the persisted shortcut overrides keyed by command id.

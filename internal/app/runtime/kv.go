@@ -7,16 +7,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
-// KVReader is a driven port: read access to durable node-scoped KV during a
-// tick. Writes are buffered and flushed by the commit, so this is read-only.
-// *store.DB satisfies it. Both methods take an explicit `now` cutoff (unix
-// ms) so expiry is deterministic; the buffer pins one `now` per Run.
+// KVReader provides durable node-scoped reads. Callers pass one
+// Unix-millisecond cutoff per Run so expiry is deterministic.
 type KVReader interface {
-	NodeKVGet(ctx context.Context, flowID, nodeID, key string, now int64) (value string, found bool, err error)
-	NodeKVKeys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
+	Get(ctx context.Context, flowID, nodeID, key string, now int64) (value string, found bool, err error)
+	Keys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
 }
 
 // NodeKV is the node-scoped surface a function node's `kv` object is bound
@@ -74,7 +72,7 @@ func (b *kvBuffer) node(nodeID string) *nodeStaging {
 
 // mutations drains the merged writes, sorted by (nodeID, key) for
 // deterministic batches.
-func (b *kvBuffer) mutations() []store.KVMutation {
+func (b *kvBuffer) mutations() []models.KVMutation {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.inert || len(b.ops) == 0 {
@@ -86,7 +84,7 @@ func (b *kvBuffer) mutations() []store.KVMutation {
 	}
 	sort.Strings(nodeIDs)
 
-	var out []store.KVMutation
+	var out []models.KVMutation
 	for _, nodeID := range nodeIDs {
 		ops := b.ops[nodeID]
 		keys := make([]string, 0, len(ops))
@@ -96,7 +94,7 @@ func (b *kvBuffer) mutations() []store.KVMutation {
 		sort.Strings(keys)
 		for _, key := range keys {
 			op := ops[key]
-			out = append(out, store.KVMutation{
+			out = append(out, models.KVMutation{
 				NodeID:    nodeID,
 				Key:       key,
 				Delete:    op.deleted,
@@ -108,10 +106,8 @@ func (b *kvBuffer) mutations() []store.KVMutation {
 	return out
 }
 
-// nodeStaging is the NodeKV one on_message sees: reads layer this message's
-// staged writes over merged writes over the durable store. run.go commits it
-// only when the message succeeded; an errored message's staging is dropped
-// with the handle.
+// nodeStaging layers this message's writes over prior writes and durable state.
+// A message's writes merge only after successful execution.
 type nodeStaging struct {
 	buf    *kvBuffer
 	nodeID string
@@ -148,7 +144,7 @@ func (s *nodeStaging) Get(ctx context.Context, key string) (string, bool, error)
 	if merged {
 		return s.resolve(op)
 	}
-	return s.buf.reader.NodeKVGet(ctx, s.buf.flowID, s.nodeID, key, s.buf.now)
+	return s.buf.reader.Get(ctx, s.buf.flowID, s.nodeID, key, s.buf.now)
 }
 
 func (s *nodeStaging) Has(ctx context.Context, key string) (bool, error) {
@@ -191,7 +187,7 @@ func (s *nodeStaging) Keys(ctx context.Context, prefix string) ([]string, error)
 	if s.buf.inert {
 		return nil, nil
 	}
-	durable, err := s.buf.reader.NodeKVKeys(ctx, s.buf.flowID, s.nodeID, prefix, s.buf.now)
+	durable, err := s.buf.reader.Keys(ctx, s.buf.flowID, s.nodeID, prefix, s.buf.now)
 	if err != nil {
 		return nil, err
 	}
@@ -237,10 +233,10 @@ func (s *nodeStaging) expired(op kvOp) bool {
 
 type noopKVReader struct{}
 
-func (noopKVReader) NodeKVGet(context.Context, string, string, string, int64) (string, bool, error) {
+func (noopKVReader) Get(context.Context, string, string, string, int64) (string, bool, error) {
 	return "", false, nil
 }
 
-func (noopKVReader) NodeKVKeys(context.Context, string, string, string, int64) ([]string, error) {
+func (noopKVReader) Keys(context.Context, string, string, string, int64) ([]string, error) {
 	return nil, nil
 }

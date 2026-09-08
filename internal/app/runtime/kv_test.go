@@ -8,20 +8,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 type fakeKVReader struct {
 	rows map[string]string // "nodeID/key" -> value
 }
 
-func (f fakeKVReader) NodeKVGet(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
+func (f fakeKVReader) Get(_ context.Context, _, nodeID, key string, _ int64) (string, bool, error) {
 	value, ok := f.rows[nodeID+"/"+key]
 	return value, ok, nil
 }
 
-func (f fakeKVReader) NodeKVKeys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
+func (f fakeKVReader) Keys(_ context.Context, _, nodeID, prefix string, _ int64) ([]string, error) {
 	var keys []string
 	for row := range f.rows {
 		id, key, _ := cutRow(row)
@@ -165,7 +165,7 @@ func TestKVBuffer_MutationsAreDeterministicallyOrdered(t *testing.T) {
 	require.NoError(t, a.Set(ctx, "k", `1`, 0))
 	a.commit()
 
-	want := []store.KVMutation{
+	want := []models.KVMutation{
 		{NodeID: "node-a", Key: "k", Value: `1`},
 		{NodeID: "node-b", Key: "a", Value: `1`, ExpiresAt: 1000 + 60*1000},
 		{NodeID: "node-b", Key: "m", Delete: true},
@@ -196,7 +196,7 @@ func TestInertKVBuffer_DisabledInBothDirections(t *testing.T) {
 // fakeScriptRuntime registers under the default language so a function node
 // resolves to it; each OnMessage call is scripted by the test.
 type fakeScriptRuntime struct {
-	onMessage func(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error)
+	onMessage func(ctx context.Context, msg models.Msg, kv NodeKV) ([][]models.Msg, error)
 }
 
 func (f *fakeScriptRuntime) Name() string       { return DefaultScriptLanguage }
@@ -206,10 +206,10 @@ func (f *fakeScriptRuntime) New(string, int) (ScriptInstance, error) {
 }
 
 type fakeScriptInstance struct {
-	onMessage func(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error)
+	onMessage func(ctx context.Context, msg models.Msg, kv NodeKV) ([][]models.Msg, error)
 }
 
-func (f *fakeScriptInstance) OnMessage(ctx context.Context, msg store.Msg, _ any, kv NodeKV, _ ConsoleSink) ([][]store.Msg, error) {
+func (f *fakeScriptInstance) OnMessage(ctx context.Context, msg models.Msg, _ any, kv NodeKV, _ ConsoleSink) ([][]models.Msg, error) {
 	return f.onMessage(ctx, msg, kv)
 }
 func (f *fakeScriptInstance) Close() {}
@@ -218,7 +218,7 @@ func (f *fakeScriptInstance) Close() {}
 // message in the same batch does not see the discarded write; a succeeding
 // message's write reaches the batch.
 func TestRun_StagedWritesFollowTheMessageOutcome(t *testing.T) {
-	rt := &fakeScriptRuntime{onMessage: func(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error) {
+	rt := &fakeScriptRuntime{onMessage: func(ctx context.Context, msg models.Msg, kv NodeKV) ([][]models.Msg, error) {
 		require.NoError(t, kv.Set(ctx, "seen:"+msg.Key, `true`, 0))
 		if msg.Key == "poison" {
 			return nil, &ScriptError{Kind: ScriptErrorRuntime, Message: "boom"}
@@ -226,7 +226,7 @@ func TestRun_StagedWritesFollowTheMessageOutcome(t *testing.T) {
 		_, foundPoison, err := kv.Get(ctx, "seen:poison")
 		require.NoError(t, err)
 		assert.False(t, foundPoison, "the errored message's staged write must be invisible")
-		return [][]store.Msg{{msg}}, nil
+		return [][]models.Msg{{msg}}, nil
 	}}
 
 	registry := NewScriptRegistry()
@@ -241,19 +241,19 @@ func TestRun_StagedWritesFollowTheMessageOutcome(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	batch, err := runner.Run(t.Context(), []store.Msg{
+	batch, err := runner.Run(t.Context(), []models.Msg{
 		{ID: "1", Key: "poison", Payload: json.RawMessage(`{}`)},
 		{ID: "2", Key: "ok", Payload: json.RawMessage(`{}`)},
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, []store.KVMutation{{NodeID: "fn", Key: "seen:ok", Value: `true`}}, batch.KVMutations)
+	assert.Equal(t, []models.KVMutation{{NodeID: "fn", Key: "seen:ok", Value: `true`}}, batch.KVMutations)
 }
 
 // A script that writes KV and then intentionally drops the message (returns
 // nothing) still merges: only an error discards staging.
 func TestRun_IntentionalDropStillCommitsStaging(t *testing.T) {
-	rt := &fakeScriptRuntime{onMessage: func(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error) {
+	rt := &fakeScriptRuntime{onMessage: func(ctx context.Context, msg models.Msg, kv NodeKV) ([][]models.Msg, error) {
 		require.NoError(t, kv.Set(ctx, "seen", `true`, 0))
 		return nil, nil
 	}}
@@ -268,15 +268,15 @@ func TestRun_IntentionalDropStillCommitsStaging(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	batch, err := runner.Run(t.Context(), []store.Msg{{ID: "1", Key: "k", Payload: json.RawMessage(`{}`)}})
+	batch, err := runner.Run(t.Context(), []models.Msg{{ID: "1", Key: "k", Payload: json.RawMessage(`{}`)}})
 	require.NoError(t, err)
-	assert.Equal(t, []store.KVMutation{{NodeID: "fn", Key: "seen", Value: `true`}}, batch.KVMutations)
+	assert.Equal(t, []models.KVMutation{{NodeID: "fn", Key: "seen", Value: `true`}}, batch.KVMutations)
 }
 
 // Within one Run, message 2 sees message 1's write once message 1 succeeded.
 func TestRun_LaterMessageSeesEarlierCommittedWrite(t *testing.T) {
 	secondSawWrite := false
-	rt := &fakeScriptRuntime{onMessage: func(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error) {
+	rt := &fakeScriptRuntime{onMessage: func(ctx context.Context, msg models.Msg, kv NodeKV) ([][]models.Msg, error) {
 		found, err := kv.Has(ctx, "seen")
 		require.NoError(t, err)
 		if msg.Key == "b" {
@@ -296,7 +296,7 @@ func TestRun_LaterMessageSeesEarlierCommittedWrite(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	batch, err := runner.Run(t.Context(), []store.Msg{
+	batch, err := runner.Run(t.Context(), []models.Msg{
 		{ID: "1", Key: "a", Payload: json.RawMessage(`{}`)},
 		{ID: "2", Key: "b", Payload: json.RawMessage(`{}`)},
 	})
@@ -308,7 +308,7 @@ func TestRun_LaterMessageSeesEarlierCommittedWrite(t *testing.T) {
 
 func TestResetProcessorsDropsInstances(t *testing.T) {
 	instances := 0
-	rt := &fakeScriptRuntime{onMessage: func(context.Context, store.Msg, NodeKV) ([][]store.Msg, error) {
+	rt := &fakeScriptRuntime{onMessage: func(context.Context, models.Msg, NodeKV) ([][]models.Msg, error) {
 		return nil, nil
 	}}
 	counting := &countingScriptRuntime{fakeScriptRuntime: rt, news: &instances}
@@ -323,13 +323,13 @@ func TestResetProcessorsDropsInstances(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	_, err = runner.Run(t.Context(), []store.Msg{{ID: "1", Key: "a", Payload: json.RawMessage(`{}`)}})
+	_, err = runner.Run(t.Context(), []models.Msg{{ID: "1", Key: "a", Payload: json.RawMessage(`{}`)}})
 	require.NoError(t, err)
 	assert.Equal(t, 1, instances)
 
 	runner.resetProcessors()
 
-	_, err = runner.Run(t.Context(), []store.Msg{{ID: "2", Key: "b", Payload: json.RawMessage(`{}`)}})
+	_, err = runner.Run(t.Context(), []models.Msg{{ID: "2", Key: "b", Payload: json.RawMessage(`{}`)}})
 	require.NoError(t, err)
 	assert.Equal(t, 2, instances, "a reset drops the instance and its state; the next message builds fresh")
 }

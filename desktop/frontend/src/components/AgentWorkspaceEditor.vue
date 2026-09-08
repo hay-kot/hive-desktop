@@ -1,17 +1,18 @@
 <script setup lang="ts">
 // Create/edit editor for an agent workspace's manifest, in the app's
 // DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
-// it shows — name, agent, autonomy, the mcps and skills lists, and the
-// schedules list (plus the directory name at creation); hand-written comments
-// in the YAML survive the write untouched. Both capability lists work the same
-// way: a shared library
+// it shows — name, command, the mcps and skills lists, and the schedules
+// list (plus the directory name at creation); hand-written comments in the
+// YAML survive the write untouched. Both capability lists work the same way:
+// a shared library
 // on disk declares what exists (mcps.yaml, skills.yml) and the toggle is this
 // workspace's own. The skills list names packages, not individual skills
 // (ADR skill-packages-are-the-unit-a-workspace-enables). Deleting the workspace also lives here — the editor
 // is the workspace's whole management surface, so its sidebar row needs no
 // menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
 // that expands into an InlineConfirm over a dimmed, inert form.
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, markRaw, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { Component } from 'vue'
 import IconArrowLeft from '~icons/lucide/arrow-left'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -24,6 +25,7 @@ import IconPlus from '~icons/lucide/plus'
 import IconTrash2 from '~icons/lucide/trash-2'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconX from '~icons/lucide/x'
+import AgentIcon, { agentHasIcon } from './AgentIcon.vue'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
 import BaseBadge from './BaseBadge.vue'
@@ -47,7 +49,6 @@ import type {
 const props = defineProps<{
   /** The workspace being edited, or null to create one. */
   workspace?: AgentWorkspace | null
-  agents: string[]
   busy?: boolean
   error?: string | null
 }>()
@@ -58,7 +59,7 @@ const emit = defineEmits<{
 }>()
 
 const {
-  root, editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, autonomyFlags,
+  root, editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, presets,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
   reloadSkillPackages, revealSkillPackages, revealSharedSkills,
   openWorkspaceInEditor, revealWorkspace,
@@ -78,74 +79,83 @@ const manifestProblem = computed(() => (creating.value ? '' : props.workspace?.p
 
 const dir = ref(props.workspace?.dir ?? '')
 const name = ref(props.workspace?.name ?? '')
-const agent = ref(props.workspace?.agent || props.agents[0] || '')
-const autonomy = ref(props.workspace?.autonomy || 'ask')
+const command = ref(props.workspace?.command ?? '')
 const selectedMCPs = ref<string[]>([...(props.workspace?.mcps ?? [])])
 const selectedSkills = ref<string[]>([...(props.workspace?.skills ?? [])])
 
-const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => ({ value: a, label: a })))
+const CUSTOM = '__custom__'
 
-// Every posture is laid out as a radio card rather than a dropdown, so the
-// choice being made — especially full's dangerous bypass — is readable
-// before it is selected. The flags line is the launch table's own projection
-// for the chosen agent (ADR a-workspace-declares-its-own-authority): the UI shows what the posture actually
-// runs, never a euphemism, and a posture the launch would refuse is disabled.
-const AUTONOMY_META = [
-  {
-    value: 'ask',
-    label: 'Ask',
-    description: 'Every action needs your approval — the agent prompts before anything it is not sure of.',
-    danger: false,
-  },
-  {
-    value: 'auto',
-    label: 'Auto',
-    description: 'File edits are allowed without prompting; anything riskier still asks.',
-    danger: false,
-  },
-  {
-    value: 'full',
-    label: 'Full — dangerously skip permissions',
-    description: 'Bypasses the agent\'s permission prompts entirely. Unattended, it can take any action your user account can, including through every enabled MCP server.',
-    danger: true,
-  },
-] as const
+// Without this the derived selection below snaps back to a suggestion the
+// moment the typed command matches one again.
+const editingCommand = ref(false)
 
-interface AutonomyOption {
-  value: string
-  label: string
-  description: string
-  danger: boolean
-  /** The launch this posture runs, agent included; empty until the table has loaded. */
-  command: string
-  unavailable: boolean
-}
-
-const autonomyOptions = computed<AutonomyOption[]>(() => {
-  const known = autonomyFlags.value[agent.value]
-  return AUTONOMY_META.map((meta) => {
-    const flags = known?.[meta.value]
-    return {
-      ...meta,
-      command: flags ? [agent.value, ...flags].join(' ') : '',
-      // Only a loaded table can rule a posture out; with nothing loaded the
-      // selector stays fully usable and simply shows no flag detail.
-      unavailable: !!known && !flags,
+const selection = computed<string>({
+  get: () => (editingCommand.value ? CUSTOM : presets.value.find((p) => p.command === command.value)?.id ?? CUSTOM),
+  set(id) {
+    if (id === CUSTOM) {
+      editingCommand.value = true
+      return
     }
-  })
+    const preset = presets.value.find((p) => p.id === id)
+    if (!preset) return
+    command.value = preset.command
+    editingCommand.value = false
+  },
 })
 
-function selectAutonomy(option: AutonomyOption): void {
-  if (props.busy || option.unavailable) return
-  autonomy.value = option.value
+// AppSelect takes a bare component, with no props to pass an agent through.
+// Memoized: a fresh component identity on every render remounts every row.
+const agentIcons = new Map<string, Component>()
+function agentIcon(agent: string): Component | undefined {
+  if (!agentHasIcon(agent)) return undefined
+  let icon = agentIcons.get(agent)
+  if (!icon) {
+    icon = markRaw(() => h(AgentIcon, { id: agent }))
+    agentIcons.set(agent, icon)
+  }
+  return icon
 }
 
-// The dangerous posture keeps its warning wash when chosen, so the bypass is
-// never a quiet selection.
-function autonomyRowClass(option: AutonomyOption): string {
-  if (autonomy.value !== option.value) return 'enabled:hover:bg-row-hover'
-  return option.danger ? 'bg-severity-warning-tint' : 'bg-selection'
-}
+// A hive-seeded preset's label is its profile key, which is already the agent
+// when the profile just runs that CLI.
+const presetOptions = computed<AppSelectOption[]>(() => [
+  ...presets.value.map((preset) => ({
+    value: preset.id,
+    label: preset.label === preset.agent ? preset.agent : `${preset.agent} · ${preset.label}`,
+    hint: preset.command,
+    icon: agentIcon(preset.agent),
+  })),
+  { value: CUSTOM, label: 'Custom', hint: 'Write the invocation yourself', icon: markRaw(IconPencil) },
+])
+
+// A watch, not an initializer: presets arrive with the area's overview, which
+// can land after this sheet is mounted.
+watch(presets, (rows) => {
+  if (!creating.value || command.value || !rows.length) return
+  command.value = rows[0].command
+}, { immediate: true })
+
+// DANGEROUS_FLAGS mirrors agentws's own list. It is duplicated rather than
+// served because it only drives a warning: a flag missing here shows no
+// banner, which is the same "not recognized" the Go side means, and the
+// manifest's own danger flag still labels the saved row.
+const DANGEROUS_FLAGS = [
+  '--dangerously-skip-permissions',
+  '--dangerously-bypass-approvals-and-sandbox',
+  '--yolo',
+  '--full-auto',
+]
+const commandIsDangerous = computed(() => DANGEROUS_FLAGS.some((flag) => command.value.includes(flag)))
+
+// Kept in step with agentws.LaunchData.
+const TEMPLATE_FIELDS = [
+  { field: '{{ .Dir }}', means: 'the workspace directory on disk' },
+  { field: '{{ .MCPConfig }}', means: 'the MCP config Hive generates for this workspace' },
+  { field: '{{ .SessionID }}', means: 'the id Hive minted for this chat' },
+  { field: '{{ .Resume }}', means: 'true when reopening a chat, false on a new one' },
+  { field: '{{ .Prompt }}', means: "a schedule's prompt on a scheduled chat; empty on one started by hand" },
+  { field: 'shq', means: 'quotes a value for the shell — pipe every path through it' },
+]
 
 // The settings pages' vocabulary: SettingsSection's boxed card, drawn here so
 // a list can end in its own action row; the small outlined button a row
@@ -858,15 +868,14 @@ async function reveal(): Promise<void> {
 }
 
 const valid = computed(() =>
-  !!name.value.trim() && !!agent.value && (!creating.value || !!dir.value.trim()) && !manifestProblem.value)
+  !!name.value.trim() && !!command.value.trim() && (!creating.value || !!dir.value.trim()) && !manifestProblem.value)
 
 function submit(): void {
   if (props.busy || confirming.value || scheduleDraft.value || !valid.value) return
   emit('save', {
     dir: creating.value ? dir.value.trim() : props.workspace!.dir,
     name: name.value.trim(),
-    agent: agent.value,
-    autonomy: autonomy.value,
+    command: command.value.trim(),
     mcps: selectedMCPs.value,
     skills: selectedSkills.value,
     schedules: scheduleEdits(),
@@ -1132,66 +1141,66 @@ onMounted(async () => {
             @keydown.enter="submit"
           >
         </FieldRow>
-        <div class="grid grid-cols-2 gap-3">
-          <TextField
-            ref="nameInput"
-            v-model="name"
-            label="Name"
-            :disabled="busy"
-            testid="agent-workspace-editor-name"
-            @keydown.enter="submit"
-          />
-          <FieldRow label="Agent">
-            <AppSelect
-              v-model="agent"
-              :options="agentOptions"
-              placeholder="No agents configured"
-              aria-label="Agent"
-              testid="agent-workspace-editor-agent"
-              :disabled="busy || !agents.length"
-            />
-          </FieldRow>
-        </div>
+        <TextField
+          ref="nameInput"
+          v-model="name"
+          label="Name"
+          :disabled="busy"
+          testid="agent-workspace-editor-name"
+          @keydown.enter="submit"
+        />
       </div>
 
-      <SettingsSection title="Autonomy" description="How much the agent does without asking.">
-        <div
-          role="radiogroup"
-          aria-label="Autonomy"
-          :class="listCardClass"
-          data-testid="agent-workspace-editor-autonomy"
-        >
-          <button
-            v-for="option in autonomyOptions"
-            :key="option.value"
-            type="button"
-            role="radio"
-            :aria-checked="autonomy === option.value"
-            :disabled="busy || option.unavailable"
-            class="flex w-full items-start gap-3 px-4 py-3.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
-            :class="[busy || option.unavailable ? '' : 'cursor-pointer', autonomyRowClass(option)]"
-            :data-testid="`agent-workspace-editor-autonomy-${option.value}`"
-            @click="selectAutonomy(option)"
-          >
-            <span
-              class="mt-0.5 size-4 shrink-0 rounded-full"
-              :class="autonomy === option.value ? 'border-[5px] border-accent bg-app' : 'border border-strong'"
+      <SettingsSection
+        title="Command"
+        description="What a chat in this workspace launches. A suggestion fills the field; Custom edits the template itself."
+        testid="agent-workspace-editor-command"
+      >
+        <div class="flex flex-col gap-1.5">
+          <AppSelect
+            v-model="selection"
+            :options="presetOptions"
+            searchable
+            search-placeholder="Search commands…"
+            aria-label="Command"
+            testid="agent-workspace-editor-command-preset"
+            :disabled="busy"
+          />
+          <p
+            v-if="selection !== CUSTOM"
+            class="truncate font-mono text-[11px] text-text-4"
+            :title="command"
+            data-testid="agent-workspace-editor-command-preview"
+          >{{ command }}</p>
+          <template v-else>
+            <textarea
+              v-model="command"
+              rows="4"
+              spellcheck="false"
+              :disabled="busy"
+              placeholder="claude --session-id {{ .SessionID }}"
+              class="w-full resize-y rounded-lg border bg-app px-3 py-2.5 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent"
+              :class="commandIsDangerous ? 'border-severity-warning' : 'border-strong'"
+              data-testid="agent-workspace-editor-command-input"
             />
-            <span class="flex min-w-0 flex-1 flex-col gap-1">
-              <span class="flex items-center gap-1.5">
-                <IconTriangleAlert v-if="option.danger" class="size-3.5 shrink-0 text-severity-warning" aria-hidden="true" />
-                <span class="text-[13.5px] font-semibold" :class="option.danger ? 'text-severity-warning' : 'text-text'">{{ option.label }}</span>
-              </span>
-              <span class="text-[12px] leading-relaxed text-text-3">{{ option.description }}</span>
-              <code
-                v-if="option.command"
-                class="truncate font-mono text-[11.5px]"
-                :class="option.danger ? 'text-severity-warning' : 'text-text-4'"
-                :title="option.command"
-              >{{ option.command }}</code>
-              <span v-if="option.unavailable" class="text-[11px] text-text-4">not available for this agent</span>
-            </span>
-          </button>
+            <div class="flex flex-col gap-1 rounded-lg border border-card px-3 py-2.5" data-testid="agent-workspace-editor-command-fields">
+              <p class="text-[11px] leading-relaxed text-text-3">Hive renders this as a Go template each time a chat starts, and fills in:</p>
+              <dl class="flex flex-col gap-1">
+                <div v-for="entry in TEMPLATE_FIELDS" :key="entry.field" class="flex flex-wrap items-baseline gap-x-2">
+                  <dt class="shrink-0 font-mono text-[11px] text-text-2">{{ entry.field }}</dt>
+                  <dd class="min-w-0 flex-1 text-[11px] leading-relaxed text-text-4">{{ entry.means }}</dd>
+                </div>
+              </dl>
+            </div>
+          </template>
+          <p
+            v-if="commandIsDangerous"
+            class="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-severity-warning"
+            data-testid="agent-workspace-editor-command-danger"
+          >
+            <IconTriangleAlert class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <span>This command bypasses the agent's permission prompts. Unattended, it can take any action your user account can, including through every enabled MCP server.</span>
+          </p>
         </div>
       </SettingsSection>
 

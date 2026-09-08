@@ -63,11 +63,37 @@ linters:
                 A core package that needs something from an adapter has the
                 interface backwards — declare it in app and let the adapter
                 satisfy it structurally.
+        # The OpenTelemetry API/SDK split (docs/architecture.md, "Telemetry").
+        # Any package may import the API — go.opentelemetry.io/otel, /trace,
+        # /metric — and declare its own instruments against the global
+        # provider, which is the no-op provider until internal/app/telemetry
+        # registers a real one. What stays in one place is the SDK: the
+        # providers, the readers and the exporters are what cost 4.52 MiB and
+        # what a second construction site would let drift. Test files are
+        # exempt because asserting on telemetry is what the SDK's in-memory
+        # readers are for (sdkmetric.NewManualReader), and a fake instrument
+        # interface is the thing this rule exists to prevent.
+        otelsdk:
+          files:
+            - "$all"
+            - "!$test"
+            - "!**/internal/app/telemetry/**"
+          deny:
+            - pkg: go.opentelemetry.io/otel/sdk
+              desc: |
+                The OTel SDK is internal/app/telemetry's. A package that emits
+                declares package-level instruments through internal/app/observe
+                and needs no SDK type to do it. See docs/architecture.md,
+                "Telemetry".
+            - pkg: go.opentelemetry.io/otel/exporters
+              desc: |
+                An exporter is wired once, in internal/app/telemetry. See
+                docs/architecture.md, "Telemetry".
         # internal/hivecore is vendored and read-only (docs/architecture.md,
         # "Bounded Context"): its types stop at the Anti-Corruption Layer and
         # never appear in an app signature. The files list below is the
         # allowlist, verified by grep on 2026-07-25 against the real tree:
-        # dispatch/hive_adapters.go (the seam itself), store/dbext.go (calls
+        # dispatch/hive_adapters.go (the seam itself), data/queries/dbext.go (calls
         # vendored migrate.Up during schema init), and app.go (constructs the
         # vendored hive runtime — coredb, eventbus, stores, hive session
         # service — and hands it to the seam). This is deliberately not a
@@ -99,8 +125,8 @@ linters:
             - "!**/internal/app/dispatch/hive_hc_adapters_test.go"
             - "!**/internal/app/dispatch/session_git_status_test.go"
             - "!**/internal/app/dispatch/launch_session_executor_test.go"
-            - "!**/internal/app/store/dbext.go"
-            - "!**/internal/app/store/dbext_test.go"
+            - "!**/internal/app/data/queries/dbext.go"
+            - "!**/internal/app/data/queries/dbext_test.go"
           deny:
             - pkg: github.com/hay-kot/hive-desktop/internal/hivecore
               desc: |
@@ -142,7 +168,7 @@ linters:
         - ruleguard
     interfacebloat:
       # Not the default 10 and not 6. Consumer-defined interfaces here are
-      # narrow — ingest.Appender is four methods, flow.Refs is two — but
+      # narrow — flow.Refs is one method, ingest.SourceHeads three — but
       # dispatch.OutputCommandStore has seven that are the complete lifecycle
       # of one entity, and the worker calls all seven. Splitting it to satisfy
       # a linter is the opposite of the rule's intent.

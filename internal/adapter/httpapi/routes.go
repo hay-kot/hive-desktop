@@ -106,7 +106,7 @@ func popupTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
 func (ctrl *Controller) agentOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces", Summary: "List every recognized agent workspace under the configured root, valid or not. A workspace whose manifest fails to parse still lists with its last-good name and agent, plus a problem explaining what is wrong. available/error report whether ephemeral terminals can run at all in this build; root is the configured workspace root regardless of that answer. autonomyFlags maps agent → posture → the CLI flags that posture launches with (a posture absent from an agent's map is refused at launch); editor names the configured open-in-editor command, empty when none is set.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces", Summary: "List every recognized agent workspace under the configured root, valid or not. A workspace whose manifest fails to parse still lists with its last-good name and agent, plus a problem explaining what is wrong. available/error report whether ephemeral terminals can run at all in this build; root is the configured workspace root regardless of that answer. presets lists the starter command templates the editor offers (the ones this build ships plus one per agent profile in hive's config); they fill a workspace's command field and never constrain it. editor names the configured open-in-editor command, empty when none is set.",
 			Response: agentWorkspacesResponse{}, Handler: ctrl.AgentWorkspaces,
 			Errors: agentErrors(""),
 		},
@@ -116,12 +116,12 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such workspace, or its manifest is invalid"),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/create", Summary: "Create a workspace: a new directory under the root with a fresh agent-workspace.yaml naming the given name, agent, autonomy posture, and any scheduled chats.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/create", Summary: "Create a workspace: a new directory under the root with a fresh agent-workspace.yaml naming the given name, command template, and any scheduled chats.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceCreate,
 			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps, skills — which names skill packages, not individual skills — and schedules) in place. Comments, key order, and keys the editor does not own survive the write; an empty mcps, skills or schedules removes the key. The schedules list is reconciled to exactly what is sent: an entry it no longer names is deleted, and each schedule's id shape, cron expression and prompt template are validated before anything is written.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, command, mcps, skills — which names skill packages, not individual skills — and schedules) in place. The command is a Go template over .Dir, .MCPConfig, .SessionID, .Resume and .Prompt, rejected here if it does not render; a workspace with schedules needs one that passes .Prompt. Comments, key order, and keys the editor does not own survive the write; an empty mcps, skills or schedules removes the key. The schedules list is reconciled to exactly what is sent: an entry it no longer names is deleted, and each schedule's id shape, cron expression and prompt template are validated before anything is written.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
 			Errors: agentErrors("no such workspace"),
 		},
@@ -181,7 +181,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: resolves the workspace's agent, autonomy posture and MCP wiring into a command line, creates a detached tmux session named agentws-<id> running it, and attaches. cols/rows of 0x0 attach unsized. The data plane is the tmux stream at " + TerminalStreamPath + ", outside this operations table; windowId names the pane to frame input/output for.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: renders the workspace's command template into a command line, creates a detached tmux session named agentws-<id> running it, and attaches. cols/rows of 0x0 attach unsized. The data plane is the tmux stream at " + TerminalStreamPath + ", outside this operations table; windowId names the pane to frame input/output for.",
 			Request: agentSessionStartRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionStart,
 			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
 		},

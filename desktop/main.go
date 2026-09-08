@@ -26,6 +26,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/secrets"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -158,7 +159,7 @@ func main() {
 
 	// One span per startup phase, so "the app is slow to open" resolves to
 	// which phase without further instrumentation.
-	startupCtx, startupSpan := tel.Tracer().Start(ctx, "app.startup", trace.WithAttributes(
+	startupCtx, startupSpan := tracer.Start(ctx, "app.startup", trace.WithAttributes(
 		attribute.String("build.commit", commit),
 		attribute.String("build.date", date),
 	))
@@ -167,7 +168,7 @@ func main() {
 	// it — where a notification is delivered, and whether it may be.
 	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
-	_, coreSpan := tel.Tracer().Start(startupCtx, "app.core.new")
+	_, coreSpan := tracer.Start(startupCtx, "app.core.new")
 	core, err := app.New(ctx, app.Config{
 		Settings:       cfg,
 		SettingsStore:  settingsStore,
@@ -183,7 +184,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ui.SeedMock(core)
+	ui.SeedMock(startupCtx, core)
 
 	// The terminal-guarded surfaces are the parts of the API that authenticate,
 	// so their token and CORS allowlist are minted here and handed to the
@@ -248,7 +249,7 @@ func main() {
 		logger.Info().Str("path", telemetry.MetricsPath).Msg("metrics endpoint mounted")
 	}
 
-	_, mountSpan := tel.Tracer().Start(startupCtx, "app.ui.mount")
+	_, mountSpan := tracer.Start(startupCtx, "app.ui.mount")
 	ui.Mount(ctx, core, wailsui.MountOptions{
 		Assets:        assets,
 		AppIcon:       appIcon,
@@ -272,7 +273,7 @@ func main() {
 	// Background work starts after the adapter is mounted: the flows watcher
 	// calls event subscribers from its own goroutine, and the tray subscriber
 	// has to exist before it can fire.
-	_, startSpan := tel.Tracer().Start(startupCtx, "app.core.start")
+	_, startSpan := tracer.Start(startupCtx, "app.core.start")
 	err = core.Start(ctx)
 	startSpan.End()
 	startupSpan.End()
@@ -309,6 +310,10 @@ func main() {
 	}
 	shutdown()
 }
+
+// tracer emits the startup trace. It resolves against the global provider, so
+// it is valid at init and upgrades in place once telemetry.New registers one.
+var tracer = observe.Tracer("/desktop")
 
 // telemetryFlushGrace is short on purpose: an unreachable backend must not be
 // able to hold up quitting, and losing the last batch costs less than a hang.

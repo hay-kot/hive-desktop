@@ -32,14 +32,14 @@ func loadManifest(t *testing.T, root string) (Workspace, string) {
 	return w, string(raw)
 }
 
-const baseManifest = "version: 3\nname: Product\nagent: claude\nautonomy: ask\n"
+const baseManifest = "version: 5\nname: Product\ncommand: " + promptedCommand + "\n"
 
 // writeSchedules saves specs the way the editor does: as part of a whole
 // manifest edit through WriteManifest.
 func writeSchedules(t *testing.T, root string, specs ...schedule.Spec) {
 	t.Helper()
 	require.NoError(t, WriteManifest(root, "product", ManifestEdit{
-		Name: "Product", Agent: "claude", Autonomy: AutonomyAsk, Schedules: specs,
+		Name: "Product", Command: promptedCommand, Schedules: specs,
 	}))
 }
 
@@ -139,11 +139,10 @@ func TestWriteManifestKeepsScheduleComments(t *testing.T) {
 	t.Parallel()
 
 	original := `# hand-authored: do not lose me
-version: 3
+version: 5
 name: Product
 # the agent that runs here
-agent: claude
-autonomy: ask
+command: ` + promptedCommand + `
 schedules:
   # the one that matters
   - id: weekly

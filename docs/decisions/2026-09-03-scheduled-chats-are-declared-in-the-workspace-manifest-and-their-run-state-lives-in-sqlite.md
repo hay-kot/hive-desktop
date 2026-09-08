@@ -28,7 +28,7 @@ runs did are not authored, so they live in `desktop-pipeline.db`, in
 
 **The scheduling logic is a leaf package, `internal/app/schedule`,** with
 consumer-defined `Source`, `Store` and `Launcher` ports that `App` satisfies
-over `agentws` and `store`. One `Scheduler` goroutine runs on the App-owned
+over `agentws` and `data/stores`. One `Scheduler` goroutine runs on the App-owned
 lifecycle, started after the agent-workspace watcher and stopped before
 `terminals.Stop`.
 

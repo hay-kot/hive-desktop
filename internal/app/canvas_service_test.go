@@ -4,21 +4,29 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type fakeCanvasSessions map[int64]store.AgentWorkspaceSession
+type fakeCanvasSessions map[int64]stores.AgentSession
 
-func (f fakeCanvasSessions) GetAgentWorkspaceSession(_ context.Context, id int64) (store.AgentWorkspaceSession, bool, error) {
+func (f fakeCanvasSessions) Get(_ context.Context, id int64) (stores.AgentSession, error) {
 	rec, ok := f[id]
-	return rec, ok, nil
+	if !ok {
+		return stores.AgentSession{}, stores.NotFoundError{Entity: "agent_workspace_session", Key: strconv.FormatInt(id, 10)}
+	}
+	return rec, nil
 }
 
 type canvasToggle struct {
@@ -27,24 +35,87 @@ type canvasToggle struct {
 	open    bool
 }
 
+// canvasSignals mirrors the two events CanvasService publishes. Delivery
+// runs on the bus subscriber's own goroutine, so every field is guarded by a
+// mutex and read through the wait helpers below rather than directly.
 type canvasSignals struct {
+	bus     *events.Bus
+	mu      sync.Mutex
 	updates []int64
 	toggles []canvasToggle
 }
 
+func (s *canvasSignals) addUpdate(session int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updates = append(s.updates, session)
+}
+
+func (s *canvasSignals) addToggle(tg canvasToggle) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.toggles = append(s.toggles, tg)
+}
+
+func (s *canvasSignals) Updates() []int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]int64(nil), s.updates...)
+}
+
+func (s *canvasSignals) Toggles() []canvasToggle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]canvasToggle(nil), s.toggles...)
+}
+
+// waitUpdates polls until exactly n updates have been recorded. Publish hands
+// off to the bus subscriber's own goroutine, so a test asserting a positive
+// count has to wait rather than read signals.Updates() synchronously.
+func (s *canvasSignals) waitUpdates(t *testing.T, n int) []int64 {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(s.Updates()) == n }, 2*time.Second, 5*time.Millisecond)
+	return s.Updates()
+}
+
+func (s *canvasSignals) waitToggles(t *testing.T, n int) []canvasToggle {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(s.Toggles()) == n }, 2*time.Second, 5*time.Millisecond)
+	return s.Toggles()
+}
+
+// requireNoUpdates proves the service published nothing so far. Buffer
+// delivers in order, so a sentinel published now lands behind anything the
+// service already published; once it arrives the recorded list is complete,
+// which a synchronous read of Updates() could never guarantee.
+func (s *canvasSignals) requireNoUpdates(t *testing.T, msg string) {
+	t.Helper()
+	const sentinel = int64(-1)
+	s.bus.Publish(t.Context(), events.CanvasUpdated{Session: sentinel})
+	require.Eventually(t, func() bool { return slices.Contains(s.Updates(), sentinel) }, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, []int64{sentinel}, s.Updates(), msg)
+}
+
 func testCanvasService(t *testing.T) (*CanvasService, *canvasSignals) {
 	t.Helper()
-	signals := &canvasSignals{}
+	bus := newTestBus(t)
+	signals := &canvasSignals{bus: bus}
 	sessions := fakeCanvasSessions{
 		1: {ID: 1, Workspace: "ws", Name: "chat", Agent: "claude"},
 	}
-	svc := newCanvasService(canvas.NewStore(t.TempDir()), sessions,
-		func(session int64) {
-			signals.updates = append(signals.updates, session)
-		},
-		func(session int64, name string, open bool) {
-			signals.toggles = append(signals.toggles, canvasToggle{session, name, open})
-		})
+	cancelUpdated := events.Subscribe(t.Context(), bus, "test.canvas-updated", events.Buffer(64), func(_ context.Context, e events.CanvasUpdated) {
+		signals.addUpdate(e.Session)
+	})
+	t.Cleanup(cancelUpdated)
+	cancelToggled := events.Subscribe(t.Context(), bus, "test.canvas-toggled", events.Buffer(64), func(_ context.Context, e events.CanvasToggleRequested) {
+		signals.addToggle(canvasToggle{e.Session, e.Name, e.Open})
+	})
+	t.Cleanup(cancelToggled)
+	svc := newCanvasService(CanvasDeps{
+		Store:    canvas.NewStore(t.TempDir()),
+		Sessions: sessions,
+		Events:   bus,
+	})
 	return svc, signals
 }
 
@@ -71,7 +142,7 @@ func TestCanvasGetUnknownNameIsNotFound(t *testing.T) {
 
 	_, err := svc.Get(t.Context(), 1, "plan")
 	assert.Equal(t, KindNotFound, KindOf(err), "an agent asking by name should learn the name is wrong")
-	assert.Empty(t, signals.updates, "a read never notifies")
+	signals.requireNoUpdates(t, "a read never notifies")
 }
 
 func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
@@ -83,7 +154,7 @@ func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
 	assert.Equal(t, "plan", c.Name)
 	assert.NotNil(t, c.Blocks)
 	assert.Empty(t, c.Blocks)
-	assert.Empty(t, signals.updates, "a read never notifies")
+	signals.requireNoUpdates(t, "a read never notifies")
 }
 
 func TestCanvasPutBlockValidation(t *testing.T) {
@@ -120,7 +191,7 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 	_, err = svc.PutBlock(ctx, 1, "plan", strings.Repeat("t", maxCanvasTitleLength+1), "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindInvalid, KindOf(err), "an oversized canvas title is refused")
 
-	assert.Empty(t, signals.updates, "a refused write never notifies")
+	signals.requireNoUpdates(t, "a refused write never notifies")
 }
 
 // A silently stripped tag or class is the one failure an agent cannot see,
@@ -188,7 +259,7 @@ func TestCanvasPutBlocks(t *testing.T) {
 	metas, err := svc.ListForWorkspace(ctx, "ws")
 	require.NoError(t, err)
 	assert.Empty(t, metas, "a rejected batch writes nothing")
-	assert.Empty(t, signals.updates)
+	assert.Empty(t, signals.Updates())
 
 	c, err := svc.PutBlocks(ctx, 1, "plan", "The Plan", []canvas.Block{
 		{ID: "a", Kind: canvas.KindMarkdown, Body: "x"},
@@ -196,7 +267,7 @@ func TestCanvasPutBlocks(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Len(t, c.Blocks, 2)
-	assert.Len(t, signals.updates, 1, "one batch, one notify")
+	signals.waitUpdates(t, 1)
 
 	oversized := make([]canvas.Block, maxCanvasBatchBlocks+1)
 	for i := range oversized {
@@ -238,8 +309,8 @@ func TestCanvasMutationsNotify(t *testing.T) {
 	err = svc.Delete(ctx, 1, "plan")
 	require.NoError(t, err)
 
-	require.Len(t, signals.updates, 5)
-	for _, update := range signals.updates {
+	updates := signals.waitUpdates(t, 5)
+	for _, update := range updates {
 		assert.Equal(t, int64(1), update)
 	}
 }
@@ -254,7 +325,7 @@ func TestCanvasMutationsOnUnknownCanvasAreNotFound(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 	err = svc.Delete(ctx, 1, "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
-	assert.Empty(t, signals.updates)
+	signals.requireNoUpdates(t, "a mutation on an unknown canvas never notifies")
 }
 
 func TestCanvasSetPaneOpen(t *testing.T) {
@@ -276,8 +347,8 @@ func TestCanvasSetPaneOpen(t *testing.T) {
 		{1, "", true},
 		{1, "plan", true},
 		{1, "", false},
-	}, signals.toggles)
-	assert.Len(t, signals.updates, 1, "a pane toggle is not a content update")
+	}, signals.waitToggles(t, 3))
+	signals.waitUpdates(t, 1)
 }
 
 func TestCanvasRemoveAbsentBlockIsNotFound(t *testing.T) {
@@ -312,7 +383,7 @@ func TestCanvasExport(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, markdown, string(written))
 
-	assert.Len(t, signals.updates, 1, "an export is not a content update")
+	signals.waitUpdates(t, 1)
 }
 
 func TestCanvasListForWorkspace(t *testing.T) {

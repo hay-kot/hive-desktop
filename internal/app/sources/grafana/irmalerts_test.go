@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana/client"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func TestIRMAlertsConfigValidate(t *testing.T) {
@@ -76,8 +76,8 @@ func TestIRMAlertsProduceEmitsOnePerAlertGroup(t *testing.T) {
 
 	src := &irmAlertsSource{fetcher: fx, topic: "source:flow/node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -117,8 +117,8 @@ func TestIRMAlertsProduceFallsBackToATitle(t *testing.T) {
 	server, _ := irmServer(t, `{"results":[{"id":"I1","state":"new","title":"   "}],"next":null}`)
 	fx, _ := connectedFetcher(t, server.URL)
 
-	var msgs []store.Msg
-	require.NoError(t, (&irmAlertsSource{fetcher: fx, topic: "t"}).Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, (&irmAlertsSource{fetcher: fx, topic: "t"}).Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -155,37 +155,37 @@ func TestIRMAlertsResolvesTheOnCallURLOnce(t *testing.T) {
 func TestIRMAlertsClassifierAcknowledgeIsActivity(t *testing.T) {
 	t.Parallel()
 
-	firing := store.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"firing"}`)}
-	acked := store.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"acknowledged"}`)}
+	firing := models.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"firing"}`)}
+	acked := models.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"acknowledged"}`)}
 
 	first := irmAlertsClassifier{}.Classify(nil, firing)
 	assert.Equal(t, stateFiring, first.Kind)
-	assert.Equal(t, store.LifecycleActive, first.Lifecycle)
+	assert.Equal(t, models.LifecycleActive, first.Lifecycle)
 
 	// The whole point of this connector: someone picking an alert up is a real
 	// event, not the trivial re-observation the Alertmanager source reports.
 	transition := irmAlertsClassifier{}.Classify(&firing, acked)
 	assert.Equal(t, stateAcknowledged, transition.Kind)
 	assert.Equal(t, "Acknowledged", transition.Summary)
-	assert.Equal(t, store.AttentionActivity, transition.Attention)
-	assert.Equal(t, store.LifecycleActive, transition.Lifecycle, "an acknowledged alert is still live")
-	assert.Equal(t, store.TransitionNone, transition.Transition)
+	assert.Equal(t, models.AttentionActivity, transition.Attention)
+	assert.Equal(t, models.LifecycleActive, transition.Lifecycle, "an acknowledged alert is still live")
+	assert.Equal(t, models.TransitionNone, transition.Transition)
 }
 
 func TestIRMAlertsClassifierResolvedIsTerminal(t *testing.T) {
 	t.Parallel()
 
-	acked := store.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"acknowledged"}`)}
-	resolved := store.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"resolved"}`)}
+	acked := models.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"acknowledged"}`)}
+	resolved := models.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"resolved"}`)}
 
 	closed := irmAlertsClassifier{}.Classify(&acked, resolved)
 	assert.Equal(t, stateResolved, closed.Kind)
-	assert.Equal(t, store.LifecycleTerminal, closed.Lifecycle)
-	assert.Equal(t, store.TransitionEnteredTerminal, closed.Transition)
+	assert.Equal(t, models.LifecycleTerminal, closed.Lifecycle)
+	assert.Equal(t, models.TransitionEnteredTerminal, closed.Transition)
 	assert.Equal(t, stateResolved, closed.ArchivedReason)
 
 	reopened := irmAlertsClassifier{}.Classify(&resolved, acked)
-	assert.Equal(t, store.TransitionLeftTerminal, reopened.Transition)
+	assert.Equal(t, models.TransitionLeftTerminal, reopened.Transition)
 	assert.Equal(t, "Firing again", reopened.Summary)
 }
 
@@ -194,18 +194,18 @@ func TestIRMAlertsClassifierResolvedIsTerminal(t *testing.T) {
 func TestIRMAlertsClassifierReobservedStaysTrivial(t *testing.T) {
 	t.Parallel()
 
-	acked := store.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"acknowledged"}`)}
+	acked := models.Observation{ExternalID: "I1", Title: "Memory", Payload: []byte(`{"state":"acknowledged"}`)}
 
 	same := irmAlertsClassifier{}.Classify(&acked, acked)
 	assert.Equal(t, "updated", same.Kind)
-	assert.Equal(t, store.AttentionTrivial, same.Attention)
-	assert.Equal(t, store.TransitionNone, same.Transition)
+	assert.Equal(t, models.AttentionTrivial, same.Attention)
+	assert.Equal(t, models.TransitionNone, same.Transition)
 }
 
 func TestIRMAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	t.Parallel()
 
-	previous := []store.Observation{{
+	previous := []models.Observation{{
 		ExternalID: "I1",
 		Title:      "Memory",
 		Payload:    []byte(`{"title":"Memory","kind":"Alert","state":"acknowledged","labels":["severity=critical"]}`),

@@ -11,14 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 )
 
 func TestAgentCanvasReadsOverTheWire(t *testing.T) {
 	h := newAgentHarness(t)
 
-	rec, err := h.core.Store.CreateAgentWorkspaceSession(t.Context(), store.AgentWorkspaceSession{
-		Workspace: "demo", Name: "chat", Agent: "claude", CreatedAt: 1, LastOpenedAt: 1,
+	rec, err := h.core.Stores.AgentSessions.Create(t.Context(), stores.AgentSessionCreate{
+		Workspace: "demo", Name: "chat", Agent: "claude",
 	})
 	require.NoError(t, err)
 

@@ -43,8 +43,8 @@ instance. `solo up` brings up devserver + app together from `.solo.yml`.
 - **Never verify UI with a local GUI build.** Use `mise run serve` and drive it
   with browser tooling. Assets are `//go:embed`ded, so a frontend edit needs a
   re-run; use `dev` for a Vite HMR loop instead.
-- **Never edit generated files** — `frontend/bindings/`, `store/models.go`,
-  `store/queries.sql.go`, `*_enum.go`.
+- **Never edit generated files** — `frontend/bindings/`, `data/queries/models.go`,
+  `data/queries/*.sql.go`, `*_enum.go`.
 - **Never add `init()`.** `gochecknoinits` is on; use package-variable
   initialization (`var _ = registerEvents()`).
 - **Never put flow-node execution in the frontend.** Execution is Go's
@@ -101,8 +101,8 @@ it.
 
 ## Testing
 
-`mise run test:desktop` is the default gate. `store` and `runtime` tests use
-real SQLite.
+`mise run test:desktop` is the default gate. `data` and `runtime` tests
+use real SQLite.
 
 Engine behaviour changes — routing, sink tagging, node-run accounting — belong
 in a fixture under `internal/app/runtime/testdata/parity/*.json`: a flow, a

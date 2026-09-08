@@ -20,7 +20,7 @@ individual choices; this document describes the shape everything fits into.
 > package that imports Wails or an adapter, and a second `depguard` rule fails
 > one that imports `internal/hivecore` outside a narrow, commented seam
 > allowlist (`app.go`, `dispatch/hive_adapters.go`,
-> `dispatch/hive_hc_adapters.go`, `store/dbext.go`, and the tests that
+> `dispatch/hive_hc_adapters.go`, `data/queries/dbext.go`, and the tests that
 > exercise them); `forbidigo` fails `application.Get`,
 > `context.Background` or an `emit*` helper outside the adapter, `containedctx`
 > fails a stored request context, and `mise run check:bindings` fails a
@@ -136,6 +136,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | --- | --- | --- |
 | **Ports & Adapters** / Hexagonal | the `app` ↔ `adapter` boundary | Driven ports (core → outside) get an interface defined in `app`. Driving ports (outside → core) get **no interface** — adapters depend on concrete types. See [the Go amendment](#the-go-amendment-to-hexagonal). |
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
+| **Store** (Repository, PoEAA) | `app/data/stores`, one type per persisted **aggregate root** | One aggregate's persistence behind hand-written domain types; it publishes nothing and knows nothing about `app.Error`. The placement rules and the transaction contract are in [Stores and services](#stores-and-services). |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
 | **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR http-handler-conventions. |
 | **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. Three contracts hold across the whole surface, because an agent has no UI to disambiguate from: an id that resolves to nothing is `not_found` and never an empty collection; a mutation's answer is never a constant, so a caller can tell it happened; and a field whose size the *source* decides — an item payload, an event detail, a dry run's messages — is behind a `detail` argument that defaults to omitting it, with the level echoed on the answer. See ADR mcp-replaces-the-agent-facing-http-api. |
@@ -163,7 +164,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `ingest.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
 | **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR go-owned-llm-prompts. This is the pattern every new extension point should extend. |
 | **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
-| **Options struct** (Go) | store and subsystem constructors | `store.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
+| **Options struct** (Go) | store and subsystem constructors | `queries.DefaultOpenOptions()`, `stores.Options{Logger: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
 | **One instance per process** | producer, output worker, flow engine | Constructed once by `App` and injected. Deliberately **not** GoF Singleton: no global access point and no lazy self-construction — the constraint is "exactly one exists", not "anyone can reach it". Two would double-poll sources and re-execute actions. |
 
 ### Which pattern governs what
@@ -186,10 +187,11 @@ column is the section that specifies it.
 | A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR terminal-transport |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
-| A new **metric, span, or log field** | Consumer-defined interface in the emitting package; the SDK stays in `app/telemetry` | [Telemetry](#telemetry) |
-| A new **scheduled/recurring launch** | Registry-free, One instance per process, App-owned lifecycle, Consumer-defined interfaces | [Scheduled chats](#scheduled-chats), ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite |
+| A new **metric, span, or log field** | Package-level instrument via `app/observe` against the global provider; bounded attributes only; a span is a trigger or a wait; the SDK stays in `app/telemetry` | [Telemetry](#telemetry), ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration |
+| A new **scheduled/recurring launch** | Registry-free, One instance per process, App-owned lifecycle, Consumer-defined interfaces, Store | [Scheduled chats](#scheduled-chats), ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing. A secret-bearing field holds an `internal/app/secrets` reference, never a value | [Config versus data](#config-versus-data), [Credentials](#credentials) |
+| A new **persisted entity** | Store, Unit of Work, Options struct, Consumer-defined interface | [Stores and services](#stores-and-services) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
@@ -333,8 +335,8 @@ internal/
                                   #   AND by an LLM (ADR go-owned-llm-prompts)
     agentws/                      # the agent-workspace root: mcps.yaml, .shared/,
                                   #   one directory per workspace; Workspace/Library
-                                  #   parse+validate, the generator, the launch table
-                                  #   (autonomy flags, MCP wiring), the two-level
+                                  #   parse+validate, the generator, the command
+                                  #   template and MCP wiring, the two-level
                                   #   watcher (ADR a-workspace-declares-its-own-authority, ADR workspace-directories-are-generated-and-disposable)
     schedule/                     # cron parsing, prompt rendering, and the
                                   #   catch-up decision behind the run loop; a
@@ -358,7 +360,8 @@ internal/
                                   #   process's, then those prefixes (ADR subprocess-environment),
                                   #   plus the shell's other variables where
                                   #   this process defines none (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path)
-    jobs/  activity/              # observability domains
+    jobs/  activity/              # domain types, enums, and consumer-defined
+                                  #   Recorder ports; persistence lives in data/stores
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
                                   #   and no dependencies (ADR ui-performance-spans-are-recorded-to-jsonl)
@@ -367,10 +370,18 @@ internal/
                                   #   rejected (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources)
     telemetry/                    # the app's own metrics, logs and traces over
                                   #   OTLP, and the local /metrics scrape; the
-                                  #   only package that imports the OTel SDK
+                                  #   only package that imports the OTel SDK,
+                                  #   and what registers the global providers
                                   #   (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape)
+    observe/                      # the OTel API surface every other package
+                                  #   calls: scope naming, Must, RecordError,
+                                  #   StartConditionalSpan. No SDK, no
+                                  #   abstraction (ADR a-package-declares-its-own-opentelemetry-instruments-against-the-global-provider)
     settings/                     # settings.yaml, paths, bootstrap pointer file
-    store/                        # sqlc, migrations, queries
+    data/                         # persistence boundary; no adapter import
+      models/                     # hand-written domain types; no database import
+      queries/                    # sqlc output, DB handle, migrations; no app import
+      stores/                     # aggregate persistence; no app errors or events
 
   adapter/                        # driving adapters, all in-process
     wailsui/                      # Wails service structs; the only Wails imports
@@ -559,6 +570,39 @@ success" — a deploy that did not write, not a background poll that will retry.
 Inline error text stays where a surface already has it; it is the record, not
 the interrupt. See ADR
 [a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message](decisions/2026-08-07-a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message.md).
+
+### Stores and services
+
+A **Store owns one aggregate's persistence.** It is built from `*queries.DB`.
+Every method takes `context.Context` first, names the operation rather than the
+entity, returns a hand-written domain type through a `mapXFromDb` mapper, and
+publishes nothing. A generated sqlc row and `app.Error` stop at the store
+boundary. `models` holds the types a package outside `data` constructs (a
+commit batch, an item ref, a feed claim); `stores` holds the read shapes its
+mappers produce and the inputs only a store method takes.
+
+A **Service coordinates.** It holds stores and other services, maps store
+errors onto `app.Error` kinds exactly once, publishes events, and owns work
+that spans more than one aggregate. Only services hang off `App`, with two
+exceptions for the e2e harness: `App.Stores` seeds fixtures and
+`App.PipelineDB()` resets tables.
+
+Placement has four clauses:
+
+1. A store owns one aggregate root, not one table.
+2. A store method may open its own transaction and call sibling stores when the
+   operation is atomic and belongs to that aggregate.
+3. A service opens `Stores.WithinTx(ctx, fn)` when an operation spans
+   aggregates or carries policy, and holds the `Stores` aggregate to do so.
+4. Whole-database maintenance stays on `queries.DB`.
+
+Every store call goes through `.Ctx(ctx)`, including reads, so it joins an
+ambient transaction. The database uses `_txlock=immediate` and has
+`MaxOpenConns: 2`; a nested `BEGIN IMMEDIATE` waits out `busy_timeout` for a
+write lock its own caller holds and then fails with `SQLITE_BUSY`, so nothing
+opens a second transaction. `Compact` is the exception: SQLite cannot run
+`VACUUM` inside a transaction, so it runs on the pool. (ADR
+[a-store-owns-one-entity-s-persistence-and-a-service-coordinates-over-stores](decisions/2026-09-05-a-store-owns-one-entity-s-persistence-and-a-service-coordinates-over-stores.md))
 
 ### Events
 
@@ -827,11 +871,71 @@ The app's own metrics, logs and traces go out over OTLP with **no collector**
 mounts `/metrics` on the shared loopback server exactly as pprof does. Both off
 is the no-op object, so no call site checks whether telemetry is configured.
 
-**`internal/app/telemetry` is the only package that may import the OTel SDK.**
-A subsystem that wants to emit declares a narrow interface it owns and takes an
-implementation as a constructor parameter — `tmuxcc.MetricsSink` is the shape,
-and `NopMetrics` is why a holder needs no nil check. Importing `otel` anywhere
-else means the SDK can no longer be swapped or removed in one place.
+**The boundary is the API/SDK split, not the package** (ADR a-package-declares-its-own-opentelemetry-instruments-against-the-global-provider). Any
+package may import the OTel **API** — `go.opentelemetry.io/otel`, `/trace`,
+`/metric` — and declare package-level instruments against the global provider,
+which is the no-op provider until `telemetry.New` registers a real one. Only
+`internal/app/telemetry` may import the **SDK** (`/sdk/...`) and the exporters,
+because that is where the 4.52 MiB lives and what a second construction site
+would let drift. `depguard`'s `otelsdk` rule enforces it; test files are exempt,
+since asserting on telemetry is what `sdkmetric.NewManualReader` is for.
+
+Do **not** declare an interface to emit through. A wrapper over the OTel API
+fixes the attribute set at its own signature, forces allocations the API avoids,
+and has to re-expose every capability the API grows
+([Don't Wrap OpenTelemetry](https://opentelemetry.io/blog/2026/dont-wrap-opentelemetry/)). The pattern is a package-level
+`var meter = observe.Meter("/internal/app/yours")` with its instruments beside
+it — see `tmuxcc/metrics.go`.
+
+`internal/app/observe` carries the scope-name convention and nothing else:
+`Tracer` and `Meter` prepend the module path and return the real API types,
+`Must` unwraps an instrument constructor, `RecordError` sets the error status,
+and `StartConditionalSpan` opens a span only when the context already has one —
+which is how low-level instrumentation (a SQL statement, an HTTP round trip)
+avoids emitting a root span per background operation.
+
+**A metric attribute must have a bounded domain.** Session slugs, window ids,
+repository names and action targets are per-user and unbounded; as a metric
+dimension each one is a series that is paid for on every export forever. They
+belong on a span or in a log line. `tmux.stream.lifecycle` carries `state` and
+nothing else for this reason.
+
+**A span is a trigger or a wait, and nothing else gets one**
+(ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration). A *trigger* span is a root: a distinct cause
+entering the app — process start, a poll tick, a webhook, an agent tool call.
+A *wait* span is a child: work handed to something outside this process — an
+HTTP round trip, a subprocess, a batch database write — opened through
+`observe.StartConditionalSpan`, so a wait with no trigger above it emits
+nothing.
+
+Three tests, all of which must pass:
+
+1. Is it a trigger, or does it wait on something outside this process?
+2. Does its duration vary for a reason the parent's own duration cannot show?
+3. Is the number of them per trigger bounded by **configuration** rather than by
+   **data size**?
+
+Test 3 is the one that decides the hard cases. A span per item, per row, or per
+statement inside a batch fails it: the count becomes an attribute on the
+enclosing span instead. That is why `store` spans `CommitBatch` and not each
+statement within it.
+
+**A span name is a search key.** Name the operation and the layer, never the
+target: `ingest.source github`, `http.github GET`. Unbounded identity — a source
+id, a repository, a session slug — is an attribute, where it costs nothing.
+
+**Trace correlation in logs is a `zerolog.Hook`, not a writer arm** — the
+mirror of the log bridge above, and for the same reason. A Hook cannot read an
+event's fields but it is the only thing that can *add* them, so
+`observe.TraceHook` writes `trace_id` and `span_id` from the context an event
+carries. It fires only where a call site wrote `.Ctx(ctx)`. The bridge then
+promotes both onto the OTLP record's own trace context and drops them from the
+attributes, because that is the field a backend joins logs to traces on.
+
+**Prefer a library's instrumentation to your own.** `sourcehttp` gets client
+spans and semconv HTTP metrics from `otelhttp.NewTransport`; `store` gets a span
+per statement from the sqlc `DBTX` decorator in `store/tracing.go`. Hand-written
+equivalents produce the same numbers under names no dashboard knows.
 
 Four resource attributes carry identity — `service.name`,
 `service.instance.id`, `deployment.environment.name`, `service.version` — and
@@ -859,7 +963,7 @@ is itself built over `appkit/httpclient`. Nothing constructs a bespoke
   unauthorized onto re-auth, and a provider pauses fetching on rate limited. A
   connector that classifies into these three gets both behaviours without the
   app learning its name. It lives here rather than in `sources/connector`
-  because `connector` reaches `app/store` and would drag the SQLite driver
+  because `connector` reaches `app/data` and would drag the SQLite driver
   into every client package.
 - **Status and rate-limit mapping** — `Errors.Status` maps a response onto the
   taxonomy, with a provider-supplied hook for APIs that overload 403.
@@ -1583,13 +1687,13 @@ reveal use.
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
-writer. The workspace editor owns `name`, `agent`, `autonomy`, `mcps:`,
-`skills:`, and `schedules:` in the manifest (an empty list removes the key);
-comments and everything else stay the user's. It refuses to write at all over
-a manifest that does not currently parse: the form is loaded from the
-workspace view, and on the first load of a run there is no last-good snapshot
-behind a broken file, so the form opens empty and a save would reconcile every
-list in it to nothing. A broken manifest is fixed in the file.
+writer. The workspace editor owns `name`, `command`, `mcps:`, `skills:`, and
+`schedules:` in the manifest (an empty list removes the key); comments and
+everything else stay the user's. It refuses to write at all over a manifest
+that does not currently parse: the form is loaded from the workspace view, and
+on the first load of a run there is no last-good snapshot behind a broken
+file, so the form opens empty and a save would reconcile every list in it to
+nothing. A broken manifest is fixed in the file.
 `mcps.yaml` gains entries through the same pattern —
 `ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
 bare id-to-server map), an id already declared is a conflict rather than an
@@ -1626,29 +1730,47 @@ recognized workspace's directory, and reveal opens it in the OS file manager.
 Both refuse a path that is not a known workspace, the same posture as
 `SystemService.checkAllowed`.
 
-A workspace declares `autonomy: ask | auto | full`, omitted defaulting to
-`ask` since the M2 approval indicator makes it legible (hc-ou4o02zx §4) — and
-`agentws`'s launch table (`launch.go`) maps
-`(agent, autonomy)` to that agent's own CLI flags; an agent or posture with no
-table entry fails closed (`ErrUnknownAgent`, `ErrNoAutonomyMapping`). The
-table is also projected to the UI (`AutonomyFlags`): the editor's posture
-selector lays out every option with the exact flags it launches for the
-chosen agent, so `full` reads as the dangerous bypass it is, and a posture
-the launch would refuse is disabled rather than hidden. Those
-flags come from nowhere else: hive's own `AgentProfile.Flags` are dropped at
-the vendored seam (`agentCommands` in `app.go`) before they ever reach a
-workspace, and only `Command` crosses — validated as a single shell word, so a
-flag cannot re-enter through the command string either (ADR a-workspace-declares-its-own-authority).
+A workspace declares `command:` — the whole invocation, as a Go
+`text/template` rendered at spawn (ADR the-workspace-command-is-a-template).
+Its data is `LaunchData` in `launch.go`: `.Dir`, `.MCPConfig`, `.SessionID`,
+`.Resume` and `.Prompt`, plus `shq` for quoting an interpolated value. It replaced the
+`autonomy: ask | auto | full` posture enum, whose per-agent flag table could
+only express the two CLIs it had entries for. The template is the only source
+of the launch line; `Resolve` renders it and wraps it in
+`cd <dir> && <rendered>`, splicing the rendered words in unquoted because the
+line already runs under `$SHELL -l -c`. Template source is folded onto one
+line before parsing, never after rendering, so a newline inside an
+interpolated value stays part of the quoted word `shq` produced.
 
-Each agent's MCP wiring (`MCPWiring`) is data, not a branch: a `File` the
+There is no `agent:` field. The label the activity classifier, the resume
+probe and the bounded-MCP notice key on is `AgentFor(command)` — the first
+word, less any directory, lowercased — so a CLI this build has never heard of
+is a normal workspace and the label cannot drift from the command it describes
+(manifest version 5 deletes the key). `Validate` parses **and renders** the
+template against a probe, so a broken command lists as a workspace problem
+rather than failing when someone presses the button. `SupportsResume` renders
+both ways and compares — a template that does not actually change is not a
+resume.
+
+Hive's own `agents:` profiles reach the editor as **presets** (`Presets`), and
+nothing else: a preset is copied into the manifest once, where the user
+reviews it, and no launch reads hive's config at all. The editor picks a
+command and only a command — a searchable list of the shipped presets, the
+hive-seeded ones, and **Custom**, which is the only row that reveals the
+template box and its field reference. `CommandIsDangerous` derives the warning
+the `full` posture used to declare, matching the command against the bypass
+flags this build knows by name.
+
+MCP wiring (`MCPWiring` in `wiring.go`) is data, not a branch: a `File` the
 generator writes, a `Render` encoding the resolved servers into that file's
-format, and a `Bounded` flag reporting whether the wiring confines the agent
-to exactly the workspace's declared set. Claude's is bounded
-(`--strict-mcp-config` plus a generated `.mcp.json`); codex's is not — it has
-no CLI-level MCP flag, so its generated `.codex/config.toml` is loaded
-alongside whatever the user's own global codex config already has, and the UI
-states that rather than leaving an unbounded tool set looking identical to a
-bounded one.
+format, and a `Bounded` flag reporting whether a CLI reading it is confined to
+exactly the workspace's declared set. The generator writes **every** wiring
+into every workspace whatever the command names, so a template can point an
+unknown CLI at whichever format it reads. Claude's `.mcp.json` is bounded when
+the command passes `--strict-mcp-config`; codex's is not — it has no CLI-level
+MCP flag, so its generated `.codex/config.toml` is loaded alongside whatever
+the user's own global codex config already has, and the UI states that rather
+than leaving an unbounded tool set looking identical to a bounded one.
 
 A chat's agent may write **canvases** — named surfaces of markdown, html and
 link blocks shown in a pane beside the conversation
@@ -1754,7 +1876,7 @@ row it lands on, and nothing walks this tree — Tab moves through rows without
 selecting them, so the ring stays. The fold chevron trails the header where the
 Code view's does, but is the fold *control* rather than an indicator of one,
 because clicking the header focuses the workspace instead of folding it.
-Secondary text a row used to stack under its name — `agent · autonomy`, a
+Secondary text a row used to stack under its name — the launch command, a
 problem, a notice — is the row's tooltip, with the chevron going amber or red so
 a warning stays a glance rather than a hover. Its trailing edge is three
 controls on one 18px pitch: `+`, edit, fold chevron, with the
@@ -1783,17 +1905,27 @@ longer names is deleted, an empty list removes the key), and the editor saves
 it with the rest of the manifest. The MCP tools' per-entry write is
 `agentws.WriteSchedules` through `AgentWorkspacesService.PutSchedule` and
 `RemoveSchedule`; a `SchedulePatch` field the call omits keeps its stored
-value. Both writers refuse a manifest that does not parse. Run state is
-app-local data in `desktop-pipeline.db`: `schedule_cursor` (how far each
-schedule has been evaluated, with the `cron` it was evaluated against) and
-`schedule_run` (history, pruned per schedule)
+value. Both writers refuse a manifest that does not parse, and both refuse a
+schedule on a workspace whose `command:` does not pass `.Prompt`
+(`agentws.SupportsPrompt`, the same render-both-ways probe as
+`SupportsResume`): a scheduled chat whose prompt the template drops would sit
+idle in a detached session with nobody watching. The shipped presets end in
+`agentws.PromptTail`, and a hand-edited manifest that breaks the rule lists
+as a workspace problem. Run state is app-local data in `desktop-pipeline.db`
+behind one store, `stores.ScheduleStore`: a schedule's cursor (how far it has
+been evaluated, with the `cron` it was evaluated against) and its runs
+(history, pruned per schedule inside the insert's own transaction) are one
+aggregate keyed by `(workspace, schedule_id)`, so deleting a workspace's
+schedule state is one store call and the session and schedule deletes join
+one `Stores.WithinTx`
 (ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite).
 
 `internal/app/schedule` is a leaf: cron parsing, the `text/template` prompt
 renderer, and `Evaluate`, the pure catch-up decision. It declares the
 consumer-defined ports `Source`, `Store` and `Launcher`; `App` satisfies them
-in `schedule_adapters.go` over `agentws` and `store`, and the package imports
-neither. The rules the planner keeps: a schedule with no cursor, or whose
+in `schedule_adapters.go` over `agentws` and `stores.ScheduleStore`, and the
+package imports neither. The adapter is the only place `time.Time` meets the
+store's unix milliseconds. The rules the planner keeps: a schedule with no cursor, or whose
 `cron` differs from the cursor's, starts from now with no run; every
 occurrence since the cursor folds into one run tagged `catch_up`, or one
 `skipped` record under `on_missed: skip`; a run is skipped while the previous
@@ -1802,9 +1934,13 @@ run's chat is live; a failed launch is recorded and never retried.
 `App.scheduler` is one `*schedule.Scheduler` on the App-owned lifecycle,
 started after the agent-workspace watcher and stopped before
 `terminals.Stop`. It reloads on `AgentWorkspacesService.OnSchedulesChanged`
-and on the watcher's reload, and a write or a run publishes
-`events.SchedulesUpdated{Workspace}`, degraded at the Wails boundary to the
-coalesced `schedules:updated` wake-up. `app.SchedulesService` fronts it with
+and on the watcher's reload. `AgentWorkspacesService` publishes
+`events.SchedulesUpdated{Workspace}` after a manifest write and after a
+scheduled chat ends itself, and the scheduler's `OnRun` publishes it after a
+run; the Wails boundary degrades it to the coalesced `schedules:updated`
+wake-up. Both services list schedules through one `scheduleHistory`, so the
+workspace view and the MCP tools cannot disagree about a row's last run.
+`app.SchedulesService` fronts the scheduler with
 `RunNow`, `Runs` and `Preview`, on the token-guarded
 `/api/terminal/agents/schedules/...` prefix because "run now" spawns a
 process. The MCP server carries `list_workspaces`, `list_schedules`,

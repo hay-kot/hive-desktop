@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // The two registries are the two halves of one declaration: flow.registry
@@ -48,7 +48,7 @@ func TestEveryNodeTypeHasARuntimeBehavior(t *testing.T) {
 func TestTerminalSinks(t *testing.T) {
 	t.Parallel()
 
-	msg := store.Msg{ID: "1", Payload: json.RawMessage(`{"title":"hi"}`)}
+	msg := models.Msg{ID: "1", Payload: json.RawMessage(`{"title":"hi"}`)}
 	msg.Key = "k"
 	msg.OccurrenceKey = "oc"
 	msg.Topic = "source:f/src"

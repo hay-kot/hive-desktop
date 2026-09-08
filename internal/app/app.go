@@ -13,17 +13,19 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/colonyops/hive/pkg/tmpl"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	datastores "github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
-	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
@@ -40,7 +42,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
@@ -117,23 +118,17 @@ type App struct {
 	Canvas          *CanvasService
 	Schedules       *SchedulesService
 
-	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
-	// wake-up events for the frontend. Store is the one raw handle every
-	// driving adapter may still hold directly: an app-owned type (not
-	// vendored), needed by the e2e harness for table resets and fixture
-	// seeding that no per-domain service has a reason to expose otherwise.
+	// Events is the typed bus adapters project into transport-specific events.
+	// Stores is exposed only so the e2e harness can seed fixtures.
 	Events *events.Bus
-	Store  *store.DB
+	Stores *datastores.Stores
 
-	// Domain stores. Nothing outside this package holds these — a bypass
-	// here is exactly the bug this rule exists to prevent: ProfileTray once
-	// wrote through flowStore directly (store.SetEnabled), duplicating
-	// FlowsService.SetEnabled minus its typed-error wrapping and its
-	// notifyUpdated event. A domain's need is a method on its service, not
-	// the store underneath it. activityStore and jobStore are unexported for
-	// the same reason despite looking store-shaped: ActivityService and
-	// JobService above already front them, so nothing else may reach past
-	// those either.
+	// db is retained for whole-database maintenance and the e2e-only PipelineDB
+	// seam.
+	db *queries.DB
+
+	// Domain stores stay private so callers cannot bypass service error mapping
+	// and event publication.
 	actionStore         *actions.ActionStore
 	flowStore           *flow.FlowStore
 	agentWorkspaceStore *agentws.Store
@@ -142,8 +137,6 @@ type App struct {
 	// openAgentWorkspaces sets it; the Agents area is what surfaces it to the
 	// user (phase 6) rather than silently creating a second root elsewhere.
 	agentWorkspaceRootProblem string
-	activityStore             *activity.Store
-	jobStore                  *jobs.Store
 	fetchers                  *ghsource.Fetchers
 	credentials               credentials.Store
 
@@ -297,32 +290,26 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.fetchers.SetSearchTTL(a.pollInterval)
 	}
 
-	dbOptions := store.DefaultOpenOptions()
+	dbOptions := queries.DefaultOpenOptions()
 	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
 	dbOptions.Logger = cfg.Logger
-	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
+	db, err := queries.Open(ctx, cfg.Paths.StateDir, dbOptions)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("open desktop store: %w", err)
 	}
-	compactPipelineStoreAtStartup(ctx, db, store.DatabasePath(cfg.Paths.StateDir), cfg.Logger)
-	a.Store = db
+	compactPipelineStoreAtStartup(ctx, db, queries.DatabasePath(cfg.Paths.StateDir), cfg.Logger)
+	a.db = db
+	a.Stores = datastores.New(db, datastores.Options{Logger: cfg.Logger})
 
-	// The activity recorder is shared by every subsystem that reports to the
-	// Activity view (producer, worker, session launcher, config watchers) and
-	// by the ActivityService the frontend reads and writes.
-	a.activityStore = activity.NewStore(db, activity.Options{Emit: func(id int64) {
-		a.Events.Publish(a.ctx, events.ActivityAppended{ID: id})
-	}})
-	a.jobStore = jobs.NewStore(db, jobs.Options{Emit: func(id int64) {
-		a.Events.Publish(a.ctx, events.JobsUpdated{JobID: id})
-	}})
+	a.Activity = newActivityService(a.Stores.ActivityEvents, a.Events, cfg.Logger)
+	a.Jobs = newJobService(a.Stores.Jobs, a.Events, cfg.Logger)
 	if a.fetchers != nil {
-		a.fetchers.SetRecorder(a.activityStore)
+		a.fetchers.SetRecorder(a.Activity)
 	}
 
 	if err := a.openHiveRuntime(runCtx, cfg); err != nil {
-		_ = a.Store.Close()
+		_ = a.db.Close()
 		cancel()
 		return nil, err
 	}
@@ -332,7 +319,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
 	a.openAgentWorkspaces(cfg.Paths.AgentWorkspacesDir, cfg.Logger)
-	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, db))
+	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, a.Stores.OutputCommands))
 
 	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, gitHubClient, a.credentials, func() {
 		// Every connection transition drops this provider's fetch caches
@@ -379,7 +366,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 
 	a.outputs = a.buildOutputWorker(cfg)
-	a.retention = ingest.NewMaintenance(db, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.retention = ingest.NewMaintenance(db, queries.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
 	a.scripts.Register(js.New(runtime.NewScriptPool(0)))
 	a.engine = a.buildEngine(cfg.Logger)
@@ -387,38 +374,41 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
-	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
-	a.Sessions = &sessionsDeps{
-		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, git: a.sessions, tmux: a.terminals,
-		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
-		recorder: a.activityStore, logger: cfg.Logger,
-		pullRequests: newSessionPullRequests(
+	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
+	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
+	a.Sessions = newSessionsService(SessionsDeps{
+		Launcher: a.launcher, Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
+		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
+		Recorder: a.Activity, Logger: cfg.Logger,
+		PullRequests: newSessionPullRequests(
 			newGitHubForge(gitHubClient, a.credentials),
 			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
 		),
-		execEnv:       a.execEnv,
-		editorCommand: a.Settings.Editor,
-		defaultAgentEnv: func(ctx context.Context) string {
-			return a.execEnv.Getenv(ctx, config.EnvDefaultAgent)
-		},
-	}
+		ExecEnv:         a.execEnv,
+		EditorCommand:   a.Settings,
+		DefaultAgentEnv: defaultAgentEnvReader{env: a.execEnv},
+	})
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
-	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, a.settingsStore, func() { a.PublishFlowsUpdated("save") })
-	a.Actions = newActionsService(a.actionStore, func() {
-		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
+	a.Flows = newFlowsService(FlowsDeps{
+		Flows:    a.flowStore,
+		Stores:   a.Stores,
+		Creds:    a.credentials,
+		Images:   profileImages,
+		Marks:    sourceMarks,
+		Scripts:  a.scripts,
+		Settings: a.settingsStore,
+		Events:   a.Events,
 	})
+	a.Actions = newActionsService(a.actionStore, a.Events)
 	a.System = newSystemService(cfg.Paths)
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
+	a.Webhooks = newWebhookService(WebhookDeps{Settings: cfg.SettingsStore, Captures: a.Stores.WebhookCaptures, Listener: a.webhook, Host: a.webhookHost, Port: a.webhookPort})
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Gitea = newGiteaService(a.giteaAuth)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.PostHog = newPostHogService(a.posthogAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
-	a.Activity = newActivityService(a.activityStore)
-	a.Jobs = newJobService(a.jobStore)
 	a.Prompts = newPromptsService(cfg.Paths, cfg.SettingsStore, a.Webhooks)
 	a.Skills = newSkillsService(a.Prompts)
 	// The retired global installer left an index beside the state dir. Nothing
@@ -428,19 +418,30 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
-	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
-	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Terminals, a.Sessions, a.actionStore)
-	a.Canvas = newCanvasService(canvas.NewStore(cfg.Paths.AgentWorkspacesDir), a.Store,
-		func(session int64) {
-			a.Events.Publish(a.ctx, events.CanvasUpdated{Session: session})
-		},
-		func(session int64, name string, open bool) {
-			a.Events.Publish(a.ctx, events.CanvasToggleRequested{Session: session, Name: name, Open: open})
-		})
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL, cfg.Logger)
+	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir})
+	a.PopupTerminals = newPopupTerminalsService(PopupTerminalsDeps{Manager: a.popupTerminals, Terminals: a.Terminals, Directory: a.Sessions, Catalog: a.actionStore})
+	a.Canvas = newCanvasService(CanvasDeps{
+		Store:    canvas.NewStore(cfg.Paths.AgentWorkspacesDir),
+		Sessions: a.Stores.AgentSessions,
+		Events:   a.Events,
+	})
+	a.AgentWorkspaces = newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store:           a.agentWorkspaceStore,
+		Terminals:       a.terminals,
+		Stores:          a.Stores,
+		Skills:          a.Skills,
+		ProfileCommands: a.agentCommands,
+		RootProblem:     a.agentWorkspaceRootProblem,
+		ExecEnv:         a.execEnv,
+		EditorCommand:   a.Settings,
+		MCPBase:         a,
+		EndDelay:        a.Settings,
+		Events:          a.Events,
+		Logger:          cfg.Logger,
+	})
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
-	// Tasks answering KindUnavailable instead.
+	// Tasks answering unavailable instead.
 	var tasks taskSource
 	if a.honeycomb != nil {
 		tasks = a.honeycomb
@@ -451,33 +452,28 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// service reads the same workspace store the scheduler takes its specs
 	// from.
 	a.scheduler = a.buildScheduler(cfg.Logger)
-	a.Schedules = newSchedulesService(a.agentWorkspaceStore, db, a.scheduler, cfg.Logger)
+	a.Schedules = newSchedulesService(SchedulesDeps{
+		Workspaces: a.agentWorkspaceStore,
+		Schedules:  a.Stores.Schedules,
+		Sessions:   a.Stores.AgentSessions,
+		Scheduler:  a.scheduler,
+		Logger:     cfg.Logger,
+	})
 	// Schedules are saved with the manifest, so the write that reaches the
 	// running loop is the workspace editor's, not a route of its own.
-	a.AgentWorkspaces.OnSchedulesChanged = func(workspace string) {
-		a.scheduler.Reload()
-		a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: workspace})
-	}
-	// A scheduled chat that ended itself is what the Chats area is showing as
-	// live; the same wake-up makes it re-read the chat list.
-	a.AgentWorkspaces.OnSessionEnded = func(session SessionView) {
-		if session.ScheduleID != "" {
-			a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: session.Workspace})
-		}
-	}
-	a.AgentWorkspaces.endDelay = a.Settings.SessionEndDelay
+	a.AgentWorkspaces.OnSchedulesChanged = func(string) { a.scheduler.Reload() }
 
 	return a, nil
 }
 
 type pipelineCompactor interface {
-	Compact(context.Context, store.CompactionPolicy) (store.CompactionResult, error)
+	Compact(context.Context, queries.CompactionPolicy) (queries.CompactionResult, error)
 }
 
 func compactPipelineStoreAtStartup(ctx context.Context, db pipelineCompactor, path string, logger zerolog.Logger) {
 	before, beforeErr := os.Stat(path)
 	started := time.Now()
-	result, compactErr := db.Compact(ctx, store.DefaultCompactionPolicy())
+	result, compactErr := db.Compact(ctx, queries.DefaultCompactionPolicy())
 	duration := time.Since(started)
 	after, afterErr := os.Stat(path)
 
@@ -590,13 +586,11 @@ func (a *App) Start(ctx context.Context) error {
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
 
-// mcpBaseURL reports this run's own loopback base URL, or empty when the
-// server is not running. It is what lets a workspace declare an app-hosted
-// entry (hive-desktop, hive-canvas) in its mcps: list and get an address that
-// actually answers — mcpcatalog ships those entries with no URL, because the
-// port is allocated at startup, and the catalogue joins this base with each
-// entry's RuntimePath (ADR mcp-replaces-the-agent-facing-http-api).
-func (a *App) mcpBaseURL(ctx context.Context) string {
+// MCPBaseURL returns this run's loopback base URL, or empty while the server
+// is down. App-hosted catalogue entries have no static URL because startup
+// allocates the port; callers join this base with RuntimePath
+// (ADR mcp-replaces-the-agent-facing-http-api).
+func (a *App) MCPBaseURL(ctx context.Context) string {
 	if a.Webhooks == nil {
 		return ""
 	}
@@ -715,10 +709,17 @@ func (a *App) Close() error {
 			err = fmt.Errorf("close hive action database: %w", closeErr)
 		}
 	}
-	if closeErr := a.Store.Close(); closeErr != nil && err == nil {
+	if closeErr := a.db.Close(); closeErr != nil && err == nil {
 		err = fmt.Errorf("close desktop store: %w", closeErr)
 	}
 	return err
+}
+
+// PipelineDB exposes the raw pipeline database handle to driving adapters
+// that need it directly: the e2e harness's table resets and read-only
+// snapshots. Everything else reaches persistence through Stores.
+func (a *App) PipelineDB() *queries.DB {
+	return a.db
 }
 
 func buildGitHubConnection(mock string, client *ghclient.Client, creds credentials.Store, onChange func()) ghsource.Connection {
@@ -763,7 +764,7 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: count})
 		// A hand edit (or the app's own write) reloaded actions.yml: record
 		// the now-effective action count so the change is auditable.
-		a.activityStore.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
+		a.Activity.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
 	}, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("actions.yml hot-reload unavailable")
@@ -774,8 +775,8 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 
 // openFlows constructs the flow store over settings.FlowsDir() and a watcher
 // that reloads it on any flows/*.yaml change, including the app's own
-// SaveFlow/SaveLayout writes. It must run before the producer and retention:
-// both resolve enabled flow ids live from the store.
+// SaveFlow/SaveLayout writes. It must run before the producer, which
+// resolves enabled flow ids live from the flow store.
 //
 // The rail order comes from settings.yaml, which the flow package does not
 // read; it is process state the watcher's reloads leave alone. Reordering the
@@ -874,9 +875,9 @@ func (a *App) PublishFlowsUpdated(reason string) {
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
 }
 
-// RefreshSources drops the fetch caches and drives one producer tick, returning
-// its summary. The engine commits on its own goroutine, so a caller reads back
-// with a short retry. Mock modes have no producer and report KindUnavailable.
+// RefreshSources clears fetch caches and runs one producer tick. Engine commits
+// are asynchronous, so callers should retry reads briefly. Mock modes return
+// KindUnavailable.
 func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
 	if a.producer == nil {
 		return ingest.TickSummary{}, Errorf(KindUnavailable, "source refresh is unavailable in this mode")
@@ -904,16 +905,15 @@ func (a *App) MountAPI(prefix string, h http.Handler) bool {
 // contradicting it.
 func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 	return runtime.NewEngine(runtime.EngineOptions{
-		Store:   a.Store,
-		Flows:   a.flowStore,
-		Scripts: a.scripts,
-		Logger:  logger,
-		OnCommitted: func() {
-			a.Events.Publish(a.ctx, events.InboxUpdated{})
-		},
-		OnFlowError: func(flowID string, err error) {
-			a.activityStore.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
-		},
+		Log:      a.Stores.EventLog,
+		Items:    a.Stores.InboxItems,
+		Commits:  a.Stores.EventLog,
+		KV:       a.Stores.NodeKV,
+		Flows:    a.flowStore,
+		Scripts:  a.scripts,
+		Logger:   logger,
+		Events:   a.Events,
+		Recorder: a.Activity,
 	})
 }
 
@@ -967,8 +967,16 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	if a.fetchers == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(a.Store, a.sources, a.pollInterval, a.PublishLogAppended, logger)
-	producer.SetRecorder(a.activityStore)
+	producer := ingest.NewProducer(ingest.ProducerDeps{
+		Ingester:  a.Stores.InboxItems,
+		Snapshots: a.Stores.EventLog,
+		Heads:     a.Stores.SourceHeads,
+		Sources:   a.sources,
+		Interval:  a.pollInterval,
+		Notifier:  a,
+		Logger:    logger,
+	})
+	producer.SetRecorder(a.Activity)
 	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
 	return producer
 }
@@ -983,10 +991,10 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, a.execEnv, cfg.Logger))
-	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), a.dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
-	worker.SetRecorder(a.activityStore)
-	worker.SetJobRecorder(a.jobStore)
+	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Stores.InboxItems, a.execEnv, cfg.Logger))
+	worker := dispatch.NewWorker(a.Stores.OutputCommands, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), a.dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
+	worker.SetRecorder(a.Activity)
+	worker.SetJobRecorder(a.Jobs)
 	return worker
 }
 
@@ -1036,6 +1044,12 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 	return f(ctx, n)
 }
 
+type defaultAgentEnvReader struct{ env *execenv.Resolver }
+
+func (r defaultAgentEnvReader) DefaultAgent(ctx context.Context) string {
+	return r.env.Getenv(ctx, config.EnvDefaultAgent)
+}
+
 // openWebhook constructs the optional loopback listener without binding it.
 // Port zero is passed through to net.Listen so the OS allocates without a
 // probe/rebind race. Mock instances only claim a listener through an explicit
@@ -1050,8 +1064,8 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 		return
 	}
 
-	a.webhook = webhook.NewListener(a.Store, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
-	a.webhook.SetRecorder(a.activityStore)
+	a.webhook = webhook.NewListener(a.Stores.InboxItems, a.Stores.EventLog, a.Stores.WebhookCaptures, a.Stores.InboxItems, a.sources.PushInstances, a.webhookHost, a.webhookPort, a, cfg.Logger)
+	a.webhook.SetRecorder(a.Activity)
 }
 
 // openHiveRuntime opens the Hive dependencies desktop actions need. The
@@ -1126,8 +1140,8 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	)
 
 	a.launcher = dispatch.NewHiveSessionLauncher(sessions)
-	a.launcher.SetRecorder(a.activityStore)
-	a.launcher.SetItemSessionLinker(a.Store, cfg.Logger)
+	a.launcher.SetRecorder(a.Activity)
+	a.launcher.SetItemSessionLinker(a.Stores.ItemSessions, cfg.Logger)
 
 	var statusService *hive.StatusService
 	if cfg.MockMode == "" {
@@ -1149,17 +1163,25 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// agentCommands projects hive's agent profiles onto the one thing a workspace
-// may inherit from them. Flags are dropped here, at the seam, because hive's
-// profiles run --dangerously-skip-permissions and a workspace declares its own
-// authority instead (ADR a-workspace-declares-its-own-authority): agentws.Resolve validates the result is a
-// single shell word, so a profile whose Command carries flags (re-inheriting
-// through the back door this function exists to close) is refused at launch
-// naming the agent, rather than silently spliced into the line.
+// agentCommands projects hive's agent profiles onto a full command line,
+// flags included, for the workspace editor's preset list.
+//
+// Flags used to be dropped here so a workspace could not inherit
+// --dangerously-skip-permissions from hive's config. They now cross, because
+// the destination changed: a preset is seeded into the manifest once, where
+// the user reads and edits it, rather than resolved out of hive.yaml at every
+// launch. Nothing in a launch reads this map, so a hive config edit cannot
+// change what an existing workspace runs — which is the guarantee the old
+// seam was reaching for (ADR the-workspace-command-is-a-template, superseding
+// ADR a-workspace-declares-its-own-authority §1-2).
 func agentCommands(cfg *config.Config) map[string]string {
 	commands := make(map[string]string, len(cfg.Agents.Profiles))
 	for key, profile := range cfg.Agents.Profiles {
-		commands[key] = profile.CommandOrDefault(key)
+		line := profile.CommandOrDefault(key)
+		if flags := profile.ShellFlags(); flags != "" {
+			line += " " + flags
+		}
+		commands[key] = line
 	}
 	return commands
 }

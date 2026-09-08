@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Chats settings: where the area's workspaces live. Everything a workspace
-// itself declares — agent, autonomy posture, MCP servers — belongs to the
+// itself declares — agent, launch command, MCP servers — belongs to the
 // workspace manifest, not here.
 import { onMounted } from 'vue'
 import SettingsError from './settings/SettingsError.vue'

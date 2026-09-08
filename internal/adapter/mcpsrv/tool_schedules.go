@@ -22,8 +22,8 @@ type listWorkspacesOutput struct {
 type workspaceSummary struct {
 	Dir       string   `json:"dir"               jsonschema:"The directory name every schedule tool's workspace argument takes."`
 	Name      string   `json:"name"`
-	Agent     string   `json:"agent"`
-	Autonomy  string   `json:"autonomy"`
+	Command   string   `json:"command"`
+	Danger    bool     `json:"danger"`
 	Problem   string   `json:"problem,omitempty"`
 	Schedules []string `json:"schedules"         jsonschema:"The ids of the workspace's schedules."`
 }
@@ -117,7 +117,7 @@ func (ctrl *Controller) ListWorkspaces(ctx context.Context, _ *mcp.CallToolReque
 			ids = append(ids, s.ID)
 		}
 		out.Workspaces = append(out.Workspaces, workspaceSummary{
-			Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy, Problem: w.Problem, Schedules: ids,
+			Dir: w.Dir, Name: w.Name, Command: w.Command, Danger: w.Danger, Problem: w.Problem, Schedules: ids,
 		})
 	}
 	return nil, out, nil

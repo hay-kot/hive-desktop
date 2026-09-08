@@ -7,14 +7,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	whsource "github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-func testMsg(id, payload string) store.Msg {
-	return store.Msg{
+func testMsg(id, payload string) models.Msg {
+	return models.Msg{
 		ID: id, Key: "k" + id, Topic: "source:f/src", Ts: 1,
 		Payload: json.RawMessage(payload), SourceKind: "webhook", SourceScope: "hook",
 	}
@@ -80,7 +80,7 @@ func TestRunProducesACommitForTheWholeBatch(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	batch := []store.Msg{testMsg("4", `{}`), testMsg("9", `{}`), testMsg("6", `{}`)}
+	batch := []models.Msg{testMsg("4", `{}`), testMsg("9", `{}`), testMsg("6", `{}`)}
 	got, err := runner.Run(t.Context(), batch)
 	require.NoError(t, err)
 
@@ -108,11 +108,11 @@ func TestEveryMessageIsAccountedFor(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	batch := []store.Msg{
+	batch := []models.Msg{
 		testMsg("1", `{"repo":"acme/app"}`),
 		testMsg("2", `{"repo":"other/app"}`),
 	}
-	batch = append(batch, store.Msg{ID: "3", Topic: "source:elsewhere/src"})
+	batch = append(batch, models.Msg{ID: "3", Topic: "source:elsewhere/src"})
 
 	got, err := runner.Run(t.Context(), batch)
 	require.NoError(t, err)
@@ -120,8 +120,8 @@ func TestEveryMessageIsAccountedFor(t *testing.T) {
 	require.Len(t, got.Discards, 2, "the filtered item and the foreign topic are both recorded")
 	// Routing runs before any node does, so a message that matched no entry is
 	// recorded first.
-	require.Equal(t, store.Discard{MsgID: "3", NodeID: runtime.UnroutedNodeID}, got.Discards[0])
-	require.Equal(t, store.Discard{MsgID: "2", NodeID: "keep"}, got.Discards[1])
+	require.Equal(t, models.Discard{MsgID: "3", NodeID: runtime.UnroutedNodeID}, got.Discards[0])
+	require.Equal(t, models.Discard{MsgID: "2", NodeID: "keep"}, got.Discards[1])
 }
 
 // A node that outlives its timeout is respawned rather than reused: whatever
@@ -148,7 +148,7 @@ return msg;
 	require.NoError(t, err)
 	defer runner.Close()
 
-	got, err := runner.Run(t.Context(), []store.Msg{
+	got, err := runner.Run(t.Context(), []models.Msg{
 		testMsg("1", `{}`), testMsg("2", `{}`), testMsg("3", `{}`),
 	})
 	require.NoError(t, err)
@@ -181,9 +181,9 @@ func TestFunctionStateSurvivesAcrossBatches(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	first, err := runner.Run(t.Context(), []store.Msg{testMsg("1", `{}`)})
+	first, err := runner.Run(t.Context(), []models.Msg{testMsg("1", `{}`)})
 	require.NoError(t, err)
-	second, err := runner.Run(t.Context(), []store.Msg{testMsg("2", `{}`)})
+	second, err := runner.Run(t.Context(), []models.Msg{testMsg("2", `{}`)})
 	require.NoError(t, err)
 
 	require.JSONEq(t, `{"n":1}`, string(first.Outputs[0].Payload))
@@ -214,9 +214,9 @@ func TestFunctionNodeSplitInheritsSnapshotScope(t *testing.T) {
 	require.NoError(t, err)
 	defer runner.Close()
 
-	got, err := runner.Run(t.Context(), []store.Msg{{
+	got, err := runner.Run(t.Context(), []models.Msg{{
 		ID: "5", Topic: "source:f/src", Ts: 1, SourceKind: "grafana", SourceScope: "grafana/prod",
-		Snapshot: []store.SnapshotItem{{Key: "node", Payload: json.RawMessage(`{"result":[{"name":"a"},{"name":"b"}]}`)}},
+		Snapshot: []models.SnapshotItem{{Key: "node", Payload: json.RawMessage(`{"result":[{"name":"a"},{"name":"b"}]}`)}},
 	}})
 	require.NoError(t, err)
 
@@ -226,7 +226,7 @@ func TestFunctionNodeSplitInheritsSnapshotScope(t *testing.T) {
 
 	keys := make([]string, 0, len(got.Outputs))
 	for _, out := range got.Outputs {
-		require.Equal(t, store.SinkKindFeed, out.Sink.Kind)
+		require.Equal(t, models.SinkKindFeed, out.Sink.Kind)
 		require.Equal(t, scope.SourceTopic, out.SourceTopic, "Topic is preserved, so the split output reconciles under the source scope")
 		require.Equal(t, scope.SnapshotID, out.SnapshotID, "each split output carries the snapshot id it was expanded from")
 		require.Equal(t, "grafana", out.SourceKind)
@@ -235,7 +235,7 @@ func TestFunctionNodeSplitInheritsSnapshotScope(t *testing.T) {
 	require.ElementsMatch(t, []string{"a", "b"}, keys, "each series is keyed by the value the script minted")
 }
 
-func nodeRun(t *testing.T, batch store.CommitBatch, nodeID string) store.NodeRunView {
+func nodeRun(t *testing.T, batch models.CommitBatch, nodeID string) models.NodeRun {
 	t.Helper()
 	for _, run := range batch.NodeRuns {
 		if run.NodeID == nodeID {
@@ -243,5 +243,5 @@ func nodeRun(t *testing.T, batch store.CommitBatch, nodeID string) store.NodeRun
 		}
 	}
 	t.Fatalf("no node run recorded for %q", nodeID)
-	return store.NodeRunView{}
+	return models.NodeRun{}
 }

@@ -9,26 +9,28 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
 
 // capableInstance is one instance that declares the classification and
 // absence capabilities, wired the way a real connector's factory wires them.
 // The producer reads them straight off the instance — there is no assertion
 // to miss and no adapter map to look up by source kind.
-func capableInstance(flowID, nodeID string, pull connector.PullSource, classifier store.Classifier, absence store.AbsenceConfirmer) connector.Instance {
+func capableInstance(flowID, nodeID string, pull connector.PullSource, classifier models.Classifier, absence models.AbsenceConfirmer) connector.Instance {
 	return connector.Instance{
 		Type: "sources.test",
 		Node: connector.Node{FlowID: flowID, NodeID: nodeID},
 		Metadata: connector.Metadata{
 			ProfileID:  flowID,
 			SourceKind: "github",
-			Policy:     store.ResurfacePolicyStateChanges,
+			Policy:     models.ResurfacePolicyStateChanges,
 		},
 		Pull:       pull,
 		Classifier: classifier,
@@ -38,26 +40,26 @@ func capableInstance(flowID, nodeID string, pull connector.PullSource, classifie
 
 type countingAbsence struct{ calls atomic.Int32 }
 
-func (c *countingAbsence) ConfirmAbsence(context.Context, []store.Observation) (map[string]store.AbsenceVerdict, error) {
+func (c *countingAbsence) ConfirmAbsence(context.Context, []models.Observation) (map[string]models.AbsenceVerdict, error) {
 	c.calls.Add(1)
-	return map[string]store.AbsenceVerdict{}, nil
+	return map[string]models.AbsenceVerdict{}, nil
 }
 
 type payloadHydratingAbsence struct {
 	calls      int
 	batchSizes []int
-	observed   store.Observation
+	observed   models.Observation
 	updatedAt  int64
 	terminal   bool
 }
 
-func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, previous []models.Observation) (map[string]models.AbsenceVerdict, error) {
 	c.calls++
 	c.batchSizes = append(c.batchSizes, len(previous))
 	if len(previous) > 0 {
 		c.observed = previous[0]
 	}
-	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
+	verdicts := make(map[string]models.AbsenceVerdict, len(previous))
 	for _, prev := range previous {
 		var item feed.Item
 		if err := json.Unmarshal(prev.Payload, &item); err != nil {
@@ -71,17 +73,17 @@ func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, previous []s
 		current := prev
 		current.Payload = payload
 		current.ObservedAt = item.UpdatedAt
-		verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: c.terminal}
+		verdicts[prev.ExternalID] = models.AbsenceVerdict{Current: &current, Terminal: c.terminal}
 	}
 	return verdicts, nil
 }
 
 type activeAbsenceClassifier struct{}
 
-func (activeAbsenceClassifier) Classify(_ *store.Observation, current store.Observation) store.Classification {
-	return store.Classification{
-		Kind: "updated", Attention: store.AttentionTrivial,
-		Transition: store.TransitionNone, Lifecycle: store.LifecycleActive,
+func (activeAbsenceClassifier) Classify(_ *models.Observation, current models.Observation) models.Classification {
+	return models.Classification{
+		Kind: "updated", Attention: models.AttentionTrivial,
+		Transition: models.TransitionNone, Lifecycle: models.LifecycleActive,
 		Summary: current.Title,
 	}
 }
@@ -89,10 +91,10 @@ func (activeAbsenceClassifier) Classify(_ *store.Observation, current store.Obse
 func TestProducerAbsenceIsScopedToExactSourceTopic(t *testing.T) {
 	db := openTestPipelineDB(t)
 	classifier := genericClassifier{}
-	_, err := db.IngestObservation(t.Context(), classifier, store.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: store.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
+	_, err := stores.New(db, stores.Options{}).InboxItems.IngestObservation(t.Context(), classifier, stores.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: models.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
 	require.NoError(t, err)
 	absence := &countingAbsence{}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "first", &fakeSource{}, classifier, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 	producer.Tick(t.Context())
@@ -108,7 +110,7 @@ func TestProducerAbsenceHydrationPreservesInboxMetadata(t *testing.T) {
 		Topic: "source:profile/source", Key: item.ID, Payload: payload,
 	}}}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: true}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -136,7 +138,7 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 		Topic: "source:profile/source", Key: item.ID, Payload: payload,
 	}}}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, activeAbsenceClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -148,7 +150,7 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 	var archivedAt *int64
 	var lastEventAt int64
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT lifecycle, archived_at, last_event_at FROM inbox_item`).Scan(&lifecycle, &archivedAt, &lastEventAt))
-	assert.Equal(t, store.LifecycleActive.String(), lifecycle)
+	assert.Equal(t, models.LifecycleActive.String(), lifecycle)
 	assert.Nil(t, archivedAt)
 	assert.Equal(t, int64(200), lastEventAt)
 }
@@ -165,7 +167,7 @@ func TestProducerConfirmsAbsentItemsInOneCall(t *testing.T) {
 	}
 	src := &fakeSource{batches: [][]Msg{batch}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -177,10 +179,10 @@ func TestProducerConfirmsAbsentItemsInOneCall(t *testing.T) {
 }
 
 type partialAbsence struct {
-	verdicts map[string]store.AbsenceVerdict
+	verdicts map[string]models.AbsenceVerdict
 }
 
-func (p partialAbsence) ConfirmAbsence(context.Context, []store.Observation) (map[string]store.AbsenceVerdict, error) {
+func (p partialAbsence) ConfirmAbsence(context.Context, []models.Observation) (map[string]models.AbsenceVerdict, error) {
 	return p.verdicts, errors.New("boom")
 }
 
@@ -197,13 +199,13 @@ func TestProducerIngestsPartialAbsenceBatch(t *testing.T) {
 		{Topic: "source:profile/source", Key: itemB.ID, Payload: payloadB},
 	}}}
 
-	currentA := store.Observation{ExternalID: itemA.ID, SourceKind: "github", Title: "A updated", Payload: payloadA, ObservedAt: 200}
-	currentB := store.Observation{ExternalID: itemB.ID, SourceKind: "github", Title: "B updated", Payload: payloadB, ObservedAt: 200}
-	absence := partialAbsence{verdicts: map[string]store.AbsenceVerdict{
+	currentA := models.Observation{ExternalID: itemA.ID, SourceKind: "github", Title: "A updated", Payload: payloadA, ObservedAt: 200}
+	currentB := models.Observation{ExternalID: itemB.ID, SourceKind: "github", Title: "B updated", Payload: payloadB, ObservedAt: 200}
+	absence := partialAbsence{verdicts: map[string]models.AbsenceVerdict{
 		itemA.ID: {Current: &currentA},
 		itemB.ID: {Current: &currentB},
 	}}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -217,8 +219,8 @@ func TestProducerIngestsPartialAbsenceBatch(t *testing.T) {
 
 type emptyAbsence struct{}
 
-func (emptyAbsence) ConfirmAbsence(context.Context, []store.Observation) (map[string]store.AbsenceVerdict, error) {
-	return map[string]store.AbsenceVerdict{}, nil
+func (emptyAbsence) ConfirmAbsence(context.Context, []models.Observation) (map[string]models.AbsenceVerdict, error) {
+	return map[string]models.AbsenceVerdict{}, nil
 }
 
 func TestProducerKeepsNotFoundItems(t *testing.T) {
@@ -229,7 +231,7 @@ func TestProducerKeepsNotFoundItems(t *testing.T) {
 	src := &fakeSource{batches: [][]Msg{{
 		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
 	}}}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, emptyAbsence{}),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -259,15 +261,15 @@ type recordingAbsence struct {
 	terminal   bool
 }
 
-func (r *recordingAbsence) ConfirmAbsence(_ context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+func (r *recordingAbsence) ConfirmAbsence(_ context.Context, previous []models.Observation) (map[string]models.AbsenceVerdict, error) {
 	r.calls++
 	keys := make([]string, len(previous))
-	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
+	verdicts := make(map[string]models.AbsenceVerdict, len(previous))
 	for i, prev := range previous {
 		keys[i] = prev.ExternalID
 		if r.answer {
 			current := prev
-			verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: r.terminal}
+			verdicts[prev.ExternalID] = models.AbsenceVerdict{Current: &current, Terminal: r.terminal}
 		}
 	}
 	r.batchSizes = append(r.batchSizes, len(previous))
@@ -284,7 +286,7 @@ func TestProducerConfirmsActiveAbsentItem(t *testing.T) {
 		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
 	}}}
 	absence := &recordingAbsence{}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -305,7 +307,7 @@ func TestProducerSkipsArchivedItemsInAbsence(t *testing.T) {
 		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
 	}}}
 	absence := &recordingAbsence{}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 
@@ -322,15 +324,15 @@ func TestProducerSkipsArchivedItemsInAbsence(t *testing.T) {
 func TestProducerStopsConfirmingTerminalItems(t *testing.T) {
 	db := openTestPipelineDB(t)
 	payload := []byte(`{"id":"acme/repo#1","title":"A"}`)
-	_, err := db.IngestObservation(t.Context(), genericClassifier{}, store.IngestObservationParams{
+	_, err := stores.New(db, stores.Options{}).InboxItems.IngestObservation(t.Context(), genericClassifier{}, stores.IngestObservationParams{
 		ProfileID: "profile", Topic: "source:profile/source",
-		Current: store.Observation{ExternalID: "acme/repo#1", Title: "A", SourceKind: "github", ObservedAt: 100, Payload: payload},
+		Current: models.Observation{ExternalID: "acme/repo#1", Title: "A", SourceKind: "github", ObservedAt: 100, Payload: payload},
 	})
 	require.NoError(t, err)
 
 	src := &fakeSource{} // never emits: every tick treats the seeded item as absent
 	absence := &recordingAbsence{answer: true, terminal: true}
-	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+	producer := newTestProducer(db, stubSources{instances: []connector.Instance{
 		capableInstance("profile", "source", src, genericClassifier{}, absence),
 	}}, time.Hour, nil, zerolog.Nop())
 

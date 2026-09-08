@@ -6,22 +6,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
 	classifier := classifier{}
-	previous := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
-	closed := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
+	previous := models.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
+	closed := models.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
 	entered := classifier.Classify(&previous, closed)
-	assert.Equal(t, store.TransitionEnteredTerminal, entered.Transition)
+	assert.Equal(t, models.TransitionEnteredTerminal, entered.Transition)
 	assert.Equal(t, "Closed", entered.Summary)
 	reopened := classifier.Classify(&closed, previous)
-	assert.Equal(t, store.TransitionLeftTerminal, reopened.Transition)
+	assert.Equal(t, models.TransitionLeftTerminal, reopened.Transition)
 	assert.Equal(t, "Reopened", reopened.Summary)
 }
 
@@ -44,7 +45,7 @@ func TestAbsenceConfirmer_KeysVerdictsByExternalID(t *testing.T) {
 		return b
 	}
 
-	previous := []store.Observation{
+	previous := []models.Observation{
 		{ExternalID: "a-undecodable", Payload: []byte("not json")},
 		{ExternalID: "b-zero-num", Payload: mustPayload(feed.Item{Repo: "acme/repo", Num: 0})},
 		{ExternalID: "c-no-slash", Payload: mustPayload(feed.Item{Repo: "acme", Num: 5})},
@@ -98,11 +99,11 @@ func TestGithubClassifierDescribesObservedActivity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			previous := store.Observation{ExternalID: "o/r#1", Payload: []byte(tt.previous)}
-			got := classifier.Classify(&previous, store.Observation{ExternalID: "o/r#1", Payload: []byte(tt.current)})
+			previous := models.Observation{ExternalID: "o/r#1", Payload: []byte(tt.previous)}
+			got := classifier.Classify(&previous, models.Observation{ExternalID: "o/r#1", Payload: []byte(tt.current)})
 			assert.Equal(t, tt.kind, got.Kind)
 			assert.Equal(t, tt.summary, got.Summary)
-			assert.Equal(t, store.AttentionActivity, got.Attention)
+			assert.Equal(t, models.AttentionActivity, got.Attention)
 			assert.NotEmpty(t, got.Detail)
 		})
 	}

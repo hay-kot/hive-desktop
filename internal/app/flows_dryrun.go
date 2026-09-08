@@ -3,10 +3,10 @@ package app
 import (
 	"context"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // DryRunDocumentID is the flow id an inline document runs under when it names
@@ -38,7 +38,7 @@ type FlowDryRun struct {
 	NodeID string
 	// Messages is the input. A message with a Snapshot expands into its items
 	// and declares feed reconciliation, the same as a source poll would.
-	Messages []store.Msg
+	Messages []models.Msg
 	// KV seeds the sandbox node KV: node id -> key -> the value's JSON text.
 	// Durable KV is never read and never written, so dedup and notify-once
 	// logic is exercised against exactly what is seeded here and nothing else.
@@ -124,7 +124,7 @@ func (s *FlowsService) resolveDryRunFlow(req FlowDryRun) (flow.Flow, []string, e
 // that is the only case where the right value is derivable: a source's live
 // topic is its own flow-qualified id. Injecting mid-graph leaves the topic
 // alone, since what a real upstream would have set is not knowable here.
-func dryRunInput(f flow.Flow, req FlowDryRun) []store.Msg {
+func dryRunInput(f flow.Flow, req FlowDryRun) []models.Msg {
 	topic := ""
 	for i := range f.Nodes {
 		if f.Nodes[i].ID != req.NodeID {
@@ -136,7 +136,7 @@ func dryRunInput(f flow.Flow, req FlowDryRun) []store.Msg {
 		break
 	}
 
-	out := make([]store.Msg, len(req.Messages))
+	out := make([]models.Msg, len(req.Messages))
 	for i, msg := range req.Messages {
 		if msg.ID == "" {
 			msg.ID = runtime.SyntheticMsgID(i)

@@ -17,7 +17,7 @@ func newTestSkillsService(t *testing.T) *SkillsService {
 	require.NoError(t, err)
 	paths := settings.ResolvePaths(b, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
-	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, "127.0.0.1", 24917))
+	promptsSvc := newPromptsService(paths, store, newWebhookService(WebhookDeps{Settings: store, Captures: nil, Listener: nil, Host: "127.0.0.1", Port: 24917}))
 	return newSkillsService(promptsSvc)
 }
 

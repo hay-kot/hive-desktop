@@ -10,9 +10,9 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/schedule"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // scheduleWorkspaces is both the scheduler's Source and its WorkspaceNamer: a
@@ -45,10 +45,12 @@ func (w scheduleWorkspaces) WorkspaceName(dir string) string {
 	return st.Workspace.Name
 }
 
-type scheduleStore struct{ db *store.DB }
+// scheduleStore is the only place time.Time meets the tables' unix
+// milliseconds.
+type scheduleStore struct{ schedules *stores.ScheduleStore }
 
 func (s scheduleStore) Cursor(ctx context.Context, workspace, id string) (schedule.Cursor, bool, error) {
-	rec, ok, err := s.db.GetScheduleCursor(ctx, workspace, id)
+	rec, ok, err := s.schedules.Cursor(ctx, workspace, id)
 	if err != nil || !ok {
 		return schedule.Cursor{}, false, err
 	}
@@ -61,7 +63,7 @@ func (s scheduleStore) Cursor(ctx context.Context, workspace, id string) (schedu
 }
 
 func (s scheduleStore) SaveCursor(ctx context.Context, cursor schedule.Cursor) error {
-	return s.db.UpsertScheduleCursor(ctx, store.ScheduleCursorRecord{
+	return s.schedules.SaveCursor(ctx, stores.ScheduleCursor{
 		Workspace:        cursor.Workspace,
 		ScheduleID:       cursor.ID,
 		EvaluatedThrough: cursor.EvaluatedThrough.UnixMilli(),
@@ -69,40 +71,16 @@ func (s scheduleStore) SaveCursor(ctx context.Context, cursor schedule.Cursor) e
 	})
 }
 
-// A cursor outside the pass's workspaces is left alone: a manifest that
-// momentarily fails to parse must not lose the state that says how far its
-// schedules got. A deleted workspace runs through DeleteWorkspace instead.
 func (s scheduleStore) PruneCursors(ctx context.Context, workspaces []string, keep []schedule.Cursor) error {
-	stored, err := s.db.ListScheduleCursors(ctx)
-	if err != nil {
-		return err
-	}
-	scope := make(map[string]struct{}, len(workspaces))
-	for _, workspace := range workspaces {
-		scope[workspace] = struct{}{}
-	}
-	live := make(map[string]struct{}, len(keep))
+	refs := make([]stores.ScheduleRef, 0, len(keep))
 	for _, cursor := range keep {
-		live[cursorKey(cursor.Workspace, cursor.ID)] = struct{}{}
+		refs = append(refs, stores.ScheduleRef{Workspace: cursor.Workspace, ScheduleID: cursor.ID})
 	}
-	for _, rec := range stored {
-		if _, ok := scope[rec.Workspace]; !ok {
-			continue
-		}
-		if _, ok := live[cursorKey(rec.Workspace, rec.ScheduleID)]; ok {
-			continue
-		}
-		if err := s.db.DeleteScheduleCursor(ctx, rec.Workspace, rec.ScheduleID); err != nil {
-			return err
-		}
-	}
-	return nil
+	return s.schedules.PruneCursors(ctx, workspaces, refs)
 }
 
-func cursorKey(workspace, id string) string { return workspace + "\x00" + id }
-
 func (s scheduleStore) LastLaunchedRun(ctx context.Context, workspace, id string) (schedule.Run, bool, error) {
-	rec, ok, err := s.db.LastLaunchedScheduleRun(ctx, workspace, id)
+	rec, ok, err := s.schedules.LastLaunchedRun(ctx, workspace, id)
 	if err != nil || !ok {
 		return schedule.Run{}, false, err
 	}
@@ -110,7 +88,7 @@ func (s scheduleStore) LastLaunchedRun(ctx context.Context, workspace, id string
 }
 
 func (s scheduleStore) InsertRun(ctx context.Context, run schedule.Run) (schedule.Run, error) {
-	rec, err := s.db.InsertScheduleRun(ctx, store.ScheduleRunRecord{
+	rec, err := s.schedules.InsertRun(ctx, stores.ScheduleRun{
 		Workspace:    run.Workspace,
 		ScheduleID:   run.ScheduleID,
 		ScheduleName: run.ScheduleName,
@@ -129,7 +107,7 @@ func (s scheduleStore) InsertRun(ctx context.Context, run schedule.Run) (schedul
 	return scheduleRunFromRecord(rec), nil
 }
 
-func scheduleRunFromRecord(rec store.ScheduleRunRecord) schedule.Run {
+func scheduleRunFromRecord(rec stores.ScheduleRun) schedule.Run {
 	return schedule.Run{
 		ID:           rec.ID,
 		Workspace:    rec.Workspace,
@@ -180,12 +158,12 @@ func (a *App) buildScheduler(logger zerolog.Logger) *schedule.Scheduler {
 	return schedule.New(schedule.Options{
 		Source:   workspaces,
 		Names:    workspaces,
-		Store:    scheduleStore{db: a.Store},
+		Store:    scheduleStore{schedules: a.Stores.Schedules},
 		Launcher: scheduleLauncher{workspaces: a.AgentWorkspaces},
 		Logger:   logger,
 		OnRun: func(run schedule.Run) {
 			a.Events.Publish(a.ctx, events.SchedulesUpdated{Workspace: run.Workspace})
-			a.activityStore.Record(a.ctx, activity.ScheduleRun(
+			a.Activity.Record(a.ctx, activity.ScheduleRun(
 				run.ScheduleName, run.Workspace, string(run.Status), scheduleRunDetail(run)))
 		},
 	})

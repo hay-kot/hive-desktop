@@ -45,11 +45,10 @@ handle, and how it should approach them.
 // editor sets, and nothing else. Everything the file says beyond these keys —
 // comments, key order, keys this build does not know — survives a write.
 type ManifestEdit struct {
-	Name     string
-	Agent    string
-	Autonomy Autonomy
-	MCPs     []string
-	Skills   []string
+	Name    string
+	Command string
+	MCPs    []string
+	Skills  []string
 	// Schedules is the whole schedules: list, not a delta: the editor holds
 	// every entry while it is open, so a write reconciles the file to exactly
 	// this set.
@@ -135,8 +134,7 @@ func WriteManifest(root, dir string, edit ManifestEdit) error {
 		value any
 	}{
 		{"name", edit.Name},
-		{"agent", edit.Agent},
-		{"autonomy", string(edit.Autonomy)},
+		{"command", edit.Command},
 	} {
 		if err := setManifestValue(mapping, field.key, field.value); err != nil {
 			return err

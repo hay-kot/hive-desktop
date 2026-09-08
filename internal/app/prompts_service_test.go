@@ -26,7 +26,7 @@ func newTestPromptsService(t *testing.T, port int) *PromptsService {
 	require.NoError(t, err)
 	paths := settings.ResolvePaths(b, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
-	return newPromptsService(paths, store, newWebhookService(store, nil, nil, "127.0.0.1", port))
+	return newPromptsService(paths, store, newWebhookService(WebhookDeps{Settings: store, Captures: nil, Listener: nil, Host: "127.0.0.1", Port: port}))
 }
 
 // TestCatalogRendersAgainstThisInstall is the reason prompts render in Go: a
@@ -65,7 +65,7 @@ func TestCatalogUsesConfiguredWebhookHost(t *testing.T) {
 	isolateConfig(t)
 	paths := settings.ResolvePaths(settings.Bootstrap{}, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
-	svc := newPromptsService(paths, store, newWebhookService(store, nil, nil, "::1", 24917))
+	svc := newPromptsService(paths, store, newWebhookService(WebhookDeps{Settings: store, Captures: nil, Listener: nil, Host: "::1", Port: 24917}))
 
 	catalog, err := svc.Catalog(t.Context(), prompts.Input{})
 	require.NoError(t, err)
