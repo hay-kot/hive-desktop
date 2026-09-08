@@ -442,13 +442,20 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 // persisted a conversation for (closed before its first message) also
 // relaunches fresh, silently, instead of dying on the agent's own
 // unknown-session error.
-func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
-	rec, ok, err := s.sessions.Get(ctx, id)
-	if err != nil {
-		return SessionView{}, Wrap(err, KindInternal, "loading session %d", id)
+// getSession loads one session record, mapping a missing row onto
+// KindNotFound once for every caller.
+func (s *AgentWorkspacesService) getSession(ctx context.Context, id int64) (stores.AgentSession, error) {
+	rec, err := s.sessions.Get(ctx, id)
+	if stores.IsNotFound(err) {
+		return stores.AgentSession{}, Errorf(KindNotFound, "session %d not found", id)
 	}
-	if !ok {
-		return SessionView{}, Errorf(KindNotFound, "session %d not found", id)
+	return rec, Wrap(err, KindInternal, "loading session %d", id)
+}
+
+func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
+	rec, err := s.getSession(ctx, id)
+	if err != nil {
+		return SessionView{}, err
 	}
 
 	name := sessionName(rec.ID)
@@ -518,12 +525,9 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 // CloseSession ends a session's live tmux session and reports whether there
 // was one running. The record is untouched, so it still lists afterward.
 func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bool, error) {
-	rec, ok, err := s.sessions.Get(ctx, id)
+	rec, err := s.getSession(ctx, id)
 	if err != nil {
-		return false, Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return false, Errorf(KindNotFound, "session %d not found", id)
+		return false, err
 	}
 	closed, err := s.terminals.KillSession(ctx, sessionName(rec.ID))
 	if err != nil {
@@ -540,12 +544,8 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 	if name == "" {
 		return Errorf(KindInvalid, "a session needs a name")
 	}
-	_, ok, err := s.sessions.Get(ctx, id)
-	if err != nil {
-		return Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return Errorf(KindNotFound, "session %d not found", id)
+	if _, err := s.getSession(ctx, id); err != nil {
+		return err
 	}
 	return Wrap(s.sessions.Rename(ctx, id, name), KindInternal, "renaming session %d", id)
 }
@@ -555,12 +555,9 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 // the record around a live one would orphan a running agent no UI could
 // address again until it happened to be found by name.
 func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) error {
-	rec, ok, err := s.sessions.Get(ctx, id)
+	rec, err := s.getSession(ctx, id)
 	if err != nil {
-		return Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return Errorf(KindNotFound, "session %d not found", id)
+		return err
 	}
 	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
 		return terminalError(err, "closing session %q", rec.Name)
@@ -1003,12 +1000,9 @@ func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (Wo
 // stream with a window 'resized' event, which is what actually sets the
 // pane's grid; see AgentsMode's resize wiring.
 func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, cols, rows int) error {
-	rec, ok, err := s.sessions.Get(ctx, id)
+	rec, err := s.getSession(ctx, id)
 	if err != nil {
-		return Wrap(err, KindInternal, "loading session %d", id)
-	}
-	if !ok {
-		return Errorf(KindNotFound, "session %d not found", id)
+		return err
 	}
 	client, ok := s.terminals.Client(sessionName(rec.ID))
 	if !ok {

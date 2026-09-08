@@ -286,9 +286,8 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	before, ok, err := svc.sessions.Get(t.Context(), started.ID)
+	before, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 
 	closed, err := svc.CloseSession(t.Context(), started.ID)
 	require.NoError(t, err)
@@ -300,9 +299,8 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 	assert.Empty(t, resumed.Notice, "an empty conversation relaunching fresh is a continuation, not a loss to announce")
 	assert.NotEmpty(t, resumed.TerminalID)
 
-	after, ok, err := svc.sessions.Get(t.Context(), started.ID)
+	after, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.NotEqual(t, before.AgentSessionID, after.AgentSessionID,
 		"the fresh launch mints a fresh id — reusing one the agent might hold would wedge on 'already in use'")
 }
@@ -321,9 +319,8 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	rec, ok, err := svc.sessions.Get(t.Context(), started.ID)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 
 	projectDir := filepath.Join(claudeCfg, "projects", "-demo")
 	require.NoError(t, os.MkdirAll(projectDir, 0o700))
@@ -338,9 +335,8 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 	assert.True(t, resumed.ResumeAttempted)
 	assert.Empty(t, resumed.Notice)
 
-	after, ok, err := svc.sessions.Get(t.Context(), started.ID)
+	after, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.Equal(t, rec.AgentSessionID, after.AgentSessionID, "a real resume keeps addressing the same conversation")
 }
 
@@ -384,18 +380,16 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
-	_, ok, err := svc.sessions.Get(t.Context(), s1.ID)
-	require.NoError(t, err)
-	assert.False(t, ok, "the record is gone too")
-	_, ok, err = canvases.Load("demo", "plan")
+	_, err = svc.sessions.Get(t.Context(), s1.ID)
+	assert.True(t, stores.IsNotFound(err), "the record is gone too")
+	_, ok, err := canvases.Load("demo", "plan")
 	require.NoError(t, err)
 	assert.True(t, ok, "the canvas outlives the chat that made it")
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
-	_, ok, err = svc.sessions.Get(t.Context(), s2.ID)
-	require.NoError(t, err)
-	assert.False(t, ok)
+	_, err = svc.sessions.Get(t.Context(), s2.ID)
+	assert.True(t, stores.IsNotFound(err))
 	metas, err := canvases.List("demo")
 	require.NoError(t, err)
 	assert.Empty(t, metas, "canvases live in the workspace folder, which the delete takes with it")

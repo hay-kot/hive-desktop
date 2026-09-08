@@ -123,7 +123,7 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 		{"AgentSessionStore.Get", func(ctx context.Context) error {
-			_, _, err := st.AgentSessions.Get(ctx, fx.agentSessID)
+			_, err := st.AgentSessions.Get(ctx, fx.agentSessID)
 			return err
 		}},
 		{"AgentSessionStore.Create", func(ctx context.Context) error {

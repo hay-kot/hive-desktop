@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,9 +20,12 @@ import (
 
 type fakeCanvasSessions map[int64]stores.AgentSession
 
-func (f fakeCanvasSessions) Get(_ context.Context, id int64) (stores.AgentSession, bool, error) {
+func (f fakeCanvasSessions) Get(_ context.Context, id int64) (stores.AgentSession, error) {
 	rec, ok := f[id]
-	return rec, ok, nil
+	if !ok {
+		return stores.AgentSession{}, stores.NotFoundError{Entity: "agent_workspace_session", Key: strconv.FormatInt(id, 10)}
+	}
+	return rec, nil
 }
 
 type canvasToggle struct {

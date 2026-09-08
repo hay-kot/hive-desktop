@@ -23,16 +23,14 @@ func TestAgentSessionStore(t *testing.T) {
 		assert.Equal(t, "sess-1", created.AgentSessionID)
 		assert.Equal(t, created.CreatedAt, created.LastOpenedAt, "creation stamps both from the same clock read")
 
-		got, ok, err := st.AgentSessions.Get(ctx, created.ID)
+		got, err := st.AgentSessions.Get(ctx, created.ID)
 		require.NoError(t, err)
-		require.True(t, ok)
 		assert.Equal(t, created, got)
 	})
 
-	t.Run("GetMissingIsNotFoundNotError", func(t *testing.T) {
-		_, ok, err := st.AgentSessions.Get(ctx, 999999)
-		require.NoError(t, err)
-		assert.False(t, ok)
+	t.Run("GetMissingIsNotFound", func(t *testing.T) {
+		_, err := st.AgentSessions.Get(ctx, 999999)
+		assert.True(t, IsNotFound(err))
 	})
 
 	t.Run("Touch", func(t *testing.T) {
@@ -40,9 +38,8 @@ func TestAgentSessionStore(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, st.AgentSessions.Touch(ctx, created.ID, 2000))
-		got, ok, err := st.AgentSessions.Get(ctx, created.ID)
+		got, err := st.AgentSessions.Get(ctx, created.ID)
 		require.NoError(t, err)
-		require.True(t, ok)
 		assert.Equal(t, int64(2000), got.LastOpenedAt)
 		assert.Equal(t, created.CreatedAt, got.CreatedAt, "touch never changes created_at")
 	})
@@ -53,9 +50,8 @@ func TestAgentSessionStore(t *testing.T) {
 		assert.Empty(t, created.AgentSessionID, "the default is empty until a launch sets it")
 
 		require.NoError(t, st.AgentSessions.SetAgentID(ctx, created.ID, "minted-later"))
-		got, ok, err := st.AgentSessions.Get(ctx, created.ID)
+		got, err := st.AgentSessions.Get(ctx, created.ID)
 		require.NoError(t, err)
-		require.True(t, ok)
 		assert.Equal(t, "minted-later", got.AgentSessionID)
 	})
 
@@ -64,9 +60,8 @@ func TestAgentSessionStore(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, st.AgentSessions.Delete(ctx, created.ID))
-		_, ok, err := st.AgentSessions.Get(ctx, created.ID)
-		require.NoError(t, err)
-		assert.False(t, ok)
+		_, err = st.AgentSessions.Get(ctx, created.ID)
+		assert.True(t, IsNotFound(err), "a deleted session is not found")
 
 		// Deleting an id with no session is a no-op, not an error, matching
 		// every other delete in this package (NodeKVStore.DeleteByFlow,
@@ -157,9 +152,8 @@ func TestAgentSessionStore(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, st.AgentSessions.Rename(ctx, created.ID, "triage the flaky test"))
-		got, ok, err := st.AgentSessions.Get(ctx, created.ID)
+		got, err := st.AgentSessions.Get(ctx, created.ID)
 		require.NoError(t, err)
-		require.True(t, ok)
 		assert.Equal(t, "triage the flaky test", got.Name)
 		assert.Equal(t, created.AgentSessionID, got.AgentSessionID, "a rename touches only the name")
 	})

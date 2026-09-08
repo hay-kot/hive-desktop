@@ -26,7 +26,7 @@ const (
 // with: the session record is the authority on which workspace a canvas
 // belongs to, so an agent never names the workspace itself.
 type canvasSessionResolver interface {
-	Get(ctx context.Context, id int64) (stores.AgentSession, bool, error)
+	Get(ctx context.Context, id int64) (stores.AgentSession, error)
 }
 
 // CanvasService is the workspace's canvases: named, agent-written artifacts
@@ -271,14 +271,11 @@ func (s *CanvasService) ListForWorkspace(_ context.Context, dir string) ([]canva
 }
 
 func (s *CanvasService) resolve(ctx context.Context, session int64) (stores.AgentSession, error) {
-	rec, ok, err := s.sessions.Get(ctx, session)
-	if err != nil {
-		return stores.AgentSession{}, Wrap(err, KindInternal, "loading session %d", session)
-	}
-	if !ok {
+	rec, err := s.sessions.Get(ctx, session)
+	if stores.IsNotFound(err) {
 		return stores.AgentSession{}, Errorf(KindNotFound, "session %d not found", session)
 	}
-	return rec, nil
+	return rec, Wrap(err, KindInternal, "loading session %d", session)
 }
 
 // storeError maps the store's sentinel errors onto typed service errors, so

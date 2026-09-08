@@ -76,15 +76,18 @@ func (s *InboxService) Events(ctx context.Context, itemID int64, limit int) ([]s
 
 // requireItem reports KindNotFound for an item id no row backs.
 func (s *InboxService) requireItem(ctx context.Context, itemID int64) error {
-	_, err := s.items.GetByID(ctx, itemID)
-	switch {
-	case err == nil:
-		return nil
-	case stores.IsNotFound(err):
-		return Wrap(err, KindNotFound, "inbox item %d not found", itemID)
-	default:
-		return Wrap(err, KindInternal, "reading inbox item %d", itemID)
+	_, err := s.getItem(ctx, itemID)
+	return err
+}
+
+// getItem reads one inbox item, mapping a missing row onto KindNotFound once
+// for every caller.
+func (s *InboxService) getItem(ctx context.Context, itemID int64) (stores.InboxItem, error) {
+	item, err := s.items.GetByID(ctx, itemID)
+	if stores.IsNotFound(err) {
+		return stores.InboxItem{}, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
 	}
+	return item, Wrap(err, KindInternal, "reading inbox item %d", itemID)
 }
 
 func (s *InboxService) SetUnread(ctx context.Context, itemID, revision int64, unread bool) (stores.InboxItem, error) {
@@ -170,12 +173,9 @@ func (s *InboxService) ActionViews(ctx context.Context, itemID int64) ([]actions
 
 // NewSessionDraft projects an inbox item into a prefilled New Session form.
 func (s *InboxService) NewSessionDraft(ctx context.Context, itemID int64) (dispatch.SessionDraft, error) {
-	item, err := s.items.GetByID(ctx, itemID)
+	item, err := s.getItem(ctx, itemID)
 	if err != nil {
-		if stores.IsNotFound(err) {
-			return dispatch.SessionDraft{}, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
-		}
-		return dispatch.SessionDraft{}, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+		return dispatch.SessionDraft{}, err
 	}
 	draft, err := dispatch.RenderSessionDraft(item.Title, item.URL, item.Payload)
 	if err != nil {
@@ -322,12 +322,9 @@ func (s *InboxService) ActionRun(ctx context.Context, commandID int64) (dispatch
 // decodeItem reads and decodes one inbox item, classifying the two ways it
 // can fail: the row is gone, or its payload is not a canonical item.
 func (s *InboxService) decodeItem(ctx context.Context, itemID int64) (dispatch.DecodedActionItem, error) {
-	row, err := s.items.GetByID(ctx, itemID)
+	row, err := s.getItem(ctx, itemID)
 	if err != nil {
-		if stores.IsNotFound(err) {
-			return dispatch.DecodedActionItem{}, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
-		}
-		return dispatch.DecodedActionItem{}, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+		return dispatch.DecodedActionItem{}, err
 	}
 	item, err := dispatch.DecodeActionItem(row.Payload, row.ExternalID)
 	if err != nil {

@@ -2,8 +2,7 @@ package stores
 
 import (
 	"context"
-	"database/sql"
-	"errors"
+	"fmt"
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
@@ -35,16 +34,10 @@ func (s *AgentSessionStore) ListAll(ctx context.Context) ([]AgentSession, error)
 	return s.mapper.SliceErr(rows, wrap("listing all agent workspace sessions", err))
 }
 
-// Get reads one session by id.
-func (s *AgentSessionStore) Get(ctx context.Context, id int64) (AgentSession, bool, error) {
+// Get reads one session by id; a missing row is a NotFoundError.
+func (s *AgentSessionStore) Get(ctx context.Context, id int64) (AgentSession, error) {
 	row, err := s.q.Ctx(ctx).GetAgentWorkspaceSession(ctx, id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return AgentSession{}, false, nil
-	}
-	if err != nil {
-		return AgentSession{}, false, wrap("getting agent workspace session", err)
-	}
-	return s.mapper(row), true, nil
+	return s.mapper.Err(row, errTransformQueryOne("agent_workspace_session", fmt.Sprint(id), err))
 }
 
 // Create persists one session and returns the stored row with its assigned
