@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"log/slog"
+
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
@@ -20,11 +21,11 @@ const (
 type JobService struct {
 	store  *stores.JobStore
 	events *events.Bus
-	log    *slog.Logger
+	log    zerolog.Logger
 }
 
-func newJobService(store *stores.JobStore, bus *events.Bus) *JobService {
-	return &JobService{store: store, events: bus, log: slog.Default()}
+func newJobService(store *stores.JobStore, bus *events.Bus, logger zerolog.Logger) *JobService {
+	return &JobService{store: store, events: bus, log: logger}
 }
 
 // List returns up to limit jobs with id < before, newest first.
@@ -57,7 +58,7 @@ func (s *JobService) Begin(ctx context.Context, label, actionID, target string) 
 		ActionID: actionID, Target: target,
 	})
 	if err != nil {
-		s.log.Warn("beginning job failed", "label", label, "action_id", actionID, "error", err)
+		s.log.Warn().Err(err).Str("label", label).Str("action_id", actionID).Msg("beginning job failed")
 		return 0
 	}
 	s.events.Publish(ctx, events.JobsUpdated{JobID: job.ID})
@@ -72,7 +73,7 @@ func (s *JobService) Running(ctx context.Context, id int64, commandID int64) {
 		return
 	}
 	if _, err := s.store.SetRunning(ctx, id, jobs.StepFor(jobs.JobStatusRunning), commandID); err != nil {
-		s.log.Warn("marking job running failed", "job_id", id, "command_id", commandID, "error", err)
+		s.log.Warn().Err(err).Int64("job_id", id).Int64("command_id", commandID).Msg("marking job running failed")
 		return
 	}
 	s.events.Publish(ctx, events.JobsUpdated{JobID: id})
@@ -84,7 +85,7 @@ func (s *JobService) Running(ctx context.Context, id int64, commandID int64) {
 func (s *JobService) Resume(ctx context.Context, commandID int64) int64 {
 	job, found, err := s.store.FindRunningByCommand(ctx, commandID)
 	if err != nil {
-		s.log.Warn("resuming job failed", "command_id", commandID, "error", err)
+		s.log.Warn().Err(err).Int64("command_id", commandID).Msg("resuming job failed")
 		return 0
 	}
 	if !found {
@@ -134,7 +135,7 @@ func (s *JobService) setStatus(ctx context.Context, id int64, status jobs.JobSta
 		return
 	}
 	if _, err := s.store.SetStatus(ctx, id, status.String(), jobs.StepFor(status), errText); err != nil {
-		s.log.Warn("updating job status failed", "job_id", id, "status", status, "error", err)
+		s.log.Warn().Err(err).Int64("job_id", id).Str("status", status.String()).Msg("updating job status failed")
 		return
 	}
 	s.events.Publish(ctx, events.JobsUpdated{JobID: id})

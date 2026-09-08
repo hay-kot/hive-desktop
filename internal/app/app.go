@@ -312,8 +312,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// (producer, worker, session launcher, config watchers) as the
 	// activity.Recorder it holds, and by the frontend RPC surface that reads
 	// and writes it directly. Jobs is the same shape for jobs.Recorder.
-	a.Activity = newActivityService(a.Stores.ActivityEvents, a.Events)
-	a.Jobs = newJobService(a.Stores.Jobs, a.Events)
+	a.Activity = newActivityService(a.Stores.ActivityEvents, a.Events, cfg.Logger)
+	a.Jobs = newJobService(a.Stores.Jobs, a.Events, cfg.Logger)
 	if a.fetchers != nil {
 		a.fetchers.SetRecorder(a.Activity)
 	}

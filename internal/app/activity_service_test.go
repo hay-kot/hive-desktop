@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
@@ -22,7 +24,7 @@ func newTestActivityService(t *testing.T) (*ActivityService, <-chan events.Activ
 	t.Cleanup(func() { _ = db.Close() })
 	bus := newTestBus(t)
 	ch := subscribeEvents[events.ActivityAppended](t, bus)
-	return newActivityService(stores.New(db, stores.Options{}).ActivityEvents, bus), ch
+	return newActivityService(stores.New(db, stores.Options{}).ActivityEvents, bus, zerolog.Nop()), ch
 }
 
 func TestActivityService_AppendRoundTrip(t *testing.T) {
@@ -53,7 +55,7 @@ func TestActivityService_ListNewestFirstAndCursor(t *testing.T) {
 	// ordering itself is by the autoincrement id, not the timestamp.
 	now := time.Unix(0, 0)
 	st := stores.New(db, stores.Options{Now: func() time.Time { now = now.Add(time.Second); return now }})
-	service := newActivityService(st.ActivityEvents, newTestBus(t))
+	service := newActivityService(st.ActivityEvents, newTestBus(t), zerolog.Nop())
 	ctx := t.Context()
 
 	for range 5 {

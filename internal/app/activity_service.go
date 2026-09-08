@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"log/slog"
+
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
@@ -23,11 +24,11 @@ const (
 type ActivityService struct {
 	store  *stores.ActivityEventStore
 	events *events.Bus
-	log    *slog.Logger
+	log    zerolog.Logger
 }
 
-func newActivityService(store *stores.ActivityEventStore, bus *events.Bus) *ActivityService {
-	return &ActivityService{store: store, events: bus, log: slog.Default()}
+func newActivityService(store *stores.ActivityEventStore, bus *events.Bus, logger zerolog.Logger) *ActivityService {
+	return &ActivityService{store: store, events: bus, log: logger}
 }
 
 // List returns up to limit events with id < before, newest first. Pass
@@ -88,7 +89,7 @@ func (s *ActivityService) Append(ctx context.Context, e activity.Event) (activit
 // is logged and swallowed rather than returned.
 func (s *ActivityService) Record(ctx context.Context, e activity.Event) {
 	if _, err := s.Append(ctx, e); err != nil {
-		s.log.Warn("recording activity event failed", "title", e.Title, "error", err)
+		s.log.Warn().Err(err).Str("title", e.Title).Msg("recording activity event failed")
 	}
 }
 

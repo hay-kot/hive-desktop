@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
@@ -22,7 +24,7 @@ func newTestJobService(t *testing.T) (*JobService, <-chan events.JobsUpdated) {
 	t.Cleanup(func() { _ = db.Close() })
 	bus := newTestBus(t)
 	ch := subscribeEvents[events.JobsUpdated](t, bus)
-	return newJobService(stores.New(db, stores.Options{}).Jobs, bus), ch
+	return newJobService(stores.New(db, stores.Options{}).Jobs, bus, zerolog.Nop()), ch
 }
 
 func TestJobService_ListAndListActive(t *testing.T) {
@@ -32,7 +34,7 @@ func TestJobService_ListAndListActive(t *testing.T) {
 
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	st := stores.New(db, stores.Options{Now: func() time.Time { return now }})
-	service := newJobService(st.Jobs, newTestBus(t))
+	service := newJobService(st.Jobs, newTestBus(t), zerolog.Nop())
 	ctx := t.Context()
 
 	outside, err := db.InsertJob(ctx, queries.InsertJobParams{
@@ -78,7 +80,7 @@ func TestJobService_RecordsLifecycleLabelsAndPublishes(t *testing.T) {
 	st := stores.New(db, stores.Options{Now: func() time.Time { return now }})
 	bus := newTestBus(t)
 	ch := subscribeEvents[events.JobsUpdated](t, bus)
-	service := newJobService(st.Jobs, bus)
+	service := newJobService(st.Jobs, bus, zerolog.Nop())
 
 	id := service.Begin(ctx, "Review PR", "review", "pr-1")
 	require.Positive(t, id)
@@ -192,7 +194,7 @@ func TestJobService_ListActiveUsesBackendClockWindow(t *testing.T) {
 	ctx := t.Context()
 	now := time.UnixMilli(10_000)
 	st := stores.New(db, stores.Options{Now: func() time.Time { return now }})
-	service := newJobService(st.Jobs, newTestBus(t))
+	service := newJobService(st.Jobs, newTestBus(t), zerolog.Nop())
 
 	_, err = db.InsertJob(ctx, queries.InsertJobParams{
 		CreatedAt: 1, UpdatedAt: now.Add(-jobs.DefaultLingerWindow).UnixMilli(), Status: "done", Label: "Boundary",
@@ -214,12 +216,17 @@ func TestJobService_ListActiveUsesBackendClockWindow(t *testing.T) {
 	assert.Equal(t, "Boundary", active[1].Label)
 }
 
-func TestJobService_BeginFailureAndZeroTransitionsAreNoOps(t *testing.T) {
+// A failed write and a zero id both leave the bus quiet: JobsUpdated promises
+// a row changed, and neither changed one.
+func TestJobService_FailedWritesAndZeroTransitionsPublishNothing(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 	st := stores.New(db, stores.Options{})
-	service := newJobService(st.Jobs, newTestBus(t))
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.JobsUpdated](t, bus)
+	service := newJobService(st.Jobs, bus, zerolog.Nop())
+
 	id := service.Begin(t.Context(), "Review", "review", "pr-1")
 	assert.Zero(t, id)
 	assert.NotPanics(t, func() {
@@ -227,4 +234,7 @@ func TestJobService_BeginFailureAndZeroTransitionsAreNoOps(t *testing.T) {
 		service.Done(t.Context(), 0)
 		service.Fail(t.Context(), 0, "ignored")
 	})
+	service.Running(t.Context(), 1, 1)
+	service.Done(t.Context(), 1)
+	requireNoMoreEvents(t, ch)
 }
