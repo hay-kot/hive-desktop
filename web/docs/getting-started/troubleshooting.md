@@ -1,163 +1,83 @@
 ---
 icon: lucide/life-buoy
-description: The failures people actually hit, what each one looks like, the way out of each, and how to report one that is not here.
+description: Fix common setup, source, notification, and terminal problems.
 ---
 
 # Troubleshooting
 
-The failures people actually hit, what each one looks like, and the way out of it.
-
-Most of these leave a line in the log, so when a symptom is not listed here,
-start there: **Settings ▸ System ▸ Diagnostics** opens it, or read
-`~/.local/share/hive/desktop/desktop.log` directly. Flow and action problems
-also appear in the **Activity** view with the file and the error.
+Check **Activity** for flow, source, and action errors. Open **Settings ▸ System ▸ Diagnostics** for the application log.
 
 ## tmux is not installed
 
-**What breaks.** Code shows a notice that tmux is not installed instead of a
-session list, chats in the Chats area cannot start, and the pop-up terminal
-does not open. Feeds, actions, and notifications are unaffected.
+Code, Chats, and quick terminals require tmux 3.2 or newer.
 
-**Why.** Terminal mode drives tmux's control mode, which arrived in tmux 3.2.
-Hive looks for the binary on your login shell's PATH and in the usual
-Homebrew, MacPorts, and Nix prefixes.
+```sh
+brew install tmux
+```
 
-**Fix.** Install it (`brew install tmux`) and go back to Code. Hive does not
-cache a failed lookup, so the mode comes up without a relaunch. If tmux is
-installed somewhere unusual, point `paths.tmux` in
-[settings.yaml](../configuration/settings.md#paths) at the binary. An older
-tmux reports its version in the same notice; upgrade it.
+Return to Code after installation. Hive checks again without a restart. If tmux is installed in an unusual location, set `paths.tmux` in [Settings](../configuration/settings.md#advanced-configuration).
 
 ## A coding agent is not found
 
-**What breaks.** Starting a chat in the Chats area fails, or a session an
-action launched opens a window that exits immediately, because the `claude` or
-`codex` binary the workspace or hive's spawn rules name is not there.
+Hive currently supports the `claude` and `codex` commands. Check the selected workspace agent, then confirm the command is available:
 
-**Why.** Hive asks your login shell for its environment once at launch, so an
-agent your terminal can run is one Hive can run, even when Hive was opened
-from Finder or the Dock. The cases that still fail: the agent is installed but
-its directory is added to PATH only in a file the login shell does not read;
-the shell's startup file errors out before it gets there; or the profile was
-edited after Hive started.
+```sh
+which claude
+which codex
+```
 
-**Fix.** In a terminal, `which claude` should print a path. If it does, make
-sure the PATH entry comes from `.zprofile`, `.zshrc`, or the equivalent for
-your shell, then quit and reopen Hive so it re-reads the environment. If it
-does not, install the agent. A workspace's `agent:` must be `claude` or
-`codex`; anything else is rejected when the workspace opens.
+Hive reads your login shell environment at launch. Fix the shell's `PATH`, then restart Hive.
 
 ## Notifications never appear as banners
 
-**What breaks.** Flows with notify nodes run, the Activity view shows the
-delivery, but nothing surfaces while Hive is in the background. In-app toasts
-still work.
+Open **Settings ▸ Notifications** and check the master switch, delivery mode, and system permission.
 
-**Why.** On macOS the system permission was denied or never requested. Hive
-asks once during first run and never re-prompts mid-use. **Settings ▸
-Notifications ▸ System permission** shows the current state.
-
-**Fix.** If the state is *Not requested*, click **Allow notifications** there.
-If it is *Denied*, open macOS **System Settings ▸ Notifications**, find Hive,
-and allow it; the app picks the change up without a relaunch. Then check the
-master switch and delivery mode on the same settings page, since `app`
-delivery never raises a banner by design.
+On macOS, select **Allow notifications** if permission has not been requested. If permission is denied, enable Hive under **System Settings ▸ Notifications**.
 
 ## The GitHub code expired
 
-**What breaks.** The connect screen reports that the sign-in code expired
-before authorization.
-
-**Why.** GitHub's device code is valid for a few minutes. If the browser tab
-sat open longer than that before you approved, or you approved a code from an
-earlier attempt, the exchange fails.
-
-**Fix.** Click **Connect GitHub** again for a fresh code and approve it
-promptly. If the device flow keeps failing, **Use a token instead** accepts a
-classic personal access token with the `repo` and `notifications` scopes and
-skips the browser entirely.
+Start **Connect GitHub** again and approve the new code. You can also select **Use a token instead** and provide a classic token with `repo` and `notifications` scopes.
 
 ## The feed is empty after skipping GitHub
 
-**What breaks.** You skipped the GitHub step during first run, connected
-later under **Settings ▸ Integrations**, and the workspace still has no feeds.
+Connecting GitHub after first run does not add the starter feeds automatically. Open the flow editor or ask the **Hive** workspace in Chats to create them.
 
-**Why.** The starter feeds are seeded only when an account is connected
-during first run. Connecting afterwards does not seed them
-([issue #387](https://github.com/hay-kot/hive-desktop/issues/387) tracks
-fixing that).
+See [Flows](../inbox/flows.md) for a minimal source-to-feed example.
 
-**Fix.** Either ask the **Hive** workspace under Chats to build the feeds you
-want, or add them yourself: open the workspace's canvas, add a
-`sources.github` node with your account and a query such as
-`is:open is:pr review-requested:@me`, wire it to a `feed` node, and deploy.
-[Flows](../inbox/flows.md#a-feed-built-up) walks through it.
+## A config change did nothing
 
-## A flow or actions.yml change did nothing
+Hive keeps the last valid flow or action file active when an edit fails validation. Open Activity, fix the reported error, and save again.
 
-**What breaks.** You edited `flows/<id>.yaml` or `actions.yml` and the app
-kept behaving as before.
+Common errors include unknown fields, invalid durations, duplicate node IDs, and unsupported action targets.
 
-**Why.** A file that fails to parse or validate is rejected as a whole and
-the last good version stays in service. The schema is strict, so an unknown
-key, a bare number where a duration string belongs, or a `launch-session`
-action with a terminal target are all rejections.
+## A webhook does not arrive
 
-**Fix.** The Activity view names the file and the error. Fix it and save; the
-app reloads on its own.
+Check the sender's result:
 
-## A webhook delivery is rejected or never arrives
+- `401` means the `X-Hive-Secret` header is missing or incorrect.
+- Connection refused means the local listener is disabled or the port changed.
+- `202` with no feed item usually means the path, node state, flow state, or wiring is wrong.
 
-**What breaks.** The sender gets a `401`, a connection refused, or a `202`
-with nothing landing in the feed.
+**Settings ▸ Integrations ▸ Webhooks** shows the current URL and lets you set a fixed port. The webhook node editor shows the most recent accepted delivery.
 
-**Why and fix, by symptom.**
+## The terminal does not fill its pane
 
-- **`401`**: the node has a `secret` and the request did not carry it in the
-  `X-Hive-Secret` header, or carried a different value.
-- **Connection refused**: the listener is off (`http.enabled: false`), or the
-  port changed. With `http.port: 0` the OS picks a port at each launch; pin
-  one under **Settings ▸ Integrations ▸ Webhooks** so a script can rely on it.
-- **`202` but no item**: the node's `path` does not match the URL, the node
-  or its flow is disabled, or nothing is wired from the node to a feed. The
-  node editor shows the last captured delivery, which tells you whether the
-  request reached the node at all.
+Another tmux client may be setting the shared window size. Detach or resize that client, or add this to `tmux.conf`:
 
-## The terminal grid is smaller than the pane
+```text
+set -g window-size largest
+```
 
-**What breaks.** A session attached in Code draws in a box that does not fill
-the pane, with a note above it.
-
-**Why.** Another tmux client is attached to the same session and its size is
-winning. This is tmux's `window-size` rule, not a bug.
-
-**Fix.** Detach the other client, resize it, or set
-`set -g window-size largest` in your `tmux.conf`.
-[Terminal mode](../code/terminal-mode.md#why-the-grid-is-sometimes-not-the-size-of-the-pane)
-explains the rule.
+See [Terminal mode](../code/terminal-mode.md#shared-tmux-sizing).
 
 ## Report a problem
 
-Bugs and ideas go to [GitHub issues](https://github.com/hay-kot/hive-desktop/issues).
-Include the build number from **Settings ▸ About** and the relevant lines from
-the log.
+Open **Settings ▸ System** and select **Report a problem**. The report includes build details, system details, a limited log tail, and a scrubbed configuration snapshot. It excludes account tokens and the pipeline database.
 
-The app also has a built-in reporter: open **Settings ▸ System** and click
-**Report a problem**. It bundles build and system details, a bounded log tail,
-and a **secret-scrubbed** config snapshot, then uploads it. Tokens, webhook
-secrets, and action environment values are stripped before anything leaves
-your machine, and the pipeline database is never included.
+You can also open an issue at [github.com/hay-kot/hive-desktop/issues](https://github.com/hay-kot/hive-desktop/issues). Include the build number from **Settings ▸ About** and relevant log lines.
 
-To look yourself, or to attach the log to an issue, the **Diagnostics** section
-of that same **System** page has **Open** and **Reveal** buttons for the log
-file. On macOS and Linux alike it is at:
+The default log path is:
 
-```
+```text
 ~/.local/share/hive/desktop/desktop.log
-```
-
-If the bug looks data-related, the pipeline database sits next to it:
-
-```
-~/.local/share/hive/desktop/desktop-pipeline.db
 ```

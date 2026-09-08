@@ -50,7 +50,7 @@ is a valid outcome and is reported as one.
 
 **A user-facing fact goes on the docs site**, on the page that already owns
 its subject. The site's structure mirrors the app: the sidebar groups of the
-Getting started tab are the app's areas (Inbox, Code, Chats), each with its
+Getting Started tab are the app's areas (Inbox, Code, Chats), each with its
 own directory under `web/docs/`, and the Configuration tab is the reference.
 
 | Subject | Page |
@@ -101,11 +101,17 @@ is reachable by URL only, which is the same as not existing.
 The `web-docs` skill covers the mechanics: frontmatter, the nav, the build.
 The conventions that keep the pages consistent:
 
-- **Show configuration as YAML, not as a schema table.** A block with the
-  key, its default, and the environment variable in a trailing comment is
-  what `settings.md` does throughout, and what the config pages of the `hive`
-  CLI's docs do. A table is for a closed set of values or for keys, never
-  for a schema.
+- **Write the minimum useful page.** Keep instructions, requirements, safety
+  constraints, and recovery steps. Remove implementation details and reasons
+  for ordinary controls.
+- **Summarize settings and shortcuts.** Group visible controls in a sentence
+  or short list. The app owns the complete live list. Show YAML only when a
+  user needs to edit a file manually.
+- **Avoid generated-sounding prose.** Do not use em or en dashes, rhetorical
+  contrast formulas, "Why it matters" headings, staged reveals, or marketing
+  filler. State the fact or instruction directly.
+- **Keep one owner for each fact.** Link to the owner page instead of copying
+  provider lists, action types, settings, or key tables onto another page.
 - **Name things what the app names them.** Settings sections are
   `Settings ▸ Integrations`; the areas are Inbox, Code, and Chats; a
   workspace is a flow. Read `sectionMeta.ts` and the catalog's `group` values
@@ -120,8 +126,9 @@ The conventions that keep the pages consistent:
   cannot drive.
 - **A callout is an admonition**: `!!! tip "Title"` on its own line, body
   indented four spaces. `tip`, `note`, and `info` are the types in use.
-- **The body starts with `# Title`**, then the description repeated as the
-  lede, then `##` sections. The frontmatter is `icon:` and `description:`.
+- **The body starts with `# Title`.** Add a short task-oriented lede only when
+  the title needs context. The frontmatter is `icon:` and `description:` and
+  its description is not repeated in the body.
 - **Internal links are relative Markdown-file links**
   (`../configuration/settings.md#updates`), which the strict build validates.
 - **Do not hand-maintain what is derived.** The tabs, the sidebar and its

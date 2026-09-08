@@ -14,9 +14,17 @@ export interface Env {
   REPORT_TOKEN?: string;
 }
 
-/** Release channel manifest the download CTA resolves through. */
-const MANIFEST_URL =
-  "https://dl.hivedesktop.com/desktop/channels/stable/latest.json";
+/** Release channel manifests the download CTA resolves through. */
+const CHANNELS_BASE = "https://dl.hivedesktop.com/desktop/channels";
+
+/**
+ * A `?channel=` value is interpolated into the upstream URL, so it is matched
+ * against this set rather than sanitized. Stable is the default because that is
+ * what an unqualified "latest" means once stable exists; the download page asks
+ * for another channel while it does not.
+ */
+const CHANNELS = new Set(["stable", "beta", "dev"]);
+const DEFAULT_CHANNEL = "stable";
 
 /** Manifests are written with `no-cache`; a short edge TTL keeps the CTA fresh. */
 const MANIFEST_TTL_SECONDS = 300;
@@ -55,7 +63,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/api/latest") {
-      return handleLatest(request);
+      return handleLatest(request, url);
     }
 
     if (url.pathname === "/api/report") {
@@ -72,16 +80,22 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 /**
- * Same-origin proxy for the stable channel manifest. Fetching R2 directly from
- * the page would need CORS on dl.hivedesktop.com; proxying keeps the download
- * button on one origin and lets us cache at the edge.
+ * Same-origin proxy for a channel manifest. Fetching R2 directly from the page
+ * would need CORS on dl.hivedesktop.com; proxying keeps the download buttons on
+ * one origin and lets us cache at the edge. The body is passed through
+ * untouched, so the manifest's own `channel` field tells the page what it got.
  */
-async function handleLatest(request: Request): Promise<Response> {
+async function handleLatest(request: Request, url: URL): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return methodNotAllowed("GET, HEAD");
   }
 
-  const upstream = await fetch(MANIFEST_URL, {
+  const channel = url.searchParams.get("channel") ?? DEFAULT_CHANNEL;
+  if (!CHANNELS.has(channel)) {
+    return json({ error: "unknown_channel" }, 400);
+  }
+
+  const upstream = await fetch(`${CHANNELS_BASE}/${channel}/latest.json`, {
     cf: { cacheTtl: MANIFEST_TTL_SECONDS, cacheEverything: true },
   });
 

@@ -83,9 +83,11 @@ Platform keys come from `platformKey` in `internal/adapter/wailsui/updater_provi
 
 ## Landing page
 
-The download CTA on hivedesktop.com resolves through the stable manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. If that fetch fails the button keeps its static fallback (`/install`) rather than breaking.
+The download buttons on hivedesktop.com resolve through a channel manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. `?channel=stable|beta|dev` selects the channel and stable is the default; an unknown value is a 400 rather than a path the worker will fetch.
 
-The worker route is live but **no page consumes it yet** — every CTA points at `/install`, and installs go through the one-liner there. When the CTA lands it reads `installer_url`, not `url`: the zip is the updater's artifact, and handing it to a first-time visitor is the problem the DMG exists to solve. The proxy passes the manifest through untouched, so that needs no worker change.
+Two surfaces consume it (`web/docs/javascripts/download.js`): the landing page's hero and CTA buttons, which offer the visitor's own platform, and the `## Install` section of Getting Started, which lists every platform in the manifest with its file size and SHA-256. Both read `installer_url`, `installer_sha256`, and `installer_size` as a set when present and fall back to `url` otherwise: on macOS the zip is the updater's artifact, and handing it to a first-time visitor is the problem the DMG exists to solve. The proxy passes the manifest through untouched, so the page reads the manifest's own `channel` field to label a prerelease.
+
+Both surfaces are an upgrade over markup that already works — the buttons start as links to the `## Install` section and the panel starts as a pointer at the install script — so a failed fetch or a platform with no build leaves a page that still tells a visitor how to install. **`download.js` asks for `dev`** because no stable manifest exists; that constant is what changes when one does.
 
 ## Install script
 
@@ -97,8 +99,8 @@ curl -fsSL https://hivedesktop.com/install.sh | bash
 
 It detects OS+arch, resolves the channel's latest build from the **same manifest the updater reads** (`channels/<channel>/latest.json`), verifies the artifact's sha256 from the manifest before installing, and on macOS unzips `Hive.app` into `/Applications` (falling back to `~/Applications`) and symlinks `hive` onto the PATH. The channel defaults to stable; pass another with `… | bash -s -- --channel dev` or the `HIVE_CHANNEL` env var, and `HIVE_BIN_DIR` sets the symlink dir. It always installs the channel's latest — no version pin — and re-running upgrades in place.
 
-- **macOS is the only published platform.** The Linux branch is wired but inert until Linux artifacts exist (#36).
-- The script and its page are public and crawlable: `web/docs/install.sh` and `web/docs/install.md`, both in the generated sitemap. They sat behind a path token while the repo was private; that reversed when it went public (ADR [install-script](decisions/2026-07-27-install-script.md)). The URL is published in the README and the docs, so treat it as stable.
+- **No stable or beta manifest exists yet** — only `dev`. Until one is published the default `curl … | bash` fails on the missing stable manifest, and the site's download buttons ask for `dev` explicitly.
+- The script and its page are public and crawlable: `web/docs/install.sh` and the `## Install` section of `web/docs/getting-started/index.md`, both in the generated sitemap. They sat behind a path token before the URL became public (ADR [install-script](decisions/2026-07-27-install-script.md)). The URL is published in the README and the docs, so treat it as stable.
 
 ## Problem reporting
 

@@ -1,29 +1,25 @@
 ---
 icon: lucide/rocket
-description: Install Hive Desktop, what its pieces are, and the shortest path from a fresh install to a working feed.
+description: Install Hive Desktop and create your first feed.
 ---
 
-# Getting started
+# Getting Started
 
-Install Hive Desktop, what its pieces are, and the shortest path from a fresh
-install to a working feed.
-
-Hive Desktop pulls the work that wants your attention into one place: pull
-requests, issues, review requests, notifications, firing alerts, and anything
-that can POST a webhook. It records each of those as an item in a local queue,
-then runs **flows** you own to decide which items land in which feed, which
-ones interrupt you, and which ones get handed to a coding agent or a command.
-
-Everything runs on your machine. Triage never writes back to GitHub, tokens
-stay in the OS keychain, and the configuration is plain YAML you can keep in
-your dotfiles.
+Hive Desktop collects work from supported sources and routes it into local feeds. Flows decide which items enter a feed, show a notification, or run an action.
 
 ## Install
 
-<span id="install-version"></span>
+<div class="hive-downloads" data-hive-downloads markdown="1">
 
-One command pulls the right binary for your machine from the latest release,
-checks it against the published checksum, and installs it.
+Direct downloads come from the release manifest. Use the install script below if they do not appear.
+
+</div>
+
+The macOS download is a `.dmg`: open it and drag **Hive** to Applications. The Linux downloads are tarballs: extract one and put the `hive-desktop` binary on your `PATH`.
+
+### Install from the terminal
+
+The install script picks the right build, verifies its checksum, installs the app, and adds the `hive` command to your `PATH`.
 
 ```sh
 curl -fsSL https://hivedesktop.com/install.sh | bash
@@ -31,80 +27,38 @@ curl -fsSL https://hivedesktop.com/install.sh | bash
 
 === "macOS"
 
-    **Apple silicon and Intel.** Detects your arch, verifies the checksum,
-    installs to `/Applications/Hive.app`, and symlinks `hive` onto your PATH.
+    Installs `/Applications/Hive.app`, or `~/Applications` when the first is not writable.
 
 === "Linux"
 
-    **Linux builds are coming.** The release pipeline ships macOS today; Linux
-    x86_64 and arm64 are next in line. The installer already knows how to
-    install them, and [building from source](build-from-source.md) works now.
+    Installs the binary under `~/.local/share/hive`. Set `HIVE_HOME` to choose another directory.
 
-Good to know:
+To inspect the installer first, omit `| bash`. Add `-s -- --channel dev` after `bash` to install the dev channel, and set `HIVE_BIN_DIR` to choose where the `hive` symlink goes.
 
-- **Updating.** The app updates itself from its release channel; re-running the
-  install command does the same by hand. [settings.yaml](../configuration/settings.md#updates)
-  covers the channels.
-- **Beta and dev builds.** `curl -fsSL https://hivedesktop.com/install.sh | bash -s -- --channel dev`
-- **Read it first.** Drop the `| bash` to inspect the script.
-- **Uninstall.** Delete `/Applications/Hive.app` and the `hive` symlink the
-  installer put in `/usr/local/bin` (or `~/.local/bin`). Your configuration
-  under `~/.config/hive/desktop` and the data under `~/.local/share/hive` stay
-  until you delete them.
-
-## The mental model
-
-A **workspace** is a flow: a small graph with sources on one side, feeds on the
-other, and optional filters, functions, actions, and notifications in between.
-
-- **Sources** watch something and emit items. GitHub and Gitea searches and
-  notification inboxes, Grafana alerts and PromQL queries, PostHog errors, a
-  local webhook endpoint your own scripts post to, or a command that prints
-  JSON. [Sources and webhooks](../inbox/sources.md) lists them all.
-- **Feeds** are the lists in the sidebar where matching items land. An item
-  arrives unread, and you read, archive, or act on it from there.
-- **Actions** are commands you run on an item or wire into a flow: review a
-  PR in an agent session, open something in your editor, copy a ready-made
-  command, publish a message. See [Actions](../inbox/actions.md).
-- **Notifications** raise a system banner when an item reaches a notify node,
-  with dedup and a cooldown so one PR does not ping you on every poll.
-
-The app has three areas, and these docs are grouped the same way. **Inbox** is
-the feeds. **Code** attaches to the tmux sessions your feeds launch, so an
-agent's terminal is readable inside the app
-([Terminal mode](../code/terminal-mode.md)). **Chats** runs a coding agent in
-a named, durable workspace against Hive's own MCP tools
-([Agent workspaces](../chats/agent-workspaces.md)).
+Hive updates itself. You can change the release channel under **Settings ▸ About**. See [Settings](../configuration/settings.md#updates).
 
 ## First run
 
-Once the app is open, three pages take you from first launch to a live feed:
+1. Create a workspace.
+2. Connect GitHub, or skip it and connect another [source](../inbox/sources.md).
+3. Allow notifications if you want system banners.
+4. Open a feed and select an item.
 
-1. [Sign in to GitHub](sign-in.md), the first-run device flow.
-2. [Turn on notifications](notifications.md), required for banners on macOS.
-3. [See your first items](first-feed.md), the starter feeds and the core loop.
+These pages cover each step:
 
-## Let an agent do the configuring
+- [Sign in to GitHub](sign-in.md)
+- [Turn on notifications](notifications.md)
+- [See your first items](first-feed.md)
 
-!!! tip "The Hive workspace"
-    Hive ships a Chats workspace named **Hive** that carries every skill this
-    build knows: flows, actions, settings, webhooks, agent workspaces, and the
-    app's MCP server. Open **Chats** (press <kbd>g</kbd> then <kbd>a</kbd>),
-    pick **Hive**, and describe the feed, filter, or shortcut you want. The
-    agent edits the same YAML files these docs describe, and the app reloads
-    them on save. It needs the `claude` CLI on your PATH.
+## Configure Hive
 
-Every reference page here still tells you what the agent wrote, so you can
-read it, tweak it by hand, or write it yourself from the start.
+Use the flow editor and Settings screens for normal configuration. You can also edit the YAML files under `~/.config/hive/desktop/`.
 
-## Go deeper
+The built-in **Hive** workspace in **Chats** can create flows, connect generic sources, define actions, and change settings. It requires a supported coding agent CLI on your `PATH`.
 
-- [How Hive works](../inbox/how-it-works.md): workspaces, flows, sources, feeds, actions, and notifications as one model.
-- [Flows](../inbox/flows.md): the node types, wiring, the editor, and a worked example.
-- [settings.yaml](../configuration/settings.md): every setting, its default, and the environment variable that overrides it.
-- [Keyboard shortcuts](../configuration/keybindings.md): the defaults and how to rebind them.
-- [Troubleshooting](troubleshooting.md): tmux missing, an agent not on PATH, a denied notification permission, and how to report the rest.
+Start with:
 
-These docs are also published as [llms.txt](/llms.txt) and
-[llms-full.txt](/llms-full.txt), and every page has a Markdown twin at its own
-URL plus `.md`, so a coding agent can read them the way you do.
+- [Sources](../inbox/sources.md)
+- [Flows](../inbox/flows.md)
+- [Actions](../inbox/actions.md)
+- [Keyboard shortcuts](../configuration/keybindings.md)

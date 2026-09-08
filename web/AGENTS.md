@@ -22,13 +22,21 @@ and owns the site's tasks. Run them from inside `web/`:
 | --- | --- |
 | `mise run install` | `uv sync --frozen` and `npm ci`; once per fresh worktree |
 | `mise run build` | `zensical build --clean --strict`, then `python scripts/llms.py` |
-| `mise run dev` | `zensical serve`, live reload on http://127.0.0.1:8000 |
+| `mise run dev` | `zensical serve` behind `wrangler dev`: the whole site, Worker routes included, on http://127.0.0.1:8788 |
+| `mise run dev:pages` | `zensical serve` alone, browser live reload on http://127.0.0.1:8000; `/api/*` is absent |
 | `mise run preview` | the build, then `wrangler dev` over `site/`, the way production serves it |
 | `mise run deploy` | the build, then `wrangler deploy`; CI's and the release tool's job, never by hand |
 | `mise run lock` | `uv lock`, after editing `pyproject.toml` |
 
 Zensical is pinned in `pyproject.toml` and resolved into `uv.lock`;
 `package.json` carries wrangler only.
+
+**Use `mise run dev` for anything that touches `/api/*`.** `zensical serve`
+cannot answer those routes and `dl.hivedesktop.com` sends no CORS headers, so
+on the pages-only server the download buttons and panel stay in their
+fallback state and look broken. `dev` keeps `zensical serve` rebuilding
+`site/` on save and puts `wrangler dev` in front of it, so a save still shows
+up on 8788 (refresh by hand; the live-reload socket belongs to 8000).
 
 ## Pages
 
@@ -38,32 +46,41 @@ sidebar order, a nested table is a sidebar group, and a page that is not
 listed builds without a warning but has no nav entry, no `llms.txt` line, and
 no Markdown twin.
 
-Two tabs beside Home. **Getting started** is the reading path:
+Two tabs beside Home. **Getting Started** is the reading path:
 `getting-started/index.md` (with the `## Install` section), then the sidebar
 groups **First run** (`getting-started/sign-in.md`, `notifications.md`,
-`first-feed.md`), **Inbox** (`inbox/`), **Code** (`code/`), and **Chats**
-(`chats/`), then `getting-started/build-from-source.md` and
-`getting-started/troubleshooting.md`. **Configuration** is the reference
-tab: `configuration/settings.md` and `configuration/keybindings.md`. The
-sidebar groups map one to one onto the app's areas, and that is the rule for
-placing a new page: it goes in the directory and group of its area.
+`first-feed.md`), **Inbox** (`inbox/`), **Code** (`code/`), **Chats**
+(`chats/`), and **Resources** (`getting-started/build-from-source.md`,
+`troubleshooting.md`). **Configuration** is the reference tab:
+`configuration/settings.md` and `configuration/keybindings.md`. App pages go
+in the group for their area. Build and support pages go under Resources.
 
 Frontmatter is `icon: lucide/<name>` and `description:`. The body starts with
-`# Title`, then the description as the lede, then `##` sections. Callouts are
+`# Title`; do not repeat the frontmatter description below it. Callouts are
 admonitions (`!!! tip "Title"`, body indented four spaces), content tabs are
-`=== "macOS"`, keys are `<kbd>`, internal links are relative Markdown-file
-links that the strict build validates, and configuration is annotated YAML
-rather than a schema table. `docs/getting-started/index.md` and
-`docs/configuration/settings.md` are the models.
+`=== "macOS"`, keys are `<kbd>`, and internal links are relative
+Markdown-file links that the strict build validates.
+
+Keep pages short and task-focused. State facts directly. Avoid em and en
+dashes, rhetorical contrasts, "Why it matters" headings, staged reveals, and
+marketing filler. Do not explain every visible control. Summarize ordinary
+settings and shortcuts by category, and use exact YAML only when a user needs
+to edit it manually. Keep each fact on the page that owns it and link there
+instead of repeating it.
 
 Two repo skills govern this site: `web-docs` (the mechanics of a page) and
 `docs-audit` (whether a change on a branch needs one, and where).
 
 The landing page is `docs/index.md`, HTML sections styled by
-`docs/stylesheets/extra.css`. Files under `docs/` that are not Markdown are
-copied to the site root unchanged: `install.sh`, `robots.txt`,
-`assets/favicon.svg`, and `javascripts/install.js`, which fills the version
-span in the `## Install` section.
+`docs/stylesheets/extra.css`: a hero, a strip linking to the three showcase
+sections (Feeds, Code, Chats), each pairing copy with a demo video, and a
+CTA. Files under `docs/` that are not Markdown are copied to the site root
+unchanged: `install.sh`, `robots.txt`, `assets/favicon.svg`, the demo videos
+under `assets/demos/` (`feeds.mp4`, `code.mp4`, `chats.mp4`),
+`javascripts/download.js`, which fills the hero and CTA download buttons and
+the `## Install` section's download panel from `/api/latest`, and
+`javascripts/demos.js`, which swaps a demo player for its "coming soon"
+placeholder when its video file is missing.
 
 After the build, `scripts/llms.py` derives `site/llms.txt` (one link per
 page), `site/llms-full.txt` (every page inlined), and a Markdown twin of every
@@ -76,7 +93,9 @@ pointing at `/llms.txt` to every page.
 `worker/index.ts` runs for `/api/*` and for anything the asset router did not
 match:
 
-- `/api/latest` — proxies the release manifest for the download CTA.
+- `/api/latest` — proxies a release channel manifest for the download buttons.
+  `?channel=stable|beta|dev`, stable by default. `download.js` asks for `dev`
+  because no stable manifest is published yet.
 - `/api/report` — gzipped diagnostic bundles from the app's problem reporter,
   written to the private `hive-desktop-reports` R2 bucket (ADR
   in-app-problem-reporting).
@@ -90,8 +109,9 @@ match:
   `/docs/<path>` to `/<path>/`. The installed app's About pane still links
   `/docs` and `/docs/help/updates`
   (`desktop/frontend/src/composables/useAboutSettings.ts`), so a page move,
-  or a rename of the `## Install`, `## updates`, or `## Report a problem`
-  heading, means updating the table.
+  or a rename of the `## Install`, `## Updates`, or `## Report a problem`
+  heading, means updating the table (heading ids are lower-cased, so
+  `## Updates` still answers `#updates`).
 
 ## CI and deploy
 

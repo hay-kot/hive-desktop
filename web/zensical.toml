@@ -11,12 +11,12 @@ repo_url = "https://github.com/hay-kot/hive-desktop"
 repo_name = "hay-kot/hive-desktop"
 copyright = "Hive Desktop · one queue, one ping"
 extra_css = ["stylesheets/extra.css"]
-extra_javascript = ["javascripts/install.js"]
+extra_javascript = ["javascripts/download.js", "javascripts/demos.js"]
 custom_dir = "overrides"
 
 nav = [
   { "Home" = "index.md" },
-  { "Getting started" = [
+  { "Getting Started" = [
     "getting-started/index.md",
     { "First run" = [
       "getting-started/sign-in.md",
@@ -35,8 +35,10 @@ nav = [
     { "Chats" = [
       "chats/agent-workspaces.md",
     ]},
-    "getting-started/build-from-source.md",
-    "getting-started/troubleshooting.md",
+    { "Resources" = [
+      "getting-started/build-from-source.md",
+      "getting-started/troubleshooting.md",
+    ]},
   ]},
   { "Configuration" = [
     "configuration/settings.md",

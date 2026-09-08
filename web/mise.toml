@@ -21,7 +21,17 @@ run = [
 ]
 
 [tasks.dev]
-description = "Serve the site with live reload on http://127.0.0.1:8000"
+description = "Serve the site with the Worker routes on http://127.0.0.1:8788, rebuilding on save"
+run = """
+uv run --frozen zensical serve --dev-addr 127.0.0.1:8000 &
+zensical=$!
+trap 'kill $zensical 2>/dev/null' EXIT INT TERM
+until [ -f site/index.html ]; do sleep 0.2; done
+npx wrangler dev --port 8788
+"""
+
+[tasks."dev:pages"]
+description = "Serve pages alone with browser live reload on http://127.0.0.1:8000; no Worker, so /api/* is absent"
 run = "uv run --frozen zensical serve"
 
 [tasks.preview]

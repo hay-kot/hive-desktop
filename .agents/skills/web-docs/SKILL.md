@@ -24,22 +24,20 @@ prefix any more; the Worker redirects the old URLs (see Guardrails).
 
 The nav has two tabs beside Home (`index.md`, the landing page):
 
-- **Getting started** is the reading path. `getting-started/index.md` (with
-  the `## Install` section) comes first, then four sidebar groups, then
-  `getting-started/build-from-source.md` and
-  `getting-started/troubleshooting.md`. The groups are **First run**
-  (`getting-started/sign-in.md`, `notifications.md`, `first-feed.md`) and
-  one group per area of the app, each with its own directory: **Inbox**
+- **Getting Started** is the reading path. `getting-started/index.md` (with
+  the `## Install` section) comes first, followed by five sidebar groups.
+  **First run** contains `getting-started/sign-in.md`, `notifications.md`, and
+  `first-feed.md`. The app areas each have a group and directory: **Inbox**
   (`inbox/how-it-works.md`, `flows.md`, `sources.md`, `actions.md`),
   **Code** (`code/terminal-mode.md`), and **Chats**
-  (`chats/agent-workspaces.md`).
+  (`chats/agent-workspaces.md`). **Resources** contains
+  `getting-started/build-from-source.md` and `troubleshooting.md`.
 - **Configuration** is the reference tab: `configuration/settings.md` and
   `configuration/keybindings.md`.
 
-A sidebar group is an area of the app, one to one. That is the placement
-rule: a page about something the user does in Inbox goes in `inbox/` and in
-the Inbox group; a new area gets a new directory and a new group. A setting
-or a key goes on the Configuration page that owns it, not on a new page.
+Inbox, Code, and Chats each map to one app area. A page about something the
+user does in Inbox goes in `inbox/` and the Inbox group. Build and support
+pages go in Resources. A setting or key goes on its Configuration page.
 
 ## The nav is hand-maintained
 
@@ -58,28 +56,41 @@ whenever you add a file.
 ```yaml
 ---
 icon: lucide/settings   # shown beside the title in the nav
-description: Every setting the app reads, section by section, with its default and the environment variable that overrides it.
+description: Change Hive Desktop preferences in the app or through settings.yaml.
 ---
 
-# settings.yaml
+# Settings
 
-Every setting the app reads, section by section, with its default and the environment variable that overrides it.
+Open Settings with <kbd>⌘,</kbd> or from the command palette.
 
-## Where the files live
+## Configuration files
 ```
 
 - `icon` is a `lucide/<name>` icon.
-- The body starts with `# Title`, then the description repeated as the lede
-  paragraph, then `##` sections. The right-hand table of contents is built
-  from the headings.
-- `description` also becomes the page's line in `llms.txt`
+- The body starts with `# Title`, followed by a short task-oriented lede when
+  the title needs context. Do not repeat the frontmatter description.
+- `description` becomes the page's line in `llms.txt`
   (`scripts/llms.py` reads the frontmatter).
 
-`docs/getting-started/index.md` and `docs/configuration/settings.md` are the
-models.
+`docs/getting-started/index.md` and `docs/inbox/sources.md` are useful models.
 
 ## Writing conventions
 
+- **Keep it short.** Include what a user needs to complete a task, avoid data
+  loss, meet a requirement, or recover from a failure. Remove implementation
+  detail and explanations of ordinary controls.
+- **State facts directly.** Avoid em and en dashes, rhetorical contrasts such
+  as "not X, but Y", "Why it matters" headings, staged reveals, and marketing
+  filler.
+- **Do not duplicate an owner page.** Link to the page that owns a subject.
+  Sources owns provider support; Settings owns configuration locations; the
+  shortcut dialog owns the complete live shortcut list.
+- **Summarize visible options.** Use a sentence or bullets for groups such as
+  fonts, terminal spacing, notification delivery, and update channels. Do not
+  document every visible setting or explain why someone might change it.
+- **Use exact configuration only when needed.** A short YAML example is useful
+  for manual-only settings and file formats. Do not reproduce a whole schema
+  already available in the app or a shipped skill.
 - **Callouts are admonitions.** `!!! tip "Title"` on its own line, body
   indented four spaces. The pages use `tip`, `note`, and `info`; `???` in
   place of `!!!` makes one collapsible (`pymdownx.details`). Use one for a
@@ -88,9 +99,6 @@ models.
 - **Content tabs** are `=== "macOS"` / `=== "Linux"` blocks, body indented
   four spaces (`pymdownx.tabbed`). The `## Install` section of
   `getting-started/index.md` is the example.
-- **Configuration is shown as YAML blocks**, one per section, with the
-  default as the value and the environment variable in a trailing comment.
-  Not a schema table. `configuration/settings.md` is the model.
 - **Point config pages at the Hive workspace.** The app seeds a Chats
   workspace named `Hive` carrying every shipped `hive-*` skill. A page about
   a file the agent can edit carries a short `!!! tip "Ask the Hive workspace"`
@@ -128,11 +136,16 @@ These are hand-maintained:
 - the nav in `zensical.toml`;
 - the landing page, `docs/index.md`: HTML sections styled by
   `docs/stylesheets/extra.css`, the same shape as the hive CLI's landing
-  page. There is no component model; a change is an edit to those two files;
+  page. A hero, a strip linking to the three showcase sections (Feeds, Code,
+  Chats), each pairing copy with a demo video, and a CTA. There is no
+  component model; a change is an edit to those two files;
 - files under `docs/` that are not Markdown. The build copies them to the
-  site root unchanged: `install.sh`, `robots.txt`, `assets/favicon.svg`, and
-  `javascripts/install.js`, which fills the version span in the `## Install`
-  section.
+  site root unchanged: `install.sh`, `robots.txt`, `assets/favicon.svg`, the
+  demo videos under `assets/demos/` (`feeds.mp4`, `code.mp4`, `chats.mp4`),
+  `javascripts/download.js`, which fills the hero and CTA download buttons
+  and the `## Install` section's download panel from `/api/latest`, and
+  `javascripts/demos.js`, which swaps a demo player for its "coming soon"
+  placeholder when its video file is missing.
 
 ## Validate
 
@@ -140,11 +153,17 @@ These are hand-maintained:
 cd web
 mise run install     # first time in a fresh worktree
 mise run build       # zensical build --clean --strict, then scripts/llms.py
-mise run dev         # live reload on http://127.0.0.1:8000
+mise run dev         # whole site incl. /api/* on http://127.0.0.1:8788
+mise run dev:pages   # pages only, browser live reload on http://127.0.0.1:8000
 ```
 
 `web/mise.toml` stands on its own, so the tasks run from inside `web/`; there
 is no repository-root form.
+
+Check anything that reads `/api/*` on `mise run dev`, not `dev:pages`.
+`zensical serve` has no way to answer those routes and the release bucket
+sends no CORS headers, so on 8000 the download buttons and the `## Install`
+panel sit in their fallback state and read as missing.
 
 `--strict` aborts the build on any warning. A link to a page that does not
 exist, a link to an anchor that is not a heading on its target, and a nav
