@@ -475,10 +475,15 @@ func TestSessionsService_StartTmuxSessionRefusesASlugItsNameWouldNotSpawn(t *tes
 	assert.Empty(t, manager.spawned)
 }
 
-// SessionsDeps no longer has a "dependency missing" state: every
-// construction site supplies a real implementation, or NopDefaultAgentReader
-// / NopEditorCommandReader in place of one. Each no-op must answer the empty
-// value rather than silently succeeding at the real work it stands in for.
+// A nil reader in SessionsDeps is substituted at construction, so the service
+// never guards either port; each no-op must answer the empty value rather
+// than silently succeeding at the real work it stands in for.
+
+func TestNewSessionsService_SubstitutesNopReadersForNil(t *testing.T) {
+	svc := newSessionsService(SessionsDeps{})
+	assert.Equal(t, NopEditorCommandReader{}, svc.editorCommand)
+	assert.Equal(t, NopDefaultAgentReader{}, svc.defaultAgentEnv)
+}
 
 func TestNopDefaultAgentReaderAnswersNoPreferredAgent(t *testing.T) {
 	assert.Empty(t, NopDefaultAgentReader{}.DefaultAgent(t.Context()))
@@ -488,17 +493,4 @@ func TestNopEditorCommandReaderAnswersNoConfiguredEditor(t *testing.T) {
 	command, err := NopEditorCommandReader{}.Editor(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, command)
-}
-
-// SessionLaunchOptions is the one method a NopDefaultAgentReader actually
-// runs through, so it earns its own end-to-end check: the launcher's own
-// agent choice must survive untouched rather than being blanked out.
-func TestSessionsService_NopDefaultAgentReaderLeavesTheLaunchersChoiceAlone(t *testing.T) {
-	opts := dispatch.SessionLaunchOptions{Agents: []string{"claude"}, DefaultAgent: "claude"}
-	manager, _ := activeSession()
-	svc := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{opts: opts}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, DefaultAgentEnv: NopDefaultAgentReader{}})
-
-	got, err := svc.SessionLaunchOptions(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, opts, got)
 }

@@ -106,9 +106,8 @@ type SessionsService struct {
 	pullRequests  *sessionPullRequests
 	execEnv       *execenv.Resolver
 	editorCommand EditorCommandReader
-	// defaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
-	// would. Every construction site supplies one — NopDefaultAgentReader in
-	// place of a real reader — so withEnvironmentDefaultAgent never guards it.
+	// defaultAgentEnv is never nil: newSessionsService substitutes
+	// NopDefaultAgentReader, so withEnvironmentDefaultAgent never guards it.
 	defaultAgentEnv DefaultAgentReader
 	logger          zerolog.Logger
 }
@@ -120,16 +119,15 @@ type DefaultAgentReader interface {
 }
 
 // NopDefaultAgentReader answers no preferred agent, which leaves the agent
-// hive's own config resolved. It is what a construction site with nothing to
-// read the environment from supplies instead of a nil DefaultAgentEnv.
+// hive's own config resolved. newSessionsService substitutes it for a nil
+// DefaultAgentEnv.
 type NopDefaultAgentReader struct{}
 
 func (NopDefaultAgentReader) DefaultAgent(context.Context) string { return "" }
 
-// NopEditorCommandReader answers no configured editor. It is what a
-// construction site with no settings store to read supplies instead of a nil
-// EditorCommand; launchEditor already treats an empty command as "none
-// configured".
+// NopEditorCommandReader answers no configured editor. newSessionsService
+// and newAgentWorkspacesService substitute it for a nil EditorCommand;
+// launchEditor already treats an empty command as "none configured".
 type NopEditorCommandReader struct{}
 
 func (NopEditorCommandReader) Editor(context.Context) (string, error) { return "", nil }
@@ -152,16 +150,22 @@ type SessionsDeps struct {
 	PullRequests *sessionPullRequests
 	ExecEnv      *execenv.Resolver
 	// EditorCommand reads the configured editor from settings on every call,
-	// so a settings change applies without restarting. NopEditorCommandReader
-	// stands in where there is no settings store to read.
+	// so a settings change applies without restarting. nil means
+	// NopEditorCommandReader.
 	EditorCommand EditorCommandReader
 	// DefaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
-	// would. NopDefaultAgentReader stands in where there is nothing to read.
+	// would. nil means NopDefaultAgentReader.
 	DefaultAgentEnv DefaultAgentReader
 	Logger          zerolog.Logger
 }
 
 func newSessionsService(d SessionsDeps) *SessionsService {
+	if d.EditorCommand == nil {
+		d.EditorCommand = NopEditorCommandReader{}
+	}
+	if d.DefaultAgentEnv == nil {
+		d.DefaultAgentEnv = NopDefaultAgentReader{}
+	}
 	return &SessionsService{
 		launcher:        d.Launcher,
 		manager:         d.Manager,

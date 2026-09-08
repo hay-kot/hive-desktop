@@ -97,6 +97,13 @@ type MCPBaseReader interface {
 	MCPBaseURL(ctx context.Context) string
 }
 
+// NopMCPBaseReader answers no loopback base URL, which reads as the MCP
+// server being down. newAgentWorkspacesService substitutes it for a nil
+// MCPBase.
+type NopMCPBaseReader struct{}
+
+func (NopMCPBaseReader) MCPBaseURL(context.Context) string { return "" }
+
 // AgentWorkspacesDeps is newAgentWorkspacesService's constructor argument.
 type AgentWorkspacesDeps struct {
 	Store           *agentws.Store
@@ -106,11 +113,19 @@ type AgentWorkspacesDeps struct {
 	ProfileCommands map[string]string
 	RootProblem     string
 	ExecEnv         *execenv.Resolver
-	EditorCommand   EditorCommandReader
-	MCPBase         MCPBaseReader
+	// EditorCommand nil means NopEditorCommandReader.
+	EditorCommand EditorCommandReader
+	// MCPBase nil means NopMCPBaseReader.
+	MCPBase MCPBaseReader
 }
 
 func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
+	if d.EditorCommand == nil {
+		d.EditorCommand = NopEditorCommandReader{}
+	}
+	if d.MCPBase == nil {
+		d.MCPBase = NopMCPBaseReader{}
+	}
 	return &AgentWorkspacesService{
 		store:           d.Store,
 		terminals:       d.Terminals,
@@ -133,10 +148,7 @@ func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
 // not on PATH.
 func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.CatalogueEntry {
 	entries := agentws.Catalogue(ctx, s.store.Library().Library, s.lookPath())
-	base := ""
-	if s.mcpBase != nil {
-		base = s.mcpBase.MCPBaseURL(ctx)
-	}
+	base := s.mcpBase.MCPBaseURL(ctx)
 	for i, entry := range entries {
 		descriptor, ok := mcpcatalog.Lookup(entry.ID)
 		// Shipped is false for a user entry shadowing this id, and the user's
@@ -925,9 +937,6 @@ func (s *AgentWorkspacesService) RemoveMCPServer(_ context.Context, id string) e
 // settings and the display title the UI labels the action with. An empty
 // command means none is configured.
 func (s *AgentWorkspacesService) Editor(ctx context.Context) (command, title string) {
-	if s.editorCommand == nil {
-		return "", ""
-	}
 	command, err := s.editorCommand.Editor(ctx)
 	if err != nil || command == "" {
 		return "", ""
