@@ -224,7 +224,7 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
+	_, err = stores.NewSeed(db).InboxItem(t.Context(), stores.InboxItem{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
+	_, err = stores.NewSeed(db).InboxItem(t.Context(), stores.InboxItem{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
@@ -283,12 +283,12 @@ func seedPurgeProfileRows(t *testing.T, db *queries.DB, profileID string) purgeP
 	st := stores.New(db, stores.Options{})
 	seed := stores.NewSeed(db)
 
-	item, err := seed.InboxItem(ctx, queries.InsertInboxItemParams{
+	item, err := seed.InboxItem(ctx, stores.InboxItem{
 		ProfileID: profileID, SourceKind: "github", SourceScope: "s", ExternalID: profileID + "-item",
 		Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
-	_, err = seed.InboxEvent(ctx, queries.InsertInboxEventParams{
+	_, err = seed.InboxEvent(ctx, stores.InboxEvent{
 		ItemID: item.ID, Kind: "observed", Transition: "none", Attention: "trivial", Detail: []byte(`{}`), CreatedAt: 1,
 	})
 	require.NoError(t, err)
