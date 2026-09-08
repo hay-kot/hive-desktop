@@ -106,8 +106,6 @@ func TestCommit_FeedOutput_MintsSynthesizedItem(t *testing.T) {
 	assert.Equal(t, 1, claims, "the minted item claims feed membership")
 }
 
-// A payload with no title falls back to the key, so a synthesized item is never
-// blank in the feed.
 func TestCommit_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()
@@ -285,7 +283,6 @@ func TestCommit_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *testing.T
 	assert.Equal(t, 2, countOutputCommands(t, db, ctx))
 }
 
-// Two notify nodes fed by the same message are independent destinations.
 func TestCommit_NotifyOutput_IsPerNode(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()
@@ -300,8 +297,6 @@ func TestCommit_NotifyOutput_IsPerNode(t *testing.T) {
 	assert.Equal(t, 2, countOutputCommands(t, db, ctx))
 }
 
-// A snapshot reconciles only its own (feed, source) scope: an empty snapshot
-// for source a must drop a's claim on the item and leave b's alone.
 func TestCommit_EmptySourceSnapshotClearsOnlyThatSourceClaims(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()

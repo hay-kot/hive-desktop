@@ -9,9 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStores_WithinTxJoinsTwoStoresAndCommits proves WithinTx is the one
-// cross-aggregate entry point a service is allowed to use: two different
-// stores write inside the same transaction and both writes land together.
 func TestStores_WithinTxJoinsTwoStoresAndCommits(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()
@@ -35,8 +32,6 @@ func TestStores_WithinTxJoinsTwoStoresAndCommits(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestStores_WithinTxRollsBackBothWrites is the other half: an error out of
-// fn must leave neither store's write behind.
 func TestStores_WithinTxRollsBackBothWrites(t *testing.T) {
 	st, _ := openTestStores(t)
 	ctx := t.Context()

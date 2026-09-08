@@ -8,8 +8,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// ItemSessionStore owns item_session: the durable association between an
-// inbox item and the hive sessions launched for it.
 type ItemSessionStore struct {
 	q   *queries.DB
 	now func() time.Time
@@ -19,9 +17,7 @@ func NewItemSessionStore(q *queries.DB, opts Options) *ItemSessionStore {
 	return &ItemSessionStore{q: q, now: opts.Now}
 }
 
-// Link records that a hive session was created on ref's behalf. Nothing
-// about the session is copied: hive owns its name, state and checkout, and a
-// mirror here could only go stale.
+// Persist only the association; hive owns mutable session details.
 func (s *ItemSessionStore) Link(ctx context.Context, sessionID string, ref models.ItemRef) error {
 	if sessionID == "" || !ref.Known() {
 		return nil
@@ -37,9 +33,7 @@ func (s *ItemSessionStore) Link(ctx context.Context, sessionID string, ref model
 	return wrap("linking session to inbox item", err)
 }
 
-// List returns the links recorded for ref, newest first. A link is a claim,
-// not a guarantee: hive may no longer have the session, which is what
-// Unlink resolves.
+// Links may outlive hive sessions; callers reconcile them with Unlink.
 func (s *ItemSessionStore) List(ctx context.Context, ref models.ItemRef) ([]ItemSession, error) {
 	if !ref.Known() {
 		return []ItemSession{}, nil
@@ -51,9 +45,8 @@ func (s *ItemSessionStore) List(ctx context.Context, ref models.ItemRef) ([]Item
 	return MapFunc[queries.ItemSession, ItemSession](mapItemSessionFromDB).Slice(rows), nil
 }
 
-// Unlink drops links to sessions hive no longer has. Callers must only pass
-// ids a *successful* session listing failed to account for -- a listing that
-// errored proves nothing about what still exists.
+// Only unlink IDs absent from a successful hive session listing; an errored
+// listing proves nothing.
 func (s *ItemSessionStore) Unlink(ctx context.Context, sessionIDs []string) error {
 	if len(sessionIDs) == 0 {
 		return nil
@@ -67,16 +60,13 @@ func (s *ItemSessionStore) Unlink(ctx context.Context, sessionIDs []string) erro
 	return nil
 }
 
-// DeleteByProfile removes every item_session row for profileID. Used by
-// FlowsService.purgeProfile when a workspace is deleted; the sessions
-// themselves are hive's and survive, only the links go.
+// DeleteByProfile removes links only; hive sessions survive.
 func (s *ItemSessionStore) DeleteByProfile(ctx context.Context, profileID string) error {
 	return wrap("deleting item sessions by profile", s.q.Ctx(ctx).DeleteItemSessionsByProfile(ctx, profileID))
 }
 
-// Rescope moves the links recorded under the empty scope for (profileID,
-// sourceKind, externalID) to scope, so they keep addressing the item after
-// InboxItemStore.ResolveScoped rewrites the row.
+// Empty-scope links must move with a migrated inbox row or they become
+// unreachable.
 func (s *ItemSessionStore) Rescope(ctx context.Context, profileID, sourceKind, externalID, scope string) error {
 	return wrap("rescoping item sessions", s.q.Ctx(ctx).RescopeItemSessions(ctx, queries.RescopeItemSessionsParams{
 		SourceScope: scope, ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,

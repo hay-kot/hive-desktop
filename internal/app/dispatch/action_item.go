@@ -50,10 +50,8 @@ func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, err
 
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
-		// Non-object payload (array, scalar, null) or invalid JSON: pass
-		// through untouched. models.CanonicalFields already returned "" for id
-		// above. fields == nil also catches a literal `null` payload, which
-		// unmarshals into a nil map without error.
+		// Non-object or invalid JSON payloads pass through unchanged. JSON null
+		// also yields a nil map.
 		return DecodedActionItem{ID: externalID, Kind: kind, Payload: payload}, nil
 	}
 

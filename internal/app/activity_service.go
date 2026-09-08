@@ -15,12 +15,9 @@ const (
 	activityMaxListLimit     = 1000
 )
 
-// ActivityService owns the user-facing audit log: the frontend's read/write
-// RPC surface, and the fire-and-forget activity.Recorder every backend
-// subsystem that reports to the Activity view holds. Title-required,
-// category/severity defaulting and validity live here rather than on
-// ActivityEventStore, because they need the activity package's enum, which a
-// store in data/ must not import.
+// ActivityService validates and persists activity events and implements the
+// fire-and-forget activity.Recorder port. Validation stays here because data
+// stores must not import activity's enums.
 type ActivityService struct {
 	store  *stores.ActivityEventStore
 	events *events.Bus
@@ -48,10 +45,8 @@ func (s *ActivityService) List(ctx context.Context, before int64, limit int) ([]
 	return out, nil
 }
 
-// Append validates, persists, and returns the stored event (with its
-// assigned id and timestamp), publishing events.ActivityAppended on success.
-// It is the error-returning path used by the frontend RPC; backend sites use
-// Record.
+// Append returns validation and persistence errors. Backend emitters that
+// cannot fail use Record.
 func (s *ActivityService) Append(ctx context.Context, e activity.Event) (activity.Event, error) {
 	if e.Title == "" {
 		return activity.Event{}, Errorf(KindInvalid, "activity event requires a title")

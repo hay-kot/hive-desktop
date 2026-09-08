@@ -30,11 +30,9 @@ type FlowsService struct {
 	events   *events.Bus
 }
 
-// FlowsDeps is newFlowsService's constructor argument.
 type FlowsDeps struct {
 	Flows *flow.FlowStore
-	// Stores is held whole because purgeProfile spans aggregates and opens
-	// Stores.WithinTx (clause 3).
+	// Profile deletion spans aggregates in one transaction.
 	Stores   *stores.Stores
 	Creds    credentials.Store
 	Images   *profileimg.Store
@@ -263,12 +261,8 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	return Wrap(s.purgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
 }
 
-// purgeProfile removes every row a deleted profile owns, across the eight
-// tables no aggregate owns together: inbox_item, inbox_event and
-// feed_membership_claim cascade from InboxItemStore.DeleteByProfile's
-// delete, and this composes the rest -- item_session, event_log,
-// consumer_offset, source_head and node_kv -- inside one transaction
-// (clause 3: a write spanning aggregates is a service operation).
+// purgeProfile removes cross-aggregate state in one transaction. Inbox events
+// and feed claims cascade from the inbox-item delete.
 func (s *FlowsService) purgeProfile(ctx context.Context, profileID string) error {
 	topicPrefix := "source:" + profileID + "/"
 	return s.stores.WithinTx(ctx, func(ctx context.Context) error {

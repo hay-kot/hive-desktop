@@ -21,14 +21,10 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
-// newTestWorker wires a Worker's OutputCommandStore over db, the shape
-// app.go's buildOutputWorker wires against the real Stores.
 func newTestWorker(db *queries.DB, actionStore dispatch.ActionLister, d *dispatch.Dispatcher, interval time.Duration, logger zerolog.Logger) *dispatch.Worker {
 	return dispatch.NewWorker(stores.New(db, stores.Options{}).OutputCommands, actionStore, d, interval, logger)
 }
 
-// newTestInboxService wires an InboxService's three stores over db, the
-// shape app.go wires against the real Stores.
 func newTestInboxService(db *queries.DB, actionStore *actions.ActionStore, worker *dispatch.Worker) *InboxService {
 	st := stores.New(db, stores.Options{})
 	return newInboxService(InboxDeps{Items: st.InboxItems, Commands: st.OutputCommands, NodeRuns: st.NodeRuns, Catalog: actionStore, Worker: worker})
@@ -448,12 +444,8 @@ actions:
 	assert.Equal(t, map[string]string{"reason": "flapping", "window": "1h"}, executor.data.Inputs)
 }
 
-// TestInboxService_ToggleArchivedStaleRevisionIsConflict guards the
-// trap this phase closed: a revision-guarded write's stale-revision error
-// must classify as KindConflict ("re-read and retry"), not KindNotFound.
-// Routing it through the generic not-found transform would make
-// errors.Is(err, sql.ErrNoRows) still match while silently reporting the
-// item as deleted instead.
+// A stale revision must map to KindConflict, not KindNotFound. The generic
+// not-found transform would still match sql.ErrNoRows and misreport deletion.
 func TestInboxService_ToggleArchivedStaleRevisionIsConflict(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
@@ -462,21 +454,15 @@ func TestInboxService_ToggleArchivedStaleRevisionIsConflict(t *testing.T) {
 
 	itemID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
-	// The first toggle succeeds against the row's initial revision (1) and
-	// advances it.
 	_, err = service.ToggleArchived(t.Context(), itemID, 1)
 	require.NoError(t, err)
 
-	// Retrying with the now-stale revision must classify as a conflict, not
-	// a not-found.
 	_, err = service.ToggleArchived(t.Context(), itemID, 1)
 	require.Error(t, err)
 	assert.Equal(t, KindConflict, KindOf(err))
 	assert.False(t, stores.IsNotFound(err))
 }
 
-// A missing row is a typed answer: an id nothing backs is KindNotFound, and a
-// rerun with no completed run to repeat is KindInvalid.
 func TestInboxService_MissingRowsMapOntoKinds(t *testing.T) {
 	actionStore := configuredActionStore(t)
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())

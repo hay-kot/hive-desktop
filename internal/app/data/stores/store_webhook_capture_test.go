@@ -21,7 +21,6 @@ func TestWebhookCaptureStore_UpsertAndGet(t *testing.T) {
 	assert.Equal(t, int64(100), capture.ReceivedAt)
 	assert.JSONEq(t, `{"n":1}`, string(capture.Body))
 
-	// An upsert replaces the stored capture in place.
 	require.NoError(t, st.WebhookCaptures.Upsert(ctx, "source:flow-1/hook", 200, []byte(`{"n":2}`)))
 	capture, err = st.WebhookCaptures.Get(ctx, "source:flow-1/hook")
 	require.NoError(t, err)

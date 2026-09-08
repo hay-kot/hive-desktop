@@ -56,13 +56,10 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 // catalogue joins with each app-hosted entry's RuntimePath.
 const testMCPBaseURL = "http://127.0.0.1:24917"
 
-// mcpBaseFunc adapts a plain function to MCPBaseReader, the same shape
-// http.HandlerFunc gives http.Handler.
 type mcpBaseFunc func(context.Context) string
 
 func (f mcpBaseFunc) MCPBaseURL(ctx context.Context) string { return f(ctx) }
 
-// editorCommandFunc adapts a plain function to EditorCommandReader.
 type editorCommandFunc func(context.Context) (string, error)
 
 func (f editorCommandFunc) Editor(ctx context.Context) (string, error) { return f(ctx) }

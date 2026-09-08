@@ -14,9 +14,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 )
 
-// newTestActivityService moved from activity/recorder_test.go along with the
-// persistence it exercises: activity.Store no longer holds a database, so its
-// round-trip and validation behaviour is ActivityService's to test.
 func newTestActivityService(t *testing.T) (*ActivityService, <-chan events.ActivityAppended) {
 	t.Helper()
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
@@ -97,9 +94,7 @@ func TestActivityService_AppendDefaultsCategoryAndSeverity(t *testing.T) {
 	require.Equal(t, activity.SeverityInfo, stored.Severity)
 }
 
-// TestActivityService_RecordSwallowsErrors covers the fire-and-forget path
-// activity.Recorder promises: a persistence failure must never reach the
-// caller.
+// Record is fire-and-forget, so persistence failures must not reach callers.
 func TestActivityService_RecordSwallowsErrors(t *testing.T) {
 	service, _ := newTestActivityService(t)
 	require.NotPanics(t, func() {

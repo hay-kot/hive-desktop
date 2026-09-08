@@ -15,8 +15,6 @@ import (
 // responsive under normal desktop use.
 const DefaultRetentionInterval = 5 * time.Minute
 
-// RetentionStore is the subset of the pipeline database required by
-// Maintenance. *queries.DB satisfies it.
 type RetentionStore interface {
 	Prune(ctx context.Context, policy queries.RetentionPolicy) error
 }

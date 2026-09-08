@@ -36,10 +36,8 @@ func TestErrTransformQueryMany_SwallowsNoRowsPassesOthers(t *testing.T) {
 	assert.Same(t, other, errTransformQueryMany(other))
 }
 
-// TestErrStale_IsNotANotFoundError guards the trap this phase closed: a
-// revision-guarded write's stale-revision error must never satisfy
-// IsNotFound, or a caller checking it would see a stale write as a deleted
-// row instead of "re-read and retry".
+// A stale revision must not satisfy IsNotFound, or callers can mistake a
+// retryable conflict for a deleted row.
 func TestErrStale_IsNotANotFoundError(t *testing.T) {
 	assert.False(t, IsNotFound(ErrStale))
 	assert.False(t, IsNotFound(fmt.Errorf("wrapped: %w", ErrStale)))

@@ -19,13 +19,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
-// EventLogStore owns event_log and consumer_offset: the append-only pipeline
-// log and each consumer's read checkpoint into it. Commit and ActivateReplay
-// both advance that checkpoint, which is what makes them log operations
-// rather than a separate pipeline type (clause 2: an aggregate's own store
-// may open a transaction and call sibling stores when the write belongs to
-// it). They write every other table they touch through the sibling stores
-// below rather than the generated queries directly.
+// EventLogStore owns event_log and consumer_offset; commit and replay use
+// sibling stores in one transaction.
 type EventLogStore struct {
 	q        *queries.DB
 	now      func() time.Time
@@ -44,8 +39,6 @@ func NewEventLogStore(q *queries.DB, opts Options, items *InboxItemStore, claims
 	}
 }
 
-// Append inserts a new event_log row under topic, keyed by key, and returns
-// its offset.
 func (s *EventLogStore) Append(ctx context.Context, topic, key string, payload []byte) (int64, error) {
 	offset, err := s.q.Ctx(ctx).AppendEvent(ctx, queries.AppendEventParams{
 		Topic:      topic,
@@ -77,10 +70,8 @@ func (s *EventLogStore) AppendSnapshot(ctx context.Context, topic, sourceKind, s
 	return offset, wrap(fmt.Sprintf("appending source snapshot for topic %q", topic), err)
 }
 
-// ReadFrom returns up to limit event_log rows with offset > offset, ordered
-// ascending, along with the offset of the last row returned (nextOffset). If
-// no rows are found, nextOffset is the offset argument unchanged, so callers
-// can always resume with ReadFrom(ctx, nextOffset, limit).
+// nextOffset is the last returned offset, or the input offset for an empty
+// page.
 func (s *EventLogStore) ReadFrom(ctx context.Context, offset int64, limit int) ([]models.Msg, int64, error) {
 	rows, err := s.q.Ctx(ctx).ReadEventsFrom(ctx, queries.ReadEventsFromParams{
 		Offset: offset,
@@ -115,9 +106,8 @@ func (s *EventLogStore) ReadFrom(ctx context.Context, offset int64, limit int) (
 	return msgs, nextOffset, nil
 }
 
-// ReadForConsumer returns up to limit events after consumer's persisted
-// checkpoint. Consumers therefore resume from their last successful commit,
-// including after the frontend runtime restarts.
+// Reads resume from the consumer's last successful commit, including after
+// runtime restarts.
 func (s *EventLogStore) ReadForConsumer(ctx context.Context, consumer string, limit int) ([]models.Msg, error) {
 	offset, err := s.ConsumerOffset(ctx, consumer)
 	if err != nil {
@@ -127,8 +117,7 @@ func (s *EventLogStore) ReadForConsumer(ctx context.Context, consumer string, li
 	return msgs, err
 }
 
-// ConsumerOffset returns the last offset committed by consumer, or 0 if the
-// consumer has never committed.
+// An unknown consumer has offset 0.
 func (s *EventLogStore) ConsumerOffset(ctx context.Context, consumer string) (int64, error) {
 	row, err := s.q.Ctx(ctx).GetConsumerOffset(ctx, consumer)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -140,17 +129,15 @@ func (s *EventLogStore) ConsumerOffset(ctx context.Context, consumer string) (in
 	return row.Offset, nil
 }
 
-// TailOffset returns the AUTOINCREMENT high-water mark. Unlike MAX(offset),
-// it remains stable after event-log retention deletes rows.
+// Uses the AUTOINCREMENT high-water mark so retention deletes cannot lower
+// the tail.
 func (s *EventLogStore) TailOffset(ctx context.Context) (int64, error) {
 	tail, err := s.q.Ctx(ctx).GetEventLogTailOffset(ctx)
 	return tail, wrap("getting event log tail", err)
 }
 
-// ListLatestSnapshots returns each profile source's newest authoritative
-// snapshot at or before throughOffset. Keeping the source topic on each
-// message preserves provenance when a deployed graph recomputes feed
-// memberships.
+// Returned messages retain source topics so replayed graph evaluation
+// preserves provenance.
 func (s *EventLogStore) ListLatestSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]models.Msg, error) {
 	if throughOffset < 0 {
 		return nil, fmt.Errorf("listing replay source snapshots for %q: negative offset", profileID)
@@ -180,22 +167,17 @@ func (s *EventLogStore) ListLatestSnapshots(ctx context.Context, profileID strin
 	return messages, nil
 }
 
-// DeleteByTopicPrefix removes every event_log row whose topic starts with
-// topicPrefix, taken literally.
+// topicPrefix is matched literally.
 func (s *EventLogStore) DeleteByTopicPrefix(ctx context.Context, topicPrefix string) error {
 	return wrap("deleting event log by topic prefix", s.q.Ctx(ctx).DeleteEventLogByTopicPrefix(ctx, likePrefix(topicPrefix)))
 }
 
-// DeleteConsumerOffset removes consumer's committed checkpoint. Used by
-// FlowsService.purgeProfile (a purged profile is its own consumer id).
 func (s *EventLogStore) DeleteConsumerOffset(ctx context.Context, consumer string) error {
 	return wrap("deleting consumer offset", s.q.Ctx(ctx).DeleteConsumerOffsetByConsumer(ctx, consumer))
 }
 
-// AppendObservation appends an ingest-boundary event carrying source
-// identity and an occurrence key, stamped with now rather than this store's
-// own clock so it lines up with the inbox_item and inbox_event rows the same
-// ingest wrote. InboxItemStore.IngestObservation is its only caller.
+// The caller timestamp keeps event_log, inbox_item, and inbox_event rows from
+// one ingest aligned.
 func (s *EventLogStore) AppendObservation(ctx context.Context, topic, key string, payload []byte, sourceKind, sourceScope, occurrenceKey string, now int64) (int64, error) {
 	offset, err := s.q.Ctx(ctx).AppendEvent(ctx, queries.AppendEventParams{
 		Topic: topic, Key: key, Payload: payload, CreatedAt: now,
@@ -207,25 +189,17 @@ func (s *EventLogStore) AppendObservation(ctx context.Context, topic, key string
 	return offset, nil
 }
 
-// BackfillOccurrenceKey stamps an event whose classifier produced no
-// occurrence key with one derived from its own offset, once that offset is
-// known. InboxItemStore.IngestObservation is its only caller.
+// A missing classifier occurrence key falls back to the inserted event's
+// offset.
 func (s *EventLogStore) BackfillOccurrenceKey(ctx context.Context, offset int64, occurrenceKey string) error {
 	return wrap("backfilling occurrence key", s.q.Ctx(ctx).UpdateEventOccurrenceKey(ctx, queries.UpdateEventOccurrenceKeyParams{
 		OccurrenceKey: null(occurrenceKey), Offset: offset,
 	}))
 }
 
-// Commit applies b atomically: feed outputs resolve their inbox item and
-// claim membership, snapshots reconcile only their (feed, source) scope,
-// action outputs are enqueued by occurrence key, node runs are recorded, and
-// the consumer offset advances to b.UpToOffset.
-//
-// Idempotency by offset: if b.UpToOffset is at or below the consumer's
-// currently committed offset, this batch was already applied in a previous
-// commit and the call is a no-op without touching output_command or
-// node_run. Only output_command needs its own dedup key, since two different
-// batches could legitimately enqueue the same action.
+// Commit applies a batch and advances its consumer offset atomically. A batch
+// at or below the committed offset is a no-op; output commands also
+// deduplicate across distinct batches.
 func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error {
 	ctx, span := observe.StartConditionalSpan(ctx, tracer, "db.CommitBatch")
 	defer span.End()
@@ -242,8 +216,6 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 			return fmt.Errorf("reading committed offset for consumer %q: %w", b.Consumer, err)
 		}
 		if b.UpToOffset <= current {
-			// Already applied by a previous commit of this batch (or a
-			// stale/out-of-order commit) — no-op.
 			return nil
 		}
 
@@ -254,18 +226,8 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 			case models.SinkKindFeed:
 				item, err := s.items.ResolveScoped(ctx, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
-					// A feed output whose key has no inbox row is one a function
-					// node synthesized: it split a source message into per-entity
-					// items under keys the producer never ingested, so no row was
-					// minted at the boundary. Mint one here from the payload it
-					// carried. A key the producer did ingest resolves above, so
-					// its classifier-owned row is left untouched.
-					//
-					// A key-less output (the omitempty snapshot-boundary row of
-					// issue #95) still has no identity to mint under and is
-					// skipped — logged, and the offset advances rather than
-					// wedging on it. Minting never errors, so the synthesized
-					// path keeps the same anti-wedge property the skip gave.
+					// Feed outputs may use synthesized keys that never passed through
+					// ingest. Keyless outputs are skipped so the consumer can advance.
 					if out.Key == "" {
 						s.logger.Warn().
 							Str("consumer", b.Consumer).
@@ -324,9 +286,7 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 				}
 				item, err := s.items.ResolveScoped(ctx, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
-					// Consistent with the outputs pass above (already logged
-					// there): an item with no row claims no membership, so it
-					// contributes nothing to reconcile against.
+					// A keyless output cannot claim membership.
 					continue
 				}
 				if err != nil {
@@ -372,17 +332,9 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 	})
 }
 
-// notifyDedupKey is the output_command dedup key for a notify output. The
-// classifier's occurrence key is the right one whenever it exists: it changes
-// exactly when something meaningful changed about the item, so a source that
-// re-emits an unchanged item on every poll notifies once, not once per tick.
-//
-// Not every event carries one — a trivial update, or a message a function
-// node synthesized, may have none — and falling back to the empty string
-// would make (action_id, "") unique for the node forever, i.e. it would
-// notify exactly once and then go permanently silent. The fallback is
-// therefore the item plus a digest of its payload: distinct payloads still
-// notify, identical ones still deduplicate.
+// Prefer the classifier occurrence key so unchanged polls deduplicate. Events
+// without one use item identity plus a payload digest; an empty fallback would
+// silence all later notifications for the action.
 func notifyDedupKey(out models.Output) string {
 	if out.OccurrenceKey != "" {
 		return out.OccurrenceKey
@@ -391,12 +343,8 @@ func notifyDedupKey(out models.Output) string {
 	return out.Key + "@" + hex.EncodeToString(sum[:8])
 }
 
-// ActivateReplay atomically installs a prepared synthetic replay: it
-// advances the consumer past stale action-bound events, replaces unarchived
-// feed memberships, removes claims for deleted flow structure, and
-// reconciles the flow's node KV against kvNodeIDs -- the ids still capable
-// of owning KV. A failed activation leaves the last-known-good runtime's
-// offset, claims and KV intact.
+// Activation updates offsets, memberships, and node KV atomically; failure
+// preserves the last-known-good runtime state.
 func (s *EventLogStore) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []models.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error {
 	if tail < 0 {
 		return fmt.Errorf("activating replay for %q: negative tail", profileID)

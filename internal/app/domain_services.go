@@ -30,9 +30,8 @@ func newActionsService(catalog *actions.ActionStore, bus *events.Bus) *ActionsSe
 	return &ActionsService{catalog: catalog, events: bus}
 }
 
-// publish announces the catalog's current size after a successful mutation.
-// The count is read back from the catalog rather than threaded through the
-// call, so every one of the seven sites below reports the same live value.
+// publish reads the count after mutation so the event carries the live
+// catalog size.
 func (s *ActionsService) publish(ctx context.Context) {
 	s.events.Publish(ctx, events.ActionsUpdated{Count: len(s.catalog.List())})
 }

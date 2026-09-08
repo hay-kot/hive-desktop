@@ -72,7 +72,6 @@ func TestFeedClaimStore_DeleteForFeeds(t *testing.T) {
 	require.NoError(t, st.FeedClaims.DeleteForFeeds(ctx, "p", []string{"p/keep"}))
 	assert.Equal(t, 1, countFeedClaims(t, db))
 
-	// An empty keep list clears every feed the profile holds.
 	require.NoError(t, st.FeedClaims.DeleteForFeeds(ctx, "p", nil))
 	assert.Equal(t, 0, countFeedClaims(t, db))
 }

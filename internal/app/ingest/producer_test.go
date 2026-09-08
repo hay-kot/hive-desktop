@@ -162,15 +162,10 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
-// notifierFunc adapts a plain function to LogAppendNotifier, the same shape
-// http.HandlerFunc gives http.Handler.
 type notifierFunc func(offset int64)
 
 func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
 
-// newTestProducer wires a Producer's three store dependencies over one
-// database handle, mirroring how app.go's buildProducer wires the real
-// Stores.
 func newTestProducer(db *queries.DB, sources Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *Producer {
 	st := stores.New(db, stores.Options{})
 	var notifier LogAppendNotifier
@@ -188,8 +183,6 @@ func newTestProducer(db *queries.DB, sources Sources, interval time.Duration, on
 	})
 }
 
-// readFrom is ReadFrom's test-side equivalent, now that it lives on
-// stores.EventLogStore rather than *queries.DB.
 func readFrom(db *queries.DB, ctx context.Context, offset int64, limit int) ([]models.Msg, int64, error) {
 	return stores.New(db, stores.Options{}).EventLog.ReadFrom(ctx, offset, limit)
 }

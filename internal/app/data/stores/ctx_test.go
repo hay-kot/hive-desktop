@@ -12,9 +12,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// ctxFixture is the seed data every closure in TestEveryStoreMethodJoinsTheAmbientTransaction
-// can address by a stable id, built once against the pool before the table
-// opens its transaction.
 type ctxFixture struct {
 	itemID      int64
 	commandID   int64
@@ -84,12 +81,8 @@ func seedCtxFixture(t *testing.T, st *Stores, db *queries.DB) ctxFixture {
 	return ctxFixture{itemID: item.ID, commandID: command.ID, agentSessID: agentSess.ID}
 }
 
-// TestEveryStoreMethodJoinsTheAmbientTransaction calls every exported method
-// of every store inside one Stores.WithinTx and requires it to run on that
-// transaction's connection. The pool is capped at one connection here, so a
-// call that escapes to the pool cannot get a connection until the
-// transaction ends: it blocks until the step's deadline and fails as
-// context.DeadlineExceeded instead of passing on a second connection.
+// Cap the pool at one connection so a store method that escapes the ambient
+// transaction blocks until its deadline instead of using another connection.
 func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.OpenOptions{MaxOpenConns: 1, MaxIdleConns: 1, BusyTimeout: 5000})
 	require.NoError(t, err)
@@ -103,7 +96,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 	}
 
 	steps := []step{
-		// ActivityEventStore
 		{"ActivityEventStore.Append", func(ctx context.Context) error {
 			_, err := st.ActivityEvents.Append(ctx, ActivityEventCreate{Category: "action", Severity: "info", Title: "t", Source: "test"})
 			return err
@@ -113,7 +105,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 
-		// AgentSessionStore
 		{"AgentSessionStore.List", func(ctx context.Context) error {
 			_, err := st.AgentSessions.List(ctx, "demo")
 			return err
@@ -146,7 +137,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.AgentSessions.Delete(ctx, fx.agentSessID)
 		}},
 
-		// EventLogStore
 		{"EventLogStore.Append", func(ctx context.Context) error {
 			_, err := st.EventLog.Append(ctx, "source:flow-1/a", "k", []byte(`{}`))
 			return err
@@ -199,7 +189,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.EventLog.ActivateReplay(ctx, "no-such-profile", 0, nil, nil, nil, nil)
 		}},
 
-		// FeedClaimStore
 		{"FeedClaimStore.Upsert", func(ctx context.Context) error {
 			return st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/other", ItemID: fx.itemID, SourceID: "source-b"})
 		}},
@@ -219,7 +208,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.FeedClaims.DeleteUnarchivedByProfile(ctx, "no-such-profile")
 		}},
 
-		// InboxItemStore
 		{"InboxItemStore.ListByFeed", func(ctx context.Context) error {
 			_, err := st.InboxItems.ListByFeed(ctx, "p", "p/feed", 10)
 			return err
@@ -318,7 +306,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 
-		// ItemSessionStore
 		{"ItemSessionStore.Link", func(ctx context.Context) error {
 			return st.ItemSessions.Link(ctx, "sess-2", models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "s", ExternalID: "item-1"})
 		}},
@@ -333,7 +320,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.ItemSessions.DeleteByProfile(ctx, "no-such-profile")
 		}},
 
-		// JobStore
 		{"JobStore.Insert", func(ctx context.Context) error {
 			_, err := st.Jobs.Insert(ctx, JobCreate{Status: "queued", Label: "l"})
 			return err
@@ -367,7 +353,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 
-		// NodeKVStore
 		{"NodeKVStore.Get", func(ctx context.Context) error {
 			_, _, err := st.NodeKV.Get(ctx, "flow-1", "node-a", "k", time.Now().UnixMilli())
 			return err
@@ -383,7 +368,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.NodeKV.DeleteByFlow(ctx, "no-such-flow")
 		}},
 
-		// NodeRunStore
 		{"NodeRunStore.List", func(ctx context.Context) error {
 			_, err := st.NodeRuns.List(ctx, "flow-1", 10)
 			return err
@@ -392,7 +376,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.NodeRuns.Insert(ctx, models.NodeRun{FlowID: "flow-1", NodeID: "node-ctx", OK: true}, time.Now().UnixMilli())
 		}},
 
-		// OutputCommandStore
 		{"OutputCommandStore.ListRunnableAfter", func(ctx context.Context) error {
 			_, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
 			return err
@@ -431,7 +414,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 
-		// SourceHeadStore
 		{"SourceHeadStore.ListActiveKeys", func(ctx context.Context) error {
 			_, err := st.SourceHeads.ListActiveKeys(ctx, SourceIdentity{Topic: "source:flow-1/a", ProfileID: "p", SourceKind: "github", SourceScope: "s"})
 			return err
@@ -450,7 +432,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.SourceHeads.DeleteByTopicPrefix(ctx, "source:no-such-flow/")
 		}},
 
-		// WebhookCaptureStore
 		{"WebhookCaptureStore.Upsert", func(ctx context.Context) error {
 			return st.WebhookCaptures.Upsert(ctx, "source:flow-1/hook2", time.Now().UnixMilli(), []byte(`{}`))
 		}},

@@ -24,10 +24,7 @@ type InboxUpdated struct{}
 // ActivityAppended reports a new row in the user-facing activity log.
 type ActivityAppended struct{ ID int64 }
 
-// JobsUpdated reports a job lifecycle transition. There is no Status field:
-// JobService publishes only the id (Begin, Running, setStatus), so a status
-// here would be unpopulated at every publish site and discarded at the one
-// subscriber.
+// JobsUpdated carries no status because publishers only know the job ID.
 type JobsUpdated struct {
 	JobID int64
 }

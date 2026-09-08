@@ -197,7 +197,6 @@ func TestActivateReplay_ReconcilesNodeKV(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found, "another flow's rows are untouched")
 
-	// No KV-capable nodes left clears the whole flow's KV.
 	require.NoError(t, st.EventLog.ActivateReplay(ctx, "flow", 0, nil, nil, nil, nil))
 	_, found, err = st.NodeKV.Get(ctx, "flow", "kept", "seen", 1)
 	require.NoError(t, err)

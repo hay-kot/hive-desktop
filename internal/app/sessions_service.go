@@ -72,15 +72,12 @@ type sessionJobRunner interface {
 	Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64
 }
 
-// inboxItemRefReader resolves an inbox row to the ref an association is
-// keyed on. Satisfied by *stores.InboxItemStore.
 type inboxItemRefReader interface {
 	RefByID(ctx context.Context, itemID int64) (models.ItemRef, error)
 }
 
-// itemSessionStore is the durable item↔session association: which sessions an
-// inbox item spawned, and the removal of links to sessions hive no longer
-// has. Satisfied by *stores.ItemSessionStore.
+// itemSessionStore owns durable item-session associations and removes links
+// to sessions Hive no longer has.
 type itemSessionStore interface {
 	List(ctx context.Context, ref models.ItemRef) ([]stores.ItemSession, error)
 	Unlink(ctx context.Context, sessionIDs []string) error
@@ -112,29 +109,21 @@ type SessionsService struct {
 	logger          zerolog.Logger
 }
 
-// DefaultAgentReader reads HIVE_DEFAULT_AGENT the way the user's terminal
-// would.
+// DefaultAgentReader reads HIVE_DEFAULT_AGENT from the user's resolved
+// terminal environment.
 type DefaultAgentReader interface {
 	DefaultAgent(ctx context.Context) string
 }
 
-// NopDefaultAgentReader answers no preferred agent, which leaves the agent
-// hive's own config resolved. newSessionsService substitutes it for a nil
-// DefaultAgentEnv.
+// NopDefaultAgentReader leaves Hive's configured agent unchanged.
 type NopDefaultAgentReader struct{}
 
 func (NopDefaultAgentReader) DefaultAgent(context.Context) string { return "" }
 
-// NopEditorCommandReader answers no configured editor. newSessionsService
-// and newAgentWorkspacesService substitute it for a nil EditorCommand;
-// launchEditor already treats an empty command as "none configured".
 type NopEditorCommandReader struct{}
 
 func (NopEditorCommandReader) Editor(context.Context) (string, error) { return "", nil }
 
-// SessionsDeps is newSessionsService's constructor argument: the service
-// reaches enough subsystems that a positional call stopped saying which nil
-// was which.
 type SessionsDeps struct {
 	Launcher     sessionLauncher
 	Manager      sessionManager

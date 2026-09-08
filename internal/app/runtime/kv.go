@@ -10,11 +10,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
-// KVReader is a driven port: read access to durable node-scoped KV during a
-// tick. Writes are buffered and flushed by the commit, so this is read-only.
-// *stores.NodeKVStore satisfies it. Both methods take an explicit `now`
-// cutoff (unix ms) so expiry is deterministic; the buffer pins one `now` per
-// Run.
+// KVReader provides durable node-scoped reads. Callers pass one
+// Unix-millisecond cutoff per Run so expiry is deterministic.
 type KVReader interface {
 	Get(ctx context.Context, flowID, nodeID, key string, now int64) (value string, found bool, err error)
 	Keys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
@@ -109,10 +106,8 @@ func (b *kvBuffer) mutations() []models.KVMutation {
 	return out
 }
 
-// nodeStaging is the NodeKV one on_message sees: reads layer this message's
-// staged writes over merged writes over the durable queries. run.go commits it
-// only when the message succeeded; an errored message's staging is dropped
-// with the handle.
+// nodeStaging layers this message's writes over prior writes and durable state.
+// A message's writes merge only after successful execution.
 type nodeStaging struct {
 	buf    *kvBuffer
 	nodeID string

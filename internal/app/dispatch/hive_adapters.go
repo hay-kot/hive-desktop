@@ -226,7 +226,6 @@ type SessionPullRequest struct {
 // ItemSessionLinker persists the association between an inbox item and a
 // session created for it, so the item can find the session again after a
 // restart. Consumer-defined: the launcher needs one write, not a store.
-// Satisfied by *stores.ItemSessionStore.
 type ItemSessionLinker interface {
 	Link(ctx context.Context, sessionID string, ref models.ItemRef) error
 }

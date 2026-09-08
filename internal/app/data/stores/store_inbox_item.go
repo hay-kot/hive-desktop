@@ -13,13 +13,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// InboxItemStore owns inbox_item and inbox_event: the durable substrate
-// behind every feed item, and the lifecycle events recorded against it.
-// IngestObservation also touches source_head and event_log, and
-// ResolveScoped moves item_session links, each inside its own transaction,
-// which is why this store holds those siblings (clause 2: an aggregate's own
-// store may open a transaction and call sibling stores when the write
-// belongs to it).
+// InboxItemStore owns inbox_item and inbox_event; ingest and scoped
+// resolution coordinate sibling stores in the same transaction.
 type InboxItemStore struct {
 	q        *queries.DB
 	heads    *SourceHeadStore
@@ -36,7 +31,6 @@ func NewInboxItemStore(q *queries.DB, opts Options, heads *SourceHeadStore, sess
 	return &InboxItemStore{q: q, heads: heads, sessions: sessions, now: opts.Now, mapper: mapInboxItemFromDB}
 }
 
-// ListByFeed returns a feed's active items, newest first.
 func (s *InboxItemStore) ListByFeed(ctx context.Context, profileID, feedID string, limit int) ([]InboxItem, error) {
 	if limit <= 0 {
 		return []InboxItem{}, nil
@@ -48,8 +42,6 @@ func (s *InboxItemStore) ListByFeed(ctx context.Context, profileID, feedID strin
 	return s.mapper.Slice(rows), nil
 }
 
-// ListArchivedByFeed returns the feed's archived section, newest archive
-// first. It is queried lazily when the archived divider expands.
 func (s *InboxItemStore) ListArchivedByFeed(ctx context.Context, profileID, feedID string, limit int) ([]InboxItem, error) {
 	if limit <= 0 {
 		return []InboxItem{}, nil
@@ -61,9 +53,7 @@ func (s *InboxItemStore) ListArchivedByFeed(ctx context.Context, profileID, feed
 	return s.mapper.Slice(rows), nil
 }
 
-// ListTrash returns unrouted (zero feed claims) and user-ignored items.
-// Trash is a utility/debug surface, not a work queue: it carries no unread
-// semantics.
+// Trash includes unrouted and ignored items and has no unread semantics.
 func (s *InboxItemStore) ListTrash(ctx context.Context, profileID string, limit int) ([]InboxItem, error) {
 	if limit <= 0 {
 		return []InboxItem{}, nil
@@ -75,9 +65,8 @@ func (s *InboxItemStore) ListTrash(ctx context.Context, profileID string, limit 
 	return s.mapper.Slice(rows), nil
 }
 
-// ListAll returns every inbox item newest-first, optionally scoped to one
-// profile (empty profileID matches all). It is unfiltered by feed membership
-// or triage state -- a debug/observation read, not a workspace view.
+// An empty profileID matches all profiles; feed membership and triage state
+// are not filtered.
 func (s *InboxItemStore) ListAll(ctx context.Context, profileID string, limit int) ([]InboxItem, error) {
 	if limit <= 0 {
 		return []InboxItem{}, nil
@@ -89,8 +78,7 @@ func (s *InboxItemStore) ListAll(ctx context.Context, profileID string, limit in
 	return s.mapper.Slice(rows), nil
 }
 
-// ListUnarchived returns exactly the Wails-safe items eligible for synthetic
-// replay. Archived memberships are deliberately frozen and never returned.
+// Archived memberships remain frozen and are excluded from synthetic replay.
 func (s *InboxItemStore) ListUnarchived(ctx context.Context, profileID string) ([]InboxItem, error) {
 	rows, err := s.q.Ctx(ctx).ListUnarchivedInboxItemsByProfile(ctx, profileID)
 	if err != nil {
@@ -99,8 +87,6 @@ func (s *InboxItemStore) ListUnarchived(ctx context.Context, profileID string) (
 	return s.mapper.Slice(rows), nil
 }
 
-// ListUnarchivedBySource returns the unarchived items behind one connector
-// instance, for reconciling a webhook delivery's authoritative snapshot.
 func (s *InboxItemStore) ListUnarchivedBySource(ctx context.Context, profileID, sourceKind, sourceScope string) ([]InboxItem, error) {
 	rows, err := s.q.Ctx(ctx).ListUnarchivedInboxItemsBySource(ctx, queries.ListUnarchivedInboxItemsBySourceParams{
 		ProfileID: profileID, SourceKind: sourceKind, SourceScope: sourceScope,
@@ -111,9 +97,8 @@ func (s *InboxItemStore) ListUnarchivedBySource(ctx context.Context, profileID, 
 	return s.mapper.Slice(rows), nil
 }
 
-// FindByExternalID returns every item sharing an external id, optionally
-// scoped to one profile (empty profileID matches all). The same id can exist
-// across profiles and source scopes, so this returns a slice.
+// externalID is not unique across profiles or source scopes; an empty
+// profileID matches all profiles.
 func (s *InboxItemStore) FindByExternalID(ctx context.Context, profileID, externalID string) ([]InboxItem, error) {
 	rows, err := s.q.Ctx(ctx).FindInboxItemsByExternalID(ctx, queries.FindInboxItemsByExternalIDParams{
 		ExternalID: externalID, ProfileID: profileID,
@@ -124,13 +109,11 @@ func (s *InboxItemStore) FindByExternalID(ctx context.Context, profileID, extern
 	return s.mapper.Slice(rows), nil
 }
 
-// GetByID reads one inbox item by its row id.
 func (s *InboxItemStore) GetByID(ctx context.Context, id int64) (InboxItem, error) {
 	row, err := s.q.Ctx(ctx).GetInboxItemByID(ctx, id)
 	return s.mapper.Err(row, errTransformQueryOne("inbox_item", fmt.Sprint(id), err))
 }
 
-// RefByID resolves an inbox row to the ref an association is keyed on.
 func (s *InboxItemStore) RefByID(ctx context.Context, itemID int64) (models.ItemRef, error) {
 	row, err := s.q.Ctx(ctx).GetInboxItemByID(ctx, itemID)
 	if err != nil {
@@ -144,17 +127,9 @@ func (s *InboxItemStore) RefByID(ctx context.Context, itemID int64) (models.Item
 	}, nil
 }
 
-// ResolveScoped resolves the durable inbox row behind a source identity,
-// healing pre-#63 rows on the way.
-//
-// #63 gave GitHub observations a SourceScope (the account); rows written
-// before it carry an empty source_scope and are invisible to the scoped
-// lookup every post-#63 read keys on. On a scoped miss this retries under
-// the empty scope, and if that hits it rewrites the row to the requested
-// scope so the identity -- and the triage decisions the row carries -- are
-// consistent for every later read, and so a subsequent ingest updates the
-// row in place rather than inserting a scoped duplicate beside it. A genuine
-// miss returns sql.ErrNoRows unchanged. See issue #95.
+// On a scoped miss, ResolveScoped migrates a legacy empty-scope row and its
+// session links so later ingest cannot create a duplicate. A genuine miss
+// returns sql.ErrNoRows.
 func (s *InboxItemStore) ResolveScoped(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (InboxItem, error) {
 	item, err := s.q.Ctx(ctx).GetInboxItemByExternalID(ctx, queries.GetInboxItemByExternalIDParams{
 		ProfileID: profileID, SourceKind: sourceKind, SourceScope: sourceScope, ExternalID: externalID,
@@ -193,13 +168,8 @@ func (s *InboxItemStore) ResolveScoped(ctx context.Context, profileID, sourceKin
 	return s.mapper(legacy), nil
 }
 
-// IDByExternalID resolves the durable inbox row behind a source identity. It
-// is the read-only half of the identity a commit resolves for feed
-// membership, exposed for callers that hold only the source-side identity --
-// a delivered notification linking back to the item that triggered it. A
-// missing row is (0, nil), not an error: an identity can legitimately have
-// no inbox row (a message a function node synthesized), and that only means
-// "nothing to link to".
+// A missing identity returns (0, nil), because synthesized outputs may have
+// no inbox row to link.
 func (s *InboxItemStore) IDByExternalID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error) {
 	if externalID == "" {
 		return 0, nil
@@ -216,10 +186,8 @@ func (s *InboxItemStore) IDByExternalID(ctx context.Context, profileID, sourceKi
 	return item.ID, nil
 }
 
-// FeedIDForItem returns the feed that claims an item, or "" when nothing
-// does (an unrouted item, which the UI shows in Trash). An item claimed by
-// several feeds resolves to the lowest feed id so the answer is stable
-// across calls -- any of them reveals the item.
+// Unclaimed items return "". Multiple claims resolve to the lowest feed ID
+// for a stable result.
 func (s *InboxItemStore) FeedIDForItem(ctx context.Context, profileID string, itemID int64) (string, error) {
 	feedID, err := s.q.Ctx(ctx).GetFeedIDForItem(ctx, queries.GetFeedIDForItemParams{ProfileID: profileID, ItemID: itemID})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -231,11 +199,8 @@ func (s *InboxItemStore) FeedIDForItem(ctx context.Context, profileID string, it
 	return feedID, nil
 }
 
-// FeedIDsForItems resolves the claiming feed of each item in one query,
-// using the same lowest-feed-id rule as FeedIDForItem. Keyed by item id (a
-// global primary key, so the profile is implied); an item with no claim is
-// absent from the map, meaning its feed is "". Built for callers that list
-// items flat and need each item's feed without an N+1 of FeedIDForItem.
+// Results use the lowest feed ID per item. Unclaimed IDs are absent from the
+// map.
 func (s *InboxItemStore) FeedIDsForItems(ctx context.Context, itemIDs []int64) (map[int64]string, error) {
 	out := make(map[int64]string, len(itemIDs))
 	if len(itemIDs) == 0 {
@@ -251,7 +216,6 @@ func (s *InboxItemStore) FeedIDsForItems(ctx context.Context, itemIDs []int64) (
 	return out, nil
 }
 
-// Events lists one item's lifecycle events, newest first.
 func (s *InboxItemStore) Events(ctx context.Context, itemID int64, limit int) ([]InboxEvent, error) {
 	if limit <= 0 {
 		return []InboxEvent{}, nil
@@ -267,11 +231,7 @@ func (s *InboxItemStore) Events(ctx context.Context, itemID int64, limit int) ([
 	return events, nil
 }
 
-// SetUnread sets one item's unread flag under a revision guard. A stale
-// revision -- the row has moved since the caller read it -- returns
-// ErrStale, not a NotFoundError: it must bypass errTransformQueryOne, or a
-// caller checking IsNotFound(err) would see this exact conflict as a missing
-// row instead of "re-read and retry".
+// A revision mismatch returns ErrStale, not NotFoundError.
 func (s *InboxItemStore) SetUnread(ctx context.Context, itemID, revision int64, unread bool) (InboxItem, error) {
 	row, err := s.q.Ctx(ctx).SetInboxItemUnread(ctx, queries.SetInboxItemUnreadParams{Unread: boolToInt64(unread), ID: itemID, Revision: revision})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -283,14 +243,8 @@ func (s *InboxItemStore) SetUnread(ctx context.Context, itemID, revision int64, 
 	return s.mapper(row), nil
 }
 
-// MarkRead clears unread across a whole scope in one statement: feedID names
-// a single feed, an empty feedID means every feed in the workspace. It
-// returns how many rows it changed so the caller can report the size of
-// what it just did.
-//
-// Callers get no rows back. A bulk clear touches more rows than a UI holds
-// and the revisions all move, so the frontend re-reads the affected list and
-// the sidebar counts rather than patching what it has.
+// An empty feedID clears the whole profile. The return value is the number of
+// changed rows.
 func (s *InboxItemStore) MarkRead(ctx context.Context, profileID, feedID string) (int64, error) {
 	if profileID == "" {
 		return 0, fmt.Errorf("marking inbox items read: profile id is required")
@@ -310,10 +264,7 @@ func (s *InboxItemStore) MarkRead(ctx context.Context, profileID, feedID string)
 	return marked, nil
 }
 
-// ToggleArchived flips one item's archived state under a revision guard,
-// stamping the store's own clock when archiving. See SetUnread's comment on
-// why a stale revision returns ErrStale rather than going through
-// errTransformQueryOne.
+// Archiving uses the store clock; a revision mismatch returns ErrStale.
 func (s *InboxItemStore) ToggleArchived(ctx context.Context, itemID, revision int64) (InboxItem, error) {
 	row, err := s.q.Ctx(ctx).ToggleInboxItemArchived(ctx, queries.ToggleInboxItemArchivedParams{
 		ArchivedAt: sql.NullInt64{Int64: s.now().UnixMilli(), Valid: true}, ID: itemID, Revision: revision,
@@ -327,10 +278,7 @@ func (s *InboxItemStore) ToggleArchived(ctx context.Context, itemID, revision in
 	return s.mapper(row), nil
 }
 
-// ToggleIgnored flips one item's ignored state under a revision guard,
-// stamping the store's own clock when ignoring. See SetUnread's comment on
-// why a stale revision returns ErrStale rather than going through
-// errTransformQueryOne.
+// Ignoring uses the store clock; a revision mismatch returns ErrStale.
 func (s *InboxItemStore) ToggleIgnored(ctx context.Context, itemID, revision int64) (InboxItem, error) {
 	row, err := s.q.Ctx(ctx).ToggleInboxItemIgnored(ctx, queries.ToggleInboxItemIgnoredParams{
 		IgnoredAt: sql.NullInt64{Int64: s.now().UnixMilli(), Valid: true}, ID: itemID, Revision: revision,
@@ -344,7 +292,6 @@ func (s *InboxItemStore) ToggleIgnored(ctx context.Context, itemID, revision int
 	return s.mapper(row), nil
 }
 
-// FeedCounts returns total/unread/archived counts per feed for a profile.
 func (s *InboxItemStore) FeedCounts(ctx context.Context, profileID string) ([]FeedCount, error) {
 	rows, err := s.q.Ctx(ctx).CountInboxItemsByFeed(ctx, profileID)
 	if err != nil {
@@ -357,15 +304,10 @@ func (s *InboxItemStore) FeedCounts(ctx context.Context, profileID string) ([]Fe
 	return counts, nil
 }
 
-// DeleteByProfile removes every inbox_item row for profileID. Used by
-// FlowsService.purgeProfile when a workspace is deleted.
 func (s *InboxItemStore) DeleteByProfile(ctx context.Context, profileID string) error {
 	return wrap("deleting inbox items by profile", s.q.Ctx(ctx).DeleteInboxItemsByProfile(ctx, profileID))
 }
 
-// GetUnarchivedByID reads one unarchived inbox row by id, scoped to
-// profileID. EventLogStore.ActivateReplay uses this to refuse a claim
-// against an item that is archived, missing, or belongs to another profile.
 func (s *InboxItemStore) GetUnarchivedByID(ctx context.Context, itemID int64, profileID string) (InboxItem, error) {
 	row, err := s.q.Ctx(ctx).GetUnarchivedInboxItemByID(ctx, queries.GetUnarchivedInboxItemByIDParams{ID: itemID, ProfileID: profileID})
 	if err != nil {
@@ -374,17 +316,9 @@ func (s *InboxItemStore) GetUnarchivedByID(ctx context.Context, itemID int64, pr
 	return s.mapper(row), nil
 }
 
-// CreateSynthesized inserts a durable row for a feed output whose key never
-// went through ingest -- a function node minted it while splitting one
-// source message into per-entity items. EventLogStore.Commit calls this when
-// ResolveScoped finds no row for a feed output's key. Presentation comes
-// from the payload (title/url), the same fields the producer reads at the
-// ingest boundary; the lifecycle is active because the item is present in
-// the snapshot that carried it, and its absence from a later snapshot drops
-// the membership claim rather than archiving the row. A subsequent ingest
-// under the same identity upserts this row in place, so a genuine source
-// item briefly missing at commit self-heals rather than forking a
-// duplicate.
+// CreateSynthesized persists feed outputs that did not pass through ingest.
+// It derives presentation from the payload and marks them active; later
+// snapshots remove only claims, while later ingest upserts the same identity.
 func (s *InboxItemStore) CreateSynthesized(ctx context.Context, in InboxItemSynthesize) (InboxItem, error) {
 	title, url := feedItemPresentation(in.ExternalID, in.Payload)
 	row, err := s.q.Ctx(ctx).InsertInboxItem(ctx, queries.InsertInboxItemParams{
@@ -398,9 +332,7 @@ func (s *InboxItemStore) CreateSynthesized(ctx context.Context, in InboxItemSynt
 	return s.mapper(row), nil
 }
 
-// feedItemPresentation reads the title and url a synthesized feed item
-// renders with from its payload, mirroring the ingest boundary's convention.
-// A payload with no title falls back to the key, so an item is never blank.
+// Missing or invalid payload titles fall back to the item key.
 func feedItemPresentation(key string, payload []byte) (title, url string) {
 	var wire struct {
 		Title string `json:"title"`
@@ -420,9 +352,8 @@ type ItemTriageState struct {
 	ArchivedReason string
 }
 
-// applyTransition is intentionally SQL-free so archive semantics remain easy
-// to test. Terminal transitions are system-owned; system archived items
-// always return on a reopen, while manual archives obey the profile policy.
+// Terminal transitions create system archives. Reopened system archives
+// always resurface; manual archives follow the profile policy.
 func applyTransition(prev ItemTriageState, c models.Classification, policy models.ResurfacePolicy) ItemTriageState {
 	next := prev
 	if c.Transition == models.TransitionEnteredTerminal {
@@ -460,10 +391,8 @@ func applyTransition(prev ItemTriageState, c models.Classification, policy model
 	return next
 }
 
-// archivedReason retains the reason for an item that remains archived. A
-// manual archive predating reason tracking is labeled manual; a newly
-// system-archived terminal item takes the classifier's source-specific
-// reason.
+// Preserve an existing archive reason. Legacy manual archives use "manual";
+// new system archives use the classifier reason.
 func archivedReason(prev, next ItemTriageState, c models.Classification) string {
 	if next.ArchivedAt == nil {
 		return ""
@@ -483,13 +412,8 @@ func archivedReason(prev, next ItemTriageState, c models.Classification) string 
 	return c.ArchivedReason
 }
 
-// IngestObservation is the persistence boundary for a source item: the
-// source head comparison, classification, inbox mutation, event log append
-// and source head update share one immediate SQLite transaction. The
-// aggregate it belongs to is the inbox item -- everything else in it exists
-// to decide what that row becomes -- so it writes source_head through
-// SourceHeadStore and the event log through EventLogStore rather than
-// reaching their generated queries directly.
+// IngestObservation compares, classifies, persists, logs, and advances the
+// source head in one transaction.
 func (s *InboxItemStore) IngestObservation(ctx context.Context, classifier models.Classifier, p IngestObservationParams) (result IngestResult, err error) {
 	if classifier == nil {
 		return result, fmt.Errorf("ingesting observation: nil classifier")

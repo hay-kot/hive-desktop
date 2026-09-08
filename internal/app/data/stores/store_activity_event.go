@@ -12,12 +12,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// ActivityEventStore owns activity_event: the audit log the Activity view
-// reads and backend subsystems append to, through ActivityService. Category
-// and severity stay plain strings here -- this leaf package does not import
-// the activity package's typed enums, so membership validation (and
-// title-required, and the empty-category/severity default) is
-// ActivityService's job.
+// Category and Severity remain strings because ActivityService owns their
+// validation and defaults.
 type ActivityEventStore struct {
 	q      *queries.DB
 	now    func() time.Time
@@ -28,10 +24,8 @@ func NewActivityEventStore(q *queries.DB, opts Options) *ActivityEventStore {
 	return &ActivityEventStore{q: q, now: opts.Now, logger: opts.Logger}
 }
 
-// Append persists one activity event and returns the stored row with its
-// assigned id and durable created_at. Metadata is encoded to JSON here, since
-// the wire shape (opaque bytes in the DB, a map at every other layer) is a
-// persistence concern rather than a domain one.
+// Metadata is encoded here because its database representation is a
+// persistence concern.
 func (s *ActivityEventStore) Append(ctx context.Context, in ActivityEventCreate) (ActivityEvent, error) {
 	encoded, err := encodeActivityMetadata(in.Metadata)
 	if err != nil {
@@ -55,10 +49,7 @@ func (s *ActivityEventStore) Append(ctx context.Context, in ActivityEventCreate)
 	}, nil
 }
 
-// List returns up to limit events with id < before, newest first. Pass
-// before <= 0 to start from the most recent event. A row whose metadata
-// fails to decode is a recoverable anomaly: it is logged and skipped rather
-// than failing the whole page.
+// A metadata decode failure is logged and skipped instead of failing the page.
 func (s *ActivityEventStore) List(ctx context.Context, before int64, limit int) ([]ActivityEvent, error) {
 	if before <= 0 {
 		before = math.MaxInt64

@@ -7,7 +7,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// InboxItem is the read-side shape used by inbox callers.
 type InboxItem struct {
 	ID             int64           `json:"id"`
 	ProfileID      string          `json:"profileId"`
@@ -47,9 +46,6 @@ type FeedCount struct {
 	Archived int64  `json:"archived"`
 }
 
-// IngestObservationParams is InboxItemStore.IngestObservation's input: one
-// source item as the connector saw it, plus the topic and archive-resurface
-// policy the write is scoped to.
 type IngestObservationParams struct {
 	ProfileID string
 	Topic     string
@@ -57,9 +53,7 @@ type IngestObservationParams struct {
 	Current   models.Observation
 }
 
-// IngestResult is what IngestObservation wrote. A duplicate payload against
-// the recorded source head is a deliberate no-op, reported as a zero value
-// with Wrote false rather than an error.
+// Duplicate source-head payloads return the zero value with Wrote false.
 type IngestResult struct {
 	ItemID         int64
 	Revision       int64
@@ -68,23 +62,17 @@ type IngestResult struct {
 	Offset         int64
 }
 
-// InboxItemSynthesize mints a durable row for a feed output whose key never
-// went through ingest -- a function node minted it while splitting one
-// source message into per-entity items. See InboxItemStore.CreateSynthesized.
 type InboxItemSynthesize struct {
 	ProfileID   string
 	SourceKind  string
 	SourceScope string
 	ExternalID  string
 	Payload     []byte
-	// Now stamps first_seen_at and last_event_at. EventLogStore.Commit passes
-	// the one clock reading it took for the whole batch, so every item minted
-	// in one commit agrees with the node runs and KV writes beside it.
+	// Now is shared across every synthesized item, node run, and KV write in one
+	// commit.
 	Now int64
 }
 
-// maxEventDetailBytes bounds inbox_event.detail. IngestObservation is its
-// only caller.
 const maxEventDetailBytes = 4096
 
 func boundEventDetail(detail []byte) []byte {

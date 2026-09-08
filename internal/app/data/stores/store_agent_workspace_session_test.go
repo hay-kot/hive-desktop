@@ -63,9 +63,6 @@ func TestAgentSessionStore(t *testing.T) {
 		_, err = st.AgentSessions.Get(ctx, created.ID)
 		assert.True(t, IsNotFound(err), "a deleted session is not found")
 
-		// Deleting an id with no session is a no-op, not an error, matching
-		// every other delete in this package (NodeKVStore.DeleteByFlow,
-		// SourceHeadStore.Delete).
 		require.NoError(t, st.AgentSessions.Delete(ctx, created.ID))
 	})
 

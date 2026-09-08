@@ -5,7 +5,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// OutputCommand is one enqueued or completed action invocation.
 type OutputCommand struct {
 	ID          int64
 	ActionID    string
@@ -25,9 +24,8 @@ type OutputCommand struct {
 	ExternalID  string
 }
 
-// ItemRef is the inbox item this command was routed from. A command with no
-// inbox origin -- a notify command, or an action invoked from a surface that
-// has no item behind it -- returns a zero ref, which reads as not Known.
+// Commands without an inbox origin return a zero ItemRef, for which Known is
+// false.
 func (c OutputCommand) ItemRef() models.ItemRef {
 	return models.ItemRef{ProfileID: c.ProfileID, SourceKind: c.SourceKind, SourceScope: c.SourceScope, ExternalID: c.ExternalID}
 }

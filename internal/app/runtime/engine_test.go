@@ -180,9 +180,8 @@ func (c *committed) wait(t *testing.T) {
 	}
 }
 
-// fakeFlowRecorder collects the flow id of every activity.FlowRuntimeFailed
-// record (its Source field). Guarded by a mutex: the engine records on its
-// own loop goroutine while a test reads back through require.Eventually.
+// Guard records because the engine writes on its loop goroutine while tests
+// read through require.Eventually.
 type fakeFlowRecorder struct {
 	mu    sync.Mutex
 	flows []string

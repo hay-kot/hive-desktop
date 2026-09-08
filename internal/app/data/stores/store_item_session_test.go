@@ -151,8 +151,6 @@ func TestItemSessions_FollowALegacyRowOntoItsHealedScope(t *testing.T) {
 	assert.Equal(t, "sess-a", links[0].SessionID)
 }
 
-// FlowsService's purge test (internal/app/flows_service_test.go) covers the
-// cross-store composition; this exercises the store method it calls.
 func TestItemSessionStore_DeleteByProfile(t *testing.T) {
 	st, _ := openTestStores(t)
 	ctx := t.Context()

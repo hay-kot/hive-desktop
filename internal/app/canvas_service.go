@@ -39,7 +39,6 @@ type CanvasService struct {
 	events   *events.Bus
 }
 
-// CanvasDeps is newCanvasService's constructor argument.
 type CanvasDeps struct {
 	Store    *canvas.Store
 	Sessions canvasSessionResolver

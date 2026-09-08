@@ -50,14 +50,9 @@ const (
 	scriptName = "on_message"
 )
 
-// maxKVKeyBytes and maxKVValueBytes cap what kv.set accepts: this is a
-// small-value dedup store, not a blob queries. Over either cap the host func
-// throws so the script sees a catchable exception rather than silent
-// truncation. The number of keys is deliberately uncapped: the only writer
-// is the user's own script against their own local database, growth per tick
-// is bounded by the batch's message count, and TTL plus flow/node teardown
-// reclaim rows — a count quota would turn a working dedup memory into
-// silent re-notification the moment it filled.
+// These caps keep KV suitable for small dedup values, not blob storage.
+// Oversized values raise a catchable script error. Key count remains uncapped
+// because TTL and flow or node teardown reclaim rows.
 const (
 	maxKVKeyBytes   = 512
 	maxKVValueBytes = 4096

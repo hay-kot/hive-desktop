@@ -2,9 +2,7 @@ package jobs
 
 import "context"
 
-// Recorder is the fire-and-forget write side handed to the output worker. Job
-// persistence failures are logged and never derail an action run.
-// *app.JobService satisfies it.
+// Recorder tracks output-worker jobs without propagating persistence failures.
 type Recorder interface {
 	// Begin creates a queued job and returns its id, or zero when persistence
 	// fails. Subsequent transitions reference this id.

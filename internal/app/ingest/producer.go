@@ -22,8 +22,6 @@ import (
 // Producer is the poll loop that turns configured source connectors into
 // event_log rows. On each tick it resolves the current pull-mode instances,
 // drains each one through Produce, and appends every emitted Msg to the log.
-// After a tick appends at least one row, notifier is told the offset of the
-// last row, so the core can wake the flow engine.
 //
 // There is one ticker for every source, at settings.polling.interval. An
 // instance that wants to run less often than that declares a MinInterval and
@@ -31,14 +29,10 @@ import (
 // second schedule. Not drained is not the same as drained empty: Produce is
 // never called, so nothing about the source's tracked set changes.
 //
-// Source deduplication: a connector re-emits every current item on every
-// tick, even when nothing changed upstream (the GitHub fetch layer may itself
-// be cache-hit, but the cached items are still emitted). Producer delegates
-// to InboxItemStore.IngestObservation, which stores the last payload by (topic, key)
-// in the database and atomically appends a changed event with its new head,
-// so deduplication survives restarts and a failed append never suppresses a
-// retry. Successful ticks also append a source snapshot event for downstream
-// feed reconciliation.
+// Connectors may re-emit unchanged items. IngestObservation atomically
+// deduplicates against durable source heads, so dedup survives restarts and
+// failed appends remain retryable. Successful ticks append an authoritative
+// snapshot for feed reconciliation.
 //
 // Nothing here branches on which connector it is holding. What a source
 // supports beyond producing messages — its classifier, its absence confirmer,
@@ -79,17 +73,12 @@ func (pr *Producer) SetRecorder(r activity.Recorder) { pr.recorder = r }
 // SetDebugPause injects the development-only post-hydration pause.
 func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = duration }
 
-// LogAppendNotifier is told the log grew after a tick appends at least one
-// row. The implementation wakes the flow engine synchronously and then
-// announces on the bus (*app.App.PublishLogAppended). It is deliberately not
-// a bus publish here: the wake is a latch on the pipeline's routing path, and
-// every bus subscriber in this app coalesces, which would change when a
-// burst of appends actually gets routed.
+// LogAppendNotifier must wake the flow engine synchronously. A bus event is
+// insufficient because subscribers coalesce bursts and could delay routing.
 type LogAppendNotifier interface {
 	PublishLogAppended(nextOffset int64)
 }
 
-// ProducerDeps is NewProducer's constructor argument.
 type ProducerDeps struct {
 	Ingester  Ingester
 	Snapshots SnapshotAppender
@@ -100,10 +89,7 @@ type ProducerDeps struct {
 	Logger    zerolog.Logger
 }
 
-// NewProducer builds a Producer. Interval <= 0 is rejected by the caller's
-// choice of default (App passes feed.DefaultPollInterval); Producer itself
-// has no opinion on the default so this package does not need to import feed
-// just for a constant.
+// NewProducer requires a positive Interval.
 func NewProducer(d ProducerDeps) *Producer {
 	return &Producer{
 		ingester:    d.Ingester,

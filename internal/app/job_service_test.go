@@ -69,8 +69,6 @@ func TestJobService_ListAndListActive(t *testing.T) {
 	assert.Equal(t, outside.ID, older[0].ID)
 }
 
-// TestJobService_RecordsLifecycleLabelsAndPublishes moved from
-// jobs/recorder_test.go along with the persistence it exercises.
 func TestJobService_RecordsLifecycleLabelsAndPublishes(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
@@ -155,11 +153,8 @@ func TestJobService_TrackRecordsFailure(t *testing.T) {
 	}, time.Second, 5*time.Millisecond)
 }
 
-// TestJobService_TrackPublishesTerminalTransitionAfterFnReturns is the phase
-// 5 proof for the exception the plan calls out: Track's queued transition
-// (Begin) runs on the caller's context before it forks, but the terminal
-// transition (Done/Fail) runs on bg inside the goroutine after fn returns.
-// This asserts the ordering, not just that the event eventually arrives.
+// Begin runs before Track forks, while Done or Fail runs on the background
+// goroutine after fn returns. Assert ordering, not only eventual delivery.
 func TestJobService_TrackPublishesTerminalTransitionAfterFnReturns(t *testing.T) {
 	service, ch := newTestJobService(t)
 

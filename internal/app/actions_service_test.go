@@ -132,9 +132,6 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 	requireEvents(t, ch, 1)
 }
 
-// TestActionsServicePublishesOnEveryMutatingMethod is the phase 5 bus test:
-// all seven mutating methods publish events.ActionsUpdated with the
-// catalog's live count.
 func TestActionsServicePublishesOnEveryMutatingMethod(t *testing.T) {
 	actionStore, _ := newServiceStore(t)
 	service, ch := newTestActionsService(t, actionStore)

@@ -71,15 +71,10 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
-// notifierFunc adapts a plain function to ingest.LogAppendNotifier, the same
-// shape http.HandlerFunc gives http.Handler.
 type notifierFunc func(offset int64)
 
 func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
 
-// newTestProducer wires a Producer's three store dependencies over one
-// database handle, mirroring how app.go's buildProducer wires the real
-// Stores.
 func newTestProducer(db *queries.DB, sources ingest.Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *ingest.Producer {
 	st := stores.New(db, stores.Options{})
 	var notifier ingest.LogAppendNotifier
@@ -97,8 +92,6 @@ func newTestProducer(db *queries.DB, sources ingest.Sources, interval time.Durat
 	})
 }
 
-// readFrom is ReadFrom's test-side equivalent, now that it lives on
-// stores.EventLogStore rather than *queries.DB.
 func readFrom(ctx context.Context, db *queries.DB, offset int64, limit int) ([]models.Msg, int64, error) {
 	return stores.New(db, stores.Options{}).EventLog.ReadFrom(ctx, offset, limit)
 }
@@ -314,12 +307,9 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 	assert.True(t, topics["source:reviews/prs"])
 }
 
-// TestProducer_WithGithubSource_IngestsAsGithubNotGeneric proves the declared
-// capabilities reach the producer. The registry's bijection test asserts the
-// factory fills what the descriptor promises; this asserts the producer then
-// uses it, end to end through a real fetch and a real queries. Getting it wrong
-// is not a crash: every GitHub item ingests as SourceKind "generic" with no
-// classifier and no absence confirmation, and the feed just looks wrong.
+// Exercise declared capabilities through a real fetch and database. A broken
+// handoff silently ingests GitHub items as generic and disables classification
+// and absence confirmation, so a no-error assertion cannot catch it.
 func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {
 	t.Parallel()
 

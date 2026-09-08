@@ -125,7 +125,6 @@ func TestInboxItemStore_FeedViewsTriageAndCounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []FeedCount{{FeedID: "feed-a", Total: 1, Unread: 1}, {FeedID: "feed-b", Total: 1, Unread: 0}}, counts)
 
-	// Items that never reached a feed terminal are visible only in Trash.
 	trash, err := st.InboxItems.ListTrash(ctx, "p", 10)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{unmatched.ID}, itemIDs(trash), "unrouted items land in trash, not feeds")
@@ -137,8 +136,6 @@ func TestInboxItemStore_FeedViewsTriageAndCounts(t *testing.T) {
 	require.ErrorIs(t, err, ErrStale)
 	assert.False(t, IsNotFound(err))
 
-	// Archiving demotes the item into the feed's archived section: it leaves
-	// the active list but stays reachable in the same feed.
 	archived, err := st.InboxItems.ToggleArchived(ctx, first.ID, updated.Revision)
 	require.NoError(t, err)
 	assert.Equal(t, updated.Revision+1, archived.Revision)
@@ -170,7 +167,6 @@ func TestInboxItemStore_FeedViewsTriageAndCounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []int64{fourth.ID, third.ID, first.ID}, itemIDs(archivedByFeed), "id breaks identical archived_at ties deterministically")
 
-	// Ignoring removes the item from its feed entirely and moves it to Trash.
 	ignored, err := st.InboxItems.ToggleIgnored(ctx, second.ID, second.Revision)
 	require.NoError(t, err)
 	assert.NotNil(t, ignored.IgnoredAt)

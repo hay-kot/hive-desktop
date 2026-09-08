@@ -10,9 +10,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// openTestStores opens a fresh SQLite database in a temp directory and
-// builds every store over it, the fixture every store test in this package
-// shares.
 func openTestStores(t *testing.T) (*Stores, *queries.DB) {
 	t.Helper()
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
@@ -21,10 +18,6 @@ func openTestStores(t *testing.T) (*Stores, *queries.DB) {
 	return New(db, Options{}), db
 }
 
-// testClassifier and activityClassifier mirror the queries package's own
-// IngestObservation test fixtures (data/queries/inbox_item_test.go), needed
-// here because setting up an ItemSessionStore or InboxItemStore fixture
-// through the production boundary still means calling *queries.DB.
 type testClassifier struct {
 	classify func(*models.Observation, models.Observation) models.Classification
 }
@@ -39,9 +32,6 @@ func activityClassifier(key string) testClassifier {
 	}}
 }
 
-// testClock is a hand-advanced clock for tests whose assertions depend on
-// controlled timestamps -- Options.Now is the seam every store, including
-// ActivityEventStore and JobStore, takes it through.
 type testClock struct{ now time.Time }
 
 func newTestClock() *testClock { return &testClock{now: time.UnixMilli(1)} }

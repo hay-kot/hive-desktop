@@ -14,7 +14,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 )
 
-// LogStore is the event log's read side, satisfied by *stores.EventLogStore.
 type LogStore interface {
 	// ReadForConsumer returns the next page after a consumer's committed
 	// offset.
@@ -27,18 +26,12 @@ type LogStore interface {
 	ListLatestSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]models.Msg, error)
 }
 
-// InboxReader is the inbox items a replay may claim, satisfied by
-// *stores.InboxItemStore.
+// InboxReader excludes archived items because replay must preserve their
+// frozen memberships.
 type InboxReader interface {
-	// ListUnarchived returns the items a replay may claim. Archived items
-	// are deliberately absent: their membership is frozen.
 	ListUnarchived(ctx context.Context, profileID string) ([]stores.InboxItem, error)
 }
 
-// CommitStore is the event log's write side. Commit and ActivateReplay both
-// advance the consumer offset, which is what makes them log operations
-// rather than a separate pipeline type. Satisfied directly by
-// *stores.EventLogStore.
 type CommitStore interface {
 	// Commit applies one run's outputs and advances the offset, atomically.
 	Commit(ctx context.Context, batch models.CommitBatch) error
@@ -67,15 +60,11 @@ type EngineOptions struct {
 	Logger  zerolog.Logger
 	// PageSize bounds one read. Zero means DefaultPageSize.
 	PageSize int
-	// Events is published to after a pass in which at least one flow
-	// committed something (events.InboxUpdated{}). It is how a UI learns that
-	// feed membership may have changed — the log growing is not that signal,
-	// because a message can be appended and routed nowhere.
+	// Events receives InboxUpdated after a pass commits at least one flow.
+	// Appending an unrouted log message does not emit this event.
 	Events *events.Bus
-	// Recorder reports a flow that could not be installed: it records, it
-	// does not publish, because a failed install is an audit-log entry, not a
-	// UI wake-up. The engine keeps running the last known-good version of
-	// that flow, so this is the only way the failure becomes visible.
+	// Recorder reports install failures while the engine keeps the last known-good
+	// flow active.
 	Recorder activity.Recorder
 }
 

@@ -2,10 +2,8 @@ package stores
 
 import "github.com/hay-kot/hive-desktop/internal/app/data/queries"
 
-// Job is the storage shape of one job row. Status and step stay plain
-// strings at this layer; the jobs package owns the typed status and converts
-// at its boundary. CommandID is nil until the job is linked to an
-// output_command.
+// Status and Step remain strings because the jobs package owns their typed
+// mapping.
 type Job struct {
 	ID        int64  `json:"id"`
 	CreatedAt int64  `json:"createdAt"`
@@ -19,8 +17,6 @@ type Job struct {
 	CommandID *int64 `json:"commandId,omitempty"`
 }
 
-// JobCreate is Insert's input: CreatedAt and UpdatedAt are assigned by the
-// store.
 type JobCreate struct {
 	Status   string
 	Label    string

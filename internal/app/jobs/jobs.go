@@ -33,7 +33,6 @@ type Job struct {
 	CommandID *int64    `json:"commandId,omitempty"`
 }
 
-// StepFor returns the human step label for a status transition.
 func StepFor(status JobStatus) string {
 	switch status {
 	case JobStatusQueued:

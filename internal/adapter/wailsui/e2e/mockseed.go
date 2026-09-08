@@ -160,7 +160,6 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
-// mockSeeder adapts the fixture body to queries.Seeder.
 type mockSeeder struct {
 	db   *queries.DB
 	logs *stores.EventLogStore

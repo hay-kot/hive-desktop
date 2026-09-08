@@ -77,8 +77,6 @@ type NotificationGate interface {
 	NotificationPolicy() NotificationPolicy
 }
 
-// InboxItemLocator resolves the durable inbox row a notification came from,
-// so a click can select that item. Satisfied by *stores.InboxItemStore.
 type InboxItemLocator interface {
 	IDByExternalID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
 }

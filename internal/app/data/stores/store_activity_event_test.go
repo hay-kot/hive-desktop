@@ -32,7 +32,6 @@ func TestActivityEventStore_AppendAndList(t *testing.T) {
 	assert.Equal(t, first.ID, events[1].ID)
 	assert.Equal(t, map[string]string{"k": "v"}, events[0].Metadata)
 
-	// Paging with a before cursor returns only the older row.
 	older, err := st.ActivityEvents.List(ctx, second.ID, 10)
 	require.NoError(t, err)
 	require.Len(t, older, 1)

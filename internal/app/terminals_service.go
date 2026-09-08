@@ -53,7 +53,6 @@ type TerminalsService struct {
 	foreground func(ctx context.Context, pid int) (bool, error)
 }
 
-// TerminalsDeps is newTerminalsService's constructor argument.
 type TerminalsDeps struct {
 	Manager *tmuxcc.Manager
 	Starter terminalStarter
@@ -141,7 +140,6 @@ func (s *TerminalsService) Start(ctx context.Context, slug string) (bool, error)
 func (s *TerminalsService) startScratch(ctx context.Context) error {
 	home, err := s.home()
 	if err != nil {
-		// unavailable: the OS would not report the user's home directory.
 		return Wrap(err, KindUnavailable, "finding your home directory to open the scratch terminal in")
 	}
 	return terminalError(s.manager.NewSession(ctx, ScratchSlug, home, "", nil), "starting the scratch terminal")
@@ -408,7 +406,6 @@ func terminalError(err error, format string, args ...any) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, tmuxcc.ErrUnavailable):
-		// unavailable: tmux is missing, or too old, on this machine.
 		return Wrap(err, KindUnavailable, format, args...)
 	case errors.Is(err, tmuxcc.ErrInvalidSize), errors.Is(err, tmuxcc.ErrInvalidName), errors.Is(err, tmuxcc.ErrInvalidPosition):
 		return Wrap(err, KindInvalid, format, args...)

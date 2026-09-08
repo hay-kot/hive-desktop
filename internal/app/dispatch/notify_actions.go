@@ -65,14 +65,9 @@ type FlowLister interface {
 	List() []flow.Flow
 }
 
-// FlowNotifyActions is the output worker's ActionLister: it resolves
-// synthetic "notify:<flowId>/<nodeId>" ids from the live flow set and
-// delegates every other id to the authored actions.yml queries.
-//
-// Resolution is late-bound (per lookup, not per construction) for the same
-// reason the producer's source lister and the webhook listener's route table
-// are: flows hot-reload, so an edited title or body applies to the next
-// delivery without a restart.
+// FlowNotifyActions resolves synthetic notify IDs from live flows and
+// delegates other IDs to the authored action catalog. Resolution happens per
+// lookup so flow edits apply without a restart.
 type FlowNotifyActions struct {
 	flows   FlowLister
 	actions ActionLister

@@ -116,30 +116,17 @@ type App struct {
 	Tasks           *TasksService
 	Canvas          *CanvasService
 
-	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
-	// wake-up events for the frontend. Stores and PipelineDB are the two raw
-	// persistence handles a driving adapter may hold: the e2e harness resets
-	// tables through PipelineDB and seeds fixtures through Stores, neither of
-	// which a per-domain service has a reason to expose.
+	// Events is the typed bus adapters project into transport-specific events.
+	// Stores is exposed only so the e2e harness can seed fixtures.
 	Events *events.Bus
 	Stores *datastores.Stores
 
-	// db is the database itself, for the three whole-database operations
-	// that address the file rather than an entity in it: Prune, Compact,
-	// ResetAllState. PipelineDB exposes it to driving adapters that need it
-	// directly (the e2e harness), the same seam HiveConn gives the vendored
-	// action database.
+	// db is retained for whole-database maintenance and the e2e-only PipelineDB
+	// seam.
 	db *queries.DB
 
-	// Domain stores. Nothing outside this package holds these — a bypass
-	// here is exactly the bug this rule exists to prevent: ProfileTray once
-	// wrote through flowStore directly (flowStore.SetEnabled), duplicating
-	// FlowsService.SetEnabled minus its typed-error wrapping and its
-	// notifyUpdated event. A domain's need is a method on its service, not
-	// the store underneath it. Activity and Jobs above are the same rule for
-	// activity_event and job: each service holds its store directly and is
-	// itself the activity.Recorder / jobs.Recorder every other subsystem
-	// holds, so there is no separate unexported store field to bypass.
+	// Domain stores stay private so callers cannot bypass service error mapping
+	// and event publication.
 	actionStore         *actions.ActionStore
 	flowStore           *flow.FlowStore
 	agentWorkspaceStore *agentws.Store
@@ -309,10 +296,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.db = db
 	a.Stores = datastores.New(db, datastores.Options{Logger: cfg.Logger})
 
-	// Activity is shared by every subsystem that reports to the Activity view
-	// (producer, worker, session launcher, config watchers) as the
-	// activity.Recorder it holds, and by the frontend RPC surface that reads
-	// and writes it directly. Jobs is the same shape for jobs.Recorder.
 	a.Activity = newActivityService(a.Stores.ActivityEvents, a.Events, cfg.Logger)
 	a.Jobs = newJobService(a.Stores.Jobs, a.Events, cfg.Logger)
 	if a.fetchers != nil {
@@ -574,13 +557,10 @@ func (a *App) Start(ctx context.Context) error {
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
 
-// MCPBaseURL reports this run's own loopback base URL, or empty when the
-// server is not running. It is what lets a workspace declare an app-hosted
-// entry (hive-desktop, hive-canvas) in its mcps: list and get an address that
-// actually answers — mcpcatalog ships those entries with no URL, because the
-// port is allocated at startup, and the catalogue joins this base with each
-// entry's RuntimePath (ADR mcp-replaces-the-agent-facing-http-api). It
-// satisfies MCPBaseReader.
+// MCPBaseURL returns this run's loopback base URL, or empty while the server
+// is down. App-hosted catalogue entries have no static URL because startup
+// allocates the port; callers join this base with RuntimePath
+// (ADR mcp-replaces-the-agent-facing-http-api).
 func (a *App) MCPBaseURL(ctx context.Context) string {
 	if a.Webhooks == nil {
 		return ""
@@ -856,12 +836,11 @@ func (a *App) PublishFlowsUpdated(reason string) {
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
 }
 
-// RefreshSources drops the fetch caches and drives one producer tick, returning
-// its summary. The engine commits on its own goroutine, so a caller reads back
-// with a short retry. Mock modes have no producer and report the tick unavailable.
+// RefreshSources clears fetch caches and runs one producer tick. Engine commits
+// are asynchronous, so callers should retry reads briefly. Mock modes return
+// KindUnavailable.
 func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
 	if a.producer == nil {
-		// unavailable: mock mode has no fetcher and therefore no producer to tick.
 		return ingest.TickSummary{}, Errorf(KindUnavailable, "source refresh is unavailable in this mode")
 	}
 	if a.fetchers != nil {
@@ -1026,9 +1005,6 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 	return f(ctx, n)
 }
 
-// defaultAgentEnvReader adapts execenv.Resolver's Getenv to DefaultAgentReader,
-// since HIVE_DEFAULT_AGENT is one environment variable among many rather than
-// a method of its own.
 type defaultAgentEnvReader struct{ env *execenv.Resolver }
 
 func (r defaultAgentEnvReader) DefaultAgent(ctx context.Context) string {

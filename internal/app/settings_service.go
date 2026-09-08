@@ -25,15 +25,11 @@ type SettingsService struct {
 	lookPath func(context.Context, string) (string, error)
 }
 
-// SettingsDeps is newSettingsService's constructor argument. Producer and
-// Fetchers are nil in mock mode, where persistence still works and there is
-// simply nothing live to apply a change to.
+// Producer and Fetchers may be nil when no live source subsystem is available.
 type SettingsDeps struct {
 	Store    *settings.Store
 	Producer *ingest.Producer
 	Fetchers *ghsource.Fetchers
-	// LookPath resolves an editor command against the subprocess PATH
-	// (execenv.Resolver.LookPath); nil falls back to this process's own PATH.
 	LookPath func(context.Context, string) (string, error)
 }
 
@@ -41,12 +37,8 @@ func newSettingsService(d SettingsDeps) *SettingsService {
 	return &SettingsService{store: d.Store, producer: d.Producer, fetchers: d.Fetchers, lookPath: d.LookPath}
 }
 
-// NewSettingsService builds a settings-only view of the core's settings
-// service, over the same *settings.Store App itself reads and writes. It
-// exists for a driven port the adapter must construct before App does:
-// app.Config's notification Gate is one of the two arguments New itself
-// needs, so it cannot wait for core.Settings to exist. Nothing built this way
-// calls SetGithub, so a zero Producer and Fetchers cost it nothing.
+// NewSettingsService builds the settings-only service an adapter can use
+// before App exists. It does not wire live source updates.
 func NewSettingsService(store *settings.Store) *SettingsService {
 	return newSettingsService(SettingsDeps{Store: store})
 }

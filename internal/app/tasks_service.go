@@ -21,10 +21,7 @@ type taskSource interface {
 	TaskRepoKeys(ctx context.Context) ([]string, error)
 }
 
-// TasksService is the desktop's tasks view over Hive's hc (Honeycomb) issue
-// tracker. A nil source answers KindUnavailable from every method. Production
-// never builds one: openHiveRuntime's failure is fatal to startup, so the
-// guards exist for the zero value tests construct.
+// A nil source makes every method return KindUnavailable.
 type TasksService struct {
 	source taskSource
 }

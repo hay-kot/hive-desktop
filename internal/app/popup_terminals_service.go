@@ -71,7 +71,6 @@ type PopupTerminalsService struct {
 	catalog   *actions.ActionStore
 }
 
-// PopupTerminalsDeps is newPopupTerminalsService's constructor argument.
 type PopupTerminalsDeps struct {
 	Manager   *ptyterm.Manager
 	Terminals terminalWorkingDirectory
@@ -242,7 +241,6 @@ func popupError(err error, format string, args ...any) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, ptyterm.ErrUnavailable):
-		// unavailable: this build or platform has no PTY support.
 		return Wrap(err, KindUnavailable, format, args...)
 	case errors.Is(err, ptyterm.ErrInvalidSize), errors.Is(err, ptyterm.ErrInvalidSpec):
 		return Wrap(err, KindInvalid, format, args...)

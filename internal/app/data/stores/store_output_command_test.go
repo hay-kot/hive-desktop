@@ -63,8 +63,7 @@ func TestConfirm_KeepsTheRoutedOriginAndFillsAMissingOne(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, routed, claimed.ItemRef(), "a confirm never overwrites the origin the flow recorded")
 
-	// A command enqueued with no item behind it takes the confirming caller's,
-	// whole rather than column by column.
+	// A command with no stored origin takes the caller's complete ItemRef.
 	_, err = db.Conn().ExecContext(ctx,
 		`INSERT INTO output_command (action_id, key, payload, status, created_at) VALUES ('shell-it', 'oc-2', CAST('{}' AS BLOB), 'pending', 1)`)
 	require.NoError(t, err)
@@ -129,10 +128,8 @@ func TestListRunnableOutputCommands_RespectsLimit(t *testing.T) {
 	assert.Equal(t, "k1", rows[0].Key)
 }
 
-// TestConfirmOutputCommandDeduplicatesExistingCommand guards the dedup
-// fallback behind UNIQUE (action_id, key): a sql.ErrNoRows from the guarded
-// UPDATE falls back to the latest existing command with created=false, which
-// is what stops an already-run action re-firing.
+// A guarded conflict returns the existing command with created=false, so an
+// already-running or completed action cannot fire again.
 func TestConfirmOutputCommandDeduplicatesExistingCommand(t *testing.T) {
 	st, _ := openTestStores(t)
 	ctx := t.Context()
@@ -156,11 +153,8 @@ func TestConfirmOutputCommandDeduplicatesExistingCommand(t *testing.T) {
 	assert.JSONEq(t, `{"v":4}`, string(rerun.Payload))
 }
 
-// TestRerunOutputCommandRequiresPriorRun guards RerunOutputCommand's
-// deliberate classification of "no completed prior run" as not-found: the
-// message is now the store's generic NotFoundError text, but the
-// classification -- IsNotFound true, still unwraps to sql.ErrNoRows -- is
-// the meaning that has to survive.
+// No completed prior run is a not-found result: IsNotFound must stay true and
+// the error must continue to unwrap to sql.ErrNoRows.
 func TestRerunOutputCommandRequiresPriorRun(t *testing.T) {
 	st, _ := openTestStores(t)
 

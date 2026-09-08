@@ -84,8 +84,6 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	require.NotNil(t, harness)
 	h := SmokeMiddleware(db, appstores.New(db, appstores.Options{}), core.Conn(), harness, nil)(http.NotFoundHandler())
 
-	// Mutate durable state the way a test run does: read state, event log,
-	// consumer checkpoint, source head, commands, activity, jobs, node runs.
 	var itemID, revision int64
 	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT id, revision FROM inbox_item WHERE external_id = 'pr2841'`).Scan(&itemID, &revision))

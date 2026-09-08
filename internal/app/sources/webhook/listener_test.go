@@ -40,8 +40,6 @@ func fakeInstances(instances ...connector.Instance) Instances {
 	return func() []connector.Instance { return instances }
 }
 
-// notifierFunc adapts a plain function to LogAppendNotifier, the same shape
-// http.HandlerFunc gives http.Handler.
 type notifierFunc func(offset int64)
 
 func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
@@ -59,8 +57,6 @@ func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *quer
 	return listener, db, &lastOffset
 }
 
-// readForConsumer is ReadForConsumer's test-side equivalent, now that it
-// lives on stores.EventLogStore rather than *queries.DB.
 func readForConsumer(db *queries.DB, ctx context.Context, consumer string, limit int) ([]models.Msg, error) {
 	return stores.New(db, stores.Options{}).EventLog.ReadForConsumer(ctx, consumer, limit)
 }

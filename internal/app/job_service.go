@@ -15,9 +15,7 @@ const (
 	jobMaxListLimit     = 1000
 )
 
-// JobService owns live action-run jobs: the frontend's read surface, the
-// jobs.Recorder port the output worker holds, and sessionJobRunner's Track
-// for tracked background session work.
+// JobService persists jobs and implements jobs.Recorder for background work.
 type JobService struct {
 	store  *stores.JobStore
 	events *events.Bus
@@ -28,7 +26,7 @@ func newJobService(store *stores.JobStore, bus *events.Bus, logger zerolog.Logge
 	return &JobService{store: store, events: bus, log: logger}
 }
 
-// List returns up to limit jobs with id < before, newest first.
+// List defaults limits outside 1..1000 to 200.
 func (s *JobService) List(ctx context.Context, before int64, limit int) ([]jobs.Job, error) {
 	if limit <= 0 || limit > jobMaxListLimit {
 		limit = jobDefaultListLimit
@@ -50,8 +48,7 @@ func (s *JobService) ListActive(ctx context.Context) ([]jobs.Job, error) {
 	return jobsFromStore(rows), nil
 }
 
-// Begin implements jobs.Recorder: it creates a queued job and returns its
-// id, or zero after logging a persistence failure.
+// Persistence failures are logged and return zero.
 func (s *JobService) Begin(ctx context.Context, label, actionID, target string) int64 {
 	job, err := s.store.Insert(ctx, stores.JobCreate{
 		Status: jobs.JobStatusQueued.String(), Label: label, Step: jobs.StepFor(jobs.JobStatusQueued),
@@ -65,9 +62,7 @@ func (s *JobService) Begin(ctx context.Context, label, actionID, target string) 
 	return job.ID
 }
 
-// Running implements jobs.Recorder: it advances a job to running and links
-// its output_command id. A zero id is a safe no-op for a caller whose Begin
-// failed or whose recorder is off.
+// Running links the job to its output command. A zero job ID is a no-op.
 func (s *JobService) Running(ctx context.Context, id int64, commandID int64) {
 	if id == 0 {
 		return
@@ -79,9 +74,7 @@ func (s *JobService) Running(ctx context.Context, id int64, commandID int64) {
 	s.events.Publish(ctx, events.JobsUpdated{JobID: id})
 }
 
-// Resume implements jobs.Recorder: it returns the running job linked to
-// commandID, or zero when none can be restored. Lookup failures are logged
-// and treated as no match so job tracking never derails command work.
+// Missing jobs and lookup failures return zero; failures are logged.
 func (s *JobService) Resume(ctx context.Context, commandID int64) int64 {
 	job, found, err := s.store.FindRunningByCommand(ctx, commandID)
 	if err != nil {
@@ -94,28 +87,21 @@ func (s *JobService) Resume(ctx context.Context, commandID int64) int64 {
 	return job.ID
 }
 
-// Done implements jobs.Recorder: it advances a job to done. A zero id is a
-// safe no-op.
+// A zero ID is a no-op.
 func (s *JobService) Done(ctx context.Context, id int64) {
 	s.setStatus(ctx, id, jobs.JobStatusDone, "")
 }
 
-// Fail implements jobs.Recorder: it advances a job to failed with reason. A
-// zero id is a safe no-op.
+// A zero ID is a no-op.
 func (s *JobService) Fail(ctx context.Context, id int64, reason string) {
 	s.setStatus(ctx, id, jobs.JobStatusFailed, reason)
 }
 
-// Track runs fn as a live background job — begin queued, mark running, then
-// record done or failed by fn's result — and returns the job id. fn runs on a
-// context detached from the caller's, so the work survives the request that
-// started it (an RPC handler returns immediately). The job is not linked to an
-// output_command, so it shows in the jobs UI without a deep-link. Persistence
-// failures never derail fn.
+// Track starts fn asynchronously on a context detached from caller
+// cancellation. Persistence failures do not stop fn.
 //
-// Do not call Track from inside Stores.Tx: context.WithoutCancel
-// copies context values, including a transaction, into the goroutine, and no
-// store call may run on a goroutine that did not open the transaction.
+// Do not call Track inside Stores.WithinTx: context.WithoutCancel preserves
+// transaction values, which must not cross into Track's goroutine.
 func (s *JobService) Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64 {
 	id := s.Begin(ctx, label, actionID, target)
 	bg := context.WithoutCancel(ctx)

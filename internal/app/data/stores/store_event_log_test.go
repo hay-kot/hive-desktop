@@ -23,7 +23,6 @@ func TestAppend_ReadFrom_Monotonic(t *testing.T) {
 		offsets = append(offsets, offset)
 	}
 
-	// Offsets are strictly increasing.
 	for i := 1; i < len(offsets); i++ {
 		assert.Greater(t, offsets[i], offsets[i-1])
 	}
@@ -41,13 +40,11 @@ func TestAppend_ReadFrom_Monotonic(t *testing.T) {
 		assert.Equal(t, fmt.Sprintf("%d", offsets[i]), msg.ID)
 	}
 
-	// Reading from the last offset returns nothing new and leaves nextOffset unchanged.
 	msgs, next, err = st.EventLog.ReadFrom(ctx, offsets[2], 10)
 	require.NoError(t, err)
 	assert.Empty(t, msgs)
 	assert.Equal(t, offsets[2], next)
 
-	// Paged reads resume correctly.
 	msgs, next, err = st.EventLog.ReadFrom(ctx, offsets[0], 1)
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)

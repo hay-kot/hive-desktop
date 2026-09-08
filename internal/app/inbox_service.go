@@ -26,7 +26,6 @@ type InboxService struct {
 	worker   *dispatch.Worker
 }
 
-// InboxDeps is newInboxService's constructor argument.
 type InboxDeps struct {
 	Items    *stores.InboxItemStore
 	Commands *stores.OutputCommandStore
@@ -44,8 +43,6 @@ func (s *InboxService) ListByFeed(ctx context.Context, profileID, feedID string,
 	return items, Wrap(err, KindInternal, "listing feed %q", feedID)
 }
 
-// ListArchivedByFeed returns a feed's archived section, loaded
-// lazily when the user expands the archived divider.
 func (s *InboxService) ListArchivedByFeed(ctx context.Context, profileID, feedID string, limit int) ([]stores.InboxItem, error) {
 	items, err := s.items.ListArchivedByFeed(ctx, profileID, feedID, limit)
 	return items, Wrap(err, KindInternal, "listing archived items in feed %q", feedID)
@@ -57,24 +54,19 @@ func (s *InboxService) ListTrash(ctx context.Context, profileID string, limit in
 	return items, Wrap(err, KindInternal, "listing trash for %q", profileID)
 }
 
-// Feed returns the feed that holds an item, or "" when no feed
-// claims it (an unrouted item, shown in Trash). It is what turns a clicked
-// notification into a route that reveals the item.
+// Feed returns the claiming feed, or empty for an unrouted item.
 func (s *InboxService) Feed(ctx context.Context, profileID string, itemID int64) (string, error) {
 	feedID, err := s.items.FeedIDForItem(ctx, profileID, itemID)
 	return feedID, Wrap(err, KindInternal, "resolving the feed for item %d", itemID)
 }
 
-// Feeds resolves the claiming feed of each item in one query, for
-// callers that list items flat (the agent API) and need each item's feed.
 func (s *InboxService) Feeds(ctx context.Context, itemIDs []int64) (map[int64]string, error) {
 	feeds, err := s.items.FeedIDsForItems(ctx, itemIDs)
 	return feeds, Wrap(err, KindInternal, "resolving feeds for %d items", len(itemIDs))
 }
 
-// Events lists one item's lifecycle events. An item with no events
-// yet and an item id that matches nothing are different answers: the second is
-// KindNotFound, so a caller reading an empty list knows it read the right item.
+// Events returns KindNotFound when the item does not exist; an existing item
+// can have an empty event list.
 func (s *InboxService) Events(ctx context.Context, itemID int64, limit int) ([]stores.InboxEvent, error) {
 	if err := s.requireItem(ctx, itemID); err != nil {
 		return nil, err
@@ -89,8 +81,6 @@ func (s *InboxService) requireItem(ctx context.Context, itemID int64) error {
 	return err
 }
 
-// getItem reads one inbox item, mapping a missing row onto KindNotFound once
-// for every caller.
 func (s *InboxService) getItem(ctx context.Context, itemID int64) (stores.InboxItem, error) {
 	item, err := s.items.GetByID(ctx, itemID)
 	if stores.IsNotFound(err) {
@@ -104,9 +94,8 @@ func (s *InboxService) SetUnread(ctx context.Context, itemID, revision int64, un
 	return item, s.itemWriteError(err, itemID)
 }
 
-// MarkRead clears unread for a whole scope in one write: the named
-// feed, or every feed in the workspace when feedID is empty. Archived and
-// ignored items keep their state. It returns how many items were cleared.
+// MarkRead clears unread in one feed, or the whole profile when feedID is
+// empty. Archived and ignored items retain their state.
 func (s *InboxService) MarkRead(ctx context.Context, profileID, feedID string) (int64, error) {
 	n, err := s.items.MarkRead(ctx, profileID, feedID)
 	return n, Wrap(err, KindInternal, "marking items read in %q", profileID)
@@ -309,8 +298,6 @@ func (s *InboxService) NodeRuns(ctx context.Context, flowID string, limit int) (
 	return runs, Wrap(err, KindInternal, "listing node runs for flow %q", flowID)
 }
 
-// ActionRun decodes one output_command row into a view. It owns the result
-// decode.
 func (s *InboxService) ActionRun(ctx context.Context, commandID int64) (dispatch.ActionRunView, error) {
 	row, err := s.commands.Get(ctx, commandID)
 	if err != nil {

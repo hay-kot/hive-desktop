@@ -17,12 +17,8 @@ import (
 // grow with the input; the cap is reported rather than applied silently.
 const maxConsoleLines = 1000
 
-// DryRunResult is one dry run's observation of the graph: what every node that
-// received a message did with it, and what the run *would* have committed.
-//
-// It is deliberately not a models.CommitBatch. A CommitBatch is something a
-// caller can apply, and handing one back from a dry run would make "execute
-// this flow without touching live state" one call away from not being true.
+// DryRunResult is not a models.CommitBatch, so callers cannot accidentally
+// commit a preview.
 type DryRunResult struct {
 	// Nodes is one entry per node a message reached, in execution order.
 	Nodes []NodeTrace `json:"nodes"`

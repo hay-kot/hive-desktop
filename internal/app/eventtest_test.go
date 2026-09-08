@@ -16,7 +16,6 @@ import (
 // after the call that publishes would race it.
 const eventWait = 2 * time.Second
 
-// newTestBus builds a bus for a service under test, closed at test end.
 func newTestBus(t *testing.T) *events.Bus {
 	t.Helper()
 	bus := events.New(zerolog.Nop())
@@ -24,7 +23,6 @@ func newTestBus(t *testing.T) *events.Bus {
 	return bus
 }
 
-// subscribeEvents collects every E a bus publishes into a buffered channel.
 func subscribeEvents[E events.Event](t *testing.T, bus *events.Bus) <-chan E {
 	t.Helper()
 	ch := make(chan E, 64)
@@ -53,7 +51,6 @@ func requireEvents[E any](t *testing.T, ch <-chan E, want int) []E {
 	return got
 }
 
-// requireNoMoreEvents fails if another event arrives shortly after.
 func requireNoMoreEvents[E any](t *testing.T, ch <-chan E) {
 	t.Helper()
 	select {

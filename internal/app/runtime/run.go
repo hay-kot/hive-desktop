@@ -35,8 +35,8 @@ type snapshotContext struct {
 // page. That is the invariant the commit protocol's idempotency rests on: a
 // message the graph has no use for still moves the cursor.
 //
-// Run does not commit anything. A caller that wants the batch applied passes
-// it to models.CommitBatch; a caller previewing a flow simply reads it.
+// Run only prepares a batch; it does not persist outputs or advance the
+// consumer.
 func (r *Runner) Run(ctx context.Context, batch []models.Msg) (models.CommitBatch, error) {
 	return r.run(ctx, batch, false)
 }
@@ -431,11 +431,6 @@ func emptyPorts(ports [][]models.Msg) bool {
 // this is normally the last message; taking the maximum rather than the last
 // keeps the result correct for a caller that assembled a batch itself, which
 // the replay protocol does.
-//
-// msg.ID stays a string end to end (see models.Msg), so every message's offset
-// is parsed back out here; the batch sizes this runs over do not make it
-// worth carrying a parallel unexported offset field just to skip a strconv
-// call.
 func upToOffset(batch []models.Msg) int64 {
 	var highest int64
 	for _, msg := range batch {

@@ -12,8 +12,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
-// defaultAgentFunc adapts a plain function to DefaultAgentReader, the same
-// shape http.HandlerFunc gives http.Handler.
 type defaultAgentFunc func(context.Context) string
 
 func (f defaultAgentFunc) DefaultAgent(ctx context.Context) string { return f(ctx) }

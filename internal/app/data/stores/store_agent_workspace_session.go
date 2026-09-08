@@ -8,8 +8,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// AgentSessionStore owns agent_workspace_session: the launch table an agent
-// workspace terminal is resolved from and reattached through.
 type AgentSessionStore struct {
 	q      *queries.DB
 	now    func() time.Time
@@ -20,28 +18,23 @@ func NewAgentSessionStore(q *queries.DB, opts Options) *AgentSessionStore {
 	return &AgentSessionStore{q: q, now: opts.Now, mapper: mapAgentSessionFromDB}
 }
 
-// List returns one workspace's sessions, newest record first -- creation
-// order, so a resume never reorders the list.
+// Creation order stays stable when a session resumes.
 func (s *AgentSessionStore) List(ctx context.Context, workspace string) ([]AgentSession, error) {
 	rows, err := s.q.Ctx(ctx).ListAgentWorkspaceSessions(ctx, workspace)
 	return s.mapper.SliceErr(rows, wrap("listing agent workspace sessions", err))
 }
 
-// ListAll returns every session across every workspace, newest record
-// first: the same stable creation order List uses.
 func (s *AgentSessionStore) ListAll(ctx context.Context) ([]AgentSession, error) {
 	rows, err := s.q.Ctx(ctx).ListAllAgentWorkspaceSessions(ctx)
 	return s.mapper.SliceErr(rows, wrap("listing all agent workspace sessions", err))
 }
 
-// Get reads one session by id; a missing row is a NotFoundError.
+// A missing session returns NotFoundError.
 func (s *AgentSessionStore) Get(ctx context.Context, id int64) (AgentSession, error) {
 	row, err := s.q.Ctx(ctx).GetAgentWorkspaceSession(ctx, id)
 	return s.mapper.Err(row, errTransformQueryOne("agent_workspace_session", fmt.Sprint(id), err))
 }
 
-// Create persists one session and returns the stored row with its assigned
-// id, stamping CreatedAt and LastOpenedAt with the store's own clock.
 func (s *AgentSessionStore) Create(ctx context.Context, in AgentSessionCreate) (AgentSession, error) {
 	now := s.now().UnixMilli()
 	row, err := s.q.Ctx(ctx).InsertAgentWorkspaceSession(ctx, queries.InsertAgentWorkspaceSessionParams{
@@ -51,7 +44,7 @@ func (s *AgentSessionStore) Create(ctx context.Context, in AgentSessionCreate) (
 	return s.mapper.Err(row, wrap("creating agent workspace session", err))
 }
 
-// Touch advances a session's last_opened_at, the signal its ordering reads.
+// LastOpenedAt controls session ordering.
 func (s *AgentSessionStore) Touch(ctx context.Context, id, at int64) error {
 	return wrap("touching agent workspace session", s.q.Ctx(ctx).TouchAgentWorkspaceSession(ctx, queries.TouchAgentWorkspaceSessionParams{
 		LastOpenedAt: at,
@@ -69,8 +62,7 @@ func (s *AgentSessionStore) SetAgentID(ctx context.Context, id int64, agentSessi
 	}))
 }
 
-// Rename sets a session's display name. Presentation only: the tmux session
-// name derives from the id, so a rename never touches a live terminal.
+// Display names do not affect the ID-derived tmux session name.
 func (s *AgentSessionStore) Rename(ctx context.Context, id int64, name string) error {
 	return wrap("renaming agent workspace session", s.q.Ctx(ctx).RenameAgentWorkspaceSession(ctx, queries.RenameAgentWorkspaceSessionParams{
 		Name: name,
@@ -78,16 +70,13 @@ func (s *AgentSessionStore) Rename(ctx context.Context, id int64, name string) e
 	}))
 }
 
-// Delete removes one session record. A record deleted around a live
-// terminal orphans a running agent, so the caller closes the terminal
-// first (AgentWorkspacesService.DeleteSession).
+// Callers must close the live terminal first to avoid orphaning its agent.
 func (s *AgentSessionStore) Delete(ctx context.Context, id int64) error {
 	return wrap("deleting agent workspace session", s.q.Ctx(ctx).DeleteAgentWorkspaceSession(ctx, id))
 }
 
-// DeleteByWorkspace removes every session record for a workspace. Removing
-// the directory those records name is the service's job
-// (AgentWorkspacesService.DeleteWorkspace); this is the history alone.
+// Workspace deletion removes the directory separately; this deletes session
+// history only.
 func (s *AgentSessionStore) DeleteByWorkspace(ctx context.Context, workspace string) error {
 	return wrap("deleting agent workspace sessions by workspace", s.q.Ctx(ctx).DeleteAgentWorkspaceSessionsByWorkspace(ctx, workspace))
 }

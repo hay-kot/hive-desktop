@@ -27,8 +27,6 @@ func openTestPipelineDB(t *testing.T) *queries.DB {
 	return db
 }
 
-// testOutputCommands builds the OutputCommandStore NewWorker takes, over the
-// same database handle a test's fixtures write through.
 func testOutputCommands(db *queries.DB) *stores.OutputCommandStore {
 	return stores.New(db, stores.Options{}).OutputCommands
 }

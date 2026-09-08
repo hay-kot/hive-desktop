@@ -61,9 +61,6 @@ func testScripts() *runtime.ScriptRegistry {
 	return scripts
 }
 
-// testFlowsService fills in a bus when the caller does not need to assert on
-// one, so every construction gets a non-nil events.Bus without every test
-// having to say so.
 func testFlowsService(t *testing.T, d FlowsDeps) *FlowsService {
 	t.Helper()
 	if d.Events == nil {
@@ -268,9 +265,6 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	assert.Zero(t, count)
 }
 
-// purgeProfileFixture is one row seeded into every table purgeProfile
-// touches, keyed so a later assertion can tell a purged profile's rows from
-// an untouched one's.
 type purgeProfileFixture struct {
 	itemID int64
 	topic  string
@@ -306,9 +300,6 @@ func seedPurgeProfileRows(t *testing.T, db *queries.DB, profileID string) purgeP
 	return purgeProfileFixture{itemID: item.ID, topic: topic}
 }
 
-// assertPurgeProfileRowCounts checks all eight tables purgeProfile touches
-// (inbox_event and feed_membership_claim indirectly, through inbox_item's
-// cascade) against want, for the profile fx was seeded under.
 func assertPurgeProfileRowCounts(t *testing.T, db *queries.DB, profileID string, fx purgeProfileFixture, want int) {
 	t.Helper()
 	ctx := t.Context()
@@ -328,9 +319,6 @@ func assertPurgeProfileRowCounts(t *testing.T, db *queries.DB, profileID string,
 	assertCount("node_kv", `SELECT COUNT(*) FROM node_kv WHERE flow_id = ?`, profileID)
 }
 
-// FlowsService.purgeProfile is the worked example of clause 3: deleting a
-// profile spans eight tables no aggregate owns together, so it is a service
-// operation opening Stores.WithinTx rather than a store method.
 func TestFlowsServicePurgeProfile_DeletesEveryOwnedRowAndLeavesOtherProfilesIntact(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)

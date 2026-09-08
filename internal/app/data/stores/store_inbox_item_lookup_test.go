@@ -108,12 +108,10 @@ func TestInboxItemStore_FeedIDForItem(t *testing.T) {
 	ctx := t.Context()
 	itemID := seedLookupItem(t, db, ctx, "item-1")
 
-	// An unrouted item belongs to no feed; the UI shows it in Trash.
 	feedID, err := st.InboxItems.FeedIDForItem(ctx, "flow-1", itemID)
 	require.NoError(t, err)
 	assert.Empty(t, feedID)
 
-	// Several feeds may claim one item; the answer is stable across calls.
 	for _, claim := range []string{"flow-1/team", "flow-1/all"} {
 		require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{
 			ProfileID: "flow-1", FeedID: claim, ItemID: itemID, SourceID: "source:flow-1/source-a",
@@ -123,7 +121,6 @@ func TestInboxItemStore_FeedIDForItem(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "flow-1/all", feedID)
 
-	// Another workspace's claim is never returned.
 	feedID, err = st.InboxItems.FeedIDForItem(ctx, "other-flow", itemID)
 	require.NoError(t, err)
 	assert.Empty(t, feedID)

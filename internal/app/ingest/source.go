@@ -15,9 +15,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
-// Msg is the pipeline's generic log record. It is models.Msg verbatim — a
-// connector builds one per item and Producer appends it as-is, so there is no
-// separate wire type to keep in sync.
 type Msg = models.Msg
 
 // Sources is what a producer tick needs from the connector registry. Declared
@@ -40,20 +37,17 @@ type FlowLister interface {
 	List() []flow.Flow
 }
 
-// Ingester is the cross-table write a Producer drives every tick. Satisfied
-// by *stores.InboxItemStore.
+// Ingester atomically updates inbox state, source head, and event log for one
+// observation.
 type Ingester interface {
 	IngestObservation(ctx context.Context, classifier models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error)
 }
 
-// SnapshotAppender appends a source's authoritative item set after a
-// successful poll. Satisfied by *stores.EventLogStore.
+// SnapshotAppender persists authoritative source state for feed replay.
 type SnapshotAppender interface {
 	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (offset int64, err error)
 }
 
-// SourceHeads is what a Producer needs to detect and evict absent items.
-// Satisfied by *stores.SourceHeadStore.
 type SourceHeads interface {
 	ListActiveKeys(ctx context.Context, id stores.SourceIdentity) ([]string, error)
 	Payload(ctx context.Context, topic, key string) ([]byte, error)

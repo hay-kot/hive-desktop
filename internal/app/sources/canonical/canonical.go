@@ -34,8 +34,6 @@ var terminalStates = map[string]bool{"resolved": true, "closed": true, "done": t
 
 // State extracts the canonical top-level `state` from a payload: lowercased
 // and trimmed; "" for non-object payloads or a missing/non-string state.
-// Delegates to models.CanonicalFields — no second copy of the canonical-field
-// parsing.
 func State(payload []byte) string {
 	_, _, state := models.CanonicalFields(payload)
 	return strings.ToLower(strings.TrimSpace(state))

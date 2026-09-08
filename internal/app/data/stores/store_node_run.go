@@ -9,8 +9,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// NodeRunStore owns node_run: per-node execution metrics recorded on every
-// commit, read back for the flows canvas.
 type NodeRunStore struct {
 	q *queries.DB
 }
@@ -19,9 +17,6 @@ func NewNodeRunStore(q *queries.DB, _ Options) *NodeRunStore {
 	return &NodeRunStore{q: q}
 }
 
-// List returns up to limit of a flow's most recent node_run rows, newest
-// first. The frontend canvas derives each node's latest status and a RECENT
-// activity list from this single page rather than querying per-node.
 func (s *NodeRunStore) List(ctx context.Context, flowID string, limit int) ([]NodeRunRecord, error) {
 	rows, err := s.q.Ctx(ctx).ListNodeRunsByFlow(ctx, queries.ListNodeRunsByFlowParams{
 		FlowID: flowID,
@@ -48,10 +43,8 @@ func (s *NodeRunStore) List(ctx context.Context, flowID string, limit int) ([]No
 	return runs, nil
 }
 
-// Insert records one node's per-tick execution metrics, stamped with
-// endedAt. Used by EventLogStore.Commit inside its transaction; endedAt is
-// the caller's clock reading rather than this store's, so every node run in
-// one commit shares the same timestamp.
+// endedAt comes from the caller so all node runs in one commit share a
+// timestamp.
 func (s *NodeRunStore) Insert(ctx context.Context, run models.NodeRun, endedAt int64) error {
 	var errCol sql.NullString
 	if run.Err != "" {

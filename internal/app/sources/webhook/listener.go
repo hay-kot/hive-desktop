@@ -22,29 +22,20 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
-// Ingester is the subset of InboxItemStore a webhook delivery needs to
-// record an observation. Satisfied by *stores.InboxItemStore.
 type Ingester interface {
 	IngestObservation(ctx context.Context, classifier models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error)
 }
 
-// SnapshotAppender appends a source's authoritative item set after a
-// delivery changes something, so startup/deploy replay resolves this
-// source's feed claims. Satisfied by *stores.EventLogStore.
+// SnapshotAppender persists authoritative source state after a delivery
+// changes an item, so replay can restore feed claims.
 type SnapshotAppender interface {
 	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (offset int64, err error)
 }
 
-// CaptureStore records the last request body delivered to a webhook source
-// node, for the flow editor's capture affordance. Satisfied by
-// *stores.WebhookCaptureStore.
 type CaptureStore interface {
 	Upsert(ctx context.Context, topic string, receivedAt int64, body []byte) error
 }
 
-// InboxItemLister lists the unarchived items behind one connector instance,
-// for building the snapshot a delivery appends. Satisfied by
-// *stores.InboxItemStore.
 type InboxItemLister interface {
 	ListUnarchivedBySource(ctx context.Context, profileID, sourceKind, sourceScope string) ([]stores.InboxItem, error)
 }
@@ -95,19 +86,13 @@ type mount struct {
 	handler http.Handler
 }
 
-// LogAppendNotifier is told the log grew after a delivery appends event-log
-// rows. The implementation wakes the flow engine synchronously and then
-// announces on the bus (*app.App.PublishLogAppended). It is deliberately not
-// a bus publish here: the wake is a latch on the pipeline's routing path, and
-// every bus subscriber in this app coalesces, which would change when a
-// burst of deliveries actually gets routed.
+// LogAppendNotifier must wake the flow engine synchronously. A bus event is
+// insufficient because subscribers coalesce bursts and could delay routing.
 type LogAppendNotifier interface {
 	PublishLogAppended(nextOffset int64)
 }
 
-// NewListener builds a listener bound to host:port at Start. Configuration
-// validation limits host to loopback. notifier is told after a delivery
-// appends event-log rows so the core can wake the flow engine.
+// NewListener assumes host has passed loopback-only configuration validation.
 func NewListener(ingester Ingester, snapshots SnapshotAppender, captures CaptureStore, items InboxItemLister, instances Instances, host string, port int, notifier LogAppendNotifier, logger zerolog.Logger) *Listener {
 	return &Listener{
 		ingester: ingester, snapshots: snapshots, captures: captures, items: items,

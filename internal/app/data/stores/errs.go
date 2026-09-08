@@ -21,7 +21,6 @@ func (e NotFoundError) Error() string {
 
 func (e NotFoundError) Unwrap() error { return e.err }
 
-// IsNotFound reports whether err is a NotFoundError, however deeply wrapped.
 func IsNotFound(err error) bool {
 	var notFound NotFoundError
 	return errors.As(err, &notFound)
@@ -34,10 +33,8 @@ func IsNotFound(err error) bool {
 // conflict starts silently reporting the item as deleted instead.
 var ErrStale = errors.New("stale revision")
 
-// errTransformQueryOne turns sql.ErrNoRows from a single-row query into a
-// NotFoundError carrying entity and key for the message. Any other error
-// passes through unchanged. Never call this on a revision-guarded UPDATE —
-// see ErrStale.
+// Do not use this for revision-guarded updates; their sql.ErrNoRows means
+// ErrStale.
 func errTransformQueryOne(entity, key string, err error) error {
 	if err == nil {
 		return nil
@@ -48,9 +45,6 @@ func errTransformQueryOne(entity, key string, err error) error {
 	return err
 }
 
-// errTransformQueryMany swallows sql.ErrNoRows from a multi-row query: no
-// rows is an empty result, not a failure. Any other error passes through
-// unchanged.
 func errTransformQueryMany(err error) error {
 	if err == nil {
 		return nil
@@ -61,7 +55,6 @@ func errTransformQueryMany(err error) error {
 	return err
 }
 
-// wrap prefixes err with msg; nil in, nil out.
 func wrap(msg string, err error) error {
 	if err == nil {
 		return nil
@@ -69,6 +62,4 @@ func wrap(msg string, err error) error {
 	return fmt.Errorf("%s: %w", msg, err)
 }
 
-// null converts a plain string into the sql.NullString a generated params
-// struct expects, valid whenever the value is non-empty.
 func null(v string) sql.NullString { return sql.NullString{String: v, Valid: v != ""} }

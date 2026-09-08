@@ -84,9 +84,8 @@ type AgentWorkspacesService struct {
 	mcpBase MCPBaseReader
 }
 
-// EditorCommandReader reads the configured editor on every call, so a
-// settings change applies without a restart. Empty means none configured.
-// *SettingsService satisfies it structurally.
+// EditorCommandReader reads the configured editor on each call, so settings
+// changes take effect without a restart. Empty means no configured editor.
 type EditorCommandReader interface {
 	Editor(ctx context.Context) (string, error)
 }
@@ -97,14 +96,10 @@ type MCPBaseReader interface {
 	MCPBaseURL(ctx context.Context) string
 }
 
-// NopMCPBaseReader answers no loopback base URL, which reads as the MCP
-// server being down. newAgentWorkspacesService substitutes it for a nil
-// MCPBase.
 type NopMCPBaseReader struct{}
 
 func (NopMCPBaseReader) MCPBaseURL(context.Context) string { return "" }
 
-// AgentWorkspacesDeps is newAgentWorkspacesService's constructor argument.
 type AgentWorkspacesDeps struct {
 	Store           *agentws.Store
 	Terminals       *tmuxcc.Manager
@@ -454,8 +449,6 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 // persisted a conversation for (closed before its first message) also
 // relaunches fresh, silently, instead of dying on the agent's own
 // unknown-session error.
-// getSession loads one session record, mapping a missing row onto
-// KindNotFound once for every caller.
 func (s *AgentWorkspacesService) getSession(ctx context.Context, id int64) (stores.AgentSession, error) {
 	rec, err := s.sessions.Get(ctx, id)
 	if stores.IsNotFound(err) {

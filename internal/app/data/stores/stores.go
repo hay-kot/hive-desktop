@@ -9,10 +9,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
-// Stores constructs every store over one database handle and offers the one
-// transaction entry point a service is allowed to use. It does nothing else:
-// no seeding, no migrations, no cross-store work. A write spanning two
-// aggregates is a service opening Tx, not a method here.
+// Stores provides shared store instances and the transaction boundary for
+// service writes that span aggregates.
 type Stores struct {
 	q *queries.DB
 
@@ -30,7 +28,6 @@ type Stores struct {
 	WebhookCaptures *WebhookCaptureStore
 }
 
-// Options configures every store built by New. Both fields are optional.
 type Options struct {
 	// Now supplies write timestamps; defaults to time.Now.
 	Now func() time.Time
@@ -46,8 +43,6 @@ func (o Options) withDefaults() Options {
 	return o
 }
 
-// New builds every store over q. It is cheap enough to call as part of
-// construction; nothing here touches the database.
 func New(q *queries.DB, opts Options) *Stores {
 	opts = opts.withDefaults()
 
@@ -58,10 +53,8 @@ func New(q *queries.DB, opts Options) *Stores {
 	commands := NewOutputCommandStore(q, opts)
 	sessions := NewItemSessionStore(q, opts)
 
-	// InboxItemStore and EventLogStore call into each other --
-	// IngestObservation appends through the log, Commit and ActivateReplay
-	// resolve and mint through the inbox -- so neither can be fully built
-	// before the other exists. items.log is wired in once log exists.
+	// Ingest appends through EventLogStore, while commit and replay resolve
+	// items through InboxItemStore, so the stores form a cycle.
 	items := NewInboxItemStore(q, opts, heads, sessions)
 	log := NewEventLogStore(q, opts, items, claims, kv, runs, commands)
 	items.log = log
@@ -84,10 +77,8 @@ func New(q *queries.DB, opts Options) *Stores {
 	}
 }
 
-// WithinTx runs fn inside one transaction, joining an ambient one if ctx
-// already carries it. Only the outermost caller commits or rolls back. It is
-// the transaction entry point for a service whose operation spans aggregates
-// (clause 3), so no service imports the queries package.
+// WithinTx joins an ambient transaction; only the outermost call commits or
+// rolls back.
 func (s *Stores) WithinTx(ctx context.Context, fn func(context.Context) error) error {
 	return s.q.WithinTx(ctx, func(ctx context.Context, _ *queries.DB) error { return fn(ctx) })
 }

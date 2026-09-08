@@ -16,8 +16,6 @@ const (
 	outputCommandTruncatedMarker = "\n... (truncated)"
 )
 
-// OutputCommandStore owns output_command: the queue of enqueued and
-// completed action invocations the dispatch worker drains.
 type OutputCommandStore struct {
 	q   *queries.DB
 	now func() time.Time
@@ -27,8 +25,6 @@ func NewOutputCommandStore(q *queries.DB, opts Options) *OutputCommandStore {
 	return &OutputCommandStore{q: q, now: opts.Now}
 }
 
-// ListRunnableAfter returns runnable commands with id > afterID, oldest
-// first, bounded by limit -- a worker's paged scan.
 func (s *OutputCommandStore) ListRunnableAfter(ctx context.Context, afterID int64, limit int) ([]OutputCommand, error) {
 	rows, err := s.q.Ctx(ctx).ListRunnableOutputCommandsAfter(ctx, queries.ListRunnableOutputCommandsAfterParams{ID: afterID, Limit: int64(limit)})
 	if err != nil {
@@ -37,10 +33,8 @@ func (s *OutputCommandStore) ListRunnableAfter(ctx context.Context, afterID int6
 	return MapFunc[queries.OutputCommand, OutputCommand](mapOutputCommandFromDB).Slice(rows), nil
 }
 
-// Enqueue records a flow-produced action or notify invocation, deduplicated
-// on (actionID, key) by the unique index a replayed commit relies on so the
-// same batch replayed twice never fires an action twice. Used by
-// EventLogStore.Commit.
+// The unique (actionID, key) pair prevents replayed batches from firing an
+// action twice.
 func (s *OutputCommandStore) Enqueue(ctx context.Context, actionID, key string, payload []byte, createdAt int64, ref models.ItemRef) error {
 	return wrap("enqueuing output command", s.q.Ctx(ctx).EnqueueOutputCommand(ctx, queries.EnqueueOutputCommandParams{
 		ActionID: actionID, Key: key, Payload: payload, CreatedAt: createdAt,
@@ -48,11 +42,8 @@ func (s *OutputCommandStore) Enqueue(ctx context.Context, actionID, key string, 
 	}))
 }
 
-// Confirm claims a queued command or enqueues a fresh one for an explicit
-// detail-pane invocation. When the action is already terminal for this key,
-// the sql.ErrNoRows the guarded UPDATE produces falls back to the latest
-// existing command and reports created=false -- the dedup behind
-// UNIQUE (action_id, key) that stops an already-run action re-firing.
+// Confirm claims a queued command or creates one. A terminal command for the
+// same key returns the latest existing command with created=false.
 func (s *OutputCommandStore) Confirm(ctx context.Context, actionID, key string, payload []byte, ref models.ItemRef) (OutputCommand, bool, error) {
 	q := s.q.Ctx(ctx)
 	row, err := q.ConfirmOutputCommand(ctx, queries.ConfirmOutputCommandParams{
@@ -69,11 +60,8 @@ func (s *OutputCommandStore) Confirm(ctx context.Context, actionID, key string, 
 	return mapOutputCommandFromDB(row), true, nil
 }
 
-// Rerun creates a separate command repeating a prior completed run, so its
-// diagnostics and Activity links stay intact. sql.ErrNoRows -- no completed
-// prior run to repeat -- becomes a NotFoundError: this one *should* go
-// through the generic transform, unlike the revision-guarded writes, because
-// "nothing to rerun" really is a missing row from the caller's point of view.
+// Rerun creates a new command so prior diagnostics remain intact. If no
+// completed run exists, it returns NotFoundError.
 func (s *OutputCommandStore) Rerun(ctx context.Context, actionID, key string, payload []byte, ref models.ItemRef) (OutputCommand, error) {
 	row, err := s.q.Ctx(ctx).RerunOutputCommand(ctx, queries.RerunOutputCommandParams{
 		ActionID: actionID, Key: key, Payload: payload, CreatedAt: s.now().UnixMilli(),
@@ -85,7 +73,6 @@ func (s *OutputCommandStore) Rerun(ctx context.Context, actionID, key string, pa
 	return mapOutputCommandFromDB(row), nil
 }
 
-// Get reads one output_command row by id.
 func (s *OutputCommandStore) Get(ctx context.Context, id int64) (OutputCommand, error) {
 	row, err := s.q.Ctx(ctx).GetOutputCommand(ctx, id)
 	if err != nil {
@@ -94,8 +81,8 @@ func (s *OutputCommandStore) Get(ctx context.Context, id int64) (OutputCommand, 
 	return mapOutputCommandFromDB(row), nil
 }
 
-// MarkDone records a successful terminal result. values are (result JSON,
-// stdout, stderr), each optional and bounded.
+// values are optional result JSON, stdout, and stderr, in that order; stdout
+// and stderr are bounded.
 func (s *OutputCommandStore) MarkDone(ctx context.Context, id int64, values ...string) error {
 	var resultJSON, stdout, stderr string
 	if len(values) > 0 {
@@ -112,8 +99,7 @@ func (s *OutputCommandStore) MarkDone(ctx context.Context, id int64, values ...s
 	}))
 }
 
-// MarkFailed records a permanent terminal failure. values are (stdout,
-// stderr), each optional and bounded.
+// values are optional stdout and stderr, in that order; both are bounded.
 func (s *OutputCommandStore) MarkFailed(ctx context.Context, id int64, lastErr string, values ...string) error {
 	var stdout, stderr string
 	if len(values) > 0 {
@@ -127,8 +113,7 @@ func (s *OutputCommandStore) MarkFailed(ctx context.Context, id int64, lastErr s
 	}))
 }
 
-// Retry records a non-terminal failure so the worker retries it later.
-// values are (stdout, stderr), each optional and bounded.
+// values are optional stdout and stderr, in that order; both are bounded.
 func (s *OutputCommandStore) Retry(ctx context.Context, id int64, lastErr string, values ...string) error {
 	var stdout, stderr string
 	if len(values) > 0 {
@@ -142,15 +127,11 @@ func (s *OutputCommandStore) Retry(ctx context.Context, id int64, lastErr string
 	}))
 }
 
-// CountNonterminalForAction counts an action's pending/running commands, for
-// "is anything still using this action?" usage checks.
 func (s *OutputCommandStore) CountNonterminalForAction(ctx context.Context, actionID string) (int64, error) {
 	count, err := s.q.Ctx(ctx).CountNonterminalCommandsForAction(ctx, actionID)
 	return count, wrap("counting nonterminal output commands", err)
 }
 
-// boundOutputCommandStream is a persistence boundary: executors and tests
-// cannot make durable command diagnostics exceed the per-stream cap.
 func boundOutputCommandStream(stream string) string {
 	if len(stream) <= maxOutputCommandStreamBytes {
 		return stream
