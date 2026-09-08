@@ -420,6 +420,7 @@ func (s *EventLogStore) ActivateReplay(ctx context.Context, profileID string, ta
 			if claim.ProfileID != "" && claim.ProfileID != profileID {
 				return fmt.Errorf("activating replay: claim profile %q does not match %q", claim.ProfileID, profileID)
 			}
+			claim.ProfileID = profileID
 			if _, err := s.items.GetUnarchivedByID(ctx, claim.ItemID, profileID); err != nil {
 				return fmt.Errorf("activating replay: item %d is not an unarchived item in %q: %w", claim.ItemID, profileID, err)
 			}

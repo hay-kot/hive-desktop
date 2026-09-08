@@ -73,18 +73,20 @@ func TestActivateReplay_ReplacesOnlyUnarchivedClaims(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, st.EventLog.ActivateReplay(t.Context(), "flow", 0, []FeedClaim{{FeedID: "flow/new", ItemID: open.ID, SourceID: "source:flow/new"}}, []string{"flow/feed", "flow/new"}, []string{"source:flow/new"}, nil))
-	rows, err := db.Conn().QueryContext(t.Context(), `SELECT feed_id, item_id, source_id FROM feed_membership_claim ORDER BY item_id`)
+	rows, err := db.Conn().QueryContext(t.Context(), `SELECT profile_id, feed_id, item_id, source_id FROM feed_membership_claim ORDER BY item_id`)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rows.Close()) }()
 	var got []string
 	for rows.Next() {
-		var feed, source string
+		var profile, feed, source string
 		var itemID int64
-		require.NoError(t, rows.Scan(&feed, &itemID, &source))
-		got = append(got, feed+"/"+source)
+		require.NoError(t, rows.Scan(&profile, &feed, &itemID, &source))
+		got = append(got, profile+":"+feed+"/"+source)
 	}
 	require.NoError(t, rows.Err())
-	assert.Equal(t, []string{"flow/new/source:flow/new", "flow/feed/source:flow/old"}, got)
+	// The new claim carried no ProfileID; ActivateReplay must stamp it with
+	// the activating profile rather than persist an empty one.
+	assert.Equal(t, []string{"flow:flow/new/source:flow/new", "flow:flow/feed/source:flow/old"}, got)
 }
 
 func TestActivateReplay_DoesNotMutateInboxTriage(t *testing.T) {
