@@ -24,8 +24,6 @@ export type { TerminalFrame } from './terminalClient'
 export interface AgentWorkspace {
   dir: string
   name: string
-  /** A label only: the icon and the activity classifier, never a launch gate. */
-  agent: string
   /** The launch template — the whole invocation, rendered at spawn. */
   command: string
   mcps: string[]
@@ -40,7 +38,9 @@ export interface AgentWorkspace {
 /** A starter command template the editor offers. */
 export interface AgentPreset {
   id: string
+  /** The CLI the command actually runs, for the brand mark beside the row. */
   agent: string
+  /** The row's name: the posture for a shipped preset, the profile key for a hive-seeded one. */
   label: string
   command: string
   danger: boolean
@@ -61,8 +61,6 @@ export interface AgentWorkspacesPayload {
   available: boolean
   error: string
   workspaces: AgentWorkspace[]
-  /** Agent labels the editor suggests. Any label is accepted; this is a convenience list. */
-  agents: string[]
   /** Starter command templates. They fill the command field; they never constrain it. */
   presets: AgentPreset[]
   editor: AgentEditor
@@ -72,7 +70,6 @@ export interface AgentWorkspacesPayload {
 export interface WorkspaceEditRequest {
   dir: string
   name: string
-  agent: string
   command: string
   mcps: string[]
   /** Skill package names from skills.yml, not individual skills. */
@@ -324,11 +321,10 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
   return {
     async workspaces() {
       const body = await post<AgentWorkspacesPayload>('/workspaces', {})
-      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [], presets: [], editor: { command: '', title: '' } }
+      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], presets: [], editor: { command: '', title: '' } }
       return {
         ...body,
         workspaces: (body.workspaces ?? []).map(normalizeWorkspace),
-        agents: body.agents ?? [],
         presets: body.presets ?? [],
         editor: body.editor ?? { command: '', title: '' },
       }
@@ -441,7 +437,7 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
 }
 
 function emptyWorkspace(dir: string): AgentWorkspace {
-  return { dir, name: '', agent: '', command: '', mcps: [], skills: [], problem: '', danger: false, notice: '' }
+  return { dir, name: '', command: '', mcps: [], skills: [], problem: '', danger: false, notice: '' }
 }
 
 // normalizeWorkspace guards against a null mcps or skills array on the wire:

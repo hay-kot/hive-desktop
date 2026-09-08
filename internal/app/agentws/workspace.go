@@ -17,11 +17,6 @@ type Workspace struct {
 
 	Version int    `yaml:"version"`
 	Name    string `yaml:"name"`
-	// Agent is a label, not a launch key: it selects the icon, the activity
-	// classifier, and the resume probe, and it may name a CLI this build has
-	// never heard of. What actually launches is Command
-	// (ADR the-workspace-command-is-a-template).
-	Agent string `yaml:"agent"`
 	// Command is the launch template — the whole invocation, rendered against
 	// LaunchData at spawn time. It replaced the ask/auto/full posture enum,
 	// which could only express the two agents the launch table knew.
@@ -32,6 +27,13 @@ type Workspace struct {
 	Skills []string `yaml:"skills,omitempty"`
 }
 
+// Agent is the label AgentFor reads off Command. There is no agent: key: a
+// stored copy of a word already in the command goes wrong the moment someone
+// edits the command by hand.
+func (w Workspace) Agent() string {
+	return AgentFor(w.Command)
+}
+
 // Validate checks the fields Workspace owns directly. Command is parsed as a
 // template here rather than at launch: a manifest whose template is malformed
 // is a broken workspace the list can explain, not a session that fails to
@@ -39,9 +41,6 @@ type Workspace struct {
 func (w Workspace) Validate() error {
 	if w.Name == "" {
 		return fmt.Errorf("agent-workspace.yaml: name is required")
-	}
-	if w.Agent == "" {
-		return fmt.Errorf("agent-workspace.yaml: agent is required")
 	}
 	if w.Command == "" {
 		return fmt.Errorf("agent-workspace.yaml: command is required")

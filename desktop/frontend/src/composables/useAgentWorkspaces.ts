@@ -36,7 +36,6 @@ const workspacesLoading = ref(false)
 const workspacesLoaded = ref(false)
 const workspacesError = ref<string | null>(null)
 const root = ref('')
-const agents = ref<string[]>([])
 const editor = ref<AgentEditor>({ command: '', title: '' })
 const presets = ref<AgentPreset[]>([])
 const mcpCatalogue = ref<MCPCatalogueEntry[]>([])
@@ -81,7 +80,6 @@ async function reloadWorkspaces(): Promise<void> {
   try {
     const payload = await client.value.workspaces()
     root.value = payload.root
-    agents.value = payload.agents
     editor.value = payload.editor
     presets.value = payload.presets
     rootProblem.value = payload.rootProblem
@@ -261,7 +259,6 @@ export function useAgentWorkspaces(): {
   workspacesError: Ref<string | null>
   root: Ref<string>
   rootProblem: Ref<string>
-  agents: Ref<string[]>
   editor: Ref<AgentEditor>
   presets: Ref<AgentPreset[]>
   mcpCatalogue: Ref<MCPCatalogueEntry[]>
@@ -295,7 +292,7 @@ export function useAgentWorkspaces(): {
   return {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-    root, rootProblem, agents, editor, presets, mcpCatalogue,
+    root, rootProblem, editor, presets, mcpCatalogue,
     skillPackages, skillNames, skillPackagesProblem, missingMCPs, missingPackages,
     ready: ensureProbed,
     reloadWorkspaces, openWorkspace, regenerateWorkspace,
@@ -319,7 +316,6 @@ export function resetAgentWorkspacesForTests(): void {
   workspacesError.value = null
   root.value = ''
   rootProblem.value = ''
-  agents.value = []
   editor.value = { command: '', title: '' }
   presets.value = []
   mcpCatalogue.value = []

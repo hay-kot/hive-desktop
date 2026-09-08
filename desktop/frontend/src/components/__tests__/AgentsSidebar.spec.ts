@@ -9,8 +9,8 @@ import type { AgentSession, AgentWorkspace } from '../../lib/agentWorkspacesClie
 // wire responses AgentWorkspacesClient normally decodes. Demo B's chat is
 // live and Demo A's is not, which is also what the fold default keys on.
 const workspaceFixtures: AgentWorkspace[] = [
-  { dir: 'demo-a', name: 'Demo A', agent: 'claude', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
-  { dir: 'demo-b', name: 'Demo B', agent: 'codex', command: 'codex --sandbox workspace-write', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'demo-a', name: 'Demo A', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'demo-b', name: 'Demo B', command: 'codex --sandbox workspace-write', danger: false, mcps: [], skills: [], problem: '', notice: '' },
 ]
 
 const recentFixtures: AgentSession[] = [

@@ -430,3 +430,51 @@ func TestAgentWorkspace_KeepsAHandWrittenCommand(t *testing.T) {
 	assert.Equal(t, "pi --custom", doc["command"])
 	assert.NotContains(t, doc, "autonomy")
 }
+
+func TestAgentWorkspace_DropsTheAgentLabel(t *testing.T) {
+	t.Parallel()
+
+	migrated, changed, err := AgentWorkspaceSet.Apply([]byte("version: 4\nname: Demo\nagent: claude\ncommand: claude --model opus\n"))
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.NotContains(t, doc, "agent")
+	assert.Equal(t, "claude --model opus", doc["command"], "the command it derives from is untouched")
+}
+
+// Version 4 let a manifest omit command: and backfill it from the agent, so
+// the step has to write the command out before it deletes the agent.
+func TestAgentWorkspace_MaterializesACommandBeforeDroppingTheAgent(t *testing.T) {
+	t.Parallel()
+
+	for agent, want := range map[string]string{
+		"claude": "claude" + autonomyCommandTail,
+		"codex":  "codex",
+		"pi":     "pi",
+	} {
+		t.Run(agent, func(t *testing.T) {
+			t.Parallel()
+
+			migrated, _, err := AgentWorkspaceSet.Apply([]byte("version: 4\nname: Demo\nagent: " + agent + "\n"))
+			require.NoError(t, err)
+
+			doc := decodeDoc(t, migrated)
+			assert.Equal(t, want, doc["command"])
+			assert.NotContains(t, doc, "agent")
+		})
+	}
+}
+
+func TestAgentWorkspace_MigratesFromTheBaselineToACommandAlone(t *testing.T) {
+	t.Parallel()
+
+	migrated, _, err := AgentWorkspaceSet.Apply([]byte("version: 1\nname: Demo\nagent: claude\nautonomy: full\n"))
+	require.NoError(t, err)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, AgentWorkspaceSet.Current, doc["version"])
+	assert.Equal(t, "claude --dangerously-skip-permissions"+autonomyCommandTail, doc["command"])
+	assert.NotContains(t, doc, "agent")
+	assert.NotContains(t, doc, "autonomy")
+}

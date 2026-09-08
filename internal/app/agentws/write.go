@@ -45,7 +45,6 @@ handle, and how it should approach them.
 // comments, key order, keys this build does not know — survives a write.
 type ManifestEdit struct {
 	Name    string
-	Agent   string
 	Command string
 	MCPs    []string
 	Skills  []string
@@ -130,7 +129,6 @@ func WriteManifest(root, dir string, edit ManifestEdit) error {
 		value any
 	}{
 		{"name", edit.Name},
-		{"agent", edit.Agent},
 		{"command", edit.Command},
 	} {
 		if err := setManifestValue(mapping, field.key, field.value); err != nil {

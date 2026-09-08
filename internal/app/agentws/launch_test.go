@@ -18,7 +18,6 @@ func TestResolveRendersTheCommandTemplate(t *testing.T) {
 	t.Parallel()
 
 	w := Workspace{
-		Agent:   "claude",
 		Command: `claude --mcp-config {{ .MCPConfig | shq }} --dir {{ .Dir | shq }} {{ if .Resume }}--resume{{ else }}--session-id{{ end }} {{ .SessionID }}`,
 		Dir:     "/abs/demo",
 	}
@@ -42,7 +41,7 @@ func TestResolveRendersTheCommandTemplate(t *testing.T) {
 func TestResolveLaunchesAnAgentThisBuildDoesNotKnow(t *testing.T) {
 	t.Parallel()
 
-	w := Workspace{Agent: "pi", Command: "pi --some-flag", Dir: "/abs/demo"}
+	w := Workspace{Command: "pi --some-flag", Dir: "/abs/demo"}
 	line, err := Resolve(w, "sess", false)
 	require.NoError(t, err)
 	assert.Equal(t, "cd '/abs/demo' && pi --some-flag", line)
@@ -149,7 +148,7 @@ func TestLaunchLineQuotesShellMetacharacters(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), d)
 			require.NoError(t, os.Mkdir(dir, 0o700))
 
-			w := Workspace{Agent: "claude", Command: "echo {{ .Dir | shq }}", Dir: dir}
+			w := Workspace{Command: "echo {{ .Dir | shq }}", Dir: dir}
 			line, err := Resolve(w, "sess", false)
 			require.NoError(t, err)
 
@@ -168,7 +167,7 @@ func TestLaunchLineStartsInTheWorkspaceDirectory(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	line, err := Resolve(Workspace{Agent: "probe", Command: "pwd", Dir: dir}, "sess", false)
+	line, err := Resolve(Workspace{Command: "pwd", Dir: dir}, "sess", false)
 	require.NoError(t, err)
 
 	cmd := exec.Command("sh", "-c", line)
@@ -192,7 +191,7 @@ func TestShippedPresetsAreLaunchable(t *testing.T) {
 			t.Parallel()
 			require.NoError(t, ValidateCommand(p.Command))
 
-			line, err := Resolve(Workspace{Agent: p.Agent, Command: p.Command, Dir: "/abs/demo"}, "sess", false)
+			line, err := Resolve(Workspace{Command: p.Command, Dir: "/abs/demo"}, "sess", false)
 			require.NoError(t, err)
 			assert.True(t, strings.HasPrefix(line, "cd '/abs/demo' && "+p.Agent))
 			assert.Equal(t, CommandIsDangerous(p.Command), p.Danger,
@@ -216,9 +215,24 @@ func TestClaudePresetsCarryTheWiringTheTableUsedToAppend(t *testing.T) {
 	}
 }
 
-func TestDefaultCommandForFallsBackToTheAgentName(t *testing.T) {
+func TestPresetCommandResolvesTheIDTheSeedNames(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "claude"+claudeTail, DefaultCommandFor("claude"))
-	assert.Equal(t, "pi", DefaultCommandFor("pi"), "an unknown CLI is its own command")
+	assert.Equal(t, "claude"+claudeTail, PresetCommand("claude-ask"))
+	assert.Empty(t, PresetCommand("no-such-preset"))
+}
+
+func TestAgentForReadsTheCommandWord(t *testing.T) {
+	t.Parallel()
+
+	for command, want := range map[string]string{
+		"claude" + claudeTail:                   "claude",
+		"  codex --sandbox workspace-write":     "codex",
+		"/opt/homebrew/bin/Claude --model opus": "claude",
+		"pi":                                    "pi",
+		"":                                      "",
+		"env FOO=1 claude":                      "env",
+	} {
+		assert.Equal(t, want, AgentFor(command), command)
+	}
 }

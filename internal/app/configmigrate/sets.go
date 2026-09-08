@@ -35,13 +35,43 @@ var (
 	// AgentWorkspaceSet covers agent-workspace.yaml. Version 2 renames the
 	// skill slug the MCP cut-over retired (ADR mcp-replaces-the-agent-facing-http-api);
 	// version 3 collapses a skills: list that is exactly the shipped set onto
-	// the hive package (ADR skill-packages-are-the-unit-a-workspace-enables).
-	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 4, Migrations: []Migration{
+	// the hive package (ADR skill-packages-are-the-unit-a-workspace-enables);
+	// versions 4 and 5 replace the autonomy posture and then the agent label
+	// with the command template both were derived from
+	// (ADR the-workspace-command-is-a-template).
+	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 5, Migrations: []Migration{
 		{To: 2, Migrate: renameHTTPAPISkill},
 		{To: 3, Migrate: collapseShippedSkillsToHivePackage},
 		{To: 4, Migrate: autonomyToCommandTemplate},
+		{To: 5, Migrate: dropAgentLabel},
 	}}
 )
+
+// dropAgentLabel deletes the `agent` key, which AgentFor now reads off the
+// command instead (ADR the-workspace-command-is-a-template).
+//
+// Version 4 let a manifest omit `command:` and backfill it from the agent, so
+// the command is written out before the key that produced it goes away. It
+// repeats version 3's table rather than calling the version 4 step: two steps
+// that share a helper is how one of them later changes the other's output.
+func dropAgentLabel(doc map[string]any) error {
+	defer delete(doc, "agent")
+
+	if existing, ok := doc["command"].(string); ok && strings.TrimSpace(existing) != "" {
+		return nil
+	}
+
+	agent, _ := doc["agent"].(string)
+	if agent == "" {
+		return fmt.Errorf("agent-workspace: cannot build a command template: no agent")
+	}
+	command := agent
+	if agent == "claude" {
+		command += autonomyCommandTail
+	}
+	doc["command"] = command
+	return nil
+}
 
 // dropExperimentalSection deletes the `experimental` key.
 //

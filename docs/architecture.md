@@ -1693,24 +1693,30 @@ line already runs under `$SHELL -l -c`. Template source is folded onto one
 line before parsing, never after rendering, so a newline inside an
 interpolated value stays part of the quoted word `shq` produced.
 
-`agent:` is a label, not a launch key: it picks the icon, the activity
-classifier and the resume probe, and an agent this build has never heard of
-is a normal workspace. `Validate` parses **and renders** the template against
-a probe, so a broken command lists as a workspace problem rather than failing
-when someone presses the button. `SupportsResume` renders both ways and
-compares — a template that does not actually change is not a resume.
+There is no `agent:` field. The label the activity classifier, the resume
+probe and the bounded-MCP notice key on is `AgentFor(command)` — the first
+word, less any directory, lowercased — so a CLI this build has never heard of
+is a normal workspace and the label cannot drift from the command it describes
+(manifest version 5 deletes the key). `Validate` parses **and renders** the
+template against a probe, so a broken command lists as a workspace problem
+rather than failing when someone presses the button. `SupportsResume` renders
+both ways and compares — a template that does not actually change is not a
+resume.
 
 Hive's own `agents:` profiles reach the editor as **presets** (`Presets`), and
 nothing else: a preset is copied into the manifest once, where the user
-reviews it, and no launch reads hive's config at all. `CommandIsDangerous`
-derives the warning the `full` posture used to declare, matching the command
-against the bypass flags this build knows by name.
+reviews it, and no launch reads hive's config at all. The editor picks a
+command and only a command — a searchable list of the shipped presets, the
+hive-seeded ones, and **Custom**, which is the only row that reveals the
+template box and its field reference. `CommandIsDangerous` derives the warning
+the `full` posture used to declare, matching the command against the bypass
+flags this build knows by name.
 
 MCP wiring (`MCPWiring` in `wiring.go`) is data, not a branch: a `File` the
 generator writes, a `Render` encoding the resolved servers into that file's
 format, and a `Bounded` flag reporting whether a CLI reading it is confined to
 exactly the workspace's declared set. The generator writes **every** wiring
-into every workspace regardless of the agent named, so a template can point an
+into every workspace whatever the command names, so a template can point an
 unknown CLI at whichever format it reads. Claude's `.mcp.json` is bounded when
 the command passes `--strict-mcp-config`; codex's is not — it has no CLI-level
 MCP flag, so its generated `.codex/config.toml` is loaded alongside whatever

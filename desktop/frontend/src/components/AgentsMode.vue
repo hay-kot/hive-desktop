@@ -49,7 +49,7 @@ const props = defineProps<{ active?: boolean; sidebarCollapsed?: boolean }>()
 
 const {
   checking, available, reason,
-  workspaces, root, agents, editor, missingMCPs, missingPackages,
+  workspaces, root, editor, missingMCPs, missingPackages,
   client, ready,
   openWorkspaceInEditor, revealWorkspace,
   reloadWorkspaces, openWorkspace, regenerateWorkspace, deleteWorkspace,
@@ -886,7 +886,6 @@ onBeforeUnmount(() => {
     <AgentWorkspaceEditor
       v-if="workspaceEditorOpen"
       :workspace="editingWorkspace"
-      :agents="agents"
       :busy="workspaceEditorBusy"
       :error="workspaceEditorError"
       @close="workspaceEditorOpen = false"

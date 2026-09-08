@@ -30,7 +30,6 @@ const AgentWorkspacesPathPrefix = TerminalPathPrefix + "agents/"
 type agentWorkspaceView struct {
 	Dir     string   `json:"dir"`
 	Name    string   `json:"name"`
-	Agent   string   `json:"agent"`
 	Command string   `json:"command"`
 	MCPs    []string `json:"mcps"`
 	Skills  []string `json:"skills"`
@@ -77,7 +76,7 @@ type agentSessionView struct {
 
 func toAgentWorkspaceView(w app.WorkspaceView) agentWorkspaceView {
 	return agentWorkspaceView{
-		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Command: w.Command,
+		Dir: w.Dir, Name: w.Name, Command: w.Command,
 		MCPs: nonNilStrings(w.MCPs), Skills: nonNilStrings(w.Skills), Problem: w.Problem,
 		Danger: w.Danger, Notice: w.Notice,
 	}
@@ -132,9 +131,6 @@ type agentWorkspacesResponse struct {
 	Available   bool                 `json:"available"`
 	Error       string               `json:"error"`
 	Workspaces  []agentWorkspaceView `json:"workspaces"`
-	// Agents lists the agent keys this build can launch — the choices the
-	// workspace editor offers.
-	Agents []string `json:"agents"`
 	// Presets are the starter command templates the editor offers: the ones
 	// this build ships plus one per agent profile in hive's config. They fill
 	// the command field; they never constrain it.
@@ -172,7 +168,6 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 		Available:   available,
 		Error:       errMsg,
 		Workspaces:  toAgentWorkspaceViews(workspaces),
-		Agents:      nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
 		Presets:     presets,
 		Editor:      agentEditorView{Command: editorCommand, Title: editorTitle},
 	})
@@ -183,7 +178,6 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 type agentWorkspaceEditRequest struct {
 	Dir     string   `json:"dir"`
 	Name    string   `json:"name"`
-	Agent   string   `json:"agent"`
 	Command string   `json:"command"`
 	Mcps    []string `json:"mcps"`
 	Skills  []string `json:"skills"`
@@ -193,13 +187,12 @@ func (b agentWorkspaceEditRequest) Validate() error {
 	return criterio.ValidateStruct(
 		criterio.Run("dir", b.Dir, criterio.Required),
 		criterio.Run("name", b.Name, criterio.Required),
-		criterio.Run("agent", b.Agent, criterio.Required),
 		criterio.Run("command", b.Command, criterio.Required),
 	)
 }
 
 func (b agentWorkspaceEditRequest) toEdit() app.WorkspaceEdit {
-	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Command: b.Command, MCPs: b.Mcps, Skills: b.Skills}
+	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Command: b.Command, MCPs: b.Mcps, Skills: b.Skills}
 }
 
 // AgentWorkspaceCreate makes a directory under the root with a fresh

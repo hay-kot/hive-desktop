@@ -5,7 +5,7 @@ import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../../composab
 import type { AgentWorkspace, MCPCatalogueEntry, SkillPackage } from '../../lib/agentWorkspacesClient'
 
 const demo: AgentWorkspace = {
-  dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '',
+  dir: 'demo', name: 'Demo', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '',
 }
 
 const playwright: MCPCatalogueEntry = {
@@ -34,9 +34,16 @@ function el<T extends HTMLElement>(testid: string): T | null {
 
 function mountEditor(workspace: AgentWorkspace | null = demo) {
   return mount(AgentWorkspaceEditor, {
-    props: { workspace, agents: ['claude', 'codex'] },
+    props: { workspace },
     attachTo: document.body,
   })
+}
+
+async function chooseCommand(wrapper: { vm: { $nextTick: () => Promise<unknown> } }, value: string): Promise<void> {
+  el<HTMLButtonElement>('agent-workspace-editor-command-preset')!.click()
+  await wrapper.vm.$nextTick()
+  el<HTMLButtonElement>(`agent-workspace-editor-command-preset-option-${value}`)!.click()
+  await wrapper.vm.$nextTick()
 }
 
 beforeEach(() => {
@@ -111,7 +118,7 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
-  it('a preset fills the command field and save carries the text', async () => {
+  it('picking a suggestion sets the command, with no template box in the way', async () => {
     const { presets } = useAgentWorkspaces()
     presets.value = [
       { id: 'claude-ask', agent: 'claude', label: 'Ask', command: 'claude --session-id x', danger: false, source: 'builtin' },
@@ -120,13 +127,74 @@ describe('AgentWorkspaceEditor', () => {
     const wrapper = mountEditor()
     await wrapper.vm.$nextTick()
 
-    el<HTMLButtonElement>('agent-workspace-editor-preset-claude-full')!.click()
-    await wrapper.vm.$nextTick()
+    await chooseCommand(wrapper, 'claude-full')
+    expect(el('agent-workspace-editor-command-input')).toBeNull()
+    expect(el<HTMLElement>('agent-workspace-editor-command-preview')!.textContent)
+      .toBe('claude --dangerously-skip-permissions')
 
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude --dangerously-skip-permissions', mcps: [], skills: [] },
+      { dir: 'demo', name: 'Demo', command: 'claude --dangerously-skip-permissions', mcps: [], skills: [] },
     ]])
+    wrapper.unmount()
+  })
+
+  // A hive "fable" profile is a claude row, so the mark is the only thing that
+  // says which CLI it runs.
+  it('a suggestion carries its agent mark, sized to the row', async () => {
+    const { presets } = useAgentWorkspaces()
+    presets.value = [
+      { id: 'hive-fable', agent: 'claude', label: 'fable', command: 'claude --model fable', danger: false, source: 'hive' },
+    ]
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-command-preset')!.click()
+    await wrapper.vm.$nextTick()
+
+    const row = el<HTMLButtonElement>('agent-workspace-editor-command-preset-option-hive-fable')!
+    expect(row.textContent).toContain('fable')
+    const mark = row.querySelector('svg')
+    expect(mark).not.toBeNull()
+    expect(mark!.getAttribute('class')).toContain('size-4')
+    wrapper.unmount()
+  })
+
+  it('custom reveals the template box, seeded with the command already chosen', async () => {
+    const { presets } = useAgentWorkspaces()
+    presets.value = [
+      { id: 'claude-ask', agent: 'claude', label: 'Ask', command: 'claude --session-id x', danger: false, source: 'builtin' },
+    ]
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    await chooseCommand(wrapper, 'claude-ask')
+    expect(el('agent-workspace-editor-command-fields')).toBeNull()
+
+    await chooseCommand(wrapper, '__custom__')
+    const input = el<HTMLTextAreaElement>('agent-workspace-editor-command-input')!
+    expect(input.value).toBe('claude --session-id x')
+    expect(el<HTMLElement>('agent-workspace-editor-command-fields')!.textContent).toContain('{{ .SessionID }}')
+
+    input.value = 'claude --session-id x --model opus'
+    input.dispatchEvent(new Event('input'))
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', command: 'claude --session-id x --model opus', mcps: [], skills: [] },
+    ]])
+    wrapper.unmount()
+  })
+
+  it('a hand-written command opens the editor on custom', async () => {
+    const { presets } = useAgentWorkspaces()
+    presets.value = [
+      { id: 'claude-ask', agent: 'claude', label: 'Ask', command: 'claude --session-id x', danger: false, source: 'builtin' },
+    ]
+    const wrapper = mountEditor({ ...demo, command: 'pi --some-flag' })
+    await wrapper.vm.$nextTick()
+
+    expect(el<HTMLTextAreaElement>('agent-workspace-editor-command-input')!.value).toBe('pi --some-flag')
     wrapper.unmount()
   })
 
@@ -138,6 +206,7 @@ describe('AgentWorkspaceEditor', () => {
     await wrapper.vm.$nextTick()
     expect(el('agent-workspace-editor-command-danger')).toBeNull()
 
+    await chooseCommand(wrapper, '__custom__')
     const input = el<HTMLTextAreaElement>('agent-workspace-editor-command-input')!
     input.value = 'pi --yolo'
     input.dispatchEvent(new Event('input'))
@@ -162,7 +231,7 @@ describe('AgentWorkspaceEditor', () => {
 
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'pi --some-flag', mcps: [], skills: [] },
+      { dir: 'demo', name: 'Demo', command: 'pi --some-flag', mcps: [], skills: [] },
     ]])
     wrapper.unmount()
   })
@@ -178,7 +247,7 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude', mcps: ['playwright'], skills: [] },
+      { dir: 'demo', name: 'Demo', command: 'claude', mcps: ['playwright'], skills: [] },
     ]])
     wrapper.unmount()
   })
@@ -196,7 +265,7 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude', mcps: [], skills: ['hive', 'infra'] },
+      { dir: 'demo', name: 'Demo', command: 'claude', mcps: [], skills: ['hive', 'infra'] },
     ]])
     wrapper.unmount()
   })

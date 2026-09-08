@@ -1224,7 +1224,7 @@ describe('App', () => {
     it('groups a chat row under the workspace display name once the workspaces list has a matching dir', async () => {
       const { wrapper } = await mountAppWithRouter()
       useAgentWorkspaces().workspaces.value = [
-        { dir: 'my-workspace', name: 'Travel', agent: 'claude', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+        { dir: 'my-workspace', name: 'Travel', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
       ]
       useAgentSessionsAll().recents.value = [{
         id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',

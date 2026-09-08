@@ -54,13 +54,6 @@ func parseWorkspace(data []byte) (Workspace, error) {
 	if w.Version != configmigrate.AgentWorkspaceSet.Current {
 		return Workspace{}, fmt.Errorf("agent-workspace.yaml: version must be %d, got %d", configmigrate.AgentWorkspaceSet.Current, w.Version)
 	}
-	// An omitted command falls back to the agent's first shipped preset, or to
-	// the agent name alone. A manifest naming a CLI and nothing else is a
-	// complete instruction, and refusing to load it would make the common
-	// hand-authored case the broken one.
-	if w.Command == "" {
-		w.Command = DefaultCommandFor(w.Agent)
-	}
 	if err := w.Validate(); err != nil {
 		return Workspace{}, err
 	}

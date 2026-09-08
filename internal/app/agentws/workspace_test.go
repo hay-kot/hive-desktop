@@ -7,7 +7,7 @@ import (
 )
 
 func validWorkspace() Workspace {
-	return Workspace{Version: 1, Name: "X", Agent: "claude", Command: "claude"}
+	return Workspace{Version: 1, Name: "X", Command: "claude"}
 }
 
 func TestWorkspaceValidate(t *testing.T) {
@@ -22,13 +22,6 @@ func TestWorkspaceValidate(t *testing.T) {
 		t.Parallel()
 		w := validWorkspace()
 		w.Name = ""
-		require.Error(t, w.Validate())
-	})
-
-	t.Run("AgentRequired", func(t *testing.T) {
-		t.Parallel()
-		w := validWorkspace()
-		w.Agent = ""
 		require.Error(t, w.Validate())
 	})
 

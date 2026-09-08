@@ -1,6 +1,5 @@
-version: 4
+version: 5
 name: Home Assistant
-agent: claude
 # The whole invocation, as a Go template. Available fields: .Dir, .MCPConfig,
 # .SessionID and .Resume; shq quotes a value for the shell.
 command: >-

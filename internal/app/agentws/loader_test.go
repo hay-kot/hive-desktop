@@ -24,7 +24,6 @@ func TestConfigRoundTrip(t *testing.T) {
 		w := Workspace{
 			Version: configmigrate.AgentWorkspaceSet.Current,
 			Name:    "Home Assistant",
-			Agent:   "claude",
 			Command: "claude",
 			MCPs:    []string{"home-assistant"},
 			Skills:  []string{"hive-mcp"},
@@ -75,7 +74,7 @@ func TestStrictDecodeRejectsUnknownFields(t *testing.T) {
 
 	t.Run("Workspace", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseWorkspace([]byte("version: 4\nname: X\nagent: claude\ncommand: claude\nfoo: bar\n"))
+		_, err := parseWorkspace([]byte("version: 5\nname: X\ncommand: claude\nfoo: bar\n"))
 		require.Error(t, err)
 	})
 
@@ -100,15 +99,23 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 	assert.Equal(t, "homeassistant", w.Dir)
 }
 
-// TestCommandDefaultsToTheAgentPreset: a manifest naming a CLI and nothing
-// else is a complete instruction, so it loads with that agent's shipped
-// starter command rather than failing.
-func TestCommandDefaultsToTheAgentPreset(t *testing.T) {
+func TestAgentComesFromTheCommandWord(t *testing.T) {
 	t.Parallel()
 
-	w, err := parseWorkspace([]byte("version: 4\nname: X\nagent: claude\n"))
+	w, err := parseWorkspace([]byte("version: 5\nname: X\ncommand: /opt/homebrew/bin/Claude --model opus\n"))
 	require.NoError(t, err)
-	assert.Equal(t, DefaultCommandFor("claude"), w.Command)
+	assert.Equal(t, "claude", w.Agent(), "a path and a capital are the same CLI")
+
+	w, err = parseWorkspace([]byte("version: 5\nname: X\ncommand: pi --some-flag\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "pi", w.Agent())
+}
+
+func TestAgentKeyIsRejected(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseWorkspace([]byte("version: 5\nname: X\nagent: claude\ncommand: claude\n"))
+	require.Error(t, err)
 }
 
 func TestLoadWorkspaceMissingFileWrapsNotExist(t *testing.T) {

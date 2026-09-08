@@ -1,6 +1,7 @@
 package agentws
 
 import (
+	"path"
 	"sort"
 	"strings"
 )
@@ -12,9 +13,10 @@ import (
 type Preset struct {
 	// ID is stable across builds so the editor can key a row on it.
 	ID string `json:"id"`
-	// Agent is the label this preset sets alongside the command.
+	// Agent is Command's own label (AgentFor), so the picker can mark the row.
 	Agent string `json:"agent"`
-	// Label names the posture in the editor ("Ask", "Auto", "Full").
+	// Label names the row: a posture for a shipped preset, the profile key for
+	// a hive-seeded one.
 	Label string `json:"label"`
 	// Command is the template written into the manifest verbatim.
 	Command string `json:"command"`
@@ -58,7 +60,7 @@ var builtinPresets = []Preset{
 		Source:  PresetSourceBuiltin,
 	},
 	{
-		ID: "claude-full", Agent: "claude", Label: "Full (skips every permission prompt)",
+		ID: "claude-full", Agent: "claude", Label: "Full",
 		Command: "claude --dangerously-skip-permissions" + claudeTail,
 		Source:  PresetSourceBuiltin,
 	},
@@ -73,7 +75,7 @@ var builtinPresets = []Preset{
 		Source:  PresetSourceBuiltin,
 	},
 	{
-		ID: "codex-full", Agent: "codex", Label: "Full (skips every approval and the sandbox)",
+		ID: "codex-full", Agent: "codex", Label: "Full",
 		Command: "codex --dangerously-bypass-approvals-and-sandbox",
 		Source:  PresetSourceBuiltin,
 	},
@@ -91,18 +93,31 @@ func BuiltinPresets() []Preset {
 	return out
 }
 
-// DefaultCommandFor returns the command a new workspace starts with for agent:
-// that agent's first shipped preset, or the bare agent name for a CLI this
-// build knows nothing about. A bare name is a working launch — it is what
-// running the CLI by hand would do — just with no MCP wiring and no session
-// id, which the UI states.
-func DefaultCommandFor(agent string) string {
+// PresetCommand returns the shipped preset's command, or "" for an unknown id.
+// The seeded hive workspace names one by id so the two cannot fall out of step.
+func PresetCommand(id string) string {
 	for _, p := range builtinPresets {
-		if p.Agent == agent {
+		if p.ID == id {
 			return p.Command
 		}
 	}
-	return agent
+	return ""
+}
+
+// AgentFor derives a command's agent label: the basename of its first word,
+// lowercased. It replaces the manifest's stored agent key
+// (ADR the-workspace-command-is-a-template).
+//
+// A wrapper or an env prefix (`env FOO=1 claude`) derives to a name this build
+// knows nothing about, which falls back to the generic activity patterns and
+// to a resume probe that assumes a conversation exists. Both degrade toward
+// launching, never toward refusing.
+func AgentFor(command string) string {
+	word, _, _ := strings.Cut(strings.TrimSpace(command), " ")
+	if word == "" {
+		return ""
+	}
+	return strings.ToLower(path.Base(word))
 }
 
 // SortPresets orders presets for display: shipped before seeded, then by
@@ -137,8 +152,7 @@ func SortPresets(presets []Preset) {
 // match is on the command word, which is the only thing that decides which
 // flags the binary accepts.
 func WiringTailFor(command string) string {
-	word, _, _ := strings.Cut(strings.TrimSpace(command), " ")
-	if word == "claude" {
+	if AgentFor(command) == "claude" {
 		return claudeTail
 	}
 	return ""

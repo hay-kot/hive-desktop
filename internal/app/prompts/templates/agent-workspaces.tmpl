@@ -24,10 +24,9 @@ prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
 {{template "yaml-strict" .}}
 ## agent-workspace.yaml schema
 
-- `version` — must be `4`.
+- `version` — must be `5`.
 - `name` — display name shown on the workspace's card.
-- `agent` — a label, not a gate: it picks the icon, the activity indicator, and the resume probe. Hive knows `claude` and `codex` by name, but any value is accepted — what a session actually runs is `command`.
-- `command` — the whole invocation, as a Go template rendered when a session starts. Omitted, it falls back to the agent's shipped starter command, or to the agent name alone.
+- `command` — the whole invocation, as a Go template rendered when a session starts. It is required, and it is the only thing that decides what runs. There is no `agent` key: Hive reads the label off the command's first word to pick the icon, the activity indicator and the resume probe, and a CLI it has never heard of is a normal workspace.
 
   Available fields: `.Dir` (the workspace directory), `.MCPConfig` (the generated `.mcp.json`, written for every workspace whatever the agent), `.SessionID` (a uuid Hive minted), and `.Resume` (true when reattaching to a conversation). `shq` quotes a value for the shell: use it on every path.
 

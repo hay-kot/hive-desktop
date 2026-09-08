@@ -128,11 +128,10 @@ func seedFileIfMissing(root, name, content string) error {
 // looks like.
 var hiveWorkspaceYAML = fmt.Sprintf(`version: %d
 name: Hive
-agent: claude
 command: %s
 skills:
   - hive
-`, configmigrate.AgentWorkspaceSet.Current, DefaultCommandFor("claude"))
+`, configmigrate.AgentWorkspaceSet.Current, PresetCommand("claude-ask"))
 
 const hiveAgentsMD = `# Hive
 

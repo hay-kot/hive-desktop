@@ -15,7 +15,7 @@ import (
 )
 
 func testWorkspace() Workspace {
-	return Workspace{Dir: "demo", Version: 1, Name: "Demo", Agent: "claude", Command: "claude"}
+	return Workspace{Dir: "demo", Version: 1, Name: "Demo", Command: "claude"}
 }
 
 func testServers() map[string]mcpcatalog.Server {

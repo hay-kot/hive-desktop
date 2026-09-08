@@ -135,7 +135,6 @@ func (s *AgentWorkspacesService) lookPath() func(context.Context, string) (strin
 type WorkspaceView struct {
 	Dir     string   `json:"dir"`
 	Name    string   `json:"name"`
-	Agent   string   `json:"agent"`
 	Command string   `json:"command"`
 	MCPs    []string `json:"mcps"`
 	Skills  []string `json:"skills"`
@@ -391,7 +390,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 
 	now := time.Now().UnixMilli()
 	rec, err := s.db.CreateAgentWorkspaceSession(ctx, store.AgentWorkspaceSession{
-		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent, AgentSessionID: agentSessionID,
+		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
 		CreatedAt: now, LastOpenedAt: now,
 	})
 	if err != nil {
@@ -450,7 +449,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	switch {
 	case !resumeAttempted:
 		resumeNotice = "the previous conversation could not be resumed; this is a fresh session"
-	case !agentws.HasConversation(ws.Agent, rec.AgentSessionID):
+	case !agentws.HasConversation(ws.Agent(), rec.AgentSessionID):
 		// The agent persisted nothing under this id — the session ended before
 		// its first message — so its resume form would die in the pane ("No
 		// conversation found with session ID"). A fresh launch IS the
@@ -572,26 +571,6 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	return nil
 }
 
-// Agents lists the agent labels the editor offers, sorted. It is a
-// convenience list, not a constraint: the editor accepts any label, because
-// what launches is the command template and an agent this build has never
-// heard of is a normal workspace (ADR the-workspace-command-is-a-template).
-func (s *AgentWorkspacesService) Agents(context.Context) []string {
-	seen := make(map[string]bool, len(s.profileCommands))
-	for agent := range s.profileCommands {
-		seen[agent] = true
-	}
-	for _, p := range agentws.BuiltinPresets() {
-		seen[p.Agent] = true
-	}
-	agents := make([]string, 0, len(seen))
-	for agent := range seen {
-		agents = append(agents, agent)
-	}
-	sort.Strings(agents)
-	return agents
-}
-
 // Presets lists the starter command templates the editor offers: the ones
 // this build ships, plus one per agent profile in hive's own config. A hive
 // profile contributes its command AND its flags, unlike the old seam that
@@ -620,9 +599,11 @@ func (s *AgentWorkspacesService) Presets(context.Context) []agentws.Preset {
 		// cannot address.
 		command += agentws.WiringTailFor(command)
 		presets = append(presets, agentws.Preset{
-			ID:      "hive-" + agent,
-			Agent:   agent,
-			Label:   agent + " (from hive config)",
+			ID: "hive-" + agent,
+			// A model-pinned "fable" profile keeps its own name and still
+			// marks itself as the claude it runs.
+			Agent:   agentws.AgentFor(command),
+			Label:   agent,
 			Command: command,
 			Danger:  agentws.CommandIsDangerous(command),
 			Source:  agentws.PresetSourceHive,
@@ -638,7 +619,6 @@ func (s *AgentWorkspacesService) Presets(context.Context) []agentws.Preset {
 type WorkspaceEdit struct {
 	Dir     string
 	Name    string
-	Agent   string
 	Command string
 	MCPs    []string
 	Skills  []string
@@ -646,7 +626,7 @@ type WorkspaceEdit struct {
 
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
 	return agentws.ManifestEdit{
-		Name: strings.TrimSpace(e.Name), Agent: e.Agent, Command: strings.TrimSpace(e.Command),
+		Name: strings.TrimSpace(e.Name), Command: strings.TrimSpace(e.Command),
 		MCPs: e.MCPs, Skills: e.Skills,
 	}
 }
@@ -657,9 +637,6 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 	}
 	if strings.TrimSpace(req.Name) == "" {
 		return Errorf(KindInvalid, "a workspace needs a name")
-	}
-	if strings.TrimSpace(req.Agent) == "" {
-		return Errorf(KindInvalid, "a workspace needs an agent label")
 	}
 	command := strings.TrimSpace(req.Command)
 	if command == "" {
@@ -1228,13 +1205,13 @@ func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
 	} else if st.Valid {
-		// A workspace whose manifest failed to parse has no trustworthy Agent
-		// field to explain, so the MCP notice is skipped rather than shown
-		// against whatever the zero value happens to be.
-		notice = mcpNotice(st.Workspace.Agent)
+		// A workspace whose manifest failed to parse has no trustworthy
+		// command to derive an agent from, so the MCP notice is skipped rather
+		// than shown against whatever the zero value happens to be.
+		notice = mcpNotice(st.Workspace.Agent())
 	}
 	return WorkspaceView{
-		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
+		Dir: st.Dir, Name: st.Workspace.Name,
 		Command: st.Workspace.Command, MCPs: st.Workspace.MCPs,
 		Skills: st.Workspace.Skills, Problem: problem,
 		Danger: agentws.CommandIsDangerous(st.Workspace.Command),

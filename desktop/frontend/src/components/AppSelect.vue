@@ -14,6 +14,8 @@ import { useAnchoredPopover } from '../composables/useAnchoredPopover'
 export interface AppSelectOption {
   value: string
   label: string
+  /** A dim second line under the label, shown in the list only — the trigger stays one line. */
+  hint?: string
   icon?: Component
   disabled?: boolean
 }
@@ -56,16 +58,20 @@ const touched = ref(false)
 const active = ref(0)
 watch(() => props.modelValue, (value) => { text.value = value })
 
+function matches(option: AppSelectOption, query: string): boolean {
+  return `${option.label} ${option.value} ${option.hint ?? ''}`.toLowerCase().includes(query)
+}
+
 const selected = computed(() => props.options.find((option) => option.value === props.modelValue) ?? null)
 const visible = computed(() => {
   if (props.editable) {
     const q = touched.value ? text.value.trim().toLowerCase() : ''
     if (!q) return props.options
-    return props.options.filter((option) => option.label.toLowerCase().includes(q) || option.value.toLowerCase().includes(q))
+    return props.options.filter((option) => matches(option, q))
   }
   const q = props.searchable ? query.value.trim().toLowerCase() : ''
   if (!q) return props.options
-  return props.options.filter((option) => option.label.toLowerCase().includes(q))
+  return props.options.filter((option) => matches(option, q))
 })
 
 const triggerClass = computed(() => ({
@@ -307,17 +313,23 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
           <li v-for="(option, index) in visible" :key="option.value" role="option" :aria-selected="option.value === modelValue">
             <button
               type="button"
-              class="flex w-full items-center gap-2 rounded-md px-[9px] py-[7px] text-left disabled:cursor-not-allowed disabled:opacity-40"
-              :class="optionClass(option, index)"
+              class="flex w-full gap-2 rounded-md px-[9px] py-[7px] text-left disabled:cursor-not-allowed disabled:opacity-40"
+              :class="[optionClass(option, index), option.hint ? 'items-start' : 'items-center']"
               :data-testid="testid ? `${testid}-option-${option.value}` : undefined"
               :disabled="option.disabled"
               @mousedown.prevent
               @click="choose(option)"
               @mousemove="active = index"
             >
-              <component :is="option.icon" v-if="option.icon" class="size-4 shrink-0 text-text-2" />
-              <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
-              <IconCheck v-if="option.value === modelValue" class="size-3.5 shrink-0 text-accent" :stroke-width="3" />
+              <component :is="option.icon" v-if="option.icon" class="size-4 shrink-0 text-text-2" :class="option.hint ? 'mt-px' : ''" />
+              <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span class="truncate">{{ option.label }}</span>
+                <!-- w-0 min-w-full: a percentage min-width contributes nothing to
+                     intrinsic sizing, so a long hint truncates instead of stretching
+                     the popover to the viewport. -->
+                <span v-if="option.hint" class="w-0 min-w-full truncate font-mono text-[10.5px] text-text-4">{{ option.hint }}</span>
+              </span>
+              <IconCheck v-if="option.value === modelValue" class="size-3.5 shrink-0 text-accent" :class="option.hint ? 'mt-px' : ''" :stroke-width="3" />
             </button>
           </li>
         </ul>

@@ -115,8 +115,8 @@ class FakeResizeObserver {
 }
 
 const workspaceRows = [
-  { dir: 'web-app', name: 'Web App', agent: 'claude', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
-  { dir: 'api', name: 'API', agent: 'claude', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'web-app', name: 'Web App', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'api', name: 'API', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
 ]
 
 // A chat row as the cross-workspace listing reports it: terminalId set means
