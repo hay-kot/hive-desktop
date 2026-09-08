@@ -127,12 +127,9 @@ type Discard struct {
 	NodeID string `json:"nodeId"`
 }
 
-// NodeRunView is one node's per-tick execution summary, recorded for the
-// flows debug/status UI. It is named "View" (rather than NodeRun) only to
-// avoid colliding with the sqlc-generated raw row model of the same name in
-// queries/models.go — package pipeline's NodeRun alias re-exports this type
-// under the name callers actually use (see pipeline/commit.go).
-type NodeRunView struct {
+// NodeRun is one node's per-tick execution summary, recorded for the flows
+// debug/status UI.
+type NodeRun struct {
 	FlowID    string `json:"flowId"`
 	NodeID    string `json:"nodeId"`
 	OK        bool   `json:"ok"`
@@ -164,12 +161,23 @@ type CommitBatch struct {
 	Outputs       []Output       `json:"outputs"`
 	FeedSnapshots []FeedSnapshot `json:"feedSnapshots"`
 	Discards      []Discard      `json:"discards"`
-	NodeRuns      []NodeRunView  `json:"nodeRuns"`
+	NodeRuns      []NodeRun      `json:"nodeRuns"`
 	KVMutations   []KVMutation   `json:"kvMutations,omitempty"` // omitempty: invisible to fixtures with none
 }
 
+// FeedClaim is one item's membership in one feed, attributed to the source
+// that produced it. The engine builds these for ActivateReplay; no store
+// reads one back.
+type FeedClaim struct {
+	ProfileID string `json:"profileId"`
+	FeedID    string `json:"feedId"`
+	ItemID    int64  `json:"itemId"`
+	SourceID  string `json:"sourceId"`
+}
+
 // ItemRef identifies an inbox item by inbox_item's own UNIQUE key rather than
-// by its row id, which ActivateReplay does not preserve (ADR macos-dmg-installer).
+// by its row id, which ActivateReplay does not preserve (ADR
+// an-item-session-link-is-desktop-state-keyed-on-item-coordinates).
 type ItemRef struct {
 	ProfileID   string `json:"profileId"`
 	SourceKind  string `json:"sourceKind"`

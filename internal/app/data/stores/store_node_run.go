@@ -52,7 +52,7 @@ func (s *NodeRunStore) List(ctx context.Context, flowID string, limit int) ([]No
 // endedAt. Used by EventLogStore.Commit inside its transaction; endedAt is
 // the caller's clock reading rather than this store's, so every node run in
 // one commit shares the same timestamp.
-func (s *NodeRunStore) Insert(ctx context.Context, run models.NodeRunView, endedAt int64) error {
+func (s *NodeRunStore) Insert(ctx context.Context, run models.NodeRun, endedAt int64) error {
 	var errCol sql.NullString
 	if run.Err != "" {
 		errCol = sql.NullString{String: run.Err, Valid: true}

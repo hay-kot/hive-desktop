@@ -51,7 +51,7 @@ func TestCommitWritesUseUnixMilliseconds(t *testing.T) {
 			OccurrenceKey: "item-1",
 			Payload:       []byte(`{}`),
 		}},
-		NodeRuns: []models.NodeRunView{{FlowID: "flow-1", NodeID: "node-a", OK: true}},
+		NodeRuns: []models.NodeRun{{FlowID: "flow-1", NodeID: "node-a", OK: true}},
 	}))
 	after := time.Now().UnixMilli()
 

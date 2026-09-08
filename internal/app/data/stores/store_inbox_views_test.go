@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -27,7 +28,7 @@ func TestInboxItemStore_MarkRead(t *testing.T) {
 		return row
 	}
 	claim := func(feedID string, itemID int64) {
-		require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: feedID, ItemID: itemID, SourceID: "source-a"}))
+		require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: feedID, ItemID: itemID, SourceID: "source-a"}))
 	}
 
 	active := insert("active", 1)
@@ -44,7 +45,7 @@ func TestInboxItemStore_MarkRead(t *testing.T) {
 		claim("feed-a", id)
 	}
 	claim("feed-b", otherFeed.ID)
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "other", FeedID: "feed-c", ItemID: otherProfileItem.ID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "other", FeedID: "feed-c", ItemID: otherProfileItem.ID, SourceID: "source-a"}))
 	_, err = st.InboxItems.ToggleArchived(ctx, archived.ID, archived.Revision)
 	require.NoError(t, err)
 	// Ignoring already clears unread, so force it back on: the query must skip
@@ -108,11 +109,11 @@ func TestInboxItemStore_FeedViewsTriageAndCounts(t *testing.T) {
 	require.NoError(t, err)
 	unmatched, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{ProfileID: "p", SourceKind: "github", ExternalID: "outside", Title: "outside", Payload: []byte(`{}`), Unread: 1, Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 3})
 	require.NoError(t, err)
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: first.ID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: first.ID, SourceID: "source-a"}))
 	// A feed is a set of inbox items, not source claims: two sources may claim
 	// the same item into one feed without duplicating its row or its unread count.
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: first.ID, SourceID: "source-b"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "feed-b", ItemID: second.ID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: first.ID, SourceID: "source-b"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "feed-b", ItemID: second.ID, SourceID: "source-a"}))
 
 	byFeed, err := st.InboxItems.ListByFeed(ctx, "p", "feed-a", 10)
 	require.NoError(t, err)
@@ -159,8 +160,8 @@ func TestInboxItemStore_FeedViewsTriageAndCounts(t *testing.T) {
 	require.NoError(t, err)
 	fourth, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{ProfileID: "p", SourceKind: "github", ExternalID: "four", Title: "four", Payload: []byte(`{}`), Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 1})
 	require.NoError(t, err)
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: third.ID, SourceID: "source-a"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: fourth.ID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: third.ID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "feed-a", ItemID: fourth.ID, SourceID: "source-a"}))
 	_, err = st.InboxItems.ToggleArchived(ctx, third.ID, third.Revision)
 	require.NoError(t, err)
 	_, err = st.InboxItems.ToggleArchived(ctx, fourth.ID, fourth.Revision)

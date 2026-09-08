@@ -292,7 +292,7 @@ func seedPurgeProfileRows(t *testing.T, db *queries.DB, profileID string) purgeP
 		ItemID: item.ID, Kind: "observed", Transition: "none", Attention: "trivial", Detail: []byte(`{}`), CreatedAt: 1,
 	})
 	require.NoError(t, err)
-	require.NoError(t, st.FeedClaims.Upsert(ctx, stores.FeedClaim{
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{
 		ProfileID: profileID, FeedID: profileID + "/feed", ItemID: item.ID, SourceID: topic,
 	}))
 	require.NoError(t, st.ItemSessions.Link(ctx, profileID+"-sess", models.ItemRef{

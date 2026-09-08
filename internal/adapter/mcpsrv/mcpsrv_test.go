@@ -24,6 +24,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -177,7 +178,7 @@ func TestInboxToolsMatchGolden(t *testing.T) {
 		Unread: 1, Lifecycle: "active", FirstSeenAt: 1_700_000_000_000, LastEventAt: 1_700_000_001_000,
 	})
 	require.NoError(t, err)
-	require.NoError(t, core.Stores.FeedClaims.Upsert(t.Context(), stores.FeedClaim{
+	require.NoError(t, core.Stores.FeedClaims.Upsert(t.Context(), models.FeedClaim{
 		ProfileID: "hooks", FeedID: "hooks/inbox", ItemID: item.ID, SourceID: "source:hooks/hook",
 	}))
 	_, err = seed.InboxEvent(t.Context(), queries.InsertInboxEventParams{

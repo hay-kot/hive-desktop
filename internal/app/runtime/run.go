@@ -369,11 +369,11 @@ func (s *runState) acc(nodeID string) *nodeRunAcc {
 	return acc
 }
 
-func (s *runState) nodeRuns() []models.NodeRunView {
-	runs := make([]models.NodeRunView, 0, len(s.runOrder))
+func (s *runState) nodeRuns() []models.NodeRun {
+	runs := make([]models.NodeRun, 0, len(s.runOrder))
 	for _, nodeID := range s.runOrder {
 		acc := s.runs[nodeID]
-		view := models.NodeRunView{
+		view := models.NodeRun{
 			FlowID:    s.runner.flow.ID,
 			NodeID:    nodeID,
 			OK:        acc.ok,

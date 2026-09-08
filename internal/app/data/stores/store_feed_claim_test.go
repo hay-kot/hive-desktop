@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -31,7 +32,7 @@ func TestFeedClaimStore_UpsertIsIdempotent(t *testing.T) {
 	ctx := t.Context()
 	itemID := seedClaimItem(t, db, "item-1")
 
-	claim := FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-a"}
+	claim := models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-a"}
 	require.NoError(t, st.FeedClaims.Upsert(ctx, claim))
 	require.NoError(t, st.FeedClaims.Upsert(ctx, claim))
 	assert.Equal(t, 1, countFeedClaims(t, db))
@@ -43,8 +44,8 @@ func TestFeedClaimStore_DeleteNotInSnapshot(t *testing.T) {
 	kept := seedClaimItem(t, db, "kept")
 	dropped := seedClaimItem(t, db, "dropped")
 
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: kept, SourceID: "source-a"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: dropped, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: kept, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: dropped, SourceID: "source-a"}))
 
 	require.NoError(t, st.FeedClaims.DeleteNotInSnapshot(ctx, "p/feed", "source-a", []int64{kept}))
 	assert.Equal(t, 1, countFeedClaims(t, db))
@@ -55,7 +56,7 @@ func TestFeedClaimStore_DeleteForSourceAll(t *testing.T) {
 	ctx := t.Context()
 	itemID := seedClaimItem(t, db, "item-1")
 
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-a"}))
 	require.NoError(t, st.FeedClaims.DeleteForSourceAll(ctx, "p/feed", "source-a"))
 	assert.Equal(t, 0, countFeedClaims(t, db))
 }
@@ -65,8 +66,8 @@ func TestFeedClaimStore_DeleteForFeeds(t *testing.T) {
 	ctx := t.Context()
 	itemID := seedClaimItem(t, db, "item-1")
 
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/keep", ItemID: itemID, SourceID: "source-a"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/drop", ItemID: itemID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/keep", ItemID: itemID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/drop", ItemID: itemID, SourceID: "source-a"}))
 
 	require.NoError(t, st.FeedClaims.DeleteForFeeds(ctx, "p", []string{"p/keep"}))
 	assert.Equal(t, 1, countFeedClaims(t, db))
@@ -81,8 +82,8 @@ func TestFeedClaimStore_DeleteForRemovedSources(t *testing.T) {
 	ctx := t.Context()
 	itemID := seedClaimItem(t, db, "item-1")
 
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-keep"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-drop"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-keep"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-drop"}))
 
 	require.NoError(t, st.FeedClaims.DeleteForRemovedSources(ctx, "p", []string{"source-keep"}))
 	assert.Equal(t, 1, countFeedClaims(t, db))
@@ -97,8 +98,8 @@ func TestFeedClaimStore_DeleteUnarchivedByProfile(t *testing.T) {
 	itemID := seedClaimItem(t, db, "item-1")
 	other := seedClaimItem(t, db, "item-2")
 
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-a"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "q", FeedID: "q/feed", ItemID: other, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/feed", ItemID: itemID, SourceID: "source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "q", FeedID: "q/feed", ItemID: other, SourceID: "source-a"}))
 
 	require.NoError(t, st.FeedClaims.DeleteUnarchivedByProfile(ctx, "p"))
 

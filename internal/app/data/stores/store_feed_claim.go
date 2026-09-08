@@ -3,6 +3,7 @@ package stores
 import (
 	"context"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -20,7 +21,7 @@ func NewFeedClaimStore(q *queries.DB, _ Options) *FeedClaimStore {
 
 // Upsert claims itemID for feedID under profileID, attributed to sourceID.
 // A claim already recorded is a no-op.
-func (s *FeedClaimStore) Upsert(ctx context.Context, claim FeedClaim) error {
+func (s *FeedClaimStore) Upsert(ctx context.Context, claim models.FeedClaim) error {
 	return wrap("claiming feed membership", s.q.Ctx(ctx).UpsertFeedMembershipClaim(ctx, queries.UpsertFeedMembershipClaimParams{
 		ProfileID: claim.ProfileID, FeedID: claim.FeedID, ItemID: claim.ItemID, SourceID: claim.SourceID,
 	}))

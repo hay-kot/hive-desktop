@@ -235,7 +235,7 @@ func TestFunctionNodeSplitInheritsSnapshotScope(t *testing.T) {
 	require.ElementsMatch(t, []string{"a", "b"}, keys, "each series is keyed by the value the script minted")
 }
 
-func nodeRun(t *testing.T, batch models.CommitBatch, nodeID string) models.NodeRunView {
+func nodeRun(t *testing.T, batch models.CommitBatch, nodeID string) models.NodeRun {
 	t.Helper()
 	for _, run := range batch.NodeRuns {
 		if run.NodeID == nodeID {
@@ -243,5 +243,5 @@ func nodeRun(t *testing.T, batch models.CommitBatch, nodeID string) models.NodeR
 		}
 	}
 	t.Fatalf("no node run recorded for %q", nodeID)
-	return models.NodeRunView{}
+	return models.NodeRun{}
 }

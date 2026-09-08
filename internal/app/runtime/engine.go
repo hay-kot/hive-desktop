@@ -44,7 +44,7 @@ type CommitStore interface {
 	Commit(ctx context.Context, batch models.CommitBatch) error
 	// ActivateReplay installs a prepared replay: claims, removed structure,
 	// node-KV reconciliation, and the consumer checkpoint, in one transaction.
-	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []stores.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
+	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []models.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
 }
 
 // Flows is the engine's view of the flow set: whatever loaded successfully,
@@ -289,7 +289,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 		return fmt.Errorf("recomputing membership: %w", err)
 	}
 
-	claims := make([]stores.FeedClaim, 0, len(result.Outputs))
+	claims := make([]models.FeedClaim, 0, len(result.Outputs))
 	for _, output := range result.Outputs {
 		if output.Sink.Kind != models.SinkKindFeed {
 			continue
@@ -301,7 +301,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 			// claim.
 			continue
 		}
-		claims = append(claims, stores.FeedClaim{
+		claims = append(claims, models.FeedClaim{
 			ProfileID: f.ID,
 			FeedID:    output.Sink.TargetID,
 			ItemID:    itemID,

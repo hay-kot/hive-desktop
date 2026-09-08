@@ -313,7 +313,7 @@ func TestCommit_InsertsNodeRuns(t *testing.T) {
 	batch := models.CommitBatch{
 		Consumer:   "flow-1",
 		UpToOffset: 1,
-		NodeRuns: []models.NodeRunView{
+		NodeRuns: []models.NodeRun{
 			{
 				FlowID:    "flow-1",
 				NodeID:    "node-a",
@@ -379,7 +379,7 @@ func TestCommit_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 	batch := models.CommitBatch{
 		Consumer:   "flow-1",
 		UpToOffset: 5,
-		NodeRuns: []models.NodeRunView{
+		NodeRuns: []models.NodeRun{
 			{FlowID: "flow-1", NodeID: "node-a", OK: true},
 		},
 	}

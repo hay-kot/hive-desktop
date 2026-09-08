@@ -201,7 +201,7 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 
 		// FeedClaimStore
 		{"FeedClaimStore.Upsert", func(ctx context.Context) error {
-			return st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "p", FeedID: "p/other", ItemID: fx.itemID, SourceID: "source-b"})
+			return st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "p", FeedID: "p/other", ItemID: fx.itemID, SourceID: "source-b"})
 		}},
 		{"FeedClaimStore.DeleteNotInSnapshot", func(ctx context.Context) error {
 			return st.FeedClaims.DeleteNotInSnapshot(ctx, "p/other", "source-b", []int64{fx.itemID})
@@ -392,7 +392,7 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 		{"NodeRunStore.Insert", func(ctx context.Context) error {
-			return st.NodeRuns.Insert(ctx, models.NodeRunView{FlowID: "flow-1", NodeID: "node-ctx", OK: true}, time.Now().UnixMilli())
+			return st.NodeRuns.Insert(ctx, models.NodeRun{FlowID: "flow-1", NodeID: "node-ctx", OK: true}, time.Now().UnixMilli())
 		}},
 
 		// OutputCommandStore

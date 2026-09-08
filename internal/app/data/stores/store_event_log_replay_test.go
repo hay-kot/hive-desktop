@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -19,7 +20,7 @@ func seedReplayItem(t *testing.T, db *queries.DB, profile, external string) quer
 	return item
 }
 
-func activateReplay(t *testing.T, st *Stores, profile string, claims []FeedClaim) {
+func activateReplay(t *testing.T, st *Stores, profile string, claims []models.FeedClaim) {
 	t.Helper()
 	feeds := make([]string, 0, len(claims))
 	sources := make([]string, 0, len(claims))
@@ -35,7 +36,7 @@ func activateReplay(t *testing.T, st *Stores, profile string, claims []FeedClaim
 func TestActivateReplay_OnlyWritesClaimsAndOffset(t *testing.T) {
 	st, db := openTestStores(t)
 	item := seedReplayItem(t, db, "flow", "item")
-	activateReplay(t, st, "flow", []FeedClaim{{FeedID: "flow/feed", ItemID: item.ID, SourceID: "source:flow/a"}})
+	activateReplay(t, st, "flow", []models.FeedClaim{{FeedID: "flow/feed", ItemID: item.ID, SourceID: "source:flow/a"}})
 	var commands, offsets, claims int
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM output_command`).Scan(&commands))
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM consumer_offset`).Scan(&offsets))
@@ -48,11 +49,11 @@ func TestActivateReplay_OnlyWritesClaimsAndOffset(t *testing.T) {
 func TestActivateReplay_RollsBackOffsetAndClaimsOnFailure(t *testing.T) {
 	st, db := openTestStores(t)
 	item := seedReplayItem(t, db, "flow", "item")
-	require.NoError(t, st.FeedClaims.Upsert(t.Context(), FeedClaim{ProfileID: "flow", FeedID: "flow/old", ItemID: item.ID, SourceID: "source:flow/old"}))
+	require.NoError(t, st.FeedClaims.Upsert(t.Context(), models.FeedClaim{ProfileID: "flow", FeedID: "flow/old", ItemID: item.ID, SourceID: "source:flow/old"}))
 	_, err := st.EventLog.Append(t.Context(), "source:flow/source", "item", []byte(`{}`))
 	require.NoError(t, err)
 
-	err = st.EventLog.ActivateReplay(t.Context(), "flow", 1, []FeedClaim{{ProfileID: "other", FeedID: "flow/new", ItemID: item.ID, SourceID: "source:flow/new"}}, []string{"flow/new"}, []string{"source:flow/new"}, nil)
+	err = st.EventLog.ActivateReplay(t.Context(), "flow", 1, []models.FeedClaim{{ProfileID: "other", FeedID: "flow/new", ItemID: item.ID, SourceID: "source:flow/new"}}, []string{"flow/new"}, []string{"source:flow/new"}, nil)
 	require.EqualError(t, err, `activating replay: claim profile "other" does not match "flow"`)
 
 	var feed string
@@ -67,12 +68,12 @@ func TestActivateReplay_ReplacesOnlyUnarchivedClaims(t *testing.T) {
 	st, db := openTestStores(t)
 	open := seedReplayItem(t, db, "flow", "open")
 	archived := seedReplayItem(t, db, "flow", "archived")
-	require.NoError(t, st.FeedClaims.Upsert(t.Context(), FeedClaim{ProfileID: "flow", FeedID: "flow/feed", ItemID: open.ID, SourceID: "source:flow/old"}))
-	require.NoError(t, st.FeedClaims.Upsert(t.Context(), FeedClaim{ProfileID: "flow", FeedID: "flow/feed", ItemID: archived.ID, SourceID: "source:flow/old"}))
+	require.NoError(t, st.FeedClaims.Upsert(t.Context(), models.FeedClaim{ProfileID: "flow", FeedID: "flow/feed", ItemID: open.ID, SourceID: "source:flow/old"}))
+	require.NoError(t, st.FeedClaims.Upsert(t.Context(), models.FeedClaim{ProfileID: "flow", FeedID: "flow/feed", ItemID: archived.ID, SourceID: "source:flow/old"}))
 	_, err := db.Conn().ExecContext(t.Context(), `UPDATE inbox_item SET archived_at = 1, archived_actor = 'manual' WHERE id = ?`, archived.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, st.EventLog.ActivateReplay(t.Context(), "flow", 0, []FeedClaim{{FeedID: "flow/new", ItemID: open.ID, SourceID: "source:flow/new"}}, []string{"flow/feed", "flow/new"}, []string{"source:flow/new"}, nil))
+	require.NoError(t, st.EventLog.ActivateReplay(t.Context(), "flow", 0, []models.FeedClaim{{FeedID: "flow/new", ItemID: open.ID, SourceID: "source:flow/new"}}, []string{"flow/feed", "flow/new"}, []string{"source:flow/new"}, nil))
 	rows, err := db.Conn().QueryContext(t.Context(), `SELECT profile_id, feed_id, item_id, source_id FROM feed_membership_claim ORDER BY item_id`)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rows.Close()) }()
@@ -94,7 +95,7 @@ func TestActivateReplay_DoesNotMutateInboxTriage(t *testing.T) {
 	item := seedReplayItem(t, db, "flow", "item")
 	_, err := db.Conn().ExecContext(t.Context(), `UPDATE inbox_item SET unread = 1, lifecycle = 'terminal', archived_reason = 'manual' WHERE id = ?`, item.ID)
 	require.NoError(t, err)
-	require.NoError(t, st.FeedClaims.Upsert(t.Context(), FeedClaim{ProfileID: "flow", FeedID: "flow/old", ItemID: item.ID, SourceID: "source:flow/old"}))
+	require.NoError(t, st.FeedClaims.Upsert(t.Context(), models.FeedClaim{ProfileID: "flow", FeedID: "flow/old", ItemID: item.ID, SourceID: "source:flow/old"}))
 
 	// A narrowed replay removes the membership but must not treat the inbox row
 	// as a fresh observation or alter its lifecycle/triage state.
@@ -117,7 +118,7 @@ func TestActivateReplay_NoFeedsDeletesAllClaims(t *testing.T) {
 	_, err := db.Conn().ExecContext(t.Context(), `UPDATE inbox_item SET archived_at = 1, archived_actor = 'manual' WHERE id = ?`, archived.ID)
 	require.NoError(t, err)
 	for _, itemID := range []int64{open.ID, archived.ID} {
-		require.NoError(t, st.FeedClaims.Upsert(t.Context(), FeedClaim{ProfileID: "flow", FeedID: "flow/removed", ItemID: itemID, SourceID: "source:flow/removed"}))
+		require.NoError(t, st.FeedClaims.Upsert(t.Context(), models.FeedClaim{ProfileID: "flow", FeedID: "flow/removed", ItemID: itemID, SourceID: "source:flow/removed"}))
 	}
 
 	require.NoError(t, st.EventLog.ActivateReplay(t.Context(), "flow", 0, nil, nil, []string{"source:flow/live"}, nil))
@@ -158,7 +159,7 @@ func TestActivateReplay_ProtectsArchivedClaims(t *testing.T) {
 	_, err := db.Conn().ExecContext(t.Context(), `UPDATE inbox_item SET archived_at = 1, archived_actor = 'manual' WHERE id = ?`, archived.ID)
 	require.NoError(t, err)
 	for _, id := range []int64{open.ID, archived.ID} {
-		require.NoError(t, st.FeedClaims.Upsert(t.Context(), FeedClaim{ProfileID: "flow", FeedID: "flow/feed", ItemID: id, SourceID: "source:flow/removed"}))
+		require.NoError(t, st.FeedClaims.Upsert(t.Context(), models.FeedClaim{ProfileID: "flow", FeedID: "flow/feed", ItemID: id, SourceID: "source:flow/removed"}))
 	}
 	require.NoError(t, st.EventLog.ActivateReplay(t.Context(), "flow", 0, nil, []string{"flow/feed"}, []string{"source:flow/live"}, nil))
 	var ids []int64
@@ -213,7 +214,7 @@ func TestActivateReplay_FailureLeavesNodeKVIntact(t *testing.T) {
 	// The mismatched claim profile fails the transaction after the KV
 	// reconcile would have cleared "old".
 	err := st.EventLog.ActivateReplay(ctx, "flow", 0,
-		[]FeedClaim{{ProfileID: "other", FeedID: "flow/f", ItemID: item.ID, SourceID: "source:flow/s"}},
+		[]models.FeedClaim{{ProfileID: "other", FeedID: "flow/f", ItemID: item.ID, SourceID: "source:flow/s"}},
 		nil, nil, []string{"survivor"})
 	require.Error(t, err)
 

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -114,7 +115,7 @@ func TestInboxItemStore_FeedIDForItem(t *testing.T) {
 
 	// Several feeds may claim one item; the answer is stable across calls.
 	for _, claim := range []string{"flow-1/team", "flow-1/all"} {
-		require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{
+		require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{
 			ProfileID: "flow-1", FeedID: claim, ItemID: itemID, SourceID: "source:flow-1/source-a",
 		}))
 	}
@@ -158,8 +159,8 @@ func TestInboxItemStore_FeedIDsForItems(t *testing.T) {
 	b := seedLookupItem(t, db, ctx, "item-b")
 	c := seedLookupItem(t, db, ctx, "item-c")
 
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "flow-1", FeedID: "flow-1/team", ItemID: a, SourceID: "source:flow-1/source-a"}))
-	require.NoError(t, st.FeedClaims.Upsert(ctx, FeedClaim{ProfileID: "flow-1", FeedID: "flow-1/all", ItemID: b, SourceID: "source:flow-1/source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "flow-1", FeedID: "flow-1/team", ItemID: a, SourceID: "source:flow-1/source-a"}))
+	require.NoError(t, st.FeedClaims.Upsert(ctx, models.FeedClaim{ProfileID: "flow-1", FeedID: "flow-1/all", ItemID: b, SourceID: "source:flow-1/source-a"}))
 
 	feeds, err := st.InboxItems.FeedIDsForItems(ctx, []int64{a, b, c})
 	require.NoError(t, err)

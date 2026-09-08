@@ -287,7 +287,7 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 				} else if err != nil {
 					return fmt.Errorf("resolving inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 				}
-				if err := s.claims.Upsert(ctx, FeedClaim{
+				if err := s.claims.Upsert(ctx, models.FeedClaim{
 					ProfileID: b.Consumer, FeedID: out.Sink.TargetID, ItemID: item.ID, SourceID: out.SourceTopic,
 				}); err != nil {
 					return fmt.Errorf("claiming feed membership %s/%s: %w", out.Sink.TargetID, out.Key, err)
@@ -400,7 +400,7 @@ func notifyDedupKey(out models.Output) string {
 // reconciles the flow's node KV against kvNodeIDs -- the ids still capable
 // of owning KV. A failed activation leaves the last-known-good runtime's
 // offset, claims and KV intact.
-func (s *EventLogStore) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error {
+func (s *EventLogStore) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []models.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error {
 	if tail < 0 {
 		return fmt.Errorf("activating replay for %q: negative tail", profileID)
 	}
