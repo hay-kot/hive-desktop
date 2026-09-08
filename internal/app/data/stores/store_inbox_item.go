@@ -15,13 +15,15 @@ import (
 
 // InboxItemStore owns inbox_item and inbox_event: the durable substrate
 // behind every feed item, and the lifecycle events recorded against it.
-// IngestObservation also touches source_head and event_log inside its own
-// transaction, which is why this store holds heads and log as siblings
-// (clause 2: an aggregate's own store may open a transaction and call
-// sibling stores when the write belongs to it).
+// IngestObservation also touches source_head and event_log, and
+// ResolveScoped moves item_session links, each inside its own transaction,
+// which is why this store holds those siblings (clause 2: an aggregate's own
+// store may open a transaction and call sibling stores when the write
+// belongs to it).
 type InboxItemStore struct {
-	q     *queries.DB
-	heads *SourceHeadStore
+	q        *queries.DB
+	heads    *SourceHeadStore
+	sessions *ItemSessionStore
 	// log is set by New after both stores exist: EventLogStore.Commit and
 	// ActivateReplay resolve and mint through InboxItemStore, so neither
 	// store can be fully built before the other.
@@ -30,8 +32,8 @@ type InboxItemStore struct {
 	mapper MapFunc[queries.InboxItem, InboxItem]
 }
 
-func NewInboxItemStore(q *queries.DB, opts Options, heads *SourceHeadStore) *InboxItemStore {
-	return &InboxItemStore{q: q, heads: heads, now: opts.Now, mapper: mapInboxItemFromDB}
+func NewInboxItemStore(q *queries.DB, opts Options, heads *SourceHeadStore, sessions *ItemSessionStore) *InboxItemStore {
+	return &InboxItemStore{q: q, heads: heads, sessions: sessions, now: opts.Now, mapper: mapInboxItemFromDB}
 }
 
 // ListByFeed returns a feed's active items, newest first.
@@ -154,8 +156,7 @@ func (s *InboxItemStore) RefByID(ctx context.Context, itemID int64) (models.Item
 // row in place rather than inserting a scoped duplicate beside it. A genuine
 // miss returns sql.ErrNoRows unchanged. See issue #95.
 func (s *InboxItemStore) ResolveScoped(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (InboxItem, error) {
-	q := s.q.Ctx(ctx)
-	item, err := q.GetInboxItemByExternalID(ctx, queries.GetInboxItemByExternalIDParams{
+	item, err := s.q.Ctx(ctx).GetInboxItemByExternalID(ctx, queries.GetInboxItemByExternalIDParams{
 		ProfileID: profileID, SourceKind: sourceKind, SourceScope: sourceScope, ExternalID: externalID,
 	})
 	if err == nil {
@@ -165,24 +166,28 @@ func (s *InboxItemStore) ResolveScoped(ctx context.Context, profileID, sourceKin
 		return InboxItem{}, err
 	}
 
-	legacy, legacyErr := q.GetInboxItemByExternalID(ctx, queries.GetInboxItemByExternalIDParams{
-		ProfileID: profileID, SourceKind: sourceKind, SourceScope: "", ExternalID: externalID,
-	})
-	if legacyErr != nil {
-		if errors.Is(legacyErr, sql.ErrNoRows) {
-			return InboxItem{}, err
+	var legacy queries.InboxItem
+	txErr := s.q.WithinTx(ctx, func(ctx context.Context, q *queries.DB) error {
+		var legacyErr error
+		legacy, legacyErr = q.GetInboxItemByExternalID(ctx, queries.GetInboxItemByExternalIDParams{
+			ProfileID: profileID, SourceKind: sourceKind, SourceScope: "", ExternalID: externalID,
+		})
+		if legacyErr != nil {
+			if errors.Is(legacyErr, sql.ErrNoRows) {
+				return err
+			}
+			return legacyErr
 		}
-		return InboxItem{}, legacyErr
-	}
-	if rescopeErr := q.RescopeInboxItem(ctx, queries.RescopeInboxItemParams{SourceScope: sourceScope, ID: legacy.ID}); rescopeErr != nil {
-		return InboxItem{}, rescopeErr
-	}
-	// item_session is keyed on these same coordinates, so the links have to
-	// move with the row or they address a scope nothing reads under again.
-	if rescopeErr := q.RescopeItemSessions(ctx, queries.RescopeItemSessionsParams{
-		SourceScope: sourceScope, ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,
-	}); rescopeErr != nil {
-		return InboxItem{}, rescopeErr
+		if rescopeErr := q.RescopeInboxItem(ctx, queries.RescopeInboxItemParams{SourceScope: sourceScope, ID: legacy.ID}); rescopeErr != nil {
+			return rescopeErr
+		}
+		// item_session is keyed on these same coordinates, so the links have
+		// to move with the row or they address a scope nothing reads under
+		// again.
+		return s.sessions.Rescope(ctx, profileID, sourceKind, externalID, sourceScope)
+	})
+	if txErr != nil {
+		return InboxItem{}, txErr
 	}
 	legacy.SourceScope = sourceScope
 	return s.mapper(legacy), nil

@@ -77,3 +77,12 @@ func (s *ItemSessionStore) Unlink(ctx context.Context, sessionIDs []string) erro
 func (s *ItemSessionStore) DeleteByProfile(ctx context.Context, profileID string) error {
 	return wrap("deleting item sessions by profile", s.q.Ctx(ctx).DeleteItemSessionsByProfile(ctx, profileID))
 }
+
+// Rescope moves the links recorded under the empty scope for (profileID,
+// sourceKind, externalID) to scope, so they keep addressing the item after
+// InboxItemStore.ResolveScoped rewrites the row.
+func (s *ItemSessionStore) Rescope(ctx context.Context, profileID, sourceKind, externalID, scope string) error {
+	return wrap("rescoping item sessions", s.q.Ctx(ctx).RescopeItemSessions(ctx, queries.RescopeItemSessionsParams{
+		SourceScope: scope, ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,
+	}))
+}

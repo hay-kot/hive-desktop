@@ -59,12 +59,13 @@ func New(q *queries.DB, opts Options) *Stores {
 	kv := NewNodeKVStore(q, opts)
 	runs := NewNodeRunStore(q, opts)
 	commands := NewOutputCommandStore(q, opts)
+	sessions := NewItemSessionStore(q, opts)
 
 	// InboxItemStore and EventLogStore call into each other --
 	// IngestObservation appends through the log, Commit and ActivateReplay
 	// resolve and mint through the inbox -- so neither can be fully built
 	// before the other exists. items.log is wired in once log exists.
-	items := NewInboxItemStore(q, opts, heads)
+	items := NewInboxItemStore(q, opts, heads, sessions)
 	log := NewEventLogStore(q, opts, items, claims, kv, runs, commands)
 	items.log = log
 
@@ -76,7 +77,7 @@ func New(q *queries.DB, opts Options) *Stores {
 		EventLog:        log,
 		FeedClaims:      claims,
 		InboxItems:      items,
-		ItemSessions:    NewItemSessionStore(q, opts),
+		ItemSessions:    sessions,
 		Jobs:            NewJobStore(q, opts),
 		NodeKV:          kv,
 		NodeRuns:        runs,
