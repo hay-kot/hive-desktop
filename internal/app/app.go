@@ -1108,17 +1108,25 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// agentCommands projects hive's agent profiles onto the one thing a workspace
-// may inherit from them. Flags are dropped here, at the seam, because hive's
-// profiles run --dangerously-skip-permissions and a workspace declares its own
-// authority instead (ADR a-workspace-declares-its-own-authority): agentws.Resolve validates the result is a
-// single shell word, so a profile whose Command carries flags (re-inheriting
-// through the back door this function exists to close) is refused at launch
-// naming the agent, rather than silently spliced into the line.
+// agentCommands projects hive's agent profiles onto a full command line,
+// flags included, for the workspace editor's preset list.
+//
+// Flags used to be dropped here so a workspace could not inherit
+// --dangerously-skip-permissions from hive's config. They now cross, because
+// the destination changed: a preset is seeded into the manifest once, where
+// the user reads and edits it, rather than resolved out of hive.yaml at every
+// launch. Nothing in a launch reads this map, so a hive config edit cannot
+// change what an existing workspace runs — which is the guarantee the old
+// seam was reaching for (ADR the-workspace-command-is-a-template, superseding
+// ADR a-workspace-declares-its-own-authority §1-2).
 func agentCommands(cfg *config.Config) map[string]string {
 	commands := make(map[string]string, len(cfg.Agents.Profiles))
 	for key, profile := range cfg.Agents.Profiles {
-		commands[key] = profile.CommandOrDefault(key)
+		line := profile.CommandOrDefault(key)
+		if flags := profile.ShellFlags(); flags != "" {
+			line += " " + flags
+		}
+		commands[key] = line
 	}
 	return commands
 }

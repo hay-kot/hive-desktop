@@ -60,12 +60,12 @@ type AgentWorkspacesService struct {
 	terminals *tmuxcc.Manager
 	db        *store.DB
 	skills    *SkillsService
-	// commands is agentCommands' result (app.go): hive's configured agent
-	// profiles projected onto their bare command, with Flags dropped at the
-	// seam (ADR a-workspace-declares-its-own-authority). An agent key absent here is unknown to hive at all;
-	// present here but absent from agentws's launch table is the second,
-	// distinct refusal.
-	commands map[string]string
+	// profileCommands is agentCommands' result (app.go): hive's configured
+	// agent profiles projected onto a full command line, flags included. It
+	// seeds the editor's preset list and nothing else — no launch reads it, so
+	// a hive.yaml edit cannot change what an existing workspace runs
+	// (ADR the-workspace-command-is-a-template).
+	profileCommands map[string]string
 	// rootProblem carries EnsureRoot's error, verbatim, when the configured
 	// root could not be created or opened at startup -- empty otherwise.
 	rootProblem string
@@ -84,8 +84,8 @@ type AgentWorkspacesService struct {
 	mcpBase func(context.Context) string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, profileCommands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, profileCommands: profileCommands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase}
 }
 
 // catalogue is the merged catalogue with this install's own entries resolved.
@@ -128,17 +128,22 @@ func (s *AgentWorkspacesService) lookPath() func(context.Context, string) (strin
 	return s.execEnv.LookPath
 }
 
-// WorkspaceView is one row of the area's list. Autonomy is on it because a
+// WorkspaceView is one row of the area's list. Command is on it because a
 // workspace that can actuate the physical world says so where it is opened,
-// not where it was configured (spec §7.2).
+// not where it was configured (spec §7.2) — and with a free-form command the
+// only honest way to say it is to show the command.
 type WorkspaceView struct {
-	Dir      string   `json:"dir"`
-	Name     string   `json:"name"`
-	Agent    string   `json:"agent"`
-	Autonomy string   `json:"autonomy"`
-	MCPs     []string `json:"mcps"`
-	Skills   []string `json:"skills"`
-	Problem  string   `json:"problem"`
+	Dir     string   `json:"dir"`
+	Name    string   `json:"name"`
+	Command string   `json:"command"`
+	MCPs    []string `json:"mcps"`
+	Skills  []string `json:"skills"`
+	Problem string   `json:"problem"`
+	// Danger reports that Command carries a known permission bypass. It
+	// replaces the posture enum's self-labelling: `full` used to name itself,
+	// a free-form command has to be read
+	// (ADR the-workspace-command-is-a-template).
+	Danger bool `json:"danger"`
 	// Notice mirrors SessionView.Notice's MCP explanation, shown on the
 	// workspace row itself: an agent whose wiring cannot bound its tool set to
 	// what the workspace declares says so before any session is even started
@@ -376,21 +381,16 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	}
 	ws := st.Workspace
 
-	command, ok := s.commands[ws.Agent]
-	if !ok {
-		return SessionView{}, Errorf(KindInvalid, "agent %q is not configured", ws.Agent)
-	}
-
 	workspaceDir := filepath.Join(s.store.Root(), req.Workspace)
 	agentSessionID := uuid.NewString()
-	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), agentSessionID, false)
+	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), agentSessionID, false)
 	if err != nil {
-		return SessionView{}, agentLaunchError(err, ws.Agent)
+		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
 
 	now := time.Now().UnixMilli()
 	rec, err := s.db.CreateAgentWorkspaceSession(ctx, store.AgentWorkspaceSession{
-		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent, AgentSessionID: agentSessionID,
+		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
 		CreatedAt: now, LastOpenedAt: now,
 	})
 	if err != nil {
@@ -434,7 +434,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
 			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID,
 			Cols: window.Width, Rows: window.Height,
-			ResumeAttempted: agentws.SupportsResume(rec.Agent),
+			ResumeAttempted: true,
 		}, nil
 	}
 
@@ -444,17 +444,12 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 	ws := st.Workspace
 
-	command, ok := s.commands[ws.Agent]
-	if !ok {
-		return SessionView{}, Errorf(KindInvalid, "agent %q is not configured", ws.Agent)
-	}
-
-	resumeAttempted := agentws.SupportsResume(ws.Agent)
+	resumeAttempted := agentws.SupportsResume(ws.Command)
 	var resumeNotice string
 	switch {
 	case !resumeAttempted:
 		resumeNotice = "the previous conversation could not be resumed; this is a fresh session"
-	case !agentws.HasConversation(ws.Agent, rec.AgentSessionID):
+	case !agentws.HasConversation(ws.Agent(), rec.AgentSessionID):
 		// The agent persisted nothing under this id — the session ended before
 		// its first message — so its resume form would die in the pane ("No
 		// conversation found with session ID"). A fresh launch IS the
@@ -471,9 +466,9 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 
 	workspaceDir := filepath.Join(s.store.Root(), rec.Workspace)
-	line, err := agentws.Resolve(command, resolvedFor(ws, workspaceDir), sessionID, resumeAttempted)
+	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), sessionID, resumeAttempted)
 	if err != nil {
-		return SessionView{}, agentLaunchError(err, ws.Agent)
+		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
 
 	if sessionID != rec.AgentSessionID {
@@ -576,51 +571,62 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	return nil
 }
 
-// Agents lists the agent keys this build can launch, sorted — the choices a
-// workspace editor offers for its agent field.
-func (s *AgentWorkspacesService) Agents(context.Context) []string {
-	agents := make([]string, 0, len(s.commands))
-	for agent := range s.commands {
-		agents = append(agents, agent)
+// Presets lists the starter command templates the editor offers: the ones
+// this build ships, plus one per agent profile in hive's own config. A hive
+// profile contributes its command AND its flags, unlike the old seam that
+// stripped them — the flags are the reason to pick that profile, and here
+// they land in a manifest field the user reviews and can edit rather than
+// being spliced in at every launch (ADR the-workspace-command-is-a-template).
+//
+// Nothing here gates a launch. A user who ignores every preset and types
+// their own command gets exactly that.
+func (s *AgentWorkspacesService) Presets(context.Context) []agentws.Preset {
+	presets := agentws.BuiltinPresets()
+	shipped := make(map[string]bool, len(presets))
+	for _, p := range presets {
+		shipped[p.Agent] = true
 	}
-	sort.Strings(agents)
-	return agents
-}
-
-// AutonomyFlags reports, per agent, the CLI flags each autonomy posture
-// launches with — the launch table projected for the editor, so a posture
-// shows the authority it actually grants (--dangerously-skip-permissions is
-// something to read, not a euphemism to hide; ADR a-workspace-declares-its-own-authority §5's posture applied
-// to autonomy). A posture absent from an agent's map is one the launch would
-// refuse, which the editor disables.
-func (s *AgentWorkspacesService) AutonomyFlags(context.Context) map[string]map[string][]string {
-	table := agentws.AutonomyFlags()
-	out := make(map[string]map[string][]string, len(table))
-	for agent, postures := range table {
-		m := make(map[string][]string, len(postures))
-		for posture, flags := range postures {
-			m[string(posture)] = flags
+	for agent, command := range s.profileCommands {
+		if shipped[agent] {
+			// A shipped agent already has postures spelled out; hive's single
+			// profile line would only duplicate one of them, less precisely.
+			continue
 		}
-		out[agent] = m
+		// A profile is a command word plus flags and carries no wiring, so a
+		// profile running a CLI this build does know (a model-pinned "fable"
+		// profile running claude) gets that CLI's wiring appended — otherwise
+		// the preset would launch with no MCP servers and a session Hive
+		// cannot address.
+		command += agentws.WiringTailFor(command)
+		presets = append(presets, agentws.Preset{
+			ID: "hive-" + agent,
+			// A model-pinned "fable" profile keeps its own name and still
+			// marks itself as the claude it runs.
+			Agent:   agentws.AgentFor(command),
+			Label:   agent,
+			Command: command,
+			Danger:  agentws.CommandIsDangerous(command),
+			Source:  agentws.PresetSourceHive,
+		})
 	}
-	return out
+	agentws.SortPresets(presets)
+	return presets
 }
 
 // WorkspaceEdit names the manifest fields the in-app editor writes. Anything
 // else the manifest says is untouched — WriteManifest edits the document in
 // place, so comments and keys the editor does not own stay the user's.
 type WorkspaceEdit struct {
-	Dir      string
-	Name     string
-	Agent    string
-	Autonomy string
-	MCPs     []string
-	Skills   []string
+	Dir     string
+	Name    string
+	Command string
+	MCPs    []string
+	Skills  []string
 }
 
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
 	return agentws.ManifestEdit{
-		Name: strings.TrimSpace(e.Name), Agent: e.Agent, Autonomy: agentws.Autonomy(e.Autonomy),
+		Name: strings.TrimSpace(e.Name), Command: strings.TrimSpace(e.Command),
 		MCPs: e.MCPs, Skills: e.Skills,
 	}
 }
@@ -632,11 +638,15 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return Errorf(KindInvalid, "a workspace needs a name")
 	}
-	if _, ok := s.commands[req.Agent]; !ok {
-		return Errorf(KindInvalid, "agent %q is not configured in this build", req.Agent)
+	command := strings.TrimSpace(req.Command)
+	if command == "" {
+		return Errorf(KindInvalid, "a workspace needs a command")
 	}
-	if !agentws.Autonomy(req.Autonomy).IsValid() {
-		return Errorf(KindInvalid, "autonomy %q is not valid (expected %s)", req.Autonomy, strings.Join(agentws.AutonomyNames(), ", "))
+	// The template is checked here rather than at launch, so a command that
+	// cannot render is refused by the editor that wrote it instead of by the
+	// session someone starts a day later.
+	if err := agentws.ValidateCommand(command); err != nil {
+		return Wrap(err, KindInvalid, "the command template is not valid")
 	}
 	for _, list := range []struct {
 		label  string
@@ -1195,15 +1205,16 @@ func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
 	} else if st.Valid {
-		// A workspace whose manifest failed to parse has no trustworthy Agent
-		// field to explain, so the MCP notice is skipped rather than shown
-		// against whatever the zero value happens to be.
-		notice = mcpNotice(st.Workspace.Agent)
+		// A workspace whose manifest failed to parse has no trustworthy
+		// command to derive an agent from, so the MCP notice is skipped rather
+		// than shown against whatever the zero value happens to be.
+		notice = mcpNotice(st.Workspace.Agent())
 	}
 	return WorkspaceView{
-		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
-		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs,
+		Dir: st.Dir, Name: st.Workspace.Name,
+		Command: st.Workspace.Command, MCPs: st.Workspace.MCPs,
 		Skills: st.Workspace.Skills, Problem: problem,
+		Danger: agentws.CommandIsDangerous(st.Workspace.Command),
 		Notice: notice,
 	}
 }
@@ -1277,20 +1288,17 @@ func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView
 }
 
 // agentLaunchError classifies an agentws launch-resolution failure by
-// sentinel rather than by message (architecture.md, Errors). Every case here
-// traces back to an authored file being wrong -- the workspace's agent or
-// autonomy, or hive's own agent config -- so all are KindInvalid.
-func agentLaunchError(err error, agent string) error {
+// sentinel rather than by message (architecture.md, Errors). Both cases trace
+// back to the workspace's own command template, so both are KindInvalid — and
+// both are normally caught by validateEdit long before a launch, leaving this
+// for a manifest hand-edited on disk.
+func agentLaunchError(err error, dir string) error {
 	switch {
-	case errors.Is(err, agentws.ErrUnknownAgent):
-		return Wrap(err, KindInvalid, "agent %q has no launch mapping in this build", agent)
-	case errors.Is(err, agentws.ErrNoAutonomyMapping):
-		return Wrap(err, KindInvalid, "agent %q has no mapping for this workspace's autonomy posture", agent)
-	case errors.Is(err, agentws.ErrPostureUnavailable):
-		return Wrap(err, KindInvalid, "agent %q has no known MCP wiring, so this autonomy posture is unavailable", agent)
-	case errors.Is(err, agentws.ErrCommandNotASingleWord):
-		return Wrap(err, KindInvalid, "agent %q's configured command must be a single word", agent)
+	case errors.Is(err, agentws.ErrCommandEmpty):
+		return Wrap(err, KindInvalid, "workspace %q has a command that renders to nothing", dir)
+	case errors.Is(err, agentws.ErrCommandTemplate):
+		return Wrap(err, KindInvalid, "workspace %q has an invalid command template", dir)
 	default:
-		return Wrap(err, KindInternal, "resolving the launch for agent %q", agent)
+		return Wrap(err, KindInternal, "resolving the launch for workspace %q", dir)
 	}
 }

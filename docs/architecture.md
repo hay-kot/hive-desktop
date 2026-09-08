@@ -1643,7 +1643,7 @@ reveal use.
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
-writer. The workspace editor owns `name`, `agent`, `autonomy`, `mcps:`, and
+writer. The workspace editor owns `name`, `agent`, `command`, `mcps:`, and
 `skills:` in the manifest (an empty list removes the key); comments and
 everything else stay the user's. `mcps.yaml` gains entries through the same pattern —
 `ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
@@ -1681,29 +1681,47 @@ recognized workspace's directory, and reveal opens it in the OS file manager.
 Both refuse a path that is not a known workspace, the same posture as
 `SystemService.checkAllowed`.
 
-A workspace declares `autonomy: ask | auto | full`, omitted defaulting to
-`ask` since the M2 approval indicator makes it legible (hc-ou4o02zx §4) — and
-`agentws`'s launch table (`launch.go`) maps
-`(agent, autonomy)` to that agent's own CLI flags; an agent or posture with no
-table entry fails closed (`ErrUnknownAgent`, `ErrNoAutonomyMapping`). The
-table is also projected to the UI (`AutonomyFlags`): the editor's posture
-selector lays out every option with the exact flags it launches for the
-chosen agent, so `full` reads as the dangerous bypass it is, and a posture
-the launch would refuse is disabled rather than hidden. Those
-flags come from nowhere else: hive's own `AgentProfile.Flags` are dropped at
-the vendored seam (`agentCommands` in `app.go`) before they ever reach a
-workspace, and only `Command` crosses — validated as a single shell word, so a
-flag cannot re-enter through the command string either (ADR a-workspace-declares-its-own-authority).
+A workspace declares `command:` — the whole invocation, as a Go
+`text/template` rendered at spawn (ADR the-workspace-command-is-a-template).
+Its data is `LaunchData` in `launch.go`: `.Dir`, `.MCPConfig`, `.SessionID`
+and `.Resume`, plus `shq` for quoting an interpolated value. It replaced the
+`autonomy: ask | auto | full` posture enum, whose per-agent flag table could
+only express the two CLIs it had entries for. The template is the only source
+of the launch line; `Resolve` renders it and wraps it in
+`cd <dir> && <rendered>`, splicing the rendered words in unquoted because the
+line already runs under `$SHELL -l -c`. Template source is folded onto one
+line before parsing, never after rendering, so a newline inside an
+interpolated value stays part of the quoted word `shq` produced.
 
-Each agent's MCP wiring (`MCPWiring`) is data, not a branch: a `File` the
+There is no `agent:` field. The label the activity classifier, the resume
+probe and the bounded-MCP notice key on is `AgentFor(command)` — the first
+word, less any directory, lowercased — so a CLI this build has never heard of
+is a normal workspace and the label cannot drift from the command it describes
+(manifest version 5 deletes the key). `Validate` parses **and renders** the
+template against a probe, so a broken command lists as a workspace problem
+rather than failing when someone presses the button. `SupportsResume` renders
+both ways and compares — a template that does not actually change is not a
+resume.
+
+Hive's own `agents:` profiles reach the editor as **presets** (`Presets`), and
+nothing else: a preset is copied into the manifest once, where the user
+reviews it, and no launch reads hive's config at all. The editor picks a
+command and only a command — a searchable list of the shipped presets, the
+hive-seeded ones, and **Custom**, which is the only row that reveals the
+template box and its field reference. `CommandIsDangerous` derives the warning
+the `full` posture used to declare, matching the command against the bypass
+flags this build knows by name.
+
+MCP wiring (`MCPWiring` in `wiring.go`) is data, not a branch: a `File` the
 generator writes, a `Render` encoding the resolved servers into that file's
-format, and a `Bounded` flag reporting whether the wiring confines the agent
-to exactly the workspace's declared set. Claude's is bounded
-(`--strict-mcp-config` plus a generated `.mcp.json`); codex's is not — it has
-no CLI-level MCP flag, so its generated `.codex/config.toml` is loaded
-alongside whatever the user's own global codex config already has, and the UI
-states that rather than leaving an unbounded tool set looking identical to a
-bounded one.
+format, and a `Bounded` flag reporting whether a CLI reading it is confined to
+exactly the workspace's declared set. The generator writes **every** wiring
+into every workspace whatever the command names, so a template can point an
+unknown CLI at whichever format it reads. Claude's `.mcp.json` is bounded when
+the command passes `--strict-mcp-config`; codex's is not — it has no CLI-level
+MCP flag, so its generated `.codex/config.toml` is loaded alongside whatever
+the user's own global codex config already has, and the UI states that rather
+than leaving an unbounded tool set looking identical to a bounded one.
 
 A chat's agent may write **canvases** — named surfaces of markdown, html and
 link blocks shown in a pane beside the conversation
@@ -1809,7 +1827,7 @@ row it lands on, and nothing walks this tree — Tab moves through rows without
 selecting them, so the ring stays. The fold chevron trails the header where the
 Code view's does, but is the fold *control* rather than an indicator of one,
 because clicking the header focuses the workspace instead of folding it.
-Secondary text a row used to stack under its name — `agent · autonomy`, a
+Secondary text a row used to stack under its name — the launch command, a
 problem, a notice — is the row's tooltip, with the chevron going amber or red so
 a warning stays a glance rather than a hover. Its trailing edge is three
 controls on one 18px pitch — `+`, edit, fold chevron — with the first two

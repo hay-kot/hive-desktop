@@ -54,12 +54,6 @@ func parseWorkspace(data []byte) (Workspace, error) {
 	if w.Version != configmigrate.AgentWorkspaceSet.Current {
 		return Workspace{}, fmt.Errorf("agent-workspace.yaml: version must be %d, got %d", configmigrate.AgentWorkspaceSet.Current, w.Version)
 	}
-	// An omitted autonomy defaults to the least-trusting posture (hc-ou4o02zx
-	// §4) now that the M2 approval indicator makes "ask" legible in the area,
-	// rather than failing to load at all.
-	if w.Autonomy == "" {
-		w.Autonomy = AutonomyAsk
-	}
 	if err := w.Validate(); err != nil {
 		return Workspace{}, err
 	}

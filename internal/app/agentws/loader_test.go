@@ -22,12 +22,11 @@ func TestConfigRoundTrip(t *testing.T) {
 		t.Parallel()
 
 		w := Workspace{
-			Version:  configmigrate.AgentWorkspaceSet.Current,
-			Name:     "Home Assistant",
-			Agent:    "claude",
-			Autonomy: AutonomyAsk,
-			MCPs:     []string{"home-assistant"},
-			Skills:   []string{"hive-mcp"},
+			Version: configmigrate.AgentWorkspaceSet.Current,
+			Name:    "Home Assistant",
+			Command: "claude",
+			MCPs:    []string{"home-assistant"},
+			Skills:  []string{"hive-mcp"},
 		}
 		require.NoError(t, w.Validate())
 
@@ -75,7 +74,7 @@ func TestStrictDecodeRejectsUnknownFields(t *testing.T) {
 
 	t.Run("Workspace", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseWorkspace([]byte("version: 2\nname: X\nagent: claude\nautonomy: ask\nfoo: bar\n"))
+		_, err := parseWorkspace([]byte("version: 5\nname: X\ncommand: claude\nfoo: bar\n"))
 		require.Error(t, err)
 	})
 
@@ -93,21 +92,30 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 	dir := filepath.Join(root, "homeassistant")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	path := filepath.Join(dir, manifestFileName)
-	require.NoError(t, os.WriteFile(path, []byte("version: 2\nname: X\nagent: claude\nautonomy: ask\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("version: 2\nname: X\nagent: claude\ncommand: claude\n"), 0o600))
 
 	w, err := LoadWorkspace(path)
 	require.NoError(t, err)
 	assert.Equal(t, "homeassistant", w.Dir)
 }
 
-// TestAutonomyDefaultsToAsk asserts hc-ou4o02zx §4: a manifest that omits
-// autonomy loads as AutonomyAsk rather than failing.
-func TestAutonomyDefaultsToAsk(t *testing.T) {
+func TestAgentComesFromTheCommandWord(t *testing.T) {
 	t.Parallel()
 
-	w, err := parseWorkspace([]byte("version: 3\nname: X\nagent: claude\n"))
+	w, err := parseWorkspace([]byte("version: 5\nname: X\ncommand: /opt/homebrew/bin/Claude --model opus\n"))
 	require.NoError(t, err)
-	assert.Equal(t, AutonomyAsk, w.Autonomy)
+	assert.Equal(t, "claude", w.Agent(), "a path and a capital are the same CLI")
+
+	w, err = parseWorkspace([]byte("version: 5\nname: X\ncommand: pi --some-flag\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "pi", w.Agent())
+}
+
+func TestAgentKeyIsRejected(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseWorkspace([]byte("version: 5\nname: X\nagent: claude\ncommand: claude\n"))
+	require.Error(t, err)
 }
 
 func TestLoadWorkspaceMissingFileWrapsNotExist(t *testing.T) {

@@ -120,6 +120,15 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   gained date groups, hover actions, and mark-all-as-read.
 - One source message is split into per-entity feed items rather than one
   combined row.
+- A chat workspace writes its own launch command instead of picking an agent
+  and one of three autonomy postures. Creating one is now a single choice from
+  a searchable list of suggested commands -- the shipped postures plus one per
+  agent profile in your `hive` config -- and picking **Custom** opens the
+  command itself, a template with the workspace directory, the generated MCP
+  config and the session id available to it. Any CLI can run in a workspace,
+  not only the two Hive shipped flags for, and the editor warns when a command
+  skips permission prompts. Existing workspaces migrate to the command their
+  posture already ran.
 - The New Session form preselects the agent `hive` would actually run, and the
   dialog opens on ⌘N.
 - The command palette no longer lists commands that cannot run where you are

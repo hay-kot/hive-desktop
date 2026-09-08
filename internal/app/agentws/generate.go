@@ -136,22 +136,20 @@ func generateClaudeMD(dir string) (problem string, err error) {
 	return "", nil
 }
 
-// generateMCPFiles writes one generated MCP config per agent launch entry
-// that declares MCP wiring. Ranging agentLaunches — rather than a list this
-// function maintains — is what lets a new agent's file arrive as a table
-// entry with no edit here.
+// generateMCPFiles writes every known MCP config format into the workspace,
+// regardless of which agent the manifest names. That is deliberate: a command
+// template points at whichever file its CLI reads (LaunchData.MCPConfig), so
+// generating all of them is what lets an agent this build has never heard of
+// still receive the workspace's declared servers.
 func generateMCPFiles(dir string, servers map[string]mcpcatalog.Server) error {
-	keys := make([]string, 0, len(agentLaunches))
-	for k := range agentLaunches {
+	keys := make([]string, 0, len(agentWirings))
+	for k := range agentWirings {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		wiring := agentLaunches[k].MCP
-		if wiring == nil {
-			continue
-		}
+		wiring := agentWirings[k]
 		content, err := wiring.Render(servers)
 		if err != nil {
 			return fmt.Errorf("agentws: render %s MCP config: %w", k, err)

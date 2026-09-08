@@ -9,8 +9,8 @@ import type { AgentSession, AgentWorkspace } from '../../lib/agentWorkspacesClie
 // wire responses AgentWorkspacesClient normally decodes. Demo B's chat is
 // live and Demo A's is not, which is also what the fold default keys on.
 const workspaceFixtures: AgentWorkspace[] = [
-  { dir: 'demo-a', name: 'Demo A', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '' },
-  { dir: 'demo-b', name: 'Demo B', agent: 'codex', autonomy: 'auto', mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'demo-a', name: 'Demo A', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'demo-b', name: 'Demo B', command: 'codex --sandbox workspace-write', danger: false, mcps: [], skills: [], problem: '', notice: '' },
 ]
 
 const recentFixtures: AgentSession[] = [
@@ -264,10 +264,10 @@ describe('AgentsSidebar', () => {
     expect(rows[0].find('.animate-spin').exists()).toBe(true)
   })
 
-  it("a workspace's agent and autonomy move to its row tooltip", async () => {
+  it("a workspace's launch command moves to its row tooltip", async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    expect(rows[0].attributes('title')).toContain('claude · ask')
+    expect(rows[0].attributes('title')).toContain('claude')
     expect(rows[0].text()).not.toContain('claude')
   })
 

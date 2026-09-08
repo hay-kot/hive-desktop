@@ -71,7 +71,8 @@ func TestSeedCreatesTheHiveWorkspaceOnRootCreation(t *testing.T) {
 	ws, err := LoadWorkspace(manifestPath)
 	require.NoError(t, err)
 	require.NoError(t, ws.Validate())
-	assert.Equal(t, AutonomyAsk, ws.Autonomy)
+	assert.Equal(t, PresetCommand("claude-ask"), ws.Command)
+	assert.False(t, CommandIsDangerous(ws.Command), "the seeded workspace must not ship a permission bypass")
 	assert.Equal(t, []string{"hive"}, ws.Skills, "the seed enables the hive package, not individual skills")
 
 	_, err = os.Stat(filepath.Join(root, "hive", "AGENTS.md"))
