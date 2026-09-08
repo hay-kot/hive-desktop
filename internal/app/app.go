@@ -384,7 +384,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
-	a.Inbox = newInboxService(a.Stores.InboxItems, a.Stores.OutputCommands, a.Stores.NodeRuns, a.actionStore, a.outputs)
+	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
 	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
 	a.Sessions = newSessionsService(SessionsDeps{
 		Launcher: a.launcher, Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
@@ -413,7 +413,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Actions = newActionsService(a.actionStore, a.Events)
 	a.System = newSystemService(cfg.Paths)
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, a.Stores.WebhookCaptures, a.webhook, a.webhookHost, a.webhookPort)
+	a.Webhooks = newWebhookService(WebhookDeps{Settings: cfg.SettingsStore, Captures: a.Stores.WebhookCaptures, Listener: a.webhook, Host: a.webhookHost, Port: a.webhookPort})
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Gitea = newGiteaService(a.giteaAuth)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
@@ -429,7 +429,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir})
-	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Terminals, a.Sessions, a.actionStore)
+	a.PopupTerminals = newPopupTerminalsService(PopupTerminalsDeps{Manager: a.popupTerminals, Terminals: a.Terminals, Directory: a.Sessions, Catalog: a.actionStore})
 	a.Canvas = newCanvasService(CanvasDeps{
 		Store:    canvas.NewStore(cfg.Paths.AgentWorkspacesDir),
 		Sessions: a.Stores.AgentSessions,

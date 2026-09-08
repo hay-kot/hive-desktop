@@ -71,8 +71,16 @@ type PopupTerminalsService struct {
 	catalog   *actions.ActionStore
 }
 
-func newPopupTerminalsService(manager *ptyterm.Manager, terminals terminalWorkingDirectory, directory terminalDirectory, catalog *actions.ActionStore) *PopupTerminalsService {
-	return &PopupTerminalsService{manager: manager, terminals: terminals, directory: directory, catalog: catalog}
+// PopupTerminalsDeps is newPopupTerminalsService's constructor argument.
+type PopupTerminalsDeps struct {
+	Manager   *ptyterm.Manager
+	Terminals terminalWorkingDirectory
+	Directory terminalDirectory
+	Catalog   *actions.ActionStore
+}
+
+func newPopupTerminalsService(d PopupTerminalsDeps) *PopupTerminalsService {
+	return &PopupTerminalsService{manager: d.Manager, terminals: d.Terminals, directory: d.Directory, catalog: d.Catalog}
 }
 
 // Available reports build and platform support. There is no external program to

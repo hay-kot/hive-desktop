@@ -26,8 +26,17 @@ type InboxService struct {
 	worker   *dispatch.Worker
 }
 
-func newInboxService(items *stores.InboxItemStore, commands *stores.OutputCommandStore, nodeRuns *stores.NodeRunStore, catalog *actions.ActionStore, worker *dispatch.Worker) *InboxService {
-	return &InboxService{items: items, commands: commands, nodeRuns: nodeRuns, actions: catalog, worker: worker}
+// InboxDeps is newInboxService's constructor argument.
+type InboxDeps struct {
+	Items    *stores.InboxItemStore
+	Commands *stores.OutputCommandStore
+	NodeRuns *stores.NodeRunStore
+	Catalog  *actions.ActionStore
+	Worker   *dispatch.Worker
+}
+
+func newInboxService(d InboxDeps) *InboxService {
+	return &InboxService{items: d.Items, commands: d.Commands, nodeRuns: d.NodeRuns, actions: d.Catalog, worker: d.Worker}
 }
 
 func (s *InboxService) ListByFeed(ctx context.Context, profileID, feedID string, limit int) ([]stores.InboxItem, error) {

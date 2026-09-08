@@ -24,8 +24,18 @@ type WebhookService struct {
 	startErr error
 }
 
-func newWebhookService(settingsStore *settings.Store, captures *stores.WebhookCaptureStore, listener *webhook.Listener, host string, port int) *WebhookService {
-	return &WebhookService{settings: settingsStore, captures: captures, listener: listener, host: host, port: port}
+// WebhookDeps is newWebhookService's constructor argument. Captures and
+// Listener are nil in a build with no webhook listener.
+type WebhookDeps struct {
+	Settings *settings.Store
+	Captures *stores.WebhookCaptureStore
+	Listener *webhook.Listener
+	Host     string
+	Port     int
+}
+
+func newWebhookService(d WebhookDeps) *WebhookService {
+	return &WebhookService{settings: d.Settings, captures: d.Captures, listener: d.Listener, host: d.Host, port: d.Port}
 }
 
 func (s *WebhookService) setStartError(err error) {

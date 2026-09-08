@@ -31,7 +31,7 @@ func newTestWorker(db *queries.DB, actionStore dispatch.ActionLister, d *dispatc
 // shape app.go wires against the real Stores.
 func newTestInboxService(db *queries.DB, actionStore *actions.ActionStore, worker *dispatch.Worker) *InboxService {
 	st := stores.New(db, stores.Options{})
-	return newInboxService(st.InboxItems, st.OutputCommands, st.NodeRuns, actionStore, worker)
+	return newInboxService(InboxDeps{Items: st.InboxItems, Commands: st.OutputCommands, NodeRuns: st.NodeRuns, Catalog: actionStore, Worker: worker})
 }
 
 // recordingActionExecutor captures the context an action was dispatched with —

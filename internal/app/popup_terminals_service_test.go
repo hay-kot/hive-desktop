@@ -28,7 +28,7 @@ func newPopupHarnessIn(t *testing.T, manager *fakeSessionManager, catalog *actio
 	sessions := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}})
 	pty := ptyterm.NewManager(ptyterm.ManagerOptions{Shell: []string{"/bin/sh"}})
 	t.Cleanup(func() { _ = pty.Stop(t.Context()) })
-	return newPopupTerminalsService(pty, terminals, sessions, catalog)
+	return newPopupTerminalsService(PopupTerminalsDeps{Manager: pty, Terminals: terminals, Directory: sessions, Catalog: catalog})
 }
 
 // fakeTerminalDirs stands in for tmux: a slug it is holding answers with the
