@@ -26,6 +26,53 @@ func enqueueTestCommand(t *testing.T, st *Stores, actionID, key string) {
 	}))
 }
 
+func TestCommit_RecordsTheItemAnActionCommandCameFrom(t *testing.T) {
+	st, _ := openTestStores(t)
+	ctx := t.Context()
+	routed := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
+
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
+		Consumer: "p", UpToOffset: 1,
+		Outputs: []models.Output{{
+			Sink: models.Sink{Kind: models.SinkKindAction, TargetID: "review-pr"}, Key: "acme/repo#1",
+			OccurrenceKey: "oc-1", Payload: []byte(`{"v":1}`), SourceKind: "github", SourceScope: "acct",
+		}},
+	}))
+
+	rows, err := st.OutputCommands.ListRunnableAfter(ctx, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "oc-1", rows[0].Key)
+	assert.Equal(t, routed, rows[0].ItemRef(), "the enqueued command carries the item the flow fired it from")
+}
+
+func TestConfirm_KeepsTheRoutedOriginAndFillsAMissingOne(t *testing.T) {
+	st, db := openTestStores(t)
+	ctx := t.Context()
+	routed := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
+
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
+		Consumer: "p", UpToOffset: 1,
+		Outputs: []models.Output{{
+			Sink: models.Sink{Kind: models.SinkKindAction, TargetID: "review-pr"}, Key: "acme/repo#1",
+			OccurrenceKey: "oc-1", Payload: []byte(`{"v":1}`), SourceKind: "github", SourceScope: "acct",
+		}},
+	}))
+	other := models.ItemRef{ProfileID: "q", SourceKind: "webhook", ExternalID: "other"}
+	claimed, _, err := st.OutputCommands.Confirm(ctx, "review-pr", "oc-1", []byte(`{"v":1}`), other)
+	require.NoError(t, err)
+	assert.Equal(t, routed, claimed.ItemRef(), "a confirm never overwrites the origin the flow recorded")
+
+	// A command enqueued with no item behind it takes the confirming caller's,
+	// whole rather than column by column.
+	_, err = db.Conn().ExecContext(ctx,
+		`INSERT INTO output_command (action_id, key, payload, status, created_at) VALUES ('shell-it', 'oc-2', CAST('{}' AS BLOB), 'pending', 1)`)
+	require.NoError(t, err)
+	filled, _, err := st.OutputCommands.Confirm(ctx, "shell-it", "oc-2", []byte(`{"v":1}`), routed)
+	require.NoError(t, err)
+	assert.Equal(t, routed, filled.ItemRef())
+}
+
 func TestRecoverInterruptedOutputCommands_JoinsTransaction(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()

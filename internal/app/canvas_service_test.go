@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,6 +39,7 @@ type canvasToggle struct {
 // runs on the bus subscriber's own goroutine, so every field is guarded by a
 // mutex and read through the wait helpers below rather than directly.
 type canvasSignals struct {
+	bus     *events.Bus
 	mu      sync.Mutex
 	updates []int64
 	toggles []canvasToggle
@@ -82,13 +84,25 @@ func (s *canvasSignals) waitToggles(t *testing.T, n int) []canvasToggle {
 	return s.Toggles()
 }
 
+// requireNoUpdates proves the service published nothing so far. Buffer
+// delivers in order, so a sentinel published now lands behind anything the
+// service already published; once it arrives the recorded list is complete,
+// which a synchronous read of Updates() could never guarantee.
+func (s *canvasSignals) requireNoUpdates(t *testing.T, msg string) {
+	t.Helper()
+	const sentinel = int64(-1)
+	s.bus.Publish(t.Context(), events.CanvasUpdated{Session: sentinel})
+	require.Eventually(t, func() bool { return slices.Contains(s.Updates(), sentinel) }, 2*time.Second, 5*time.Millisecond)
+	assert.Equal(t, []int64{sentinel}, s.Updates(), msg)
+}
+
 func testCanvasService(t *testing.T) (*CanvasService, *canvasSignals) {
 	t.Helper()
-	signals := &canvasSignals{}
+	bus := newTestBus(t)
+	signals := &canvasSignals{bus: bus}
 	sessions := fakeCanvasSessions{
 		1: {ID: 1, Workspace: "ws", Name: "chat", Agent: "claude"},
 	}
-	bus := newTestBus(t)
 	cancelUpdated := events.Subscribe(t.Context(), bus, "test.canvas-updated", events.Buffer(64), func(_ context.Context, e events.CanvasUpdated) {
 		signals.addUpdate(e.Session)
 	})
@@ -128,7 +142,7 @@ func TestCanvasGetUnknownNameIsNotFound(t *testing.T) {
 
 	_, err := svc.Get(t.Context(), 1, "plan")
 	assert.Equal(t, KindNotFound, KindOf(err), "an agent asking by name should learn the name is wrong")
-	assert.Empty(t, signals.Updates(), "a read never notifies")
+	signals.requireNoUpdates(t, "a read never notifies")
 }
 
 func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
@@ -140,7 +154,7 @@ func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
 	assert.Equal(t, "plan", c.Name)
 	assert.NotNil(t, c.Blocks)
 	assert.Empty(t, c.Blocks)
-	assert.Empty(t, signals.Updates(), "a read never notifies")
+	signals.requireNoUpdates(t, "a read never notifies")
 }
 
 func TestCanvasPutBlockValidation(t *testing.T) {
@@ -177,7 +191,7 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 	_, err = svc.PutBlock(ctx, 1, "plan", strings.Repeat("t", maxCanvasTitleLength+1), "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindInvalid, KindOf(err), "an oversized canvas title is refused")
 
-	assert.Empty(t, signals.Updates(), "a refused write never notifies")
+	signals.requireNoUpdates(t, "a refused write never notifies")
 }
 
 // A silently stripped tag or class is the one failure an agent cannot see,
@@ -311,7 +325,7 @@ func TestCanvasMutationsOnUnknownCanvasAreNotFound(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 	err = svc.Delete(ctx, 1, "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
-	assert.Empty(t, signals.Updates())
+	signals.requireNoUpdates(t, "a mutation on an unknown canvas never notifies")
 }
 
 func TestCanvasSetPaneOpen(t *testing.T) {

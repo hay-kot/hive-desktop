@@ -3,6 +3,7 @@ package stores
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -297,6 +298,35 @@ func TestCommit_NotifyOutput_IsPerNode(t *testing.T) {
 		},
 	}))
 	assert.Equal(t, 2, countOutputCommands(t, db, ctx))
+}
+
+// A snapshot reconciles only its own (feed, source) scope: an empty snapshot
+// for source a must drop a's claim on the item and leave b's alone.
+func TestCommit_EmptySourceSnapshotClearsOnlyThatSourceClaims(t *testing.T) {
+	st, db := openTestStores(t)
+	ctx := t.Context()
+	item := seedReplayItem(t, db, "flow", "item")
+	feed := models.Sink{Kind: models.SinkKindFeed, TargetID: "flow/feed"}
+	commit := func(offset int64, source string) {
+		snapshotID := strconv.FormatInt(offset, 10)
+		require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
+			Consumer: "flow", UpToOffset: offset,
+			Outputs: []models.Output{{
+				Sink: feed, Key: "item", SourceKind: "github", SourceScope: "scope", SourceTopic: source, SnapshotID: snapshotID,
+			}},
+			FeedSnapshots: []models.FeedSnapshot{{FeedID: feed.TargetID, SourceTopic: source, SnapshotID: snapshotID}},
+		}))
+	}
+	commit(1, "source:flow/a")
+	commit(2, "source:flow/b")
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
+		Consumer: "flow", UpToOffset: 3,
+		FeedSnapshots: []models.FeedSnapshot{{FeedID: feed.TargetID, SourceTopic: "source:flow/a", SnapshotID: "3"}},
+	}))
+
+	var source string
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT source_id FROM feed_membership_claim WHERE item_id = ?`, item.ID).Scan(&source))
+	assert.Equal(t, "source:flow/b", source)
 }
 
 func countOutputCommands(t *testing.T, db *queries.DB, ctx context.Context) int {

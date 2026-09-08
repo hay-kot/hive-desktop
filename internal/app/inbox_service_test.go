@@ -474,3 +474,24 @@ func TestInboxService_ToggleArchivedStaleRevisionIsConflict(t *testing.T) {
 	assert.Equal(t, KindConflict, KindOf(err))
 	assert.False(t, stores.IsNotFound(err))
 }
+
+// A missing row is a typed answer: an id nothing backs is KindNotFound, and a
+// rerun with no completed run to repeat is KindInvalid.
+func TestInboxService_MissingRowsMapOntoKinds(t *testing.T) {
+	actionStore := configuredActionStore(t)
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	worker := newTestWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
+		"launch-session": &recordingActionExecutor{},
+	}), 0, zerolog.Nop())
+	service := newTestInboxService(db, actionStore, worker)
+	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
+
+	_, err = service.Events(t.Context(), 999999, 10)
+	assert.Equal(t, KindNotFound, KindOf(err))
+	_, err = service.ActionRun(t.Context(), 999999)
+	assert.Equal(t, KindNotFound, KindOf(err))
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{Rerun: true}})
+	assert.Equal(t, KindInvalid, KindOf(err), "a rerun needs a completed run to repeat")
+}
