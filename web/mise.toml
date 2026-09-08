@@ -1,0 +1,49 @@
+# hivedesktop.com. This file stands on its own: run the tasks from inside web/
+# (`mise run build`), where it also pins the site's toolchain on top of the
+# repository's mise.toml. The site is Zensical (the successor of Material for
+# MkDocs, the same system the hive CLI's docs use) run through uv; wrangler
+# serves the output as Worker static assets (see wrangler.jsonc).
+
+[tools]
+python = "3.13.13"
+uv = "0.12.9"
+node = "22.23.2"
+
+[tasks.install]
+description = "Install the site's Python (uv, from uv.lock) and Node (wrangler) dependencies"
+run = ["uv sync --frozen", "npm ci"]
+
+[tasks.build]
+description = "Build the site into site/ in strict mode, then publish llms.txt and the Markdown twins"
+run = [
+  "uv run --frozen zensical build --clean --strict",
+  "uv run --frozen python scripts/llms.py",
+]
+
+[tasks.dev]
+description = "Serve the site with the Worker routes on http://127.0.0.1:8788, rebuilding on save"
+run = """
+uv run --frozen zensical serve --dev-addr 127.0.0.1:8000 &
+zensical=$!
+trap 'kill $zensical 2>/dev/null' EXIT INT TERM
+until [ -f site/index.html ]; do sleep 0.2; done
+npx wrangler dev --port 8788
+"""
+
+[tasks."dev:pages"]
+description = "Serve pages alone with browser live reload on http://127.0.0.1:8000; no Worker, so /api/* is absent"
+run = "uv run --frozen zensical serve"
+
+[tasks.preview]
+description = "Serve the built site through the Worker, the way production does"
+depends = ["build"]
+run = "npx wrangler dev"
+
+[tasks.deploy]
+description = "Build and deploy to Cloudflare. The deploy workflow runs this on main; do not run it by hand"
+depends = ["build"]
+run = "npx wrangler deploy"
+
+[tasks.lock]
+description = "Re-resolve uv.lock after editing pyproject.toml"
+run = "uv lock"

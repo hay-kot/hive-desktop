@@ -1,0 +1,98 @@
+# hivedesktop.com, built with Zensical: the same system, theme variant, and
+# conventions as the hive CLI's docs (colonyops/hive, zensical.toml).
+# `mise run build` from this directory runs `zensical build --strict` and then
+# scripts/llms.py.
+
+[project]
+site_name = "Hive Desktop"
+site_url = "https://hivedesktop.com/"
+site_description = "Hive watches GitHub, Grafana and your webhooks, routes them through rules your coding agent wrote, and interrupts you exactly once per real change."
+repo_url = "https://github.com/hay-kot/hive-desktop"
+repo_name = "hay-kot/hive-desktop"
+copyright = "Hive Desktop · one queue, one ping"
+extra_css = ["stylesheets/extra.css"]
+extra_javascript = ["javascripts/download.js", "javascripts/demos.js"]
+custom_dir = "overrides"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = [
+    "getting-started/index.md",
+    { "First run" = [
+      "getting-started/sign-in.md",
+      "getting-started/notifications.md",
+      "getting-started/first-feed.md",
+    ]},
+    { "Inbox" = [
+      "inbox/how-it-works.md",
+      "inbox/flows.md",
+      "inbox/sources.md",
+      "inbox/actions.md",
+    ]},
+    { "Code" = [
+      "code/terminal-mode.md",
+    ]},
+    { "Chats" = [
+      "chats/agent-workspaces.md",
+    ]},
+    { "Resources" = [
+      "getting-started/build-from-source.md",
+      "getting-started/troubleshooting.md",
+    ]},
+  ]},
+  { "Configuration" = [
+    "configuration/settings.md",
+    "configuration/keybindings.md",
+  ]},
+]
+
+[project.theme]
+favicon = "assets/favicon.svg"
+variant = "modern"
+features = [
+  "navigation.instant",
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.top",
+  "toc.follow",
+  "content.code.copy",
+]
+
+[project.theme.icon]
+logo = "fontawesome/brands/hive"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "deep purple"
+accent = "amber"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "deep purple"
+accent = "amber"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/hay-kot/hive-desktop"
+
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+[project.markdown_extensions.pymdownx.emoji]
+emoji_index = "zensical.extensions.emoji.twemoji"
+emoji_generator = "zensical.extensions.emoji.to_svg"
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
