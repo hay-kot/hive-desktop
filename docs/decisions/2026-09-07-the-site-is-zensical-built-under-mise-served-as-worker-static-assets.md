@@ -20,7 +20,7 @@ per-page lucide icons in the nav.
 
 `web/` is a Zensical project. `web/zensical.toml` mirrors the hive CLI's
 configuration (theme variant, features, palette, markdown extensions) and
-holds the nav: a Getting started tab whose sidebar groups follow the app's
+holds the nav: a Getting Started tab whose sidebar groups follow the app's
 areas (First run, Inbox, Code, Chats), and a Configuration tab that is the
 reference. Pages are Markdown under `web/docs/`; the landing page is
 `web/docs/index.md` written as HTML sections styled by
