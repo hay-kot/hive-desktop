@@ -1,6 +1,7 @@
 package stores
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -165,7 +166,7 @@ func TestNodeKV_DeleteExpiredSweep(t *testing.T) {
 	require.NoError(t, st.NodeKV.Set(ctx, "flow-1", "dedup", "live", `1`, now+1))
 	require.NoError(t, st.NodeKV.Set(ctx, "flow-1", "dedup", "forever", `1`, 0))
 
-	require.NoError(t, st.NodeKV.DeleteExpired(ctx, now))
+	require.NoError(t, db.Ctx(ctx).DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: now, Valid: true}))
 
 	assert.Equal(t, 2, countNodeKVRows(t, db, "flow-1"))
 	_, found, err := st.NodeKV.Get(ctx, "flow-1", "dedup", "forever", now)

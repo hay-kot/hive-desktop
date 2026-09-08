@@ -8,11 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMapFunc_Map(t *testing.T) {
-	double := MapFunc[int, int](func(v int) int { return v * 2 })
-	assert.Equal(t, 6, double.Map(3))
-}
-
 func TestMapFunc_Slice(t *testing.T) {
 	toString := MapFunc[int, string](func(v int) string {
 		if v == 0 {

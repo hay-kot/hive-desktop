@@ -48,11 +48,7 @@ func (s *ItemSessionStore) List(ctx context.Context, ref models.ItemRef) ([]Item
 	if err != nil {
 		return nil, wrap("listing sessions for an inbox item", err)
 	}
-	out := make([]ItemSession, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, mapItemSessionFromDB(row))
-	}
-	return out, nil
+	return MapFunc[queries.ItemSession, ItemSession](mapItemSessionFromDB).Slice(rows), nil
 }
 
 // Unlink drops links to sessions hive no longer has. Callers must only pass

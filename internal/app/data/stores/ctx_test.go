@@ -379,9 +379,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		{"NodeKVStore.Set", func(ctx context.Context) error {
 			return st.NodeKV.Set(ctx, "flow-1", "node-a", "k2", "v2", 0)
 		}},
-		{"NodeKVStore.DeleteExpired", func(ctx context.Context) error {
-			return st.NodeKV.DeleteExpired(ctx, time.Now().UnixMilli())
-		}},
 		{"NodeKVStore.DeleteByFlow", func(ctx context.Context) error {
 			return st.NodeKV.DeleteByFlow(ctx, "no-such-flow")
 		}},
@@ -428,9 +425,6 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		}},
 		{"OutputCommandStore.Retry", func(ctx context.Context) error {
 			return st.OutputCommands.Retry(ctx, fx.commandID, "boom")
-		}},
-		{"OutputCommandStore.RecoverInterrupted", func(ctx context.Context) error {
-			return st.OutputCommands.RecoverInterrupted(ctx)
 		}},
 		{"OutputCommandStore.CountNonterminalForAction", func(ctx context.Context) error {
 			_, err := st.OutputCommands.CountNonterminalForAction(ctx, "action-a")

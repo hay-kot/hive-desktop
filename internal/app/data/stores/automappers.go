@@ -2,10 +2,6 @@ package stores
 
 type MapFunc[T any, U any] func(T) U
 
-func (a MapFunc[T, U]) Map(v T) U {
-	return a(v)
-}
-
 func (a MapFunc[T, U]) Slice(v []T) []U {
 	result := make([]U, len(v))
 	for i := range v {

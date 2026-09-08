@@ -84,6 +84,6 @@ func (db *DB) NodeKVSet(ctx context.Context, flowID, nodeID, key, value string, 
 		exp = sql.NullInt64{Int64: expiresAt, Valid: true}
 	}
 	return db.UpsertNodeKV(ctx, UpsertNodeKVParams{
-		FlowID: flowID, NodeID: nodeID, Scope: KVScopeNode, Key: key, Value: value, ExpiresAt: exp, UpdatedAt: time.Now().UnixMilli(),
+		FlowID: flowID, NodeID: nodeID, Scope: "node", Key: key, Value: value, ExpiresAt: exp, UpdatedAt: time.Now().UnixMilli(),
 	})
 }

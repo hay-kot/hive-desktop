@@ -27,7 +27,7 @@ func enqueueTestCommand(t *testing.T, st *Stores, actionID, key string) {
 }
 
 func TestRecoverInterruptedOutputCommands_JoinsTransaction(t *testing.T) {
-	st, _ := openTestStores(t)
+	st, db := openTestStores(t)
 	ctx := t.Context()
 
 	command, created, err := st.OutputCommands.Confirm(ctx, "review", "item-1", []byte(`{}`), models.ItemRef{})
@@ -38,7 +38,7 @@ func TestRecoverInterruptedOutputCommands_JoinsTransaction(t *testing.T) {
 	_, err = st.Jobs.SetRunning(ctx, job.ID, "Running", command.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, st.OutputCommands.RecoverInterrupted(ctx))
+	require.NoError(t, db.RecoverInterruptedOutputCommands(ctx))
 
 	command, err = st.OutputCommands.Get(ctx, command.ID)
 	require.NoError(t, err)

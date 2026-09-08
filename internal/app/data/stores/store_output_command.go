@@ -34,11 +34,7 @@ func (s *OutputCommandStore) ListRunnableAfter(ctx context.Context, afterID int6
 	if err != nil {
 		return nil, wrap("listing runnable output commands", err)
 	}
-	out := make([]OutputCommand, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, mapOutputCommandFromDB(row))
-	}
-	return out, nil
+	return MapFunc[queries.OutputCommand, OutputCommand](mapOutputCommandFromDB).Slice(rows), nil
 }
 
 // Enqueue records a flow-produced action or notify invocation, deduplicated
@@ -144,20 +140,6 @@ func (s *OutputCommandStore) Retry(ctx context.Context, id int64, lastErr string
 	return wrap("recording output command retry", s.q.Ctx(ctx).RetryOutputCommand(ctx, queries.RetryOutputCommandParams{
 		ID: id, LastError: null(lastErr), Stdout: null(boundOutputCommandStream(stdout)), Stderr: null(boundOutputCommandStream(stderr)),
 	}))
-}
-
-// RecoverInterrupted makes stale explicit invocations and their linked jobs
-// terminal. It also fails unlinked queued jobs, which in v1 can only be left
-// by a crash between Begin and Running. A running command may already have
-// performed its side effect before a crash, so retrying it in the
-// background would be unauthorized and unsafe.
-//
-// This stays a queries.DB method (RecoverInterruptedOutputCommands) rather
-// than moving its body here: it writes job rows too, and Open calls it
-// before any store exists. The store delegates so callers reach it as an
-// OutputCommandStore verb either way.
-func (s *OutputCommandStore) RecoverInterrupted(ctx context.Context) error {
-	return s.q.Ctx(ctx).RecoverInterruptedOutputCommands(ctx)
 }
 
 // CountNonterminalForAction counts an action's pending/running commands, for
