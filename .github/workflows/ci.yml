@@ -151,6 +151,11 @@ jobs:
     defaults:
       run:
         working-directory: web
+    env:
+      # mise merges the repo-root config into web/, so a task run here tries to
+      # install wails3, which needs GTK dev packages this runner does not have.
+      # The three tools the site needs come from the mise-action step below.
+      MISE_TASK_RUN_AUTO_INSTALL: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
