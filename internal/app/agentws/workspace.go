@@ -3,13 +3,7 @@ package agentws
 import (
 	"fmt"
 	"slices"
-	"strings"
 )
-
-// Autonomy is how much authority a workspace grants its agent.
-//
-// ENUM(ask, auto, full)
-type Autonomy string
 
 // Workspace is one agent-workspace.yaml. Dir is the directory name under the
 // root — the identity a session record stores, so a record survives a machine
@@ -21,23 +15,27 @@ type Autonomy string
 type Workspace struct {
 	Dir string `yaml:"-"`
 
-	Version  int      `yaml:"version"`
-	Name     string   `yaml:"name"`
-	Agent    string   `yaml:"agent"`
-	Autonomy Autonomy `yaml:"autonomy"`
-	MCPs     []string `yaml:"mcps,omitempty"`
+	Version int    `yaml:"version"`
+	Name    string `yaml:"name"`
+	// Agent is a label, not a launch key: it selects the icon, the activity
+	// classifier, and the resume probe, and it may name a CLI this build has
+	// never heard of. What actually launches is Command
+	// (ADR the-workspace-command-is-a-template).
+	Agent string `yaml:"agent"`
+	// Command is the launch template — the whole invocation, rendered against
+	// LaunchData at spawn time. It replaced the ask/auto/full posture enum,
+	// which could only express the two agents the launch table knew.
+	Command string   `yaml:"command"`
+	MCPs    []string `yaml:"mcps,omitempty"`
 	// Skills names skill packages defined in skills.yml, not individual
 	// skills — the unit a workspace enables is the package (ADR skill-packages-are-the-unit-a-workspace-enables).
 	Skills []string `yaml:"skills,omitempty"`
 }
 
-// Validate checks the fields Workspace owns directly. autonomy is no longer
-// required: the M2 approval indicator (hc-ou4o02zx) makes "ask" legible, so an
-// omitted autonomy defaults to it at load (parseWorkspace) rather than
-// failing here — Validate only rejects a non-empty value that names no known
-// posture. It does not check Agent against the set of agents this build can
-// actually launch: that mapping lives at the dispatch/launch-table seam
-// (spec §14's unknown-agent case), not here.
+// Validate checks the fields Workspace owns directly. Command is parsed as a
+// template here rather than at launch: a manifest whose template is malformed
+// is a broken workspace the list can explain, not a session that fails to
+// start with nothing said until someone presses the button.
 func (w Workspace) Validate() error {
 	if w.Name == "" {
 		return fmt.Errorf("agent-workspace.yaml: name is required")
@@ -45,8 +43,11 @@ func (w Workspace) Validate() error {
 	if w.Agent == "" {
 		return fmt.Errorf("agent-workspace.yaml: agent is required")
 	}
-	if w.Autonomy != "" && !w.Autonomy.IsValid() {
-		return fmt.Errorf("agent-workspace.yaml: autonomy %q is not valid (expected %s)", w.Autonomy, strings.Join(AutonomyNames(), ", "))
+	if w.Command == "" {
+		return fmt.Errorf("agent-workspace.yaml: command is required")
+	}
+	if err := ValidateCommand(w.Command); err != nil {
+		return fmt.Errorf("agent-workspace.yaml: %w", err)
 	}
 	if dup := firstDuplicate(w.MCPs); dup != "" {
 		return fmt.Errorf("agent-workspace.yaml: duplicate mcp %q", dup)

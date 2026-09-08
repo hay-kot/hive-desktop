@@ -211,7 +211,7 @@ watch(() => props.selectedWorkspace, (dir) => {
 // down the sidebar.
 function workspaceTooltip(node: WorkspaceNode): string {
   if (!node.workspace) return `${node.dir}\nThis directory is no longer in the workspace root.`
-  const parts = [node.name, `${node.workspace.agent} · ${node.workspace.autonomy || '—'}`]
+  const parts = [node.name, node.workspace.command || node.workspace.agent]
   if (node.workspace.problem) parts.push(node.workspace.problem)
   else if (node.workspace.notice) parts.push(node.workspace.notice)
   return parts.join('\n')

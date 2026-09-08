@@ -39,12 +39,12 @@ func TestMigrateRoot(t *testing.T) {
 		goodDir := filepath.Join(root, "good")
 		require.NoError(t, os.MkdirAll(goodDir, 0o700))
 		goodPath := filepath.Join(goodDir, manifestFileName)
-		require.NoError(t, os.WriteFile(goodPath, []byte("version: 1\nname: Good\nagent: claude\nautonomy: ask\n"), 0o600))
+		require.NoError(t, os.WriteFile(goodPath, []byte("version: 1\nname: Good\nagent: claude\ncommand: claude\n"), 0o600))
 
 		newerDir := filepath.Join(root, "newer")
 		require.NoError(t, os.MkdirAll(newerDir, 0o700))
 		newerPath := filepath.Join(newerDir, manifestFileName)
-		const newerContent = "version: 3\nname: Newer\nagent: claude\nautonomy: ask\n"
+		const newerContent = "version: 3\nname: Newer\nagent: claude\ncommand: claude\n"
 		require.NoError(t, os.WriteFile(newerPath, []byte(newerContent), 0o600))
 
 		// A directory with no manifest at all must not abort or error the

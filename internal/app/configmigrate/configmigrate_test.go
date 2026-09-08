@@ -354,3 +354,79 @@ func TestAgentWorkspace_LeavesAPartialSkillListAlone(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentWorkspace_TurnsEveryPostureIntoACommand is the whole cross-product,
+// not a sample: a posture that silently produced no command would leave a
+// workspace unable to launch after an upgrade, which is worse than the
+// refusal this schema change removed.
+func TestAgentWorkspace_TurnsEveryPostureIntoACommand(t *testing.T) {
+	t.Parallel()
+
+	want := map[string]map[string]string{
+		"claude": {
+			"ask":  "claude" + autonomyCommandTail,
+			"auto": "claude --permission-mode acceptEdits" + autonomyCommandTail,
+			"full": "claude --dangerously-skip-permissions" + autonomyCommandTail,
+		},
+		"codex": {
+			"ask":  "codex",
+			"auto": "codex --ask-for-approval on-request --sandbox workspace-write",
+			"full": "codex --dangerously-bypass-approvals-and-sandbox",
+		},
+	}
+
+	for agent, postures := range want {
+		for posture, command := range postures {
+			t.Run(agent+"/"+posture, func(t *testing.T) {
+				t.Parallel()
+
+				raw := []byte("version: 3\nname: Demo\nagent: " + agent + "\nautonomy: " + posture + "\n")
+				migrated, changed, err := AgentWorkspaceSet.Apply(raw)
+				require.NoError(t, err)
+				require.True(t, changed)
+
+				doc := decodeDoc(t, migrated)
+				assert.Equal(t, command, doc["command"])
+				assert.NotContains(t, doc, "autonomy", "the posture key is retired, not left beside its replacement")
+			})
+		}
+	}
+}
+
+// An omitted autonomy meant "ask" at version 3, so it must keep meaning that
+// through the migration rather than producing a bare command with no wiring.
+func TestAgentWorkspace_AnOmittedPostureMigratesAsAsk(t *testing.T) {
+	t.Parallel()
+
+	migrated, _, err := AgentWorkspaceSet.Apply([]byte("version: 3\nname: Demo\nagent: claude\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "claude"+autonomyCommandTail, decodeDoc(t, migrated)["command"])
+}
+
+// The agent that motivated the change: "pi" had no launch mapping, so no
+// posture ever resolved for it. It migrates to its own bare name — a command
+// the user can now edit, where before there was nothing to edit.
+func TestAgentWorkspace_AnUnmappedAgentMigratesToItsOwnName(t *testing.T) {
+	t.Parallel()
+
+	migrated, _, err := AgentWorkspaceSet.Apply([]byte("version: 3\nname: Demo\nagent: pi\nautonomy: full\n"))
+	require.NoError(t, err)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, "pi", doc["command"])
+	assert.NotContains(t, doc, "autonomy")
+}
+
+// A manifest hand-authored against the new schema keeps its command: the user
+// wrote the newer field on purpose, and autonomy beside it is the stale half.
+func TestAgentWorkspace_KeepsAHandWrittenCommand(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 3\nname: Demo\nagent: claude\nautonomy: full\ncommand: pi --custom\n")
+	migrated, _, err := AgentWorkspaceSet.Apply(raw)
+	require.NoError(t, err)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, "pi --custom", doc["command"])
+	assert.NotContains(t, doc, "autonomy")
+}

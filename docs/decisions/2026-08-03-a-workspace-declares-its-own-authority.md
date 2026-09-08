@@ -3,6 +3,13 @@
 - **Status:** accepted; [ADR agent-workspace-sessions-are-tmux-sessions](2026-08-03-agent-workspace-sessions-are-tmux-sessions.md) landed the M2 indicator point 6 made a hard dependency of shipping `ask` as a real default, and moved sessions onto tmux in the same change — a session (and a `full`-autonomy agent inside it) now outlives `App.Close`, so this ADR's authority ceiling applies for as long as the tmux session survives, not just for one Hive run
 - **Date:** 2026-08-03
 
+> **Superseded in part (2026-09-08):** points 1-2 are replaced by
+> ADR [the-workspace-command-is-a-template](2026-09-08-the-workspace-command-is-a-template.md).
+> The `autonomy` posture enum and its per-agent launch table are gone: a
+> workspace now declares its whole invocation as a command template, `agent:`
+> is a label rather than a gate, and hive's profiles seed editor presets
+> instead of being stripped at a seam. Points 3-8 stand as written.
+
 > **Superseded in part (2026-08-07):** the `experimental.agents` gate this
 > feature shipped behind is deleted and the area mounts unconditionally
 > (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental). Nothing else here moves — the authority ceiling in

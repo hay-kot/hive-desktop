@@ -24,13 +24,28 @@ export type { TerminalFrame } from './terminalClient'
 export interface AgentWorkspace {
   dir: string
   name: string
+  /** A label only: the icon and the activity classifier, never a launch gate. */
   agent: string
-  autonomy: string
+  /** The launch template — the whole invocation, rendered at spawn. */
+  command: string
   mcps: string[]
   skills: string[]
   problem: string
+  /** The command carries a permission bypass this build recognizes. */
+  danger: boolean
   /** An unbounded-MCP or missing-manifest explanation, empty when neither applies. */
   notice: string
+}
+
+/** A starter command template the editor offers. */
+export interface AgentPreset {
+  id: string
+  agent: string
+  label: string
+  command: string
+  danger: boolean
+  /** "builtin" for a shipped preset, "hive" for one seeded from hive's agents: profiles. */
+  source: string
 }
 
 /** The configured "open in editor" target; an empty command means none is configured. */
@@ -46,14 +61,10 @@ export interface AgentWorkspacesPayload {
   available: boolean
   error: string
   workspaces: AgentWorkspace[]
-  /** The agent keys this build can launch — the workspace editor's choices. */
+  /** Agent labels the editor suggests. Any label is accepted; this is a convenience list. */
   agents: string[]
-  /**
-   * agent → autonomy posture → the CLI flags that posture launches with, so
-   * the editor shows the real authority each option grants. A posture absent
-   * from an agent's map is refused at launch.
-   */
-  autonomyFlags: Record<string, Record<string, string[]>>
+  /** Starter command templates. They fill the command field; they never constrain it. */
+  presets: AgentPreset[]
   editor: AgentEditor
 }
 
@@ -62,7 +73,7 @@ export interface WorkspaceEditRequest {
   dir: string
   name: string
   agent: string
-  autonomy: string
+  command: string
   mcps: string[]
   /** Skill package names from skills.yml, not individual skills. */
   skills: string[]
@@ -313,12 +324,12 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
   return {
     async workspaces() {
       const body = await post<AgentWorkspacesPayload>('/workspaces', {})
-      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [], autonomyFlags: {}, editor: { command: '', title: '' } }
+      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [], presets: [], editor: { command: '', title: '' } }
       return {
         ...body,
         workspaces: (body.workspaces ?? []).map(normalizeWorkspace),
         agents: body.agents ?? [],
-        autonomyFlags: body.autonomyFlags ?? {},
+        presets: body.presets ?? [],
         editor: body.editor ?? { command: '', title: '' },
       }
     },
@@ -430,7 +441,7 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
 }
 
 function emptyWorkspace(dir: string): AgentWorkspace {
-  return { dir, name: '', agent: '', autonomy: '', mcps: [], skills: [], problem: '', notice: '' }
+  return { dir, name: '', agent: '', command: '', mcps: [], skills: [], problem: '', danger: false, notice: '' }
 }
 
 // normalizeWorkspace guards against a null mcps or skills array on the wire:

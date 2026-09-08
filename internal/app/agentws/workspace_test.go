@@ -7,7 +7,7 @@ import (
 )
 
 func validWorkspace() Workspace {
-	return Workspace{Version: 1, Name: "X", Agent: "claude", Autonomy: AutonomyAsk}
+	return Workspace{Version: 1, Name: "X", Agent: "claude", Command: "claude"}
 }
 
 func TestWorkspaceValidate(t *testing.T) {
@@ -32,30 +32,18 @@ func TestWorkspaceValidate(t *testing.T) {
 		require.Error(t, w.Validate())
 	})
 
-	t.Run("AutonomyEmptyIsValid", func(t *testing.T) {
-		t.Parallel()
-		// Validate no longer requires it: an omitted autonomy defaults to ask
-		// at load (see TestAutonomyDefaultsToAsk in loader_test.go), and this
-		// asserts Validate itself does not stand in the way of that.
-		w := validWorkspace()
-		w.Autonomy = ""
-		require.NoError(t, w.Validate())
-	})
-
-	t.Run("AutonomyMustBeValid", func(t *testing.T) {
+	t.Run("CommandRequired", func(t *testing.T) {
 		t.Parallel()
 		w := validWorkspace()
-		w.Autonomy = Autonomy("yolo")
+		w.Command = ""
 		require.Error(t, w.Validate())
 	})
 
-	t.Run("EveryAutonomyValueIsValid", func(t *testing.T) {
+	t.Run("CommandMustBeAValidTemplate", func(t *testing.T) {
 		t.Parallel()
-		for _, name := range AutonomyNames() {
-			w := validWorkspace()
-			w.Autonomy = Autonomy(name)
-			require.NoError(t, w.Validate(), "autonomy %q must validate", name)
-		}
+		w := validWorkspace()
+		w.Command = "claude {{ .Nonsense }}"
+		require.Error(t, w.Validate(), "a template Resolve would refuse must not load")
 	})
 
 	t.Run("DuplicateMCPRejected", func(t *testing.T) {

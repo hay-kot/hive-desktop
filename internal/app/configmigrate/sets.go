@@ -1,5 +1,10 @@
 package configmigrate
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Baselines are 1: a legacy flows/actions file already carries `version: 1`,
 // and a legacy settings.yaml with no `version:` key is treated as v1 (it is the
 // v1 schema). Setting Baseline == Current means every current file is a pure
@@ -31,9 +36,10 @@ var (
 	// skill slug the MCP cut-over retired (ADR mcp-replaces-the-agent-facing-http-api);
 	// version 3 collapses a skills: list that is exactly the shipped set onto
 	// the hive package (ADR skill-packages-are-the-unit-a-workspace-enables).
-	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 3, Migrations: []Migration{
+	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 4, Migrations: []Migration{
 		{To: 2, Migrate: renameHTTPAPISkill},
 		{To: 3, Migrate: collapseShippedSkillsToHivePackage},
+		{To: 4, Migrate: autonomyToCommandTemplate},
 	}}
 )
 
@@ -141,5 +147,70 @@ func collapseShippedSkillsToHivePackage(doc map[string]any) error {
 		}
 	}
 	doc["skills"] = []any{"hive"}
+	return nil
+}
+
+// autonomyPostureFlags is the ask/auto/full launch table exactly as version 3
+// shipped it, frozen here. A migration must not read the live preset list:
+// this step has to keep producing the same command for the same old manifest
+// after the presets move on, or upgrading twice from two builds would give
+// two different workspaces (ADR the-workspace-command-is-a-template).
+var autonomyPostureFlags = map[string]map[string]string{
+	"claude": {"ask": "", "auto": "--permission-mode acceptEdits", "full": "--dangerously-skip-permissions"},
+	"codex":  {"ask": "", "auto": "--ask-for-approval on-request --sandbox workspace-write", "full": "--dangerously-bypass-approvals-and-sandbox"},
+}
+
+// autonomyCommandTail is version 3's claude wiring: the generated .mcp.json
+// and the pinned session id. Codex received neither at launch, so it has no
+// tail.
+const autonomyCommandTail = " --strict-mcp-config --mcp-config {{ .MCPConfig | shq }}" +
+	" {{ if .Resume }}--resume{{ else }}--session-id{{ end }} {{ .SessionID }}"
+
+// autonomyToCommandTemplate rewrites `autonomy: ask|auto|full` into the
+// `command:` template that posture used to resolve to, then drops the key.
+//
+// An agent version 3 had no launch mapping for — the whole reason this schema
+// changed — gets its bare name as the command. That never launched before, so
+// nothing regresses; it is now an editable starting point instead of a hard
+// refusal.
+//
+// The command word comes from the agent key, not from hive's agents: profiles,
+// because a migration cannot read that config. A profile whose command differs
+// from its key (agent "fable" running "claude") migrates to a command naming
+// the key, which the editor shows and the user corrects in one edit.
+func autonomyToCommandTemplate(doc map[string]any) error {
+	defer delete(doc, "autonomy")
+
+	// A hand-authored manifest that already carries a command keeps it: the
+	// user wrote the newer field on purpose, and autonomy alongside it is the
+	// stale half.
+	if existing, ok := doc["command"].(string); ok && strings.TrimSpace(existing) != "" {
+		return nil
+	}
+
+	agent, _ := doc["agent"].(string)
+	if agent == "" {
+		return fmt.Errorf("agent-workspace: cannot build a command template: no agent")
+	}
+
+	posture, _ := doc["autonomy"].(string)
+	if posture == "" {
+		posture = "ask"
+	}
+
+	flags, known := autonomyPostureFlags[agent][posture]
+	if !known {
+		doc["command"] = agent
+		return nil
+	}
+
+	command := agent
+	if flags != "" {
+		command += " " + flags
+	}
+	if agent == "claude" {
+		command += autonomyCommandTail
+	}
+	doc["command"] = command
 	return nil
 }

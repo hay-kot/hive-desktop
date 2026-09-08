@@ -8,6 +8,7 @@ import (
 	"github.com/hay-kot/httpkit/server"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 )
 
 // The agent-workspace control plane sits under TerminalPathPrefix for exactly
@@ -22,17 +23,21 @@ import (
 // /api/terminal/attach control route to reach its own sessions.
 const AgentWorkspacesPathPrefix = TerminalPathPrefix + "agents/"
 
-// agentWorkspaceView is one row of the area's workspace list. Autonomy and
+// agentWorkspaceView is one row of the area's workspace list. Command and
 // MCPs are on it because a workspace that can actuate the physical world says
-// so where it is opened, not where it was configured (spec §7.2, ADR a-workspace-declares-its-own-authority).
+// so where it is opened, not where it was configured (spec §7.2,
+// ADR the-workspace-command-is-a-template).
 type agentWorkspaceView struct {
-	Dir      string   `json:"dir"`
-	Name     string   `json:"name"`
-	Agent    string   `json:"agent"`
-	Autonomy string   `json:"autonomy"`
-	MCPs     []string `json:"mcps"`
-	Skills   []string `json:"skills"`
-	Problem  string   `json:"problem"`
+	Dir     string   `json:"dir"`
+	Name    string   `json:"name"`
+	Agent   string   `json:"agent"`
+	Command string   `json:"command"`
+	MCPs    []string `json:"mcps"`
+	Skills  []string `json:"skills"`
+	Problem string   `json:"problem"`
+	// Danger reports that Command carries a permission bypass this build
+	// recognizes, so the row can warn without the user reading the flags.
+	Danger bool `json:"danger"`
 	// Notice explains an agent whose MCP wiring cannot bound its tool set to
 	// the workspace's declared servers, empty when the wiring is bounded or
 	// the workspace's manifest failed to parse.
@@ -72,9 +77,9 @@ type agentSessionView struct {
 
 func toAgentWorkspaceView(w app.WorkspaceView) agentWorkspaceView {
 	return agentWorkspaceView{
-		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy,
+		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Command: w.Command,
 		MCPs: nonNilStrings(w.MCPs), Skills: nonNilStrings(w.Skills), Problem: w.Problem,
-		Notice: w.Notice,
+		Danger: w.Danger, Notice: w.Notice,
 	}
 }
 
@@ -130,11 +135,10 @@ type agentWorkspacesResponse struct {
 	// Agents lists the agent keys this build can launch — the choices the
 	// workspace editor offers.
 	Agents []string `json:"agents"`
-	// AutonomyFlags maps agent → posture → the CLI flags that posture launches
-	// with, so the editor shows the real authority each option grants
-	// (--dangerously-skip-permissions reads as itself). A posture absent from
-	// an agent's map is one the launch would refuse.
-	AutonomyFlags map[string]map[string][]string `json:"autonomyFlags"`
+	// Presets are the starter command templates the editor offers: the ones
+	// this build ships plus one per agent profile in hive's config. They fill
+	// the command field; they never constrain it.
+	Presets []agentws.Preset `json:"presets"`
 	// Editor is the configured "open in editor" target; an empty command means
 	// none is configured and the UI says so instead of offering the action.
 	Editor agentEditorView `json:"editor"`
@@ -161,33 +165,28 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 		available, errMsg = false, agentErrorMessage(avErr)
 	}
 	editorCommand, editorTitle := ctrl.core.AgentWorkspaces.Editor(r.Context())
-	autonomyFlags := ctrl.core.AgentWorkspaces.AutonomyFlags(r.Context())
-	for _, postures := range autonomyFlags {
-		for posture, flags := range postures {
-			postures[posture] = nonNilStrings(flags)
-		}
-	}
+	presets := ctrl.core.AgentWorkspaces.Presets(r.Context())
 	return server.JSON(w, http.StatusOK, agentWorkspacesResponse{
-		Root:          ctrl.core.RuntimePaths().AgentWorkspacesDir,
-		RootProblem:   ctrl.core.AgentWorkspaces.RootProblem(r.Context()),
-		Available:     available,
-		Error:         errMsg,
-		Workspaces:    toAgentWorkspaceViews(workspaces),
-		Agents:        nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
-		AutonomyFlags: autonomyFlags,
-		Editor:        agentEditorView{Command: editorCommand, Title: editorTitle},
+		Root:        ctrl.core.RuntimePaths().AgentWorkspacesDir,
+		RootProblem: ctrl.core.AgentWorkspaces.RootProblem(r.Context()),
+		Available:   available,
+		Error:       errMsg,
+		Workspaces:  toAgentWorkspaceViews(workspaces),
+		Agents:      nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
+		Presets:     presets,
+		Editor:      agentEditorView{Command: editorCommand, Title: editorTitle},
 	})
 }
 
 // agentWorkspaceEditRequest carries the manifest fields the in-app editor
 // writes; anything else the manifest says is preserved in place.
 type agentWorkspaceEditRequest struct {
-	Dir      string   `json:"dir"`
-	Name     string   `json:"name"`
-	Agent    string   `json:"agent"`
-	Autonomy string   `json:"autonomy"`
-	Mcps     []string `json:"mcps"`
-	Skills   []string `json:"skills"`
+	Dir     string   `json:"dir"`
+	Name    string   `json:"name"`
+	Agent   string   `json:"agent"`
+	Command string   `json:"command"`
+	Mcps    []string `json:"mcps"`
+	Skills  []string `json:"skills"`
 }
 
 func (b agentWorkspaceEditRequest) Validate() error {
@@ -195,12 +194,12 @@ func (b agentWorkspaceEditRequest) Validate() error {
 		criterio.Run("dir", b.Dir, criterio.Required),
 		criterio.Run("name", b.Name, criterio.Required),
 		criterio.Run("agent", b.Agent, criterio.Required),
-		criterio.Run("autonomy", b.Autonomy, criterio.Required),
+		criterio.Run("command", b.Command, criterio.Required),
 	)
 }
 
 func (b agentWorkspaceEditRequest) toEdit() app.WorkspaceEdit {
-	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy, MCPs: b.Mcps, Skills: b.Skills}
+	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Command: b.Command, MCPs: b.Mcps, Skills: b.Skills}
 }
 
 // AgentWorkspaceCreate makes a directory under the root with a fresh
@@ -560,9 +559,9 @@ func (b agentSessionStartRequest) Validate() error {
 	)
 }
 
-// AgentSessionStart launches a new, named session in a workspace: resolving
-// its agent, autonomy posture and MCP wiring into a command line and opening
-// it on a Hive-owned PTY.
+// AgentSessionStart launches a new, named session in a workspace: rendering
+// its command template into a command line and opening it on a Hive-owned
+// PTY.
 func (ctrl *Controller) AgentSessionStart(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentSessionStartRequest](ctrl, w, r)
 	if err != nil {

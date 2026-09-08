@@ -44,11 +44,11 @@ handle, and how it should approach them.
 // editor sets, and nothing else. Everything the file says beyond these keys —
 // comments, key order, keys this build does not know — survives a write.
 type ManifestEdit struct {
-	Name     string
-	Agent    string
-	Autonomy Autonomy
-	MCPs     []string
-	Skills   []string
+	Name    string
+	Agent   string
+	Command string
+	MCPs    []string
+	Skills  []string
 }
 
 // CreateWorkspace makes dir under root, writes its first manifest, and seeds
@@ -131,7 +131,7 @@ func WriteManifest(root, dir string, edit ManifestEdit) error {
 	}{
 		{"name", edit.Name},
 		{"agent", edit.Agent},
-		{"autonomy", string(edit.Autonomy)},
+		{"command", edit.Command},
 	} {
 		if err := setManifestValue(mapping, field.key, field.value); err != nil {
 			return err

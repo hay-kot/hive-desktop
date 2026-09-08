@@ -850,7 +850,7 @@ onBeforeUnmount(() => {
                 <h2 class="text-[13.5px] font-semibold text-text">No chat open</h2>
                 <p class="text-xs leading-relaxed text-text-3">
                   A chat is an agent attached to a workspace's directory. It launches with the
-                  workspace's agent, autonomy, and MCP servers.
+                  workspace's command and MCP servers.
                 </p>
                 <p v-if="!workspaces.length" class="text-xs leading-relaxed text-text-3">
                   No workspaces yet. Author one under {{ root }}.

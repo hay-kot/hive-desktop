@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Create/edit editor for an agent workspace's manifest, in the app's
 // DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
-// it shows — name, agent, autonomy, and the mcps and skills lists (plus the
+// it shows — name, agent, command, and the mcps and skills lists (plus the
 // directory name at creation); hand-written comments in the YAML survive the
 // write untouched. Both capability lists work the same way: a shared library
 // on disk declares what exists (mcps.yaml, skills.yml) and the toggle is this
@@ -37,7 +37,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  root, editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, autonomyFlags,
+  root, editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, presets,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
   reloadSkillPackages, revealSkillPackages, revealSharedSkills,
   openWorkspaceInEditor, revealWorkspace,
@@ -52,67 +52,44 @@ const deletedPath = computed(() => (root.value ? `${root.value}/${props.workspac
 const dir = ref(props.workspace?.dir ?? '')
 const name = ref(props.workspace?.name ?? '')
 const agent = ref(props.workspace?.agent || props.agents[0] || '')
-const autonomy = ref(props.workspace?.autonomy || 'ask')
+const command = ref(props.workspace?.command ?? '')
 const selectedMCPs = ref<string[]>([...(props.workspace?.mcps ?? [])])
 const selectedSkills = ref<string[]>([...(props.workspace?.skills ?? [])])
 
 const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => ({ value: a, label: a })))
 
-// Every posture is laid out as a radio card rather than a dropdown, so the
-// choice being made — especially full's dangerous bypass — is readable
-// before it is selected. The flags line is the launch table's own projection
-// for the chosen agent (ADR a-workspace-declares-its-own-authority): the UI shows what the posture actually
-// runs, never a euphemism, and a posture the launch would refuse is disabled.
-const AUTONOMY_META = [
-  {
-    value: 'ask',
-    label: 'Ask',
-    description: 'Every action needs your approval — the agent prompts before anything it is not sure of.',
-    danger: false,
-  },
-  {
-    value: 'auto',
-    label: 'Auto',
-    description: 'File edits are allowed without prompting; anything riskier still asks.',
-    danger: false,
-  },
-  {
-    value: 'full',
-    label: 'Full — dangerously skip permissions',
-    description: 'Bypasses the agent\'s permission prompts entirely. Unattended, it can take any action your user account can, including through every enabled MCP server.',
-    danger: true,
-  },
-] as const
+// Presets are shortcuts, not postures: picking one fills the command field
+// with text the user then owns (ADR the-workspace-command-is-a-template). The
+// ones for the chosen agent come first so the common case is one click, but
+// every preset stays reachable — the agent label does not restrict what a
+// workspace may run.
+const agentPresets = computed(() => presets.value.filter((p) => p.agent === agent.value))
+const otherPresets = computed(() => presets.value.filter((p) => p.agent !== agent.value))
 
-interface AutonomyOption {
-  value: string
-  label: string
-  description: string
-  danger: boolean
-  flags: string
-  unavailable: boolean
+function applyPreset(presetCommand: string): void {
+  if (props.busy) return
+  command.value = presetCommand
 }
 
-const autonomyOptions = computed<AutonomyOption[]>(() => {
-  const known = autonomyFlags.value[agent.value]
-  return AUTONOMY_META.map((meta) => {
-    const flags = known?.[meta.value]
-    return {
-      ...meta,
-      flags: flags?.length ? flags.join(' ') : '',
-      // Only a loaded table can rule a posture out; with nothing loaded the
-      // selector stays fully usable and simply shows no flag detail.
-      unavailable: !!known && !flags,
-    }
-  })
-})
+// DANGEROUS_FLAGS mirrors agentws's own list. It is duplicated rather than
+// served because it only drives a warning: a flag missing here shows no
+// banner, which is the same "not recognized" the Go side means, and the
+// manifest's own danger flag still labels the saved row.
+const DANGEROUS_FLAGS = [
+  '--dangerously-skip-permissions',
+  '--dangerously-bypass-approvals-and-sandbox',
+  '--yolo',
+  '--full-auto',
+]
+const commandIsDangerous = computed(() => DANGEROUS_FLAGS.some((flag) => command.value.includes(flag)))
 
-function selectAutonomy(option: AutonomyOption): void {
-  if (props.busy || option.unavailable) return
-  autonomy.value = option.value
-}
+// The template's own fields, shown beside the field so an author does not have
+// to open the docs to remember them. Kept in step with agentws.LaunchData.
+const TEMPLATE_FIELDS = '{{ .Dir }}  {{ .MCPConfig }}  {{ .SessionID }}  {{ .Resume }}  | shq'
 
-const valid = computed(() => !!name.value.trim() && !!agent.value && (!creating.value || !!dir.value.trim()))
+const valid = computed(
+  () => !!name.value.trim() && !!agent.value && !!command.value.trim() && (!creating.value || !!dir.value.trim()),
+)
 
 const confirming = ref(false)
 
@@ -310,7 +287,7 @@ function submit(): void {
     dir: creating.value ? dir.value.trim() : props.workspace!.dir,
     name: name.value.trim(),
     agent: agent.value,
-    autonomy: autonomy.value,
+    command: command.value.trim(),
     mcps: selectedMCPs.value,
     skills: selectedSkills.value,
   })
@@ -420,50 +397,55 @@ onMounted(async () => {
         />
       </div>
 
-      <div class="flex flex-col gap-1.5">
-        <span class="text-xs text-text-3">Autonomy</span>
-        <div
-          role="radiogroup"
-          aria-label="Autonomy"
-          class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised"
-          data-testid="agent-workspace-editor-autonomy"
+      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-command">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-xs text-text-3">Command</span>
+          <span class="truncate font-mono text-[10.5px] text-text-4" :title="TEMPLATE_FIELDS">{{ TEMPLATE_FIELDS }}</span>
+        </div>
+        <textarea
+          v-model="command"
+          rows="3"
+          spellcheck="false"
+          :disabled="busy"
+          placeholder="claude --session-id {{ .SessionID }}"
+          class="w-full resize-y rounded-lg border bg-raised px-3 py-2.5 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent"
+          :class="commandIsDangerous ? 'border-severity-warning' : 'border-strong'"
+          data-testid="agent-workspace-editor-command-input"
+        />
+        <p
+          v-if="commandIsDangerous"
+          class="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-severity-warning"
+          data-testid="agent-workspace-editor-command-danger"
         >
-          <button
-            v-for="option in autonomyOptions"
-            :key="option.value"
-            type="button"
-            role="radio"
-            :aria-checked="autonomy === option.value"
-            :disabled="busy || option.unavailable"
-            class="flex items-start gap-2.5 px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 first:rounded-t-lg last:rounded-b-lg"
-            :class="[
-              busy || option.unavailable ? '' : 'cursor-pointer',
-              autonomy === option.value && option.danger ? 'bg-severity-warning-tint' : '',
-            ]"
-            :data-testid="`agent-workspace-editor-autonomy-${option.value}`"
-            @click="selectAutonomy(option)"
-          >
-            <span
-              class="mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border"
-              :class="autonomy === option.value ? 'border-accent' : 'border-strong'"
-            >
-              <span v-if="autonomy === option.value" class="size-1.5 rounded-full bg-accent" />
-            </span>
-            <span class="min-w-0 flex-1">
-              <span class="flex items-center gap-1.5">
-                <IconTriangleAlert v-if="option.danger" class="size-3.5 shrink-0 text-severity-warning" aria-hidden="true" />
-                <span class="text-[13px]" :class="option.danger ? 'text-severity-warning' : 'text-text'">{{ option.label }}</span>
-              </span>
-              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-text-3">{{ option.description }}</span>
-              <span
-                v-if="option.flags"
-                class="mt-0.5 block truncate font-mono text-[11px]"
-                :class="option.danger ? 'text-severity-warning' : 'text-text-4'"
-                :title="option.flags"
-              >{{ agent }} {{ option.flags }}</span>
-              <span v-if="option.unavailable" class="mt-0.5 block text-[11px] text-text-4">not available for this agent</span>
-            </span>
-          </button>
+          <IconTriangleAlert class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span>This command bypasses the agent's permission prompts. Unattended, it can take any action your user account can, including through every enabled MCP server.</span>
+        </p>
+
+        <div v-if="presets.length" class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-presets">
+          <span class="text-[11px] text-text-4">Start from</span>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              v-for="preset in agentPresets"
+              :key="preset.id"
+              type="button"
+              :disabled="busy"
+              class="rounded-md border border-strong bg-raised px-2 py-1 text-[11.5px] text-text-2 outline-none hover:border-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+              :class="preset.danger ? 'text-severity-warning' : ''"
+              :data-testid="`agent-workspace-editor-preset-${preset.id}`"
+              :title="preset.command"
+              @click="applyPreset(preset.command)"
+            >{{ preset.label }}</button>
+            <button
+              v-for="preset in otherPresets"
+              :key="preset.id"
+              type="button"
+              :disabled="busy"
+              class="rounded-md border border-dashed border-strong px-2 py-1 text-[11.5px] text-text-4 outline-none hover:border-accent focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+              :data-testid="`agent-workspace-editor-preset-${preset.id}`"
+              :title="preset.command"
+              @click="applyPreset(preset.command)"
+            >{{ preset.agent }} · {{ preset.label }}</button>
+          </div>
         </div>
       </div>
 

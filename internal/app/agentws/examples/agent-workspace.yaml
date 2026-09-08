@@ -1,7 +1,12 @@
-version: 3
+version: 4
 name: Home Assistant
 agent: claude
-autonomy: ask
+# The whole invocation, as a Go template. Available fields: .Dir, .MCPConfig,
+# .SessionID and .Resume; shq quotes a value for the shell.
+command: >-
+  claude --permission-mode acceptEdits
+  --strict-mcp-config --mcp-config {{ .MCPConfig | shq }}
+  {{ if .Resume }}--resume{{ else }}--session-id{{ end }} {{ .SessionID }}
 mcps:
   - hive-desktop
   - playwright

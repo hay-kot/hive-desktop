@@ -64,7 +64,7 @@ vi.mock('../../lib/agentWorkspacesClient', async (importOriginal) => {
     ...actual,
     createAgentWorkspacesClient: () => ({
       workspaces: vi.fn().mockResolvedValue({
-        root: '', agents: [], editor: { command: '', title: '' }, autonomyFlags: {}, rootProblem: '', workspaces: [],
+        root: '', agents: [], editor: { command: '', title: '' }, presets: [], rootProblem: '', workspaces: [],
       }),
       allSessions: mocks.allSessions,
       resumeSession: mocks.resumeSession,

@@ -5,7 +5,7 @@ import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../../composab
 import type { AgentWorkspace, MCPCatalogueEntry, SkillPackage } from '../../lib/agentWorkspacesClient'
 
 const demo: AgentWorkspace = {
-  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '',
+  dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '',
 }
 
 const playwright: MCPCatalogueEntry = {
@@ -111,40 +111,59 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
-  it('the autonomy selector lays out every posture with the flags it launches', async () => {
-    const { autonomyFlags } = useAgentWorkspaces()
-    autonomyFlags.value = {
-      claude: { ask: [], auto: ['--permission-mode', 'acceptEdits'], full: ['--dangerously-skip-permissions'] },
-    }
+  it('a preset fills the command field and save carries the text', async () => {
+    const { presets } = useAgentWorkspaces()
+    presets.value = [
+      { id: 'claude-ask', agent: 'claude', label: 'Ask', command: 'claude --session-id x', danger: false, source: 'builtin' },
+      { id: 'claude-full', agent: 'claude', label: 'Full', command: 'claude --dangerously-skip-permissions', danger: true, source: 'builtin' },
+    ]
     const wrapper = mountEditor()
     await wrapper.vm.$nextTick()
 
-    const full = el<HTMLButtonElement>('agent-workspace-editor-autonomy-full')!
-    expect(full.textContent).toContain('dangerously skip permissions')
-    expect(full.textContent).toContain('--dangerously-skip-permissions')
-    expect(full.getAttribute('aria-checked')).toBe('false')
-    expect(el('agent-workspace-editor-autonomy-ask')!.getAttribute('aria-checked')).toBe('true')
-
-    full.click()
+    el<HTMLButtonElement>('agent-workspace-editor-preset-claude-full')!.click()
     await wrapper.vm.$nextTick()
-    expect(full.getAttribute('aria-checked')).toBe('true')
 
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [], skills: [] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude --dangerously-skip-permissions', mcps: [], skills: [] },
     ]])
     wrapper.unmount()
   })
 
-  it('a posture the launch table refuses for the agent is disabled', async () => {
-    const { autonomyFlags } = useAgentWorkspaces()
-    autonomyFlags.value = { claude: { ask: [] } }
+  // The posture enum used to label its own danger. A free-form command cannot,
+  // so the warning is derived from the text — including one typed by hand that
+  // no preset offered.
+  it('warns about a permission bypass typed into the command', async () => {
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-command-danger')).toBeNull()
+
+    const input = el<HTMLTextAreaElement>('agent-workspace-editor-command-input')!
+    input.value = 'pi --yolo'
+    input.dispatchEvent(new Event('input'))
+    await wrapper.vm.$nextTick()
+
+    expect(el('agent-workspace-editor-command-danger')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  // The whole point of the schema change: an agent this build ships no preset
+  // for is editable and saveable, not refused.
+  it('saves a command for an agent with no preset', async () => {
+    const { presets } = useAgentWorkspaces()
+    presets.value = []
     const wrapper = mountEditor()
     await wrapper.vm.$nextTick()
 
-    const full = el<HTMLButtonElement>('agent-workspace-editor-autonomy-full')!
-    expect(full.disabled).toBe(true)
-    expect(full.textContent).toContain('not available for this agent')
+    const input = el<HTMLTextAreaElement>('agent-workspace-editor-command-input')!
+    input.value = 'pi --some-flag'
+    input.dispatchEvent(new Event('input'))
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'pi --some-flag', mcps: [], skills: [] },
+    ]])
     wrapper.unmount()
   })
 
@@ -159,7 +178,7 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'], skills: [] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude', mcps: ['playwright'], skills: [] },
     ]])
     wrapper.unmount()
   })
@@ -177,7 +196,7 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: ['hive', 'infra'] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', command: 'claude', mcps: [], skills: ['hive', 'infra'] },
     ]])
     wrapper.unmount()
   })

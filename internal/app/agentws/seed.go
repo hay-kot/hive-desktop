@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 const defaultMCPsYAML = `version: 1
@@ -120,13 +122,17 @@ func seedFileIfMissing(root, name, content string) error {
 	return nil
 }
 
-const hiveWorkspaceYAML = `version: 1
+// hiveWorkspaceYAML is rendered at the current manifest version with the
+// shipped claude "Ask" preset as its command, so a first launch writes a file
+// that needs no migration and shows the user exactly what a command template
+// looks like.
+var hiveWorkspaceYAML = fmt.Sprintf(`version: %d
 name: Hive
 agent: claude
-autonomy: ask
+command: %s
 skills:
   - hive
-`
+`, configmigrate.AgentWorkspaceSet.Current, DefaultCommandFor("claude"))
 
 const hiveAgentsMD = `# Hive
 
@@ -134,12 +140,13 @@ This workspace drives Hive Desktop itself — settings, the feed, flows,
 actions, keybindings, and webhooks — through the "hive" skill package, which
 tracks the skills this build ships.
 
-Autonomy is "ask": nothing here runs unprompted.
+Its command runs claude with no permission bypass, so nothing here happens
+unprompted. Edit "command" in agent-workspace.yaml to change that.
 `
 
-// SeedHiveWorkspace writes <root>/hive/: an agent-workspace.yaml with
-// autonomy: ask (explicit, though it is also the default since hc-ou4o02zx
-// §4), plus an AGENTS.md explaining what the workspace is for. It gives a
+// SeedHiveWorkspace writes <root>/hive/: an agent-workspace.yaml whose
+// command prompts for everything, plus an AGENTS.md explaining what the
+// workspace is for. It gives a
 // user an agent surface for configuration and feed curation without
 // authoring YAML first — the orchestrator case from spec §1, working on
 // first launch. Its skills: list names the seeded hive package rather than
