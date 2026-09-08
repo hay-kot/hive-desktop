@@ -17,7 +17,7 @@ func TestProducer_SetInterval(t *testing.T) {
 		db := openTestPipelineDB(t)
 		var mu sync.Mutex
 		wakes := 0
-		producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": &fakeSource{}}), time.Hour, func(int64) {
+		producer := newTestProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": &fakeSource{}}), time.Hour, func(int64) {
 			mu.Lock()
 			wakes++
 			mu.Unlock()

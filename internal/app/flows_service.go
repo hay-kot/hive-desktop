@@ -3,33 +3,56 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // FlowsService owns the flow definitions: the listing the picker renders,
 // the CRUD the editor drives, the layout files the canvas persists, and each
 // profile's sidebar-rail avatar.
 type FlowsService struct {
-	flows     *flow.FlowStore
-	db        *store.DB
-	creds     credentials.Store
-	images    *profileimg.Store
-	marks     *sourcemark.Store
-	scripts   *runtime.ScriptRegistry
-	settings  *settings.Store
-	onUpdated func()
+	flows    *flow.FlowStore
+	stores   *stores.Stores
+	creds    credentials.Store
+	images   *profileimg.Store
+	marks    *sourcemark.Store
+	scripts  *runtime.ScriptRegistry
+	settings *settings.Store
+	events   *events.Bus
 }
 
-func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
+type FlowsDeps struct {
+	Flows *flow.FlowStore
+	// Profile deletion spans aggregates in one transaction.
+	Stores   *stores.Stores
+	Creds    credentials.Store
+	Images   *profileimg.Store
+	Marks    *sourcemark.Store
+	Scripts  *runtime.ScriptRegistry
+	Settings *settings.Store
+	Events   *events.Bus
+}
+
+func newFlowsService(d FlowsDeps) *FlowsService {
+	return &FlowsService{
+		flows:    d.Flows,
+		stores:   d.Stores,
+		creds:    d.Creds,
+		images:   d.Images,
+		marks:    d.Marks,
+		scripts:  d.Scripts,
+		settings: d.Settings,
+		events:   d.Events,
+	}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there
@@ -51,10 +74,8 @@ func (s *FlowsService) seedCredential() (string, error) {
 	return refs[0].String(), nil
 }
 
-func (s *FlowsService) notifyUpdated() {
-	if s.onUpdated != nil {
-		s.onUpdated()
-	}
+func (s *FlowsService) notifyUpdated(ctx context.Context) {
+	s.events.Publish(ctx, events.FlowsUpdated{Reason: "save"})
 }
 
 // requireProfile resolves an id to its parsed flow, or reports KindNotFound.
@@ -86,14 +107,12 @@ func (s *FlowsService) requireDeletable(ctx context.Context, id string) error {
 	if s.flows.Exists(id) {
 		return nil
 	}
-	if s.db != nil {
-		items, err := s.db.ListAllInboxItems(ctx, id, 1)
-		if err != nil {
-			return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
-		}
-		if len(items) > 0 {
-			return nil
-		}
+	items, err := s.stores.InboxItems.ListAll(ctx, id, 1)
+	if err != nil {
+		return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
+	}
+	if len(items) > 0 {
+		return nil
 	}
 	return Errorf(KindNotFound, "profile %q not found", id)
 }
@@ -111,7 +130,7 @@ func (s *FlowsService) Statuses(context.Context) []flow.FlowStatus {
 // workspace before it offers to connect anything, so the unseeded case is the
 // expected one there, not a failure — SeedStarter is what fills it in once
 // the account exists.
-func (s *FlowsService) Create(_ context.Context, name string) (flow.Flow, error) {
+func (s *FlowsService) Create(ctx context.Context, name string) (flow.Flow, error) {
 	credential, err := s.seedCredential()
 	if err != nil {
 		return flow.Flow{}, err
@@ -124,7 +143,7 @@ func (s *FlowsService) Create(_ context.Context, name string) (flow.Flow, error)
 	if err != nil {
 		return flow.Flow{}, Wrap(err, KindInvalid, "creating profile %q", name)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return f, nil
 }
 
@@ -136,7 +155,7 @@ func (s *FlowsService) Create(_ context.Context, name string) (flow.Flow, error)
 // A workspace that already has nodes is refused rather than appended to.
 // Appending a second starter graph onto a graph someone has since edited is
 // not a mistake they can undo.
-func (s *FlowsService) SeedStarter(_ context.Context, id string) (flow.Flow, error) {
+func (s *FlowsService) SeedStarter(ctx context.Context, id string) (flow.Flow, error) {
 	f, err := s.requireProfile(id)
 	if err != nil {
 		return flow.Flow{}, err
@@ -160,7 +179,7 @@ func (s *FlowsService) SeedStarter(_ context.Context, id string) (flow.Flow, err
 	if err := s.flows.SaveLayout(id, seed.Layout); err != nil {
 		return flow.Flow{}, Wrap(err, KindInternal, "saving layout for profile %q", id)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 
 	seeded, ok := s.flows.Get(id)
 	if !ok {
@@ -171,7 +190,7 @@ func (s *FlowsService) SeedStarter(_ context.Context, id string) (flow.Flow, err
 
 // Rename changes a flow's display name while preserving its stable id and
 // graph definition.
-func (s *FlowsService) Rename(_ context.Context, id, name string) (flow.Flow, error) {
+func (s *FlowsService) Rename(ctx context.Context, id, name string) (flow.Flow, error) {
 	if err := s.requireProfileExists(id); err != nil {
 		return flow.Flow{}, err
 	}
@@ -179,13 +198,13 @@ func (s *FlowsService) Rename(_ context.Context, id, name string) (flow.Flow, er
 	if err != nil {
 		return flow.Flow{}, Wrap(err, KindInvalid, "renaming profile %q", id)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return f, nil
 }
 
 // SetEnabled controls whether a flow participates in polling and execution
 // while preserving its feed data and graph definition.
-func (s *FlowsService) SetEnabled(_ context.Context, id string, enabled bool) (flow.Flow, error) {
+func (s *FlowsService) SetEnabled(ctx context.Context, id string, enabled bool) (flow.Flow, error) {
 	if err := s.requireProfileExists(id); err != nil {
 		return flow.Flow{}, err
 	}
@@ -193,7 +212,7 @@ func (s *FlowsService) SetEnabled(_ context.Context, id string, enabled bool) (f
 	if err != nil {
 		return flow.Flow{}, Wrap(err, KindInvalid, "updating profile %q", id)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return f, nil
 }
 
@@ -205,10 +224,7 @@ func (s *FlowsService) SetEnabled(_ context.Context, id string, enabled bool) (f
 // Ids are not checked against the loaded flows. An id naming nothing is
 // already ignored when the order is read, and refusing the write would make
 // deleting a profile able to fail an unrelated reorder.
-func (s *FlowsService) SetOrder(_ context.Context, ids []string) error {
-	if s.settings == nil {
-		return Errorf(KindUnavailable, "settings are unavailable")
-	}
+func (s *FlowsService) SetOrder(ctx context.Context, ids []string) error {
 	if _, err := s.settings.Update(func(current *settings.Settings) error {
 		current.Profiles.Order = ids
 		return nil
@@ -216,7 +232,7 @@ func (s *FlowsService) SetOrder(_ context.Context, ids []string) error {
 		return Wrap(err, KindInternal, "saving the profile order")
 	}
 	s.flows.SetOrder(ids)
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return nil
 }
 
@@ -241,11 +257,43 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	}
 	// A leftover avatar is orphaned data, never a reason to fail the delete.
 	_ = s.images.Delete(id)
-	s.notifyUpdated()
-	if s.db == nil {
-		return Errorf(KindUnavailable, "the desktop store is unavailable")
-	}
-	return Wrap(s.db.PurgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
+	s.notifyUpdated(ctx)
+	return Wrap(s.purgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
+}
+
+// purgeProfile removes cross-aggregate state in one transaction. Inbox events
+// and feed claims cascade from the inbox-item delete.
+func (s *FlowsService) purgeProfile(ctx context.Context, profileID string) error {
+	topicPrefix := "source:" + profileID + "/"
+	return s.stores.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.stores.InboxItems.DeleteByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging inbox items: %w", err)
+		}
+		// The cascade above dropped every claim tied to a deleted item. This
+		// catches a claim recorded under profileID against another profile's
+		// item, which the cascade cannot reach.
+		if err := s.stores.FeedClaims.DeleteByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging feed membership claims: %w", err)
+		}
+		// The sessions themselves are hive's and survive; only the links go,
+		// because there is no longer an item for them to hang off.
+		if err := s.stores.ItemSessions.DeleteByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging item session links: %w", err)
+		}
+		if err := s.stores.EventLog.DeleteByTopicPrefix(ctx, topicPrefix); err != nil {
+			return fmt.Errorf("purging event log: %w", err)
+		}
+		if err := s.stores.EventLog.DeleteConsumerOffset(ctx, profileID); err != nil {
+			return fmt.Errorf("purging consumer offset: %w", err)
+		}
+		if err := s.stores.SourceHeads.DeleteByTopicPrefix(ctx, topicPrefix); err != nil {
+			return fmt.Errorf("purging source head: %w", err)
+		}
+		if err := s.stores.NodeKV.DeleteByFlow(ctx, profileID); err != nil {
+			return fmt.Errorf("purging node kv: %w", err)
+		}
+		return nil
+	})
 }
 
 // Get returns one flow's full definition for the editor.
@@ -263,7 +311,7 @@ func (s *FlowsService) Save(_ context.Context, f flow.Flow) error {
 // SetProfileImage normalizes raw into the square avatar the rail draws, stores
 // it under the data dir, and records its content hash on the flow. Replacing
 // an existing image overwrites it.
-func (s *FlowsService) SetProfileImage(_ context.Context, id string, raw []byte) (flow.Flow, error) {
+func (s *FlowsService) SetProfileImage(ctx context.Context, id string, raw []byte) (flow.Flow, error) {
 	if _, err := s.requireProfile(id); err != nil {
 		return flow.Flow{}, err
 	}
@@ -278,14 +326,14 @@ func (s *FlowsService) SetProfileImage(_ context.Context, id string, raw []byte)
 		_ = s.images.Delete(id)
 		return flow.Flow{}, Wrap(err, KindInternal, "recording image for profile %q", id)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return f, nil
 }
 
 // ClearProfileImage removes a profile's avatar: the reference is dropped first
 // so the rail stops drawing it even if the file removal that follows fails,
 // leaving at worst an orphaned file the next set or delete reclaims.
-func (s *FlowsService) ClearProfileImage(_ context.Context, id string) (flow.Flow, error) {
+func (s *FlowsService) ClearProfileImage(ctx context.Context, id string) (flow.Flow, error) {
 	if _, err := s.requireProfile(id); err != nil {
 		return flow.Flow{}, err
 	}
@@ -294,7 +342,7 @@ func (s *FlowsService) ClearProfileImage(_ context.Context, id string) (flow.Flo
 		return flow.Flow{}, Wrap(err, KindInternal, "clearing image for profile %q", id)
 	}
 	_ = s.images.Delete(id)
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return f, nil
 }
 
@@ -312,7 +360,7 @@ func (s *FlowsService) ProfileImage(_ context.Context, id string) ([]byte, error
 
 // SetNodeImage normalizes raw into a feed-mark PNG, stores it, records its hash
 // on source node nodeID in flow flowID, saves the flow, and returns the hash.
-func (s *FlowsService) SetNodeImage(_ context.Context, flowID, nodeID string, raw []byte) (string, error) {
+func (s *FlowsService) SetNodeImage(ctx context.Context, flowID, nodeID string, raw []byte) (string, error) {
 	hash, err := s.marks.Set(raw)
 	if err != nil {
 		return "", mapMarkImageError(err)
@@ -320,17 +368,17 @@ func (s *FlowsService) SetNodeImage(_ context.Context, flowID, nodeID string, ra
 	if _, err := s.flows.SetSourceImage(flowID, nodeID, hash); err != nil {
 		return "", mapNodeImageError(err, flowID, nodeID)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return hash, nil
 }
 
 // ClearNodeImage clears a source node's feed-mark image. The stored blob is left
 // in place; it is content-addressed and may be shared.
-func (s *FlowsService) ClearNodeImage(_ context.Context, flowID, nodeID string) error {
+func (s *FlowsService) ClearNodeImage(ctx context.Context, flowID, nodeID string) error {
 	if _, err := s.flows.SetSourceImage(flowID, nodeID, ""); err != nil {
 		return mapNodeImageError(err, flowID, nodeID)
 	}
-	s.notifyUpdated()
+	s.notifyUpdated(ctx)
 	return nil
 }
 

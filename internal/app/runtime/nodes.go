@@ -4,9 +4,9 @@ import (
 	"context"
 	"maps"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // behavior is what a node type does when a message reaches it. Exactly one of
@@ -25,7 +25,7 @@ type behavior struct {
 	// sinks derives the committed side effects one message reaching this
 	// terminal produces. Terminals have no outputs, so this is where a
 	// message's journey ends.
-	sinks func(flowID, nodeID string, cfg flow.NodeConfig, msg store.Msg) []store.Output
+	sinks func(flowID, nodeID string, cfg flow.NodeConfig, msg models.Msg) []models.Output
 	// processor builds this node's per-instance transformer. It is called once
 	// per node when a Runner is built.
 	processor func(r *Runner, nodeID string, cfg flow.NodeConfig) (processor, error)
@@ -46,7 +46,7 @@ type behavior struct {
 // processor transforms one message into port-indexed outputs. A nil result
 // (or one whose ports are all empty) discards the message.
 type processor interface {
-	process(ctx context.Context, msg store.Msg, kv NodeKV, console ConsoleSink) ([][]store.Msg, error)
+	process(ctx context.Context, msg models.Msg, kv NodeKV, console ConsoleSink) ([][]models.Msg, error)
 	// reset drops whatever state the processor accumulated for its node,
 	// so the next message starts clean. The engine calls it after a timeout —
 	// the "terminate, respawn" the browser gave a wedged worker.
@@ -92,12 +92,12 @@ func buildBehaviors(declared map[string]behavior) map[string]behavior {
 //
 // The payload rides along so the commit can mint an inbox row for a key that
 // never went through ingest — a function node that split one source message
-// into per-entity items with keys it minted (see store.CommitBatch). For a key
+// into per-entity items with keys it minted (see models.CommitBatch). For a key
 // the producer already ingested, the payload is redundant and the row's own
 // classifier-owned presentation wins.
-func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.Output {
-	return []store.Output{{
-		Sink:        store.Sink{Kind: store.SinkKindFeed, TargetID: flowID + "/" + nodeID},
+func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg models.Msg) []models.Output {
+	return []models.Output{{
+		Sink:        models.Sink{Kind: models.SinkKindFeed, TargetID: flowID + "/" + nodeID},
 		Key:         msg.Key,
 		Payload:     msg.Payload,
 		SourceTopic: msg.Topic,
@@ -109,13 +109,13 @@ func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.
 // actionSinks enqueues an output_command against the referenced actions.yml
 // action. An action runs over the payload and dedups on the message's own
 // occurrence key, so the source identity is carried for attribution only.
-func actionSinks(_, _ string, cfg flow.NodeConfig, msg store.Msg) []store.Output {
+func actionSinks(_, _ string, cfg flow.NodeConfig, msg models.Msg) []models.Output {
 	config, ok := cfg.(*flow.ActionConfig)
 	if !ok {
 		return nil
 	}
-	return []store.Output{{
-		Sink:          store.Sink{Kind: store.SinkKindAction, TargetID: config.Action},
+	return []models.Output{{
+		Sink:          models.Sink{Kind: models.SinkKindAction, TargetID: config.Action},
 		Key:           msg.Key,
 		OccurrenceKey: msg.OccurrenceKey,
 		Payload:       msg.Payload,
@@ -129,9 +129,9 @@ func actionSinks(_, _ string, cfg flow.NodeConfig, msg store.Msg) []store.Output
 // carries the message's source identity as well as its payload so the backend
 // can resolve the inbox row behind it and a clicked notification can reveal
 // that item.
-func notifySinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.Output {
-	return []store.Output{{
-		Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: flowID + "/" + nodeID},
+func notifySinks(flowID, nodeID string, _ flow.NodeConfig, msg models.Msg) []models.Output {
+	return []models.Output{{
+		Sink:          models.Sink{Kind: models.SinkKindNotify, TargetID: flowID + "/" + nodeID},
 		Key:           msg.Key,
 		OccurrenceKey: msg.OccurrenceKey,
 		Payload:       msg.Payload,

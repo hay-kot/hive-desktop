@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 )
@@ -25,47 +26,59 @@ func newServiceStore(t *testing.T) (*actions.ActionStore, string) {
 	return actions.NewActionStore(path), path
 }
 
-func TestActionsServiceSharedStoreCRUDAndSuccessfulWakeOnly(t *testing.T) {
+// newTestActionsService wires an ActionsService over a real bus, so a test
+// can assert the events.ActionsUpdated payload rather than counting a bare
+// callback.
+func newTestActionsService(t *testing.T, store *actions.ActionStore) (*ActionsService, <-chan events.ActionsUpdated) {
+	t.Helper()
+	bus := newTestBus(t)
+	ch := subscribeEvents[events.ActionsUpdated](t, bus)
+	return newActionsService(store, bus), ch
+}
+
+func TestActionsServiceSharedStoreCRUDPublishesOnSuccessOnly(t *testing.T) {
 	actionStore, _ := newServiceStore(t)
-	wakes := 0
-	service := newActionsService(actionStore, func() { wakes++ })
+	service, ch := newTestActionsService(t, actionStore)
 
 	created, err := service.Create(t.Context(), serviceAction("run"))
 	require.NoError(t, err)
 	assert.Equal(t, "run", created.ID)
-	assert.Equal(t, 1, wakes)
+	e := requireEvents(t, ch, 1)[0]
+	assert.Equal(t, 1, e.Count)
 
 	updated := serviceAction("run")
 	updated.Label = "Run now"
 	_, err = service.Update(t.Context(), "run", updated)
 	require.NoError(t, err)
-	assert.Equal(t, 2, wakes)
+	e = requireEvents(t, ch, 1)[0]
+	assert.Equal(t, 1, e.Count)
 	assert.Equal(t, "Run now", actionStore.ListEditable().Actions[0].Label, "service and runtime share one actionStore")
 
 	_, err = service.Create(t.Context(), serviceAction("run"))
 	require.Error(t, err)
 	_, err = service.Update(t.Context(), "other", updated)
 	require.ErrorContains(t, err, "immutable")
-	assert.Equal(t, 2, wakes)
+	requireNoMoreEvents(t, ch)
 
 	require.NoError(t, service.Delete(t.Context(), "run"))
-	assert.Equal(t, 3, wakes)
+	e = requireEvents(t, ch, 1)[0]
+	assert.Equal(t, 0, e.Count)
 	require.Error(t, service.Delete(t.Context(), "run"))
-	assert.Equal(t, 3, wakes)
+	requireNoMoreEvents(t, ch)
 }
 
-func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
+func TestActionsServiceReorderPublishesOnlyOnAcceptedOrders(t *testing.T) {
 	actionStore, _ := newServiceStore(t)
-	wakes := 0
-	service := newActionsService(actionStore, func() { wakes++ })
+	service, ch := newTestActionsService(t, actionStore)
 	for _, id := range []string{"one", "two"} {
 		_, err := service.Create(t.Context(), serviceAction(id))
 		require.NoError(t, err)
 	}
-	wakes = 0
+	requireEvents(t, ch, 2)
 
 	require.NoError(t, service.Reorder(t.Context(), []string{"two", "one"}))
-	assert.Equal(t, 1, wakes)
+	e := requireEvents(t, ch, 1)[0]
+	assert.Equal(t, 2, e.Count)
 	catalog := service.List(t.Context())
 	require.Len(t, catalog.Actions, 2)
 	assert.Equal(t, "two", catalog.Actions[0].ID)
@@ -73,14 +86,15 @@ func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
 	reorderErr := service.Reorder(t.Context(), []string{"two"})
 	require.ErrorContains(t, reorderErr, "the catalog changed")
 	assert.Equal(t, KindConflict, KindOf(reorderErr), "a stale catalog is the caller's view having moved")
-	assert.Equal(t, 1, wakes)
+	requireNoMoreEvents(t, ch)
 }
 
 func TestActionsServiceListReturnsLastGoodActionsAndMalformedLatestError(t *testing.T) {
 	actionStore, path := newServiceStore(t)
-	service := newActionsService(actionStore, nil)
+	service, ch := newTestActionsService(t, actionStore)
 	_, err := service.Create(t.Context(), serviceAction("good"))
 	require.NoError(t, err)
+	requireEvents(t, ch, 1)
 	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions: ["), 0o600))
 	require.Error(t, actionStore.Reload())
 
@@ -104,19 +118,49 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 	}, Wires: []flow.Wire{{From: "source", To: "action"}}}))
 	actionStore.SetUsageChecker(flowOnlyUsage{flows: flows})
 
-	wakes := 0
-	service := newActionsService(actionStore, func() { wakes++ })
+	service, ch := newTestActionsService(t, actionStore)
 	interactive := headless
 	interactive.Launch = &actions.EditableLaunchConfig{PromptTemplate: "Review"}
 	_, err = service.Update(t.Context(), "used", interactive)
 	require.ErrorContains(t, err, "flow-a")
-	assert.Equal(t, 0, wakes)
+	requireNoMoreEvents(t, ch)
 
 	// Existing flows do not prevent an update that remains headless.
 	headless.Label = "Updated"
 	_, err = service.Update(t.Context(), "used", headless)
 	require.NoError(t, err)
-	assert.Equal(t, 1, wakes)
+	requireEvents(t, ch, 1)
+}
+
+func TestActionsServicePublishesOnEveryMutatingMethod(t *testing.T) {
+	actionStore, _ := newServiceStore(t)
+	service, ch := newTestActionsService(t, actionStore)
+	ctx := t.Context()
+
+	_, err := service.Create(ctx, serviceAction("run"))
+	require.NoError(t, err)
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "Create")
+
+	_, err = service.Update(ctx, "run", serviceAction("run"))
+	require.NoError(t, err)
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "Update")
+
+	require.NoError(t, service.Reorder(ctx, []string{"run"}))
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "Reorder")
+
+	launcher, err := service.CreateLauncher(ctx, actions.Launcher{ID: "launch", Label: "Launch", Command: "true"})
+	require.NoError(t, err)
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "CreateLauncher")
+
+	_, err = service.UpdateLauncher(ctx, "launch", launcher)
+	require.NoError(t, err)
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "UpdateLauncher")
+
+	require.NoError(t, service.DeleteLauncher(ctx, "launch"))
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "DeleteLauncher")
+
+	require.NoError(t, service.Delete(ctx, "run"))
+	assert.Equal(t, len(actionStore.List()), requireEvents(t, ch, 1)[0].Count, "Delete")
 }
 
 // flowOnlyUsage is the half of the usage check this adapter test cares about.

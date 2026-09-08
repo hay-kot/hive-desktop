@@ -7,16 +7,16 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // message is one message in flight through the graph: the wire message plus
 // the snapshot it arrived as part of, if any. The snapshot context is
 // deliberately engine-local — it decides routing and tagging and has no
-// meaning once the batch is committed, so it never reaches store.Msg.
+// meaning once the batch is committed, so it never reaches models.Msg.
 type message struct {
-	msg store.Msg
+	msg models.Msg
 	// snapshot is non-nil when this message was expanded out of a source
 	// snapshot, and identifies the snapshot it came from.
 	snapshot *snapshotContext
@@ -35,9 +35,9 @@ type snapshotContext struct {
 // page. That is the invariant the commit protocol's idempotency rests on: a
 // message the graph has no use for still moves the cursor.
 //
-// Run does not commit anything. A caller that wants the batch applied passes
-// it to store.CommitBatch; a caller previewing a flow simply reads it.
-func (r *Runner) Run(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
+// Run only prepares a batch; it does not persist outputs or advance the
+// consumer.
+func (r *Runner) Run(ctx context.Context, batch []models.Msg) (models.CommitBatch, error) {
 	return r.run(ctx, batch, false)
 }
 
@@ -46,13 +46,13 @@ func (r *Runner) Run(ctx context.Context, batch []store.Msg) (store.CommitBatch,
 // function of (current snapshots, current graph) and never suppresses items
 // via dedup history. It resets the processors on the way out, so state
 // mutated during the recompute never reaches the next live Run.
-func (r *Runner) RunReplay(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
+func (r *Runner) RunReplay(ctx context.Context, batch []models.Msg) (models.CommitBatch, error) {
 	result, err := r.run(ctx, batch, true)
 	r.resetProcessors()
 	return result, err
 }
 
-func (r *Runner) run(ctx context.Context, batch []store.Msg, inert bool) (store.CommitBatch, error) {
+func (r *Runner) run(ctx context.Context, batch []models.Msg, inert bool) (models.CommitBatch, error) {
 	now := time.Now().UnixMilli()
 	kv := newKVBuffer(r.opts.KV, r.flow.ID, now)
 	if inert {
@@ -62,10 +62,10 @@ func (r *Runner) run(ctx context.Context, batch []store.Msg, inert bool) (store.
 
 	state.route(batch)
 	if err := state.execute(ctx); err != nil {
-		return store.CommitBatch{}, err
+		return models.CommitBatch{}, err
 	}
 
-	return store.CommitBatch{
+	return models.CommitBatch{
 		Consumer:      r.flow.ID,
 		UpToOffset:    upToOffset(batch),
 		Outputs:       state.outputs,
@@ -84,9 +84,9 @@ type runState struct {
 	runner  *Runner
 	pending map[string][]message
 
-	outputs   []store.Output
-	discards  []store.Discard
-	snapshots []store.FeedSnapshot
+	outputs   []models.Output
+	discards  []models.Discard
+	snapshots []models.FeedSnapshot
 	// snapshotSeen dedupes feedSnapshots by (feed, source topic) while
 	// snapshots keeps first-seen order.
 	snapshotSeen map[string]bool
@@ -125,13 +125,13 @@ type nodeRunAcc struct {
 	// *ScriptError's kind and position rather than only its rendered text.
 	lastErr error
 	// received and emitted are populated only while tracing.
-	received []store.Msg
-	emitted  map[int][]store.Msg
+	received []models.Msg
+	emitted  map[int][]models.Msg
 }
 
 // route offers each input message to the entry nodes that accept it, expanding
 // source snapshots into their items on the way.
-func (s *runState) route(batch []store.Msg) {
+func (s *runState) route(batch []models.Msg) {
 	entries := s.runner.graph.Entries()
 
 	for _, msg := range batch {
@@ -142,7 +142,7 @@ func (s *runState) route(batch []store.Msg) {
 			}
 		}
 		if len(matching) == 0 {
-			s.discards = append(s.discards, store.Discard{MsgID: msg.ID, NodeID: UnroutedNodeID})
+			s.discards = append(s.discards, models.Discard{MsgID: msg.ID, NodeID: UnroutedNodeID})
 			continue
 		}
 		s.deliver(matching, msg)
@@ -151,7 +151,7 @@ func (s *runState) route(batch []store.Msg) {
 
 // deliver queues one input message at each of targets, expanding a source
 // snapshot into its items on the way.
-func (s *runState) deliver(targets []string, msg store.Msg) {
+func (s *runState) deliver(targets []string, msg models.Msg) {
 	if msg.Snapshot == nil {
 		s.offer(targets, message{msg: msg})
 		return
@@ -187,7 +187,7 @@ func (s *runState) declareSnapshot(snapshot *snapshotContext) {
 			continue
 		}
 		s.snapshotSeen[key] = true
-		s.snapshots = append(s.snapshots, store.FeedSnapshot{
+		s.snapshots = append(s.snapshots, models.FeedSnapshot{
 			FeedID:      feedID,
 			SourceTopic: snapshot.sourceTopic,
 			SnapshotID:  snapshot.snapshotID,
@@ -259,7 +259,7 @@ func (s *runState) commitTerminal(run *nodeRunAcc, node *flow.Node, m message) {
 	if m.snapshot != nil {
 		kept := outputs[:0]
 		for _, output := range outputs {
-			if output.Sink.Kind != store.SinkKindFeed {
+			if output.Sink.Kind != models.SinkKindFeed {
 				continue
 			}
 			output.SnapshotID = m.snapshot.snapshotID
@@ -335,7 +335,7 @@ func (s *runState) forward(run *nodeRunAcc, nodeID string, port int, m message) 
 		// node emitted, and a dry run whose whole job is "show me what this node
 		// produced" must not make that answer depend on the graph downstream.
 		if run.emitted == nil {
-			run.emitted = map[int][]store.Msg{}
+			run.emitted = map[int][]models.Msg{}
 		}
 		run.emitted[port] = append(run.emitted[port], m.msg)
 	}
@@ -356,7 +356,7 @@ func (s *runState) forward(run *nodeRunAcc, nodeID string, port int, m message) 
 
 func (s *runState) drop(run *nodeRunAcc, nodeID string, m message) {
 	run.dropCount++
-	s.discards = append(s.discards, store.Discard{MsgID: m.msg.ID, NodeID: nodeID})
+	s.discards = append(s.discards, models.Discard{MsgID: m.msg.ID, NodeID: nodeID})
 }
 
 func (s *runState) acc(nodeID string) *nodeRunAcc {
@@ -369,11 +369,11 @@ func (s *runState) acc(nodeID string) *nodeRunAcc {
 	return acc
 }
 
-func (s *runState) nodeRuns() []store.NodeRunView {
-	runs := make([]store.NodeRunView, 0, len(s.runOrder))
+func (s *runState) nodeRuns() []models.NodeRun {
+	runs := make([]models.NodeRun, 0, len(s.runOrder))
 	for _, nodeID := range s.runOrder {
 		acc := s.runs[nodeID]
-		view := store.NodeRunView{
+		view := models.NodeRun{
 			FlowID:    s.runner.flow.ID,
 			NodeID:    nodeID,
 			OK:        acc.ok,
@@ -395,7 +395,7 @@ func (s *runState) nodeRuns() []store.NodeRunView {
 // the same log never steal each other's messages. Any other entry node — a
 // bare processor with no upstream source, which only a test builds — accepts
 // whatever it is given.
-func (r *Runner) acceptsEntry(node *flow.Node, msg store.Msg) bool {
+func (r *Runner) acceptsEntry(node *flow.Node, msg models.Msg) bool {
 	if node == nil {
 		return false
 	}
@@ -417,7 +417,7 @@ func clonePayload(payload json.RawMessage) json.RawMessage {
 	return out
 }
 
-func emptyPorts(ports [][]store.Msg) bool {
+func emptyPorts(ports [][]models.Msg) bool {
 	for _, port := range ports {
 		if len(port) > 0 {
 			return false
@@ -431,12 +431,7 @@ func emptyPorts(ports [][]store.Msg) bool {
 // this is normally the last message; taking the maximum rather than the last
 // keeps the result correct for a caller that assembled a batch itself, which
 // the replay protocol does.
-//
-// msg.ID stays a string end to end (see store.Msg), so every message's offset
-// is parsed back out here; the batch sizes this runs over do not make it
-// worth carrying a parallel unexported offset field just to skip a strconv
-// call.
-func upToOffset(batch []store.Msg) int64 {
+func upToOffset(batch []models.Msg) int64 {
 	var highest int64
 	for _, msg := range batch {
 		offset, err := strconv.ParseInt(msg.ID, 10, 64)

@@ -15,15 +15,16 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
 // newTestAgentWorkspacesService builds a service over root with a real
 // tmuxcc.Manager pointed at a private tmux server (requireTmux/privateTmux,
 // terminals_service_test.go — a session's liveness is a real tmux fact, and a
-// faked one would only prove the fake), a real sqlite-backed store.DB, and a
+// faked one would only prove the fake), a real sqlite-backed queries.DB, and a
 // real SkillsService (newTestSkillsService). commands stands in for
 // agentCommands(hiveCfg) — the caller picks which agent keys are "configured"
 // and what they run.
@@ -31,7 +32,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	t.Helper()
 	privateTmux(t)
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -41,13 +42,27 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL })
+	return newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store:           awStore,
+		Terminals:       manager,
+		Sessions:        stores.New(db, stores.Options{}).AgentSessions,
+		Skills:          newTestSkillsService(t),
+		ProfileCommands: commands,
+		MCPBase:         mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+	})
 }
 
 // testMCPBaseURL stands in for this run's loopback base URL, which the
 // catalogue joins with each app-hosted entry's RuntimePath.
 const testMCPBaseURL = "http://127.0.0.1:24917"
+
+type mcpBaseFunc func(context.Context) string
+
+func (f mcpBaseFunc) MCPBaseURL(ctx context.Context) string { return f(ctx) }
+
+type editorCommandFunc func(context.Context) (string, error)
+
+func (f editorCommandFunc) Editor(ctx context.Context) (string, error) { return f(ctx) }
 
 // liveAgentSessionCount is the test-side equivalent of the service's own
 // liveSessionCount, used to assert how many agentws-* tmux sessions a call
@@ -88,15 +103,17 @@ func writeSharedSkill(t *testing.T, root, slug, body string) {
 func newManifestOnlyService(t *testing.T, root string, profileCommands map[string]string) *AgentWorkspacesService {
 	t.Helper()
 
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, nil, db, newTestSkillsService(t), profileCommands, "", nil, nil,
-		func(context.Context) string { return testMCPBaseURL })
+	return newAgentWorkspacesService(AgentWorkspacesDeps{
+		Store: awStore, Sessions: stores.New(db, stores.Options{}).AgentSessions, Skills: newTestSkillsService(t),
+		ProfileCommands: profileCommands, MCPBase: mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+	})
 }
 
 // resumableCommand is a fake-agent command that distinguishes a resume from a
@@ -266,9 +283,8 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	before, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	before, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 
 	closed, err := svc.CloseSession(t.Context(), started.ID)
 	require.NoError(t, err)
@@ -280,9 +296,8 @@ func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
 	assert.Empty(t, resumed.Notice, "an empty conversation relaunching fresh is a continuation, not a loss to announce")
 	assert.NotEmpty(t, resumed.TerminalID)
 
-	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	after, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.NotEqual(t, before.AgentSessionID, after.AgentSessionID,
 		"the fresh launch mints a fresh id — reusing one the agent might hold would wedge on 'already in use'")
 }
@@ -301,9 +316,8 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 
 	projectDir := filepath.Join(claudeCfg, "projects", "-demo")
 	require.NoError(t, os.MkdirAll(projectDir, 0o700))
@@ -318,9 +332,8 @@ func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
 	assert.True(t, resumed.ResumeAttempted)
 	assert.Empty(t, resumed.Notice)
 
-	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	after, err := svc.sessions.Get(t.Context(), started.ID)
 	require.NoError(t, err)
-	require.True(t, ok)
 	assert.Equal(t, rec.AgentSessionID, after.AgentSessionID, "a real resume keeps addressing the same conversation")
 }
 
@@ -364,18 +377,16 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
-	_, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), s1.ID)
-	require.NoError(t, err)
-	assert.False(t, ok, "the record is gone too")
-	_, ok, err = canvases.Load("demo", "plan")
+	_, err = svc.sessions.Get(t.Context(), s1.ID)
+	assert.True(t, stores.IsNotFound(err), "the record is gone too")
+	_, ok, err := canvases.Load("demo", "plan")
 	require.NoError(t, err)
 	assert.True(t, ok, "the canvas outlives the chat that made it")
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
-	_, ok, err = svc.db.GetAgentWorkspaceSession(t.Context(), s2.ID)
-	require.NoError(t, err)
-	assert.False(t, ok)
+	_, err = svc.sessions.Get(t.Context(), s2.ID)
+	assert.True(t, stores.IsNotFound(err))
 	metas, err := canvases.List("demo")
 	require.NoError(t, err)
 	assert.Empty(t, metas, "canvases live in the workspace folder, which the delete takes with it")
@@ -493,7 +504,7 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 
-	sessions, err := svc.db.ListAgentWorkspaceSessions(t.Context(), "demo")
+	sessions, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
 
@@ -827,7 +838,7 @@ func TestCatalogueReportsAProblemWhenTheServerIsDown(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
-	svc.mcpBase = func(context.Context) string { return "" }
+	svc.mcpBase = mcpBaseFunc(func(context.Context) string { return "" })
 
 	byID := make(map[string]MCPCatalogueItem)
 	for _, item := range svc.MCPCatalogue(t.Context()) {
@@ -909,7 +920,7 @@ func TestOpenWorkspaceInEditor(t *testing.T) {
 	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
 		return map[string]string{"PATH": "/usr/bin:/bin"}, nil
 	}})
-	svc.editorCommand = func(context.Context) (string, error) { return fake, nil }
+	svc.editorCommand = editorCommandFunc(func(context.Context) (string, error) { return fake, nil })
 	command, title := svc.Editor(t.Context())
 	assert.Equal(t, fake, command)
 	assert.Equal(t, fake, title, "a command outside the known catalogue labels itself")

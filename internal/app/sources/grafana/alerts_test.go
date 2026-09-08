@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func TestAlertsConfigValidate(t *testing.T) {
@@ -87,8 +87,8 @@ func TestAlertsProduceEmitsOnePerFiringAlert(t *testing.T) {
 
 	src := &alertsSource{fetcher: fx, topic: "source:flow/node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -135,8 +135,8 @@ func TestAlertsProduceFillsTheCanonicalContract(t *testing.T) {
 
 	src := &alertsSource{fetcher: fx, topic: "source:flow/node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -173,8 +173,8 @@ func TestAlertsProduceWithoutAnnotationsOrRuleUID(t *testing.T) {
 
 	src := &alertsSource{fetcher: fx, topic: "source:flow/node"}
 
-	var msgs []store.Msg
-	require.NoError(t, src.Produce(t.Context(), func(m store.Msg) error {
+	var msgs []models.Msg
+	require.NoError(t, src.Produce(t.Context(), func(m models.Msg) error {
 		msgs = append(msgs, m)
 		return nil
 	}))
@@ -204,28 +204,28 @@ func TestAlertsProduceFiltersServerSide(t *testing.T) {
 	matchers := []string{"squad=adaptive-telemetry", "severity=critical"}
 	src := &alertsSource{fetcher: fx, matchers: matchers, topic: "source:flow/node"}
 
-	require.NoError(t, src.Produce(t.Context(), func(store.Msg) error { return nil }))
+	require.NoError(t, src.Produce(t.Context(), func(models.Msg) error { return nil }))
 	assert.Equal(t, matchers, filters, "the node's matchers reach Alertmanager unchanged")
 }
 
 func TestAlertsClassifierFiringThenResolved(t *testing.T) {
 	t.Parallel()
 
-	firing := store.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"firing"}`)}
-	resolved := store.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"resolved"}`)}
+	firing := models.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"firing"}`)}
+	resolved := models.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"resolved"}`)}
 
 	first := alertsClassifier{}.Classify(nil, firing)
 	assert.Equal(t, stateFiring, first.Kind)
-	assert.Equal(t, store.LifecycleActive, first.Lifecycle)
+	assert.Equal(t, models.LifecycleActive, first.Lifecycle)
 
 	transition := alertsClassifier{}.Classify(&firing, resolved)
 	assert.Equal(t, stateResolved, transition.Kind)
-	assert.Equal(t, store.LifecycleTerminal, transition.Lifecycle)
-	assert.Equal(t, store.TransitionEnteredTerminal, transition.Transition)
+	assert.Equal(t, models.LifecycleTerminal, transition.Lifecycle)
+	assert.Equal(t, models.TransitionEnteredTerminal, transition.Transition)
 	assert.Equal(t, stateResolved, transition.ArchivedReason)
 
 	reopened := alertsClassifier{}.Classify(&resolved, firing)
-	assert.Equal(t, store.TransitionLeftTerminal, reopened.Transition, "a re-firing alert leaves the terminal state")
+	assert.Equal(t, models.TransitionLeftTerminal, reopened.Transition, "a re-firing alert leaves the terminal state")
 }
 
 // A still-firing alert re-observed with a changed payload takes the default arm
@@ -234,23 +234,23 @@ func TestAlertsClassifierFiringThenResolved(t *testing.T) {
 func TestAlertsClassifierReobservedStaysTrivial(t *testing.T) {
 	t.Parallel()
 
-	firing := store.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"firing"}`)}
-	resolved := store.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"resolved"}`)}
+	firing := models.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"firing"}`)}
+	resolved := models.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"resolved"}`)}
 
 	stillFiring := alertsClassifier{}.Classify(&firing, firing)
 	assert.Equal(t, "updated", stillFiring.Kind)
-	assert.Equal(t, store.TransitionNone, stillFiring.Transition)
-	assert.Equal(t, store.AttentionTrivial, stillFiring.Attention, "a re-observed firing alert must not re-raise attention")
+	assert.Equal(t, models.TransitionNone, stillFiring.Transition)
+	assert.Equal(t, models.AttentionTrivial, stillFiring.Attention, "a re-observed firing alert must not re-raise attention")
 
 	stillResolved := alertsClassifier{}.Classify(&resolved, resolved)
 	assert.Equal(t, "updated", stillResolved.Kind)
-	assert.Equal(t, store.AttentionTrivial, stillResolved.Attention)
+	assert.Equal(t, models.AttentionTrivial, stillResolved.Attention)
 }
 
 func TestAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	t.Parallel()
 
-	previous := []store.Observation{{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"title":"HighLatency","kind":"Alert","state":"firing","labels":["alertname=HighLatency"]}`)}}
+	previous := []models.Observation{{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"title":"HighLatency","kind":"Alert","state":"firing","labels":["alertname=HighLatency"]}`)}}
 
 	verdicts, err := alertsAbsence{}.ConfirmAbsence(t.Context(), previous)
 	require.NoError(t, err)

@@ -53,8 +53,14 @@ type TerminalsService struct {
 	foreground func(ctx context.Context, pid int) (bool, error)
 }
 
-func newTerminalsService(manager *tmuxcc.Manager, starter terminalStarter, home func() (string, error)) *TerminalsService {
-	return &TerminalsService{manager: manager, starter: starter, home: home, foreground: processForeground}
+type TerminalsDeps struct {
+	Manager *tmuxcc.Manager
+	Starter terminalStarter
+	Home    func() (string, error)
+}
+
+func newTerminalsService(d TerminalsDeps) *TerminalsService {
+	return &TerminalsService{manager: d.Manager, starter: d.Starter, home: d.Home, foreground: processForeground}
 }
 
 // Scratch declares the scratch terminal. It is a constant rather than a probe:

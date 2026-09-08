@@ -5,8 +5,8 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // PipelineService exposes the inbox to the frontend. Every method is a
@@ -25,43 +25,43 @@ func NewPipelineService(inbox *app.InboxService) *PipelineService {
 	return &PipelineService{inbox: inbox}
 }
 
-func (s *PipelineService) ListInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
-	return s.inbox.ListInboxItemsByFeed(ctx, profileID, feedID, limit)
+func (s *PipelineService) ListByFeed(ctx context.Context, profileID, feedID string, limit int) ([]stores.InboxItem, error) {
+	return s.inbox.ListByFeed(ctx, profileID, feedID, limit)
 }
 
-func (s *PipelineService) ListArchivedInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
-	return s.inbox.ListArchivedInboxItemsByFeed(ctx, profileID, feedID, limit)
+func (s *PipelineService) ListArchivedByFeed(ctx context.Context, profileID, feedID string, limit int) ([]stores.InboxItem, error) {
+	return s.inbox.ListArchivedByFeed(ctx, profileID, feedID, limit)
 }
 
-func (s *PipelineService) ListInboxItemsTrash(ctx context.Context, profileID string, limit int) ([]store.InboxItemView, error) {
-	return s.inbox.ListInboxItemsTrash(ctx, profileID, limit)
+func (s *PipelineService) ListTrash(ctx context.Context, profileID string, limit int) ([]stores.InboxItem, error) {
+	return s.inbox.ListTrash(ctx, profileID, limit)
 }
 
-func (s *PipelineService) InboxItemFeed(ctx context.Context, profileID string, itemID int64) (string, error) {
-	return s.inbox.InboxItemFeed(ctx, profileID, itemID)
+func (s *PipelineService) Feed(ctx context.Context, profileID string, itemID int64) (string, error) {
+	return s.inbox.Feed(ctx, profileID, itemID)
 }
 
-func (s *PipelineService) InboxItemEvents(ctx context.Context, itemID int64, limit int) ([]store.InboxEventView, error) {
-	return s.inbox.InboxItemEvents(ctx, itemID, limit)
+func (s *PipelineService) Events(ctx context.Context, itemID int64, limit int) ([]stores.InboxEvent, error) {
+	return s.inbox.Events(ctx, itemID, limit)
 }
 
-func (s *PipelineService) MarkInboxItemUnread(ctx context.Context, itemID, revision int64, unread bool) (store.InboxItemView, error) {
-	return s.inbox.MarkInboxItemUnread(ctx, itemID, revision, unread)
+func (s *PipelineService) SetUnread(ctx context.Context, itemID, revision int64, unread bool) (stores.InboxItem, error) {
+	return s.inbox.SetUnread(ctx, itemID, revision, unread)
 }
 
-func (s *PipelineService) MarkInboxItemsRead(ctx context.Context, profileID, feedID string) (int64, error) {
-	return s.inbox.MarkInboxItemsRead(ctx, profileID, feedID)
+func (s *PipelineService) MarkRead(ctx context.Context, profileID, feedID string) (int64, error) {
+	return s.inbox.MarkRead(ctx, profileID, feedID)
 }
 
-func (s *PipelineService) ToggleInboxItemArchived(ctx context.Context, itemID, revision int64) (store.InboxItemView, error) {
-	return s.inbox.ToggleInboxItemArchived(ctx, itemID, revision)
+func (s *PipelineService) ToggleArchived(ctx context.Context, itemID, revision int64) (stores.InboxItem, error) {
+	return s.inbox.ToggleArchived(ctx, itemID, revision)
 }
 
-func (s *PipelineService) ToggleInboxItemIgnored(ctx context.Context, itemID, revision int64) (store.InboxItemView, error) {
-	return s.inbox.ToggleInboxItemIgnored(ctx, itemID, revision)
+func (s *PipelineService) ToggleIgnored(ctx context.Context, itemID, revision int64) (stores.InboxItem, error) {
+	return s.inbox.ToggleIgnored(ctx, itemID, revision)
 }
 
-func (s *PipelineService) FeedCounts(ctx context.Context, profileID string) ([]store.FeedInboxCount, error) {
+func (s *PipelineService) FeedCounts(ctx context.Context, profileID string) ([]stores.FeedCount, error) {
 	return s.inbox.FeedCounts(ctx, profileID)
 }
 
@@ -88,7 +88,7 @@ func (s *PipelineService) RenderClipboardAction(ctx context.Context, actionID st
 	return s.inbox.RenderClipboardAction(ctx, actionID, itemID, inputs)
 }
 
-func (s *PipelineService) NodeRuns(ctx context.Context, flowID string, limit int) ([]store.NodeRunRecord, error) {
+func (s *PipelineService) NodeRuns(ctx context.Context, flowID string, limit int) ([]stores.NodeRunRecord, error) {
 	return s.inbox.NodeRuns(ctx, flowID, limit)
 }
 

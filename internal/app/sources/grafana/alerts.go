@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana/client"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 type AlertsConfig struct {
@@ -145,7 +145,7 @@ type alertPayload struct {
 	StartsAt    string            `json:"startsAt,omitempty"`
 }
 
-func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *alertsSource) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	alerts, stackURL, err := s.fetcher.Alerts(ctx, s.matchers)
 	if err != nil {
 		return fmt.Errorf("grafana alerts: %w", err)
@@ -155,7 +155,7 @@ func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 		if err != nil {
 			return fmt.Errorf("grafana alerts: encoding %q: %w", alert.Fingerprint, err)
 		}
-		if err := emit(store.Msg{Key: alert.Fingerprint, Topic: s.topic, SourceKind: SourceKind, Payload: body}); err != nil {
+		if err := emit(models.Msg{Key: alert.Fingerprint, Topic: s.topic, SourceKind: SourceKind, Payload: body}); err != nil {
 			return err
 		}
 	}
@@ -267,18 +267,18 @@ const (
 // resolved is terminal.
 type alertsClassifier struct{}
 
-var _ store.Classifier = alertsClassifier{}
+var _ models.Classifier = alertsClassifier{}
 
-func (alertsClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (alertsClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	state := canonical.State(current.Payload)
-	lifecycle := store.LifecycleActive
+	lifecycle := models.LifecycleActive
 	if state == stateResolved {
-		lifecycle = store.LifecycleTerminal
+		lifecycle = models.LifecycleTerminal
 	}
-	out := store.Classification{
+	out := models.Classification{
 		Kind:          stateFiring,
-		Transition:    store.TransitionNone,
-		Attention:     store.AttentionActivity,
+		Transition:    models.TransitionNone,
+		Attention:     models.AttentionActivity,
 		Lifecycle:     lifecycle,
 		SourceState:   state,
 		OccurrenceKey: current.ExternalID + "@" + strconv.FormatInt(current.ObservedAt, 10),
@@ -289,11 +289,11 @@ func (alertsClassifier) Classify(previous *store.Observation, current store.Obse
 	}
 	switch prev := canonical.State(previous.Payload); {
 	case prev != stateResolved && state == stateResolved:
-		out.Kind, out.Summary, out.Transition, out.ArchivedReason = stateResolved, "Resolved", store.TransitionEnteredTerminal, stateResolved
+		out.Kind, out.Summary, out.Transition, out.ArchivedReason = stateResolved, "Resolved", models.TransitionEnteredTerminal, stateResolved
 	case prev == stateResolved && state != stateResolved:
-		out.Kind, out.Summary, out.Transition = stateFiring, "Firing again", store.TransitionLeftTerminal
+		out.Kind, out.Summary, out.Transition = stateFiring, "Firing again", models.TransitionLeftTerminal
 	default:
-		out.Kind, out.Attention = "updated", store.AttentionTrivial
+		out.Kind, out.Attention = "updated", models.AttentionTrivial
 	}
 	return out
 }
@@ -303,14 +303,14 @@ func (alertsClassifier) Classify(previous *store.Observation, current store.Obse
 // authoritatively resolved, not merely unseen — every verdict is terminal.
 type alertsAbsence struct{}
 
-var _ store.AbsenceConfirmer = alertsAbsence{}
+var _ models.AbsenceConfirmer = alertsAbsence{}
 
-func (alertsAbsence) ConfirmAbsence(_ context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
-	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
+func (alertsAbsence) ConfirmAbsence(_ context.Context, previous []models.Observation) (map[string]models.AbsenceVerdict, error) {
+	verdicts := make(map[string]models.AbsenceVerdict, len(previous))
 	for _, prev := range previous {
 		resolved := prev
 		resolved.Payload = canonical.WithState(prev.Payload, stateResolved)
-		verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &resolved, Terminal: true}
+		verdicts[prev.ExternalID] = models.AbsenceVerdict{Current: &resolved, Terminal: true}
 	}
 	return verdicts, nil
 }

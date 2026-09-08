@@ -8,9 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // fixtureFlowPath is repo-relative from this package: the Playwright
@@ -51,11 +52,12 @@ func TestFixtureFlow_LoadsAndMatchesSeedConstants(t *testing.T) {
 }
 
 func TestSeedMockInboxItems_WritesExpectedRows(t *testing.T) {
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	require.NoError(t, seedMockInboxItems(db))
+	st := stores.New(db, stores.Options{})
+	require.NoError(t, seedMockInboxItems(t.Context(), db, st.EventLog))
 
 	rows, err := db.Conn().QueryContext(context.Background(), `
 		SELECT external_id, source_kind, source_scope, payload, unread, last_event_at
@@ -89,13 +91,13 @@ func TestSeedMockInboxItems_WritesExpectedRows(t *testing.T) {
 	assert.False(t, rows.Next())
 	require.NoError(t, rows.Err())
 
-	visible, err := db.ListInboxItemsByFeed(context.Background(), MockFlowID, MockFlowID+"/"+MockFeedNodeID, len(mockInboxItems))
+	visible, err := st.InboxItems.ListByFeed(context.Background(), MockFlowID, MockFlowID+"/"+MockFeedNodeID, len(mockInboxItems))
 	require.NoError(t, err)
 	assert.Len(t, visible, len(mockInboxItems))
 
-	tail, err := db.EventLogTailOffset(context.Background())
+	tail, err := st.EventLog.TailOffset(context.Background())
 	require.NoError(t, err)
-	snapshots, err := db.ListReplaySourceSnapshots(context.Background(), MockFlowID, tail)
+	snapshots, err := st.EventLog.ListLatestSnapshots(context.Background(), MockFlowID, tail)
 	require.NoError(t, err)
 	require.Len(t, snapshots, 1)
 	assert.Equal(t, "source:"+MockFlowID+"/"+MockSourceNodeID, snapshots[0].Topic)

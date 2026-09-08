@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,12 +10,14 @@ import (
 
 	"github.com/colonyops/hive/pkg/osopen"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/rs/zerolog"
 )
 
 // Job action ids label session jobs in the jobs UI.
@@ -71,12 +72,15 @@ type sessionJobRunner interface {
 	Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64
 }
 
-// itemSessionStore is the durable item↔session association: which sessions an
-// inbox item spawned, and the removal of links to sessions hive no longer has.
+type inboxItemRefReader interface {
+	RefByID(ctx context.Context, itemID int64) (models.ItemRef, error)
+}
+
+// itemSessionStore owns durable item-session associations and removes links
+// to sessions Hive no longer has.
 type itemSessionStore interface {
-	ItemRefByID(ctx context.Context, itemID int64) (store.ItemRef, error)
-	ItemSessions(ctx context.Context, ref store.ItemRef) ([]store.ItemSession, error)
-	UnlinkItemSessions(ctx context.Context, sessionIDs []string) error
+	List(ctx context.Context, ref models.ItemRef) ([]stores.ItemSession, error)
+	Unlink(ctx context.Context, sessionIDs []string) error
 }
 
 // SessionsService is the desktop's session surface: the New Session form's
@@ -89,6 +93,7 @@ type SessionsService struct {
 	git        sessionGitSource
 	tmux       sessionTmux
 	jobs       sessionJobRunner
+	items      inboxItemRefReader
 	links      itemSessionStore
 	catalog    *actions.ActionStore
 	dispatcher *dispatch.Dispatcher
@@ -97,24 +102,82 @@ type SessionsService struct {
 	// disconnected.
 	pullRequests  *sessionPullRequests
 	execEnv       *execenv.Resolver
-	editorCommand func(context.Context) (string, error)
-	// defaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
-	// would. nil leaves the agent hive's config resolved.
-	defaultAgentEnv func(context.Context) string
+	editorCommand EditorCommandReader
+	// defaultAgentEnv is never nil: newSessionsService substitutes
+	// NopDefaultAgentReader, so withEnvironmentDefaultAgent never guards it.
+	defaultAgentEnv DefaultAgentReader
 	logger          zerolog.Logger
 }
 
-// sessionsDeps is the construction-site name for the service's dependencies:
-// the service reaches enough subsystems that a positional call stopped saying
-// which nil was which.
-type sessionsDeps = SessionsService
+// DefaultAgentReader reads HIVE_DEFAULT_AGENT from the user's resolved
+// terminal environment.
+type DefaultAgentReader interface {
+	DefaultAgent(ctx context.Context) string
+}
+
+// NopDefaultAgentReader leaves Hive's configured agent unchanged.
+type NopDefaultAgentReader struct{}
+
+func (NopDefaultAgentReader) DefaultAgent(context.Context) string { return "" }
+
+type NopEditorCommandReader struct{}
+
+func (NopEditorCommandReader) Editor(context.Context) (string, error) { return "", nil }
+
+type SessionsDeps struct {
+	Launcher     sessionLauncher
+	Manager      sessionManager
+	Statuses     sessionStatusSource
+	Git          sessionGitSource
+	Tmux         sessionTmux
+	Jobs         sessionJobRunner
+	Items        inboxItemRefReader
+	Links        itemSessionStore
+	Catalog      *actions.ActionStore
+	Dispatcher   *dispatch.Dispatcher
+	Recorder     activity.Recorder
+	PullRequests *sessionPullRequests
+	ExecEnv      *execenv.Resolver
+	// EditorCommand reads the configured editor from settings on every call,
+	// so a settings change applies without restarting. nil means
+	// NopEditorCommandReader.
+	EditorCommand EditorCommandReader
+	// DefaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
+	// would. nil means NopDefaultAgentReader.
+	DefaultAgentEnv DefaultAgentReader
+	Logger          zerolog.Logger
+}
+
+func newSessionsService(d SessionsDeps) *SessionsService {
+	if d.EditorCommand == nil {
+		d.EditorCommand = NopEditorCommandReader{}
+	}
+	if d.DefaultAgentEnv == nil {
+		d.DefaultAgentEnv = NopDefaultAgentReader{}
+	}
+	return &SessionsService{
+		launcher:        d.Launcher,
+		manager:         d.Manager,
+		statuses:        d.Statuses,
+		git:             d.Git,
+		tmux:            d.Tmux,
+		jobs:            d.Jobs,
+		items:           d.Items,
+		links:           d.Links,
+		catalog:         d.Catalog,
+		dispatcher:      d.Dispatcher,
+		recorder:        d.Recorder,
+		pullRequests:    d.PullRequests,
+		execEnv:         d.ExecEnv,
+		editorCommand:   d.EditorCommand,
+		defaultAgentEnv: d.DefaultAgentEnv,
+		logger:          d.Logger,
+	}
+}
 
 // SessionLaunchOptions supplies the configured repository and agent choices the
 // New Session form presents.
 func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.SessionLaunchOptions, error) {
-	if s.launcher == nil {
-		return dispatch.SessionLaunchOptions{}, Errorf(KindUnavailable, "session launch options are unavailable")
-	}
 	opts, err := s.launcher.SessionLaunchOptions(ctx)
 	if err != nil {
 		return dispatch.SessionLaunchOptions{}, Wrap(err, KindInternal, "resolving session launch options")
@@ -132,10 +195,7 @@ func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.Se
 // An unknown profile is ignored rather than refused: preselecting is all this
 // does, and hive validates the agent it is handed.
 func (s *SessionsService) withEnvironmentDefaultAgent(ctx context.Context, opts dispatch.SessionLaunchOptions) dispatch.SessionLaunchOptions {
-	if s.defaultAgentEnv == nil {
-		return opts
-	}
-	preferred := strings.TrimSpace(s.defaultAgentEnv(ctx))
+	preferred := strings.TrimSpace(s.defaultAgentEnv.DefaultAgent(ctx))
 	if preferred == "" || !slices.Contains(opts.Agents, preferred) {
 		return opts
 	}
@@ -147,9 +207,6 @@ func (s *SessionsService) withEnvironmentDefaultAgent(ctx context.Context, opts 
 // can be attached to — Slug is its tmux session name — but a recycled or
 // corrupted session still has to be readable and deletable.
 func (s *SessionsService) ListSessions(ctx context.Context) ([]dispatch.SessionSummary, error) {
-	if s.manager == nil {
-		return nil, Errorf(KindUnavailable, "session listing is unavailable")
-	}
 	sessions, err := s.manager.ListSessions(ctx)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions")
@@ -161,9 +218,6 @@ func (s *SessionsService) ListSessions(ctx context.Context) ([]dispatch.SessionS
 // unavailable terminals are data, so only a failure to read the session set
 // fails the request.
 func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.SessionStatusSnapshot, error) {
-	if s.statuses == nil {
-		return dispatch.SessionStatusSnapshot{}, Errorf(KindUnavailable, "session status is unavailable")
-	}
 	statuses, err := s.statuses.SessionStatuses(ctx)
 	if err != nil {
 		return dispatch.SessionStatusSnapshot{}, Wrap(err, KindInternal, "reading session status")
@@ -175,17 +229,14 @@ func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.Session
 // joined to the state hive reports for them now. The read is also what
 // reconciles (ADR macos-dmg-installer).
 func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
-	if s.manager == nil || s.links == nil {
-		return nil, Errorf(KindUnavailable, "session links are unavailable")
-	}
-	ref, err := s.links.ItemRefByID(ctx, itemID)
+	ref, err := s.items.RefByID(ctx, itemID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if stores.IsNotFound(err) {
 			return nil, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
 		}
 		return nil, Wrap(err, KindInternal, "reading inbox item %d", itemID)
 	}
-	links, err := s.links.ItemSessions(ctx, ref)
+	links, err := s.links.List(ctx, ref)
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for item %d", itemID)
 	}
@@ -221,17 +272,12 @@ func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dis
 			CreatedAt: time.UnixMilli(link.CreatedAt),
 		})
 	}
-	if err := s.links.UnlinkItemSessions(ctx, gone); err != nil {
+	if err := s.links.Unlink(ctx, gone); err != nil {
 		// The view above is already correct without the prune; failing the read
 		// over a cleanup would hide the sessions that do still exist.
 		s.logger.Warn().Err(err).Int64("item_id", itemID).Msg("dropping links to deleted sessions")
 	}
 
-	// No status source is data, not a failure: nothing reads as running, which
-	// is what "we cannot see tmux from here" honestly looks like.
-	if s.statuses == nil {
-		return views, nil
-	}
 	running, err := s.statuses.RunningSessions(ctx, ids)
 	if err != nil {
 		// Same reason as the prune above: the views are already correct
@@ -248,9 +294,6 @@ func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dis
 
 // SessionDetail reads one session in full.
 func (s *SessionsService) SessionDetail(ctx context.Context, id string) (dispatch.SessionDetail, error) {
-	if s.manager == nil {
-		return dispatch.SessionDetail{}, Errorf(KindUnavailable, "session details are unavailable")
-	}
 	if strings.TrimSpace(id) == "" {
 		return dispatch.SessionDetail{}, Errorf(KindInvalid, "session id is required")
 	}
@@ -266,9 +309,6 @@ func (s *SessionsService) SessionDetail(ctx context.Context, id string) (dispatc
 // with no live checkout answers an unresolved status rather than an error —
 // there is nothing wrong, there is just nothing to read.
 func (s *SessionsService) SessionGitStatus(ctx context.Context, id string) (dispatch.SessionGitStatus, error) {
-	if s.git == nil {
-		return dispatch.SessionGitStatus{}, Errorf(KindUnavailable, "session git status is unavailable")
-	}
 	if strings.TrimSpace(id) == "" {
 		return dispatch.SessionGitStatus{}, Errorf(KindInvalid, "session id is required")
 	}
@@ -299,10 +339,8 @@ func (s *SessionsService) OpenSessionInEditor(ctx context.Context, id string) er
 		return err
 	}
 	command := ""
-	if s.editorCommand != nil {
-		if configured, err := s.editorCommand(ctx); err == nil {
-			command = configured
-		}
+	if configured, err := s.editorCommand.Editor(ctx); err == nil {
+		command = configured
 	}
 	return launchEditor(ctx, s.execEnv, command, dir)
 }
@@ -332,9 +370,6 @@ func (s *SessionsService) sessionCheckout(ctx context.Context, id string) (strin
 // SessionRisk reports the work a delete or recycle of id would discard, so the
 // caller can name it in its confirmation instead of guessing.
 func (s *SessionsService) SessionRisk(ctx context.Context, id string) (dispatch.SessionRisk, error) {
-	if s.manager == nil {
-		return dispatch.SessionRisk{}, Errorf(KindUnavailable, "session risk checks are unavailable")
-	}
 	if strings.TrimSpace(id) == "" {
 		return dispatch.SessionRisk{}, Errorf(KindInvalid, "session id is required")
 	}
@@ -350,10 +385,6 @@ func (s *SessionsService) SessionRisk(ctx context.Context, id string) (dispatch.
 // runs asynchronously and its outcome surfaces in the jobs UI, so only
 // validation errors are returned here.
 func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (int64, error) {
-	if s.launcher == nil || s.jobs == nil {
-		return 0, Errorf(KindUnavailable, "session creation is unavailable")
-	}
-
 	repo := strings.TrimSpace(req.Repository)
 	if repo == "" {
 		return 0, Errorf(KindInvalid, "repository is required")
@@ -369,10 +400,10 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	// A form drafted from an item links the session back to it. An item that
 	// has gone (pruned between opening the form and submitting it) launches
 	// unlinked rather than refusing the session the user asked for.
-	var origin store.ItemRef
-	if req.ItemID != 0 && s.links != nil {
-		resolved, err := s.links.ItemRefByID(ctx, req.ItemID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	var origin models.ItemRef
+	if req.ItemID != 0 {
+		resolved, err := s.items.RefByID(ctx, req.ItemID)
+		if err != nil && !stores.IsNotFound(err) {
 			return 0, Wrap(err, KindInternal, "reading inbox item %d", req.ItemID)
 		}
 		origin = resolved
@@ -407,9 +438,6 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 // does, the tmux rename is put back, because the one state we must not leave
 // behind is a slug that does not name its own tmux session.
 func (s *SessionsService) RenameSession(ctx context.Context, id, name string) (dispatch.SessionSummary, error) {
-	if s.manager == nil || s.tmux == nil {
-		return dispatch.SessionSummary{}, Errorf(KindUnavailable, "renaming sessions is unavailable")
-	}
 	if strings.TrimSpace(id) == "" {
 		return dispatch.SessionSummary{}, Errorf(KindInvalid, "session id is required")
 	}
@@ -463,9 +491,6 @@ func (s *SessionsService) RenameSession(ctx context.Context, id, name string) (d
 // drift from the one `hive` itself uses. Spawning a session tmux already has is
 // a no-op, so this is safe to call before every cold attach.
 func (s *SessionsService) StartTmuxSession(ctx context.Context, slug string) error {
-	if s.manager == nil {
-		return Errorf(KindUnavailable, "starting sessions is unavailable")
-	}
 	slug = strings.TrimSpace(slug)
 	if slug == "" {
 		return Errorf(KindInvalid, "session slug is required")
@@ -493,9 +518,6 @@ func (s *SessionsService) StartTmuxSession(ctx context.Context, slug string) err
 // session with no checkout left is a conflict rather than an empty path, so a
 // terminal is never opened somewhere the caller did not ask for.
 func (s *SessionsService) SessionDirectory(ctx context.Context, slug string) (string, error) {
-	if s.manager == nil {
-		return "", Errorf(KindUnavailable, "reading sessions is unavailable")
-	}
 	slug = strings.TrimSpace(slug)
 	if slug == "" {
 		return "", Errorf(KindInvalid, "session slug is required")
@@ -534,9 +556,6 @@ func (s *SessionsService) detailBySlug(ctx context.Context, slug string) (dispat
 // as a background job: it runs git and filesystem work that a caller must not
 // block on. The caller is expected to have confirmed against SessionRisk first.
 func (s *SessionsService) DeleteSession(ctx context.Context, id string) (int64, error) {
-	if s.manager == nil || s.jobs == nil {
-		return 0, Errorf(KindUnavailable, "deleting sessions is unavailable")
-	}
 	return s.destructiveJob(ctx, id, "Delete session", deleteSessionJobActionID, s.manager.DeleteSession)
 }
 
@@ -544,9 +563,6 @@ func (s *SessionsService) DeleteSession(ctx context.Context, id string) (int64, 
 // reason DeleteSession is one. For a worktree session hive recycles by
 // deleting, which is what SessionRisk.RecycleDeletes warns about.
 func (s *SessionsService) RecycleSession(ctx context.Context, id string) (int64, error) {
-	if s.manager == nil || s.jobs == nil {
-		return 0, Errorf(KindUnavailable, "recycling sessions is unavailable")
-	}
 	return s.destructiveJob(ctx, id, "Recycle session", recycleSessionJobActionID, s.manager.RecycleSession)
 }
 
@@ -554,9 +570,6 @@ func (s *SessionsService) RecycleSession(ctx context.Context, id string) (int64,
 // job, and reports the job id rather than the count: the work outlives the
 // call, so the count is not known yet.
 func (s *SessionsService) PruneSessions(ctx context.Context) (int64, error) {
-	if s.manager == nil || s.jobs == nil {
-		return 0, Errorf(KindUnavailable, "pruning sessions is unavailable")
-	}
 	return s.jobs.Track(ctx, "Prune sessions", pruneSessionsJobActionID, "", func(bg context.Context) error {
 		_, err := s.manager.PruneSessions(bg)
 		return err

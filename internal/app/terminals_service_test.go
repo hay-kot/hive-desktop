@@ -50,7 +50,7 @@ func newTestTerminalsIn(t *testing.T, starter terminalStarter, home func() (stri
 	t.Helper()
 	manager := tmuxcc.NewManager(t.Context(), tmuxcc.ManagerOptions{Logger: zerolog.Nop()})
 	t.Cleanup(func() { _ = manager.Stop(context.WithoutCancel(t.Context())) })
-	return newTerminalsService(manager, starter, home)
+	return newTerminalsService(TerminalsDeps{Manager: manager, Starter: starter, Home: home})
 }
 
 // spawningStarter stands in for the session service: it creates the tmux session

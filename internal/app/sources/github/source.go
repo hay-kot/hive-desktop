@@ -9,9 +9,9 @@ import (
 	"fmt"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // SourceKind is the inbox source_kind GitHub observations carry.
@@ -127,7 +127,7 @@ var _ connector.PullSource = (*source)(nil)
 // Produce emits one message per current item of the source, JSON-encoding
 // feed.Item as the payload. Key is the item's stable id, used to skip
 // unchanged source values within the topic.
-func (s *source) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *source) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	items, err := s.live.SourceItems(ctx, s.def)
 	if err != nil {
 		return fmt.Errorf("github source %q: fetching: %w", s.def.ID, err)
@@ -138,7 +138,7 @@ func (s *source) Produce(ctx context.Context, emit func(store.Msg) error) error 
 		if err != nil {
 			return fmt.Errorf("github source %q: encoding item %q: %w", s.def.ID, item.ID, err)
 		}
-		msg := store.Msg{Key: item.ID, Topic: s.topic, Payload: payload, SourceKind: SourceKind}
+		msg := models.Msg{Key: item.ID, Topic: s.topic, Payload: payload, SourceKind: SourceKind}
 		if err := emit(msg); err != nil {
 			return err
 		}

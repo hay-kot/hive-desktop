@@ -8,9 +8,9 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog/client"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // Normalized alert states. PostHog sends display strings — "Firing", "Not
@@ -113,7 +113,7 @@ type alertPayload struct {
 	Project             string          `json:"project,omitempty"`
 }
 
-func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) error {
+func (s *alertsSource) Produce(ctx context.Context, emit func(models.Msg) error) error {
 	alerts, binding, err := s.fetcher.Alerts(ctx)
 	if err != nil {
 		return fmt.Errorf("posthog alerts: %w", err)
@@ -144,7 +144,7 @@ func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 		if err != nil {
 			return fmt.Errorf("posthog alerts: encoding %q: %w", alert.ID, err)
 		}
-		if err := emit(store.Msg{Key: alert.ID, Topic: s.topic, SourceKind: SourceKind, Payload: body}); err != nil {
+		if err := emit(models.Msg{Key: alert.ID, Topic: s.topic, SourceKind: SourceKind, Payload: body}); err != nil {
 			return err
 		}
 	}
@@ -216,18 +216,18 @@ func alertState(state string) string {
 // of them is a breach asking to be looked at.
 type alertsClassifier struct{}
 
-var _ store.Classifier = alertsClassifier{}
+var _ models.Classifier = alertsClassifier{}
 
-func (alertsClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (alertsClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	state := alertStateOf(current.Payload)
-	lifecycle := store.LifecycleTerminal
+	lifecycle := models.LifecycleTerminal
 	if state == stateFiring {
-		lifecycle = store.LifecycleActive
+		lifecycle = models.LifecycleActive
 	}
-	out := store.Classification{
+	out := models.Classification{
 		Kind:          state,
-		Transition:    store.TransitionNone,
-		Attention:     store.AttentionActivity,
+		Transition:    models.TransitionNone,
+		Attention:     models.AttentionActivity,
 		Lifecycle:     lifecycle,
 		SourceState:   state,
 		OccurrenceKey: current.ExternalID + "@" + strconv.FormatInt(current.ObservedAt, 10),
@@ -238,16 +238,16 @@ func (alertsClassifier) Classify(previous *store.Observation, current store.Obse
 	}
 	switch prev := alertStateOf(previous.Payload); {
 	case prev == stateFiring && state != stateFiring:
-		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, "Resolved", store.TransitionEnteredTerminal, state
+		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, "Resolved", models.TransitionEnteredTerminal, state
 	case prev != stateFiring && state == stateFiring:
-		out.Kind, out.Summary, out.Transition = stateFiring, "Firing", store.TransitionLeftTerminal
+		out.Kind, out.Summary, out.Transition = stateFiring, "Firing", models.TransitionLeftTerminal
 	default:
-		out.Kind, out.Attention = "updated", store.AttentionTrivial
+		out.Kind, out.Attention = "updated", models.AttentionTrivial
 	}
 	return out
 }
 
 func alertStateOf(payload []byte) string {
-	_, _, state := store.CanonicalFields(payload)
+	_, _, state := models.CanonicalFields(payload)
 	return alertState(state)
 }

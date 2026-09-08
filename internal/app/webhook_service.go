@@ -2,13 +2,11 @@ package app
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"sync"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // WebhookService owns the local webhook listener's configuration and the
@@ -17,7 +15,7 @@ import (
 // port still describes the endpoint a live run would serve.
 type WebhookService struct {
 	settings *settings.Store
-	db       *store.DB
+	captures *stores.WebhookCaptureStore
 	listener *webhook.Listener
 	host     string
 	port     int
@@ -26,8 +24,16 @@ type WebhookService struct {
 	startErr error
 }
 
-func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, host string, port int) *WebhookService {
-	return &WebhookService{settings: settingsStore, db: db, listener: listener, host: host, port: port}
+type WebhookDeps struct {
+	Settings *settings.Store
+	Captures *stores.WebhookCaptureStore
+	Listener *webhook.Listener
+	Host     string
+	Port     int
+}
+
+func newWebhookService(d WebhookDeps) *WebhookService {
+	return &WebhookService{settings: d.Settings, captures: d.Captures, listener: d.Listener, host: d.Host, port: d.Port}
 }
 
 func (s *WebhookService) setStartError(err error) {
@@ -151,8 +157,8 @@ type WebhookCapture struct {
 // ingests fine but renders minimally in feeds.
 func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (WebhookCapture, error) {
 	topic := "source:" + flowID + "/" + nodeID
-	row, err := s.db.Queries().GetWebhookCapture(ctx, topic)
-	if errors.Is(err, sql.ErrNoRows) {
+	row, err := s.captures.Get(ctx, topic)
+	if stores.IsNotFound(err) {
 		return WebhookCapture{}, nil
 	}
 	if err != nil {

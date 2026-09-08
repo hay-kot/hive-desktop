@@ -8,8 +8,10 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // MockFlowID, MockSourceNodeID, and MockFeedNodeID identify the fixture graph
@@ -96,22 +98,25 @@ var mockInboxItems = []feed.Item{
 
 // seedMockInboxItems writes deterministic inbox rows directly rather than
 // using the ingestion transaction. This is intentionally fixture-only.
-func seedMockInboxItems(db *store.DB) error {
-	return db.WithTx(context.Background(), seedMockInboxItemsTx)
+func seedMockInboxItems(ctx context.Context, db *queries.DB, logs *stores.EventLogStore) error {
+	return db.WithinTx(ctx, func(ctx context.Context, tx *queries.DB) error {
+		return seedMockInboxItemsTx(ctx, tx, logs)
+	})
 }
 
 // seedMockInboxItemsTx is the transaction-scoped seed body. Startup seeding
-// wraps it in its own transaction (seedMockInboxItems); the /_e2e/reset
-// harness reuses it inside ResetAllState's wipe transaction so the delete and
-// reseed commit atomically.
-func seedMockInboxItemsTx(q *store.Queries) error {
+// wraps it in its own transaction; the /_e2e/reset harness reuses it inside
+// ResetAllState's wipe transaction so the delete and reseed commit atomically.
+// logs.AppendSnapshot joins the same transaction through the ambient context
+// WithinTx set up, regardless of which *queries.DB backs it.
+func seedMockInboxItemsTx(ctx context.Context, db *queries.DB, logs *stores.EventLogStore) error {
 	if len(mockItemAges) != len(mockInboxItems) {
 		return fmt.Errorf("mock seed: %d ages for %d items", len(mockItemAges), len(mockInboxItems))
 	}
 	base := time.Now().UnixMilli()
-	ctx := context.Background()
+	q := db.Ctx(ctx).Queries
 	sourceTopic := "source:" + MockFlowID + "/" + MockSourceNodeID
-	snapshot := make([]store.SnapshotItem, 0, len(mockInboxItems))
+	snapshot := make([]models.SnapshotItem, 0, len(mockInboxItems))
 
 	for i, item := range mockInboxItems {
 		payload, err := json.Marshal(item)
@@ -119,7 +124,7 @@ func seedMockInboxItemsTx(q *store.Queries) error {
 			return fmt.Errorf("mock seed: encode item %q: %w", item.ID, err)
 		}
 		seenAt := base - mockItemAges[i].Milliseconds()
-		row, err := q.InsertInboxItem(ctx, store.InsertInboxItemParams{
+		row, err := q.InsertInboxItem(ctx, queries.InsertInboxItemParams{
 			ProfileID:   MockFlowID,
 			SourceKind:  "github",
 			SourceScope: "",
@@ -135,14 +140,14 @@ func seedMockInboxItemsTx(q *store.Queries) error {
 		if err != nil {
 			return fmt.Errorf("mock seed: insert item %q: %w", item.ID, err)
 		}
-		if err := q.UpsertFeedMembershipClaim(ctx, store.UpsertFeedMembershipClaimParams{
+		if err := q.UpsertFeedMembershipClaim(ctx, queries.UpsertFeedMembershipClaimParams{
 			ProfileID: MockFlowID, FeedID: MockFlowID + "/" + MockFeedNodeID, ItemID: row.ID, SourceID: sourceTopic,
 		}); err != nil {
 			return fmt.Errorf("mock seed: claim item %q: %w", item.ID, err)
 		}
-		snapshot = append(snapshot, store.SnapshotItem{Key: item.ID, Payload: payload})
+		snapshot = append(snapshot, models.SnapshotItem{Key: item.ID, Payload: payload})
 	}
-	if _, err := q.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
+	if _, err := logs.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
 		return fmt.Errorf("mock seed: append source snapshot: %w", err)
 	}
 	return nil
@@ -155,8 +160,17 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
-func SeedMockInboxItemsOrWarn(db *store.DB, logger zerolog.Logger) {
-	if err := seedMockInboxItems(db); err != nil {
+type mockSeeder struct {
+	db   *queries.DB
+	logs *stores.EventLogStore
+}
+
+func (s mockSeeder) Seed(ctx context.Context) error {
+	return seedMockInboxItemsTx(ctx, s.db, s.logs)
+}
+
+func SeedMockInboxItemsOrWarn(ctx context.Context, db *queries.DB, logs *stores.EventLogStore, logger zerolog.Logger) {
+	if err := seedMockInboxItems(ctx, db, logs); err != nil {
 		logger.Warn().Err(err).Msg("mock inbox seed failed")
 	}
 }

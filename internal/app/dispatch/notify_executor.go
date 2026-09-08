@@ -9,9 +9,10 @@ import (
 	"time"
 
 	"github.com/colonyops/hive/pkg/tmpl"
-	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
 const (
@@ -76,10 +77,8 @@ type NotificationGate interface {
 	NotificationPolicy() NotificationPolicy
 }
 
-// InboxItemLocator resolves the durable inbox row a notification came from,
-// so a click can select that item. Implemented by *store.DB.
 type InboxItemLocator interface {
-	InboxItemID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
+	IDByExternalID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
 }
 
 // NotifyExecutor delivers a notify terminal's queued command as a native
@@ -132,7 +131,7 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		return ExecutionResult{}, fmt.Errorf("notify executor: no system notifier configured")
 	}
 
-	var cmd store.NotifyCommand
+	var cmd models.NotifyCommand
 	if err := json.Unmarshal(data.Raw, &cmd); err != nil {
 		return ExecutionResult{}, fmt.Errorf("notify: decode command payload: %w", err)
 	}
@@ -212,12 +211,12 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 // clickData resolves what a click on the delivered banner should reveal. An
 // unresolvable item is not an error — the notification still fires, and
 // clicking it just raises the window.
-func (e *NotifyExecutor) clickData(ctx context.Context, cmd store.NotifyCommand) map[string]any {
+func (e *NotifyExecutor) clickData(ctx context.Context, cmd models.NotifyCommand) map[string]any {
 	data := map[string]any{"profileId": cmd.ProfileID}
 	if e.items == nil {
 		return data
 	}
-	itemID, err := e.items.InboxItemID(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID)
+	itemID, err := e.items.IDByExternalID(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID)
 	if err != nil {
 		e.logger.Warn().Err(err).Str("profile_id", cmd.ProfileID).Msg("notify: resolving notification item failed")
 		return data

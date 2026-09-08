@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 )
 
 // maxCanvasBodyBytes caps one markdown or html block's body so a single tool
@@ -25,7 +26,7 @@ const (
 // with: the session record is the authority on which workspace a canvas
 // belongs to, so an agent never names the workspace itself.
 type canvasSessionResolver interface {
-	GetAgentWorkspaceSession(ctx context.Context, id int64) (store.AgentWorkspaceSession, bool, error)
+	Get(ctx context.Context, id int64) (stores.AgentSession, error)
 }
 
 // CanvasService is the workspace's canvases: named, agent-written artifacts
@@ -33,14 +34,19 @@ type canvasSessionResolver interface {
 // the hive-canvas MCP tools; the frontend reads
 // (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
 type CanvasService struct {
-	store     *canvas.Store
-	sessions  canvasSessionResolver
-	onUpdated func(session int64)
-	onToggled func(session int64, name string, open bool)
+	store    *canvas.Store
+	sessions canvasSessionResolver
+	events   *events.Bus
 }
 
-func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpdated func(int64), onToggled func(int64, string, bool)) *CanvasService {
-	return &CanvasService{store: store, sessions: sessions, onUpdated: onUpdated, onToggled: onToggled}
+type CanvasDeps struct {
+	Store    *canvas.Store
+	Sessions canvasSessionResolver
+	Events   *events.Bus
+}
+
+func newCanvasService(d CanvasDeps) *CanvasService {
+	return &CanvasService{store: d.Store, sessions: d.Sessions, events: d.Events}
 }
 
 // Get returns one canvas in the calling session's workspace. A name nothing
@@ -114,7 +120,7 @@ func (s *CanvasService) putBlocks(ctx context.Context, session int64, name, titl
 		}
 		return canvas.Canvas{}, s.storeError(err, name)
 	}
-	s.notify(session)
+	s.notify(ctx, session)
 	return c, nil
 }
 
@@ -131,7 +137,7 @@ func (s *CanvasService) RemoveBlock(ctx context.Context, session int64, name, bl
 	if !removed {
 		return canvas.Canvas{}, Errorf(KindNotFound, "no block %q on canvas %q", blockID, name)
 	}
-	s.notify(session)
+	s.notify(ctx, session)
 	return c, nil
 }
 
@@ -146,7 +152,7 @@ func (s *CanvasService) Clear(ctx context.Context, session int64, name string) (
 	if err != nil {
 		return canvas.Canvas{}, s.storeError(err, name)
 	}
-	s.notify(session)
+	s.notify(ctx, session)
 	return c, nil
 }
 
@@ -164,9 +170,7 @@ func (s *CanvasService) SetPaneOpen(ctx context.Context, session int64, name str
 			return err
 		}
 	}
-	if s.onToggled != nil {
-		s.onToggled(session, name, open)
-	}
+	s.events.Publish(ctx, events.CanvasToggleRequested{Session: session, Name: name, Open: open})
 	return nil
 }
 
@@ -183,7 +187,7 @@ func (s *CanvasService) Delete(ctx context.Context, session int64, name string) 
 	if !existed {
 		return Errorf(KindNotFound, "no canvas named %q in this workspace", name)
 	}
-	s.notify(session)
+	s.notify(ctx, session)
 	return nil
 }
 
@@ -265,18 +269,12 @@ func (s *CanvasService) ListForWorkspace(_ context.Context, dir string) ([]canva
 	return metas, nil
 }
 
-func (s *CanvasService) resolve(ctx context.Context, session int64) (store.AgentWorkspaceSession, error) {
-	if s.sessions == nil {
-		return store.AgentWorkspaceSession{}, Errorf(KindUnavailable, "canvas is not available in this build")
+func (s *CanvasService) resolve(ctx context.Context, session int64) (stores.AgentSession, error) {
+	rec, err := s.sessions.Get(ctx, session)
+	if stores.IsNotFound(err) {
+		return stores.AgentSession{}, Errorf(KindNotFound, "session %d not found", session)
 	}
-	rec, ok, err := s.sessions.GetAgentWorkspaceSession(ctx, session)
-	if err != nil {
-		return store.AgentWorkspaceSession{}, Wrap(err, KindInternal, "loading session %d", session)
-	}
-	if !ok {
-		return store.AgentWorkspaceSession{}, Errorf(KindNotFound, "session %d not found", session)
-	}
-	return rec, nil
+	return rec, Wrap(err, KindInternal, "loading session %d", session)
 }
 
 // storeError maps the store's sentinel errors onto typed service errors, so
@@ -295,10 +293,8 @@ func (s *CanvasService) storeError(err error, name string) error {
 	}
 }
 
-func (s *CanvasService) notify(session int64) {
-	if s.onUpdated != nil {
-		s.onUpdated(session)
-	}
+func (s *CanvasService) notify(ctx context.Context, session int64) {
+	s.events.Publish(ctx, events.CanvasUpdated{Session: session})
 }
 
 func validateBlock(b *canvas.Block) error {

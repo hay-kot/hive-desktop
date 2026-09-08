@@ -8,20 +8,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/observe"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
 // Producer is the poll loop that turns configured source connectors into
 // event_log rows. On each tick it resolves the current pull-mode instances,
 // drains each one through Produce, and appends every emitted Msg to the log.
-// After a tick appends at least one row, onAppended fires with the offset of
-// the last row, so the core can wake the flow engine.
 //
 // There is one ticker for every source, at settings.polling.interval. An
 // instance that wants to run less often than that declares a MinInterval and
@@ -29,14 +29,10 @@ import (
 // second schedule. Not drained is not the same as drained empty: Produce is
 // never called, so nothing about the source's tracked set changes.
 //
-// Source deduplication: a connector re-emits every current item on every
-// tick, even when nothing changed upstream (the GitHub fetch layer may itself
-// be cache-hit, but the cached items are still emitted). Producer delegates
-// to store.IngestObservation, which stores the last payload by (topic, key)
-// in the database and atomically appends a changed event with its new head,
-// so deduplication survives restarts and a failed append never suppresses a
-// retry. Successful ticks also append a source snapshot event for downstream
-// feed reconciliation.
+// Connectors may re-emit unchanged items. IngestObservation atomically
+// deduplicates against durable source heads, so dedup survives restarts and
+// failed appends remain retryable. Successful ticks append an authoritative
+// snapshot for feed reconciliation.
 //
 // Nothing here branches on which connector it is holding. What a source
 // supports beyond producing messages — its classifier, its absence confirmer,
@@ -45,12 +41,14 @@ import (
 // ingestion, and generic ingestion of a GitHub item is wrong rather than
 // merely plain.
 type Producer struct {
-	db          Appender
+	ingester    Ingester
+	snapshots   SnapshotAppender
+	heads       SourceHeads
 	sources     Sources
 	intervalMu  sync.Mutex
 	interval    time.Duration
 	intervalCh  chan time.Duration
-	onAppended  func(nextOffset int64)
+	notifier    LogAppendNotifier
 	logger      zerolog.Logger
 	recorder    activity.Recorder
 	pauseIngest time.Duration
@@ -75,18 +73,33 @@ func (pr *Producer) SetRecorder(r activity.Recorder) { pr.recorder = r }
 // SetDebugPause injects the development-only post-hydration pause.
 func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = duration }
 
-// NewProducer builds a Producer. interval <= 0 is rejected by the caller's
-// choice of default (App passes feed.DefaultPollInterval); Producer itself
-// has no opinion on the default so this package does not need to import feed
-// just for a constant.
-func NewProducer(db Appender, sources Sources, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
+// LogAppendNotifier must wake the flow engine synchronously. A bus event is
+// insufficient because subscribers coalesce bursts and could delay routing.
+type LogAppendNotifier interface {
+	PublishLogAppended(nextOffset int64)
+}
+
+type ProducerDeps struct {
+	Ingester  Ingester
+	Snapshots SnapshotAppender
+	Heads     SourceHeads
+	Sources   Sources
+	Interval  time.Duration
+	Notifier  LogAppendNotifier
+	Logger    zerolog.Logger
+}
+
+// NewProducer requires a positive Interval.
+func NewProducer(d ProducerDeps) *Producer {
 	return &Producer{
-		db:          db,
-		sources:     sources,
-		interval:    interval,
+		ingester:    d.Ingester,
+		snapshots:   d.Snapshots,
+		heads:       d.Heads,
+		sources:     d.Sources,
+		interval:    d.Interval,
 		intervalCh:  make(chan time.Duration, 1),
-		onAppended:  onAppended,
-		logger:      logger,
+		notifier:    d.Notifier,
+		logger:      d.Logger,
 		now:         time.Now,
 		lastRun:     map[string]time.Time{},
 		lastFailure: map[string]time.Time{},
@@ -206,8 +219,8 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 		attribute.Int(attrAppended, summary.Appended),
 	)
 
-	if summary.Appended > 0 && pr.onAppended != nil {
-		pr.onAppended(lastOffset)
+	if summary.Appended > 0 && pr.notifier != nil {
+		pr.notifier.PublishLogAppended(lastOffset)
 	}
 	return summary
 }
@@ -295,7 +308,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 	topic := instance.Node.Topic()
 	meta := instance.Metadata
 	if meta.Policy == "" {
-		meta.Policy = store.ResurfacePolicyStateChanges
+		meta.Policy = models.ResurfacePolicyStateChanges
 	}
 
 	// Named by kind, which is bounded; the id rides as an attribute.
@@ -319,13 +332,13 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		classifier = genericClassifier{}
 	}
 
-	items := make([]store.SnapshotItem, 0)
+	items := make([]models.SnapshotItem, 0)
 	observed := make(map[string]struct{})
 	err = instance.Pull.Produce(ctx, func(msg Msg) error {
 		if msg.Topic != topic {
 			return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
 		}
-		items = append(items, store.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
+		items = append(items, models.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
 		if msg.Key == "" {
 			return nil
 		}
@@ -334,7 +347,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		if msg.SourceKind != "" {
 			kind = msg.SourceKind
 		}
-		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
 		if err != nil {
 			return err
 		}
@@ -354,7 +367,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		pr.confirmAbsent(ctx, instance, meta, classifier, observed, &out)
 	}
 
-	offset, err := pr.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
+	offset, err := pr.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
 		pr.recordFailure(ctx, id, err)
@@ -370,22 +383,22 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 // source head but not in this tick's snapshot. Only connectors that declared
 // CapConfirmAbsence get here; for the rest an item that stops appearing is
 // left to the resurface policy.
-func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instance, meta connector.Metadata, classifier store.Classifier, observed map[string]struct{}, out *drained) {
+func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instance, meta connector.Metadata, classifier models.Classifier, observed map[string]struct{}, out *drained) {
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 
-	keys, err := pr.db.ListActiveSourceHeadKeys(ctx, store.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
+	keys, err := pr.heads.ListActiveKeys(ctx, stores.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
 	}
 
-	prevs := make([]store.Observation, 0, len(keys))
+	prevs := make([]models.Observation, 0, len(keys))
 	for _, key := range keys {
 		if _, present := observed[key]; present {
 			continue
 		}
-		payload, err := pr.db.SourceHeadPayload(ctx, topic, key)
+		payload, err := pr.heads.Payload(ctx, topic, key)
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: reading source head failed")
 			continue
@@ -412,7 +425,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if !ok || v.Current == nil {
 			continue
 		}
-		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
+		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
@@ -425,7 +438,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// short-circuit still leaves the head row in place, and deleting
 		// before the ingest would be undone by its UpsertSourceHead.
 		if v.Terminal {
-			if err := pr.db.DeleteSourceHead(ctx, topic, prev.ExternalID); err != nil {
+			if err := pr.heads.Delete(ctx, topic, prev.ExternalID); err != nil {
 				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
 			}
 		}
@@ -493,7 +506,7 @@ func (pr *Producer) record(ctx context.Context, e activity.Event) {
 
 // genericClassifier keeps non-GitHub/test sources ingestible while adapters
 // supply richer semantics for real source kinds.
-func observationFromMsg(msg Msg, sourceKind, sourceScope string) store.Observation {
+func observationFromMsg(msg Msg, sourceKind, sourceScope string) models.Observation {
 	var wire struct {
 		Title     string `json:"title"`
 		URL       string `json:"url"`
@@ -506,14 +519,14 @@ func observationFromMsg(msg Msg, sourceKind, sourceScope string) store.Observati
 	if wire.UpdatedAt == 0 {
 		wire.UpdatedAt = time.Now().UnixMilli()
 	}
-	return store.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
+	return models.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
 }
 
 type genericClassifier struct{}
 
-func (genericClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (genericClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	if previous == nil {
-		return store.Classification{Kind: "observed", Transition: store.TransitionNone, Attention: store.AttentionActivity, Lifecycle: store.LifecycleUnknown, Summary: current.Title}
+		return models.Classification{Kind: "observed", Transition: models.TransitionNone, Attention: models.AttentionActivity, Lifecycle: models.LifecycleUnknown, Summary: current.Title}
 	}
-	return store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: store.LifecycleUnknown, Summary: current.Title}
+	return models.Classification{Kind: "updated", Transition: models.TransitionNone, Attention: models.AttentionTrivial, Lifecycle: models.LifecycleUnknown, Summary: current.Title}
 }

@@ -20,7 +20,7 @@ individual choices; this document describes the shape everything fits into.
 > package that imports Wails or an adapter, and a second `depguard` rule fails
 > one that imports `internal/hivecore` outside a narrow, commented seam
 > allowlist (`app.go`, `dispatch/hive_adapters.go`,
-> `dispatch/hive_hc_adapters.go`, `store/dbext.go`, and the tests that
+> `dispatch/hive_hc_adapters.go`, `data/queries/dbext.go`, and the tests that
 > exercise them); `forbidigo` fails `application.Get`,
 > `context.Background` or an `emit*` helper outside the adapter, `containedctx`
 > fails a stored request context, and `mise run check:bindings` fails a
@@ -136,6 +136,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | --- | --- | --- |
 | **Ports & Adapters** / Hexagonal | the `app` ↔ `adapter` boundary | Driven ports (core → outside) get an interface defined in `app`. Driving ports (outside → core) get **no interface** — adapters depend on concrete types. See [the Go amendment](#the-go-amendment-to-hexagonal). |
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
+| **Store** (Repository, PoEAA) | `app/data/stores`, one type per persisted **aggregate root** | One aggregate's persistence behind hand-written domain types; it publishes nothing and knows nothing about `app.Error`. The placement rules and the transaction contract are in [Stores and services](#stores-and-services). |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
 | **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR http-handler-conventions. |
 | **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. Three contracts hold across the whole surface, because an agent has no UI to disambiguate from: an id that resolves to nothing is `not_found` and never an empty collection; a mutation's answer is never a constant, so a caller can tell it happened; and a field whose size the *source* decides — an item payload, an event detail, a dry run's messages — is behind a `detail` argument that defaults to omitting it, with the level echoed on the answer. See ADR mcp-replaces-the-agent-facing-http-api. |
@@ -163,7 +164,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `ingest.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
 | **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR go-owned-llm-prompts. This is the pattern every new extension point should extend. |
 | **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
-| **Options struct** (Go) | store and subsystem constructors | `store.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
+| **Options struct** (Go) | store and subsystem constructors | `queries.DefaultOpenOptions()`, `stores.Options{Logger: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
 | **One instance per process** | producer, output worker, flow engine | Constructed once by `App` and injected. Deliberately **not** GoF Singleton: no global access point and no lazy self-construction — the constraint is "exactly one exists", not "anyone can reach it". Two would double-poll sources and re-execute actions. |
 
 ### Which pattern governs what
@@ -189,6 +190,7 @@ column is the section that specifies it.
 | A new **metric, span, or log field** | Package-level instrument via `app/observe` against the global provider; bounded attributes only; a span is a trigger or a wait; the SDK stays in `app/telemetry` | [Telemetry](#telemetry), ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing. A secret-bearing field holds an `internal/app/secrets` reference, never a value | [Config versus data](#config-versus-data), [Credentials](#credentials) |
+| A new **persisted entity** | Store, Unit of Work, Options struct, Consumer-defined interface | [Stores and services](#stores-and-services) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
@@ -353,7 +355,8 @@ internal/
                                   #   process's, then those prefixes (ADR subprocess-environment),
                                   #   plus the shell's other variables where
                                   #   this process defines none (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path)
-    jobs/  activity/              # observability domains
+    jobs/  activity/              # domain types, enums, and consumer-defined
+                                  #   Recorder ports; persistence lives in data/stores
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
                                   #   and no dependencies (ADR ui-performance-spans-are-recorded-to-jsonl)
@@ -370,7 +373,10 @@ internal/
                                   #   StartConditionalSpan. No SDK, no
                                   #   abstraction (ADR a-package-declares-its-own-opentelemetry-instruments-against-the-global-provider)
     settings/                     # settings.yaml, paths, bootstrap pointer file
-    store/                        # sqlc, migrations, queries
+    data/                         # persistence boundary; no adapter import
+      models/                     # hand-written domain types; no database import
+      queries/                    # sqlc output, DB handle, migrations; no app import
+      stores/                     # aggregate persistence; no app errors or events
 
   adapter/                        # driving adapters, all in-process
     wailsui/                      # Wails service structs; the only Wails imports
@@ -559,6 +565,39 @@ success" — a deploy that did not write, not a background poll that will retry.
 Inline error text stays where a surface already has it; it is the record, not
 the interrupt. See ADR
 [a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message](decisions/2026-08-07-a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message.md).
+
+### Stores and services
+
+A **Store owns one aggregate's persistence.** It is built from `*queries.DB`.
+Every method takes `context.Context` first, names the operation rather than the
+entity, returns a hand-written domain type through a `mapXFromDb` mapper, and
+publishes nothing. A generated sqlc row and `app.Error` stop at the store
+boundary. `models` holds the types a package outside `data` constructs (a
+commit batch, an item ref, a feed claim); `stores` holds the read shapes its
+mappers produce and the inputs only a store method takes.
+
+A **Service coordinates.** It holds stores and other services, maps store
+errors onto `app.Error` kinds exactly once, publishes events, and owns work
+that spans more than one aggregate. Only services hang off `App`, with two
+exceptions for the e2e harness: `App.Stores` seeds fixtures and
+`App.PipelineDB()` resets tables.
+
+Placement has four clauses:
+
+1. A store owns one aggregate root, not one table.
+2. A store method may open its own transaction and call sibling stores when the
+   operation is atomic and belongs to that aggregate.
+3. A service opens `Stores.WithinTx(ctx, fn)` when an operation spans
+   aggregates or carries policy, and holds the `Stores` aggregate to do so.
+4. Whole-database maintenance stays on `queries.DB`.
+
+Every store call goes through `.Ctx(ctx)`, including reads, so it joins an
+ambient transaction. The database uses `_txlock=immediate` and has
+`MaxOpenConns: 2`; a nested `BEGIN IMMEDIATE` waits out `busy_timeout` for a
+write lock its own caller holds and then fails with `SQLITE_BUSY`, so nothing
+opens a second transaction. `Compact` is the exception: SQLite cannot run
+`VACUUM` inside a transaction, so it runs on the pool. (ADR
+[a-store-owns-one-entity-s-persistence-and-a-service-coordinates-over-stores](decisions/2026-09-05-a-store-owns-one-entity-s-persistence-and-a-service-coordinates-over-stores.md))
 
 ### Events
 
@@ -919,7 +958,7 @@ is itself built over `appkit/httpclient`. Nothing constructs a bespoke
   unauthorized onto re-auth, and a provider pauses fetching on rate limited. A
   connector that classifies into these three gets both behaviours without the
   app learning its name. It lives here rather than in `sources/connector`
-  because `connector` reaches `app/store` and would drag the SQLite driver
+  because `connector` reaches `app/data` and would drag the SQLite driver
   into every client package.
 - **Status and rate-limit mapping** — `Errors.Status` maps a response onto the
   taxonomy, with a provider-supplied hook for APIs that overload 403.

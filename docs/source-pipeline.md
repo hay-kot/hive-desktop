@@ -53,7 +53,7 @@ rewriting the item or repeating an action.
 ## Storage and retention
 
 The pipeline uses its own SQLite database, `desktop-pipeline.db`, opened by
-`internal/app/store`. It is separate from `hive.db` so
+`internal/app/data`. It is separate from `hive.db` so
 pipeline polling and desktop interactions do not compete with CLI/TUI writes.
 All timestamps stored by this database are Unix milliseconds.
 
@@ -159,7 +159,7 @@ the source owns. `[]` is the one way to say the source is genuinely empty.
 
 ## The `Msg` contract
 
-The event-log transport type is `ingest.Msg`, an alias for `store.Msg`:
+The event-log transport type is `ingest.Msg`, an alias for `models.Msg`:
 
 ```go
 type Msg struct {
@@ -332,7 +332,7 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 
 | Concern | Path |
 | --- | --- |
-| Pipeline database and retention | `internal/app/store/` |
+| Pipeline database and retention | `internal/app/data/` |
 | Ingestion and source classification | `internal/app/ingest/producer.go`, `internal/app/sources/github/classify.go`, `internal/app/sources/canonical/` (the shared user-shaped-payload contract), `internal/app/sources/webhook/`, `internal/app/sources/exec/` |
 | Flow schema and loader | `internal/app/flow/` |
 | Output-command dispatch and executors | `internal/app/dispatch/` |

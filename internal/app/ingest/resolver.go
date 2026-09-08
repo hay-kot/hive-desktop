@@ -6,10 +6,10 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // Resolver turns the current flow set into live connector instances. It is
@@ -87,7 +87,7 @@ func (r *Resolver) build(f flow.Flow, node flow.Node) (connector.Instance, error
 	return factory.New(connector.Node{
 		FlowID: f.ID,
 		NodeID: node.ID,
-		Policy: store.ResurfacePolicy(f.Resurface),
+		Policy: models.ResurfacePolicy(f.Resurface),
 	}, config.Connector())
 }
 

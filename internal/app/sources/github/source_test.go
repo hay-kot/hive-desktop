@@ -1,6 +1,7 @@
 package github_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,13 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // testCredential is the account every fixture source fetches as. Sources
@@ -60,12 +63,37 @@ func newResolver(fetchers *ghsource.Fetchers, flows fakeFlows) *ingest.Resolver 
 
 // openTestPipelineDB opens a throwaway store on a temp dir, migrated and
 // closed with the test.
-func openTestPipelineDB(t *testing.T) *store.DB {
+func openTestPipelineDB(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+type notifierFunc func(offset int64)
+
+func (f notifierFunc) PublishLogAppended(offset int64) { f(offset) }
+
+func newTestProducer(db *queries.DB, sources ingest.Sources, interval time.Duration, onAppended func(int64), logger zerolog.Logger) *ingest.Producer {
+	st := stores.New(db, stores.Options{})
+	var notifier ingest.LogAppendNotifier
+	if onAppended != nil {
+		notifier = notifierFunc(onAppended)
+	}
+	return ingest.NewProducer(ingest.ProducerDeps{
+		Ingester:  st.InboxItems,
+		Snapshots: st.EventLog,
+		Heads:     st.SourceHeads,
+		Sources:   sources,
+		Interval:  interval,
+		Notifier:  notifier,
+		Logger:    logger,
+	})
+}
+
+func readFrom(ctx context.Context, db *queries.DB, offset int64, limit int) ([]models.Msg, int64, error) {
+	return stores.New(db, stores.Options{}).EventLog.ReadFrom(ctx, offset, limit)
 }
 
 // fakeFlows is an in-memory FlowLister for the source-lister tests.
@@ -263,13 +291,13 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 			},
 		},
 	}
-	producer := ingest.NewProducer(db, newResolver(fetchers, flows), time.Hour, nil, zerolog.Nop())
+	producer := newTestProducer(db, newResolver(fetchers, flows), time.Hour, nil, zerolog.Nop())
 
 	producer.Tick(t.Context())
 
 	assert.Equal(t, int32(1), api.calls.Load())
 	assert.Equal(t, int32(2), api.aliases.Load())
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(t.Context(), db, 0, 10)
 	require.NoError(t, err)
 	topics := make(map[string]bool)
 	for _, msg := range msgs {
@@ -279,12 +307,9 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 	assert.True(t, topics["source:reviews/prs"])
 }
 
-// TestProducer_WithGithubSource_IngestsAsGithubNotGeneric proves the declared
-// capabilities reach the producer. The registry's bijection test asserts the
-// factory fills what the descriptor promises; this asserts the producer then
-// uses it, end to end through a real fetch and a real store. Getting it wrong
-// is not a crash: every GitHub item ingests as SourceKind "generic" with no
-// classifier and no absence confirmation, and the feed just looks wrong.
+// Exercise declared capabilities through a real fetch and database. A broken
+// handoff silently ingests GitHub items as generic and disables classification
+// and absence confirmation, so a no-error assertion cannot catch it.
 func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {
 	t.Parallel()
 
@@ -300,7 +325,7 @@ func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {
 		},
 	}}
 
-	producer := ingest.NewProducer(db, newResolver(fetchers, flows), time.Hour, nil, zerolog.Nop())
+	producer := newTestProducer(db, newResolver(fetchers, flows), time.Hour, nil, zerolog.Nop())
 	producer.Tick(t.Context())
 
 	// source_kind alone does not prove it: Produce stamps "github" on every
@@ -344,14 +369,14 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 	}}
 
 	var appendedOffsets []int64
-	producer := ingest.NewProducer(db, newResolver(fetchers, flows), 0, func(offset int64) {
+	producer := newTestProducer(db, newResolver(fetchers, flows), 0, func(offset int64) {
 		appendedOffsets = append(appendedOffsets, offset)
 	}, zerolog.Nop())
 
 	producer.Tick(t.Context())
 	require.Len(t, appendedOffsets, 1)
 
-	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err := readFrom(t.Context(), db, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "source:triage/in-prs", msgs[0].Topic)
@@ -361,7 +386,7 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 	// A second tick with unchanged upstream data must not re-append (dedup)
 	// even though githubSource re-emits the (cached) item every tick.
 	producer.Tick(t.Context())
-	msgs, _, err = db.ReadFrom(t.Context(), 0, 10)
+	msgs, _, err = readFrom(t.Context(), db, 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, msgs, 3, "unchanged items are deduplicated while every successful tick appends a snapshot")
 	assert.Equal(t, int32(1), api.calls.Load(), "still one API request: the second tick's fetch was cache-served")

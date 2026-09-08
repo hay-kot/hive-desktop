@@ -12,12 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // TestNewSettingsServiceReadsNotifications proves the adapter-facing
@@ -41,7 +42,7 @@ func TestNewSettingsServiceReadsNotifications(t *testing.T) {
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 
 	err := service.SetGithub(t.Context(), GithubSettings{PollInterval: settings.MinPollInterval - time.Second})
 	require.Error(t, err)
@@ -50,7 +51,7 @@ func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
 
 func TestSettingsServiceNotificationSettings(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 
 	got, err := service.Notifications(t.Context())
 	require.NoError(t, err)
@@ -59,7 +60,7 @@ func TestSettingsServiceNotificationSettings(t *testing.T) {
 
 func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 
 	require.NoError(t, service.SetNotifications(t.Context(), NotificationSettings{
 		Enabled: true, Delivery: "banner", Sound: true,
@@ -76,7 +77,7 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 	want := NotificationSettings{Enabled: false, Delivery: settings.DeliveryApp, Sound: false}
 	require.NoError(t, service.SetNotifications(t.Context(), want))
 
@@ -96,7 +97,7 @@ func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 	require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
 
 	got, err := settings.LoadSettings()
@@ -143,12 +144,20 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 		fetchers := ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
-		db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+		db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
-		producer := ingest.NewProducer(db, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
-		service := newSettingsService(settings.NewStore(settings.SettingsPath()), producer, fetchers, nil)
+		st := stores.New(db, stores.Options{})
+		producer := ingest.NewProducer(ingest.ProducerDeps{
+			Ingester:  st.InboxItems,
+			Snapshots: st.EventLog,
+			Heads:     st.SourceHeads,
+			Sources:   settingsServiceSources{source},
+			Interval:  time.Hour,
+			Logger:    zerolog.Nop(),
+		})
+		service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath()), Producer: producer, Fetchers: fetchers})
 
 		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
 		saved, err := settings.LoadSettings()
@@ -170,7 +179,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 
 func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 
 	got, err := service.Appearance(t.Context())
 	require.NoError(t, err)
@@ -186,7 +195,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
 	require.NoError(t, service.SetTerminalFontSize(t.Context(), "large"))
 	require.NoError(t, service.SetTerminalShowWindows(t.Context(), false))
@@ -211,7 +220,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 
 func TestSettingsServiceTerminalShowWindowsOffSurvivesUnrelatedSaves(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 
 	require.NoError(t, service.SetTerminalShowWindows(t.Context(), false))
 	// False is the only non-default appearance value here, so the section is

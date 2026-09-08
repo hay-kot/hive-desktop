@@ -24,13 +24,7 @@ type InboxUpdated struct{}
 // ActivityAppended reports a new row in the user-facing activity log.
 type ActivityAppended struct{ ID int64 }
 
-// JobsUpdated reports a job lifecycle transition. JobID is the concrete
-// demonstration of the rule: the wiring this replaces threw the id away at the
-// emit boundary, so no consumer could act on which job changed. There is no
-// Status field: jobs.Store's Emit hook only ever hands back the id, so a
-// status here would be unpopulated at the one publish site and discarded at
-// the one subscriber -- carrying it would be a promise this event cannot
-// keep until something upstream hands the status over.
+// JobsUpdated carries no status because publishers only know the job ID.
 type JobsUpdated struct {
 	JobID int64
 }

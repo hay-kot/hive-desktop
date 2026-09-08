@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	appstores "github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
@@ -76,14 +78,15 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	_, err = stores.NewMessageStore(core, 0).Publish(ctx, messaging.Message{Payload: "hidden", Sender: "other"}, []string{"smoke.other"})
 	require.NoError(t, err)
 
-	kept, created, err := pipeline.ConfirmOutputCommand(ctx, "smoke-unit-shell", "pr2841", []byte(`{}`), store.ItemRef{})
+	outputCommands := appstores.New(pipeline, appstores.Options{}).OutputCommands
+	kept, created, err := outputCommands.Confirm(ctx, "smoke-unit-shell", "pr2841", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.NoError(t, pipeline.MarkOutputCommandDone(ctx, kept.ID, `{"message":{"topic":"smoke.unit","sender":"hive-desktop"}}`, "out", "err"))
-	other, created, err := pipeline.ConfirmOutputCommand(ctx, "smoke-other-shell", "pr2841", []byte(`{}`), store.ItemRef{})
+	require.NoError(t, outputCommands.MarkDone(ctx, kept.ID, `{"message":{"topic":"smoke.unit","sender":"hive-desktop"}}`, "out", "err"))
+	other, created, err := outputCommands.Confirm(ctx, "smoke-other-shell", "pr2841", []byte(`{}`), models.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
-	require.NoError(t, pipeline.MarkOutputCommandFailed(ctx, other.ID, "hidden failure"))
+	require.NoError(t, outputCommands.MarkFailed(ctx, other.ID, "hidden failure"))
 
 	h := actionSmokeMiddleware(pipeline, core.Conn(), settings.MockMode())(http.NotFoundHandler())
 	r := httptest.NewRecorder()
@@ -123,11 +126,11 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	assert.Equal(t, int64(2), countRows(t, pipeline, "output_command"))
 }
 
-func newActionSmokeDatabases(t *testing.T) (*store.DB, *coredb.DB) {
+func newActionSmokeDatabases(t *testing.T) (*queries.DB, *coredb.DB) {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, root)
-	pipeline, err := store.Open(t.Context(), settings.StateDir(), store.DefaultOpenOptions())
+	pipeline, err := queries.Open(t.Context(), settings.StateDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
 	require.NoError(t, err)

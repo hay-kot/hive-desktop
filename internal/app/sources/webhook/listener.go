@@ -17,9 +17,28 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
+
+type Ingester interface {
+	IngestObservation(ctx context.Context, classifier models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error)
+}
+
+// SnapshotAppender persists authoritative source state after a delivery
+// changes an item, so replay can restore feed claims.
+type SnapshotAppender interface {
+	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []models.SnapshotItem) (offset int64, err error)
+}
+
+type CaptureStore interface {
+	Upsert(ctx context.Context, topic string, receivedAt int64, body []byte) error
+}
+
+type InboxItemLister interface {
+	ListUnarchivedBySource(ctx context.Context, profileID, sourceKind, sourceScope string) ([]stores.InboxItem, error)
+}
 
 // maxBodyBytes caps a webhook request body. Payloads are stored verbatim as
 // the inbox item payload and in webhook_capture, so the cap bounds both.
@@ -42,11 +61,14 @@ type Instances func() []connector.Instance
 // so membership replay keeps webhook-fed feeds intact across deploys and
 // restarts.
 type Listener struct {
-	db         *store.DB
-	instances  Instances
-	onAppended func(nextOffset int64)
-	logger     zerolog.Logger
-	recorder   activity.Recorder
+	ingester  Ingester
+	snapshots SnapshotAppender
+	captures  CaptureStore
+	items     InboxItemLister
+	instances Instances
+	notifier  LogAppendNotifier
+	logger    zerolog.Logger
+	recorder  activity.Recorder
 
 	host     string
 	port     int
@@ -64,11 +86,18 @@ type mount struct {
 	handler http.Handler
 }
 
-// NewListener builds a listener bound to host:port at Start. Configuration
-// validation limits host to loopback. onAppended fires after a delivery
-// appends event-log rows so the core can wake the flow engine.
-func NewListener(db *store.DB, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
-	return &Listener{db: db, instances: instances, host: host, port: port, onAppended: onAppended, logger: logger}
+// LogAppendNotifier must wake the flow engine synchronously. A bus event is
+// insufficient because subscribers coalesce bursts and could delay routing.
+type LogAppendNotifier interface {
+	PublishLogAppended(nextOffset int64)
+}
+
+// NewListener assumes host has passed loopback-only configuration validation.
+func NewListener(ingester Ingester, snapshots SnapshotAppender, captures CaptureStore, items InboxItemLister, instances Instances, host string, port int, notifier LogAppendNotifier, logger zerolog.Logger) *Listener {
+	return &Listener{
+		ingester: ingester, snapshots: snapshots, captures: captures, items: items,
+		instances: instances, host: host, port: port, notifier: notifier, logger: logger,
+	}
 }
 
 // SetRecorder attaches an activity recorder so ingest failures surface in the
@@ -250,8 +279,8 @@ func (l *Listener) handleHook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ingest failed", http.StatusInternalServerError)
 		return
 	}
-	if lastOffset > 0 && l.onAppended != nil {
-		l.onAppended(lastOffset)
+	if lastOffset > 0 && l.notifier != nil {
+		l.notifier.PublishLogAppended(lastOffset)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -270,11 +299,11 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 	topic := inst.Node.Topic()
 	meta := inst.Metadata
 
-	result, err := l.db.IngestObservation(ctx, inst.Classifier, store.IngestObservationParams{
+	result, err := l.ingester.IngestObservation(ctx, inst.Classifier, stores.IngestObservationParams{
 		ProfileID: meta.ProfileID,
 		Topic:     topic,
 		Policy:    meta.Policy,
-		Current: store.Observation{
+		Current: models.Observation{
 			ExternalID:  key,
 			Title:       title,
 			URL:         url,
@@ -288,9 +317,7 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 		return 0, fmt.Errorf("ingesting webhook observation %q: %w", key, err)
 	}
 
-	if err := l.db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
-		Topic: topic, ReceivedAt: now, Body: body,
-	}); err != nil {
+	if err := l.captures.Upsert(ctx, topic, now, body); err != nil {
 		// The capture only powers editor affordances; losing it must not
 		// fail a delivery that already ingested.
 		l.logger.Warn().Err(err).Str("topic", topic).Msg("webhook capture write failed")
@@ -300,17 +327,15 @@ func (l *Listener) ingest(ctx context.Context, inst connector.Instance, key, tit
 		return 0, nil
 	}
 
-	rows, err := l.db.Queries().ListUnarchivedInboxItemsBySource(ctx, store.ListUnarchivedInboxItemsBySourceParams{
-		ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope,
-	})
+	rows, err := l.items.ListUnarchivedBySource(ctx, meta.ProfileID, meta.SourceKind, meta.SourceScope)
 	if err != nil {
 		return result.Offset, fmt.Errorf("listing webhook snapshot items for %q: %w", topic, err)
 	}
-	items := make([]store.SnapshotItem, 0, len(rows))
+	items := make([]models.SnapshotItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, store.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
+		items = append(items, models.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
 	}
-	offset, err := l.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
+	offset, err := l.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	if err != nil {
 		return result.Offset, fmt.Errorf("appending webhook snapshot for %q: %w", topic, err)
 	}

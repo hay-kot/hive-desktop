@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // functionProcessor is a function node: user-authored script, evaluated once
@@ -51,7 +51,7 @@ func newFunctionNode(r *Runner, nodeID string, config flow.NodeConfig) (processo
 	}, nil
 }
 
-func (p *functionProcessor) process(ctx context.Context, msg store.Msg, kv NodeKV, console ConsoleSink) ([][]store.Msg, error) {
+func (p *functionProcessor) process(ctx context.Context, msg models.Msg, kv NodeKV, console ConsoleSink) ([][]models.Msg, error) {
 	if p.instance == nil {
 		instance, err := p.rt.New(p.src, p.outputs)
 		if err != nil {

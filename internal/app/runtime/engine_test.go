@@ -1,6 +1,7 @@
 package runtime_test
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -9,22 +10,30 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // The engine is tested against a real SQLite store, like everything else that
 // touches the commit protocol. Its whole job is what happens between a read
 // and a commit, and a fake store would only assert that the calls were made.
 
-func openTestStore(t *testing.T) *store.DB {
+func openTestStore(t *testing.T) *queries.DB {
 	t.Helper()
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func testStores(db *queries.DB) *stores.Stores {
+	return stores.New(db, stores.Options{})
 }
 
 // flowSet is a mutable stand-in for the flow store, so a test can change what
@@ -68,16 +77,16 @@ type observation struct {
 
 // ingest writes an item through the production source boundary and returns the
 // resulting log offset, exactly as the producer does.
-func ingest(t *testing.T, db *store.DB, flowID string, obs ...observation) int64 {
+func ingest(t *testing.T, db *queries.DB, flowID string, obs ...observation) int64 {
 	t.Helper()
 	var last int64
 	for _, o := range obs {
 		payload, err := json.Marshal(map[string]string{"title": o.title, "repo": "acme/app"})
 		require.NoError(t, err)
-		result, err := db.IngestObservation(t.Context(), passthroughClassifier{}, store.IngestObservationParams{
+		result, err := testStores(db).InboxItems.IngestObservation(t.Context(), passthroughClassifier{}, stores.IngestObservationParams{
 			ProfileID: flowID,
 			Topic:     "source:" + flowID + "/src",
-			Current: store.Observation{
+			Current: models.Observation{
 				ExternalID: o.externalID, Title: o.title, URL: "https://example.invalid/" + o.externalID,
 				SourceKind: "github", SourceScope: "search",
 				ObservedAt: time.Now().UnixMilli(), Payload: payload,
@@ -94,15 +103,15 @@ func ingest(t *testing.T, db *store.DB, flowID string, obs ...observation) int64
 // snapshotSource appends the authoritative "this is everything the source
 // currently has" event a producer tick ends with. Replay recomputes membership
 // from it, so a flow with no snapshot in its log has nothing to replay.
-func snapshotSource(t *testing.T, db *store.DB, flowID string, obs ...observation) {
+func snapshotSource(t *testing.T, db *queries.DB, flowID string, obs ...observation) {
 	t.Helper()
-	items := make([]store.SnapshotItem, 0, len(obs))
+	items := make([]models.SnapshotItem, 0, len(obs))
 	for _, o := range obs {
 		payload, err := json.Marshal(map[string]string{"title": o.title, "repo": "acme/app"})
 		require.NoError(t, err)
-		items = append(items, store.SnapshotItem{Key: o.externalID, Payload: payload})
+		items = append(items, models.SnapshotItem{Key: o.externalID, Payload: payload})
 	}
-	_, err := db.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search", items)
+	_, err := testStores(db).EventLog.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search", items)
 	require.NoError(t, err)
 }
 
@@ -127,23 +136,23 @@ func splitFlow(id, script string) flow.Flow {
 // snapshotOne appends a single-item snapshot — the shape a grafana metrics
 // source emits, where one node maps to one message whose payload carries the
 // whole query result for a downstream function node to split.
-func snapshotOne(t *testing.T, db *store.DB, flowID, key, payload string) {
+func snapshotOne(t *testing.T, db *queries.DB, flowID, key, payload string) {
 	t.Helper()
-	_, err := db.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search",
-		[]store.SnapshotItem{{Key: key, Payload: json.RawMessage(payload)}})
+	_, err := testStores(db).EventLog.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search",
+		[]models.SnapshotItem{{Key: key, Payload: json.RawMessage(payload)}})
 	require.NoError(t, err)
 }
 
 type passthroughClassifier struct{}
 
-func (passthroughClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (passthroughClassifier) Classify(previous *models.Observation, current models.Observation) models.Classification {
 	kind := "observed"
 	if previous != nil {
 		kind = "updated"
 	}
-	return store.Classification{
-		Kind: kind, Transition: store.TransitionNone, Attention: store.AttentionActivity,
-		Lifecycle: store.LifecycleActive, Summary: current.Title,
+	return models.Classification{
+		Kind: kind, Transition: models.TransitionNone, Attention: models.AttentionActivity,
+		Lifecycle: models.LifecycleActive, Summary: current.Title,
 	}
 }
 
@@ -171,14 +180,45 @@ func (c *committed) wait(t *testing.T) {
 	}
 }
 
-func startEngine(t *testing.T, db *store.DB, flows *flowSet, onCommit func()) *runtime.Engine {
+// Guard records because the engine writes on its loop goroutine while tests
+// read through require.Eventually.
+type fakeFlowRecorder struct {
+	mu    sync.Mutex
+	flows []string
+}
+
+func (r *fakeFlowRecorder) Record(_ context.Context, e activity.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flows = append(r.flows, e.Source)
+}
+
+func (r *fakeFlowRecorder) sources() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.flows...)
+}
+
+func startEngine(t *testing.T, db *queries.DB, flows *flowSet, onCommit func()) *runtime.Engine {
 	t.Helper()
+	st := testStores(db)
+	bus := events.New(zerolog.Nop())
+	t.Cleanup(bus.Close)
+	if onCommit != nil {
+		cancel := events.Subscribe(t.Context(), bus, "test", events.Coalesce(), func(context.Context, events.InboxUpdated) {
+			onCommit()
+		})
+		t.Cleanup(cancel)
+	}
 	engine := runtime.NewEngine(runtime.EngineOptions{
-		Store:       db,
-		Flows:       flows,
-		Scripts:     testScripts(),
-		Logger:      zerolog.Nop(),
-		OnCommitted: onCommit,
+		Log:     st.EventLog,
+		Items:   st.InboxItems,
+		Commits: st.EventLog,
+		KV:      st.NodeKV,
+		Flows:   flows,
+		Scripts: testScripts(),
+		Logger:  zerolog.Nop(),
+		Events:  bus,
 	})
 	require.NoError(t, engine.Start(t.Context()))
 	t.Cleanup(engine.Stop)
@@ -202,11 +242,11 @@ func TestEngineRoutesAnAppendIntoAFeed(t *testing.T) {
 	engine.Wake()
 	done.wait(t)
 
-	items, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/inbox", 10)
+	items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 
-	runs, err := db.NodeRuns(t.Context(), "triage", 10)
+	runs, err := testStores(db).NodeRuns.List(t.Context(), "triage", 10)
 	require.NoError(t, err)
 	require.NotEmpty(t, runs)
 }
@@ -230,7 +270,7 @@ func TestEngineWakeIsLevelTriggered(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		items, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/inbox", 100)
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 100)
 		return err == nil && len(items) == 25
 	}, 10*time.Second, 20*time.Millisecond, "every append must eventually be routed")
 }
@@ -258,7 +298,7 @@ func TestEngineDropsARunnerWhenItsFlowIsDisabled(t *testing.T) {
 	engine.Wake()
 
 	require.Never(t, func() bool {
-		items, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/inbox", 10)
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
 		return err == nil && len(items) > 1
 	}, time.Second, 50*time.Millisecond, "a disabled flow must stop routing")
 }
@@ -282,7 +322,7 @@ func TestEngineReplayReconcilesMembershipOnReload(t *testing.T) {
 	done.wait(t)
 
 	require.Eventually(t, func() bool {
-		items, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/inbox", 10)
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
 		return err == nil && len(items) == 1
 	}, 5*time.Second, 20*time.Millisecond)
 
@@ -295,11 +335,11 @@ func TestEngineReplayReconcilesMembershipOnReload(t *testing.T) {
 	engine.Reload()
 
 	require.Eventually(t, func() bool {
-		stale, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/inbox", 10)
+		stale, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
 		if err != nil || len(stale) != 0 {
 			return false
 		}
-		moved, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/other", 10)
+		moved, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/other", 10)
 		return err == nil && len(moved) == 1
 	}, 5*time.Second, 20*time.Millisecond, "replay recomputes membership from the source's latest snapshot")
 }
@@ -315,14 +355,24 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 	flows.set(triageFlow("triage", true))
 
 	done := newCommitted()
-	var failures []string
+	rec := &fakeFlowRecorder{}
+	st := testStores(db)
+	bus := events.New(zerolog.Nop())
+	t.Cleanup(bus.Close)
+	cancel := events.Subscribe(t.Context(), bus, "test", events.Coalesce(), func(context.Context, events.InboxUpdated) {
+		done.signal()
+	})
+	t.Cleanup(cancel)
 	engine := runtime.NewEngine(runtime.EngineOptions{
-		Store:       db,
-		Flows:       flows,
-		Scripts:     testScripts(),
-		Logger:      zerolog.Nop(),
-		OnCommitted: done.signal,
-		OnFlowError: func(flowID string, _ error) { failures = append(failures, flowID) },
+		Log:      st.EventLog,
+		Items:    st.InboxItems,
+		Commits:  st.EventLog,
+		KV:       st.NodeKV,
+		Flows:    flows,
+		Scripts:  testScripts(),
+		Logger:   zerolog.Nop(),
+		Events:   bus,
+		Recorder: rec,
 	})
 	require.NoError(t, engine.Start(t.Context()))
 	t.Cleanup(engine.Stop)
@@ -340,10 +390,10 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 	engine.Wake()
 
 	require.Eventually(t, func() bool {
-		items, err := db.ListInboxItemsByFeed(t.Context(), "triage", "triage/inbox", 10)
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
 		return err == nil && len(items) == 2
 	}, 5*time.Second, 20*time.Millisecond, "the previous runner must keep routing")
-	require.Contains(t, failures, "triage", "and the failure must be reported, or the app silently runs an older graph")
+	require.Contains(t, rec.sources(), "triage", "and the failure must be reported, or the app silently runs an older graph")
 }
 
 // A function node splitting one source message into per-entity feed items is
@@ -373,7 +423,7 @@ return msg.Payload.result.map(function (s) {
 	engine.Wake()
 
 	require.Eventually(t, func() bool {
-		items, err := db.ListInboxItemsByFeed(t.Context(), "ignores", "ignores/inbox", 10)
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "ignores", "ignores/inbox", 10)
 		return err == nil && len(items) == 2
 	}, 5*time.Second, 20*time.Millisecond, "each series becomes its own feed item")
 
@@ -384,7 +434,7 @@ return msg.Payload.result.map(function (s) {
 	engine.Wake()
 
 	require.Eventually(t, func() bool {
-		items, err := db.ListInboxItemsByFeed(t.Context(), "ignores", "ignores/inbox", 10)
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "ignores", "ignores/inbox", 10)
 		if err != nil || len(items) != 1 {
 			return false
 		}
@@ -397,8 +447,11 @@ return msg.Payload.result.map(function (s) {
 func TestEngineStopWithoutStart(t *testing.T) {
 	t.Parallel()
 
+	db := openTestStore(t)
+	st := testStores(db)
 	engine := runtime.NewEngine(runtime.EngineOptions{
-		Store: openTestStore(t), Flows: &flowSet{}, Scripts: testScripts(), Logger: zerolog.Nop(),
+		Log: st.EventLog, Items: st.InboxItems, Commits: st.EventLog, KV: st.NodeKV,
+		Flows: &flowSet{}, Scripts: testScripts(), Logger: zerolog.Nop(),
 	})
 	require.NotPanics(t, engine.Stop)
 	require.NotPanics(t, engine.Stop)
@@ -411,8 +464,8 @@ func TestEngineInstallReconcilesNodeKV(t *testing.T) {
 	db := openTestStore(t)
 	ctx := t.Context()
 
-	require.NoError(t, db.NodeKVSet(ctx, "triage", "fn", "seen", `1`, 0))
-	require.NoError(t, db.NodeKVSet(ctx, "triage", "ghost", "seen", `1`, 0))
+	require.NoError(t, testStores(db).NodeKV.Set(ctx, "triage", "fn", "seen", `1`, 0))
+	require.NoError(t, testStores(db).NodeKV.Set(ctx, "triage", "ghost", "seen", `1`, 0))
 
 	f := triageFlow("triage", true)
 	f.Nodes = append(f.Nodes, flow.Node{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: "return msg"}})
@@ -422,10 +475,10 @@ func TestEngineInstallReconcilesNodeKV(t *testing.T) {
 	flows.set(f)
 	startEngine(t, db, flows, nil)
 
-	_, found, err := db.NodeKVGet(ctx, "triage", "fn", "seen", 1)
+	_, found, err := testStores(db).NodeKV.Get(ctx, "triage", "fn", "seen", 1)
 	require.NoError(t, err)
 	require.True(t, found, "a live function node's KV survives install")
-	_, found, err = db.NodeKVGet(ctx, "triage", "ghost", "seen", 1)
+	_, found, err = testStores(db).NodeKV.Get(ctx, "triage", "ghost", "seen", 1)
 	require.NoError(t, err)
 	require.False(t, found, "a node id no longer in the flow loses its KV on install")
 }
