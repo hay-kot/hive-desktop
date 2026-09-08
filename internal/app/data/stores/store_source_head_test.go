@@ -73,7 +73,7 @@ func TestSourceHeadStore_DeleteByTopicPrefix(t *testing.T) {
 	require.NoError(t, st.SourceHeads.Upsert(ctx, "source:flow-1/b", "k2", []byte(`{}`)))
 	require.NoError(t, st.SourceHeads.Upsert(ctx, "source:flow-2/a", "k3", []byte(`{}`)))
 
-	require.NoError(t, st.SourceHeads.DeleteByTopicPrefix(ctx, "source:flow-1/%"))
+	require.NoError(t, st.SourceHeads.DeleteByTopicPrefix(ctx, "source:flow-1/"))
 
 	_, err := st.SourceHeads.Payload(ctx, "source:flow-1/a", "k1")
 	require.Error(t, err)
@@ -82,4 +82,25 @@ func TestSourceHeadStore_DeleteByTopicPrefix(t *testing.T) {
 	payload, err := st.SourceHeads.Payload(ctx, "source:flow-2/a", "k3")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{}`, string(payload))
+}
+
+// TestSourceHeadStore_DeleteByTopicPrefixTakesThePrefixLiterally guards the
+// escaping: a profile id containing LIKE metacharacters must not widen the
+// delete past that profile's own rows.
+func TestSourceHeadStore_DeleteByTopicPrefixTakesThePrefixLiterally(t *testing.T) {
+	st, _ := openTestStores(t)
+	ctx := t.Context()
+
+	require.NoError(t, st.SourceHeads.Upsert(ctx, "source:flow_1/a", "k1", []byte(`{}`)))
+	require.NoError(t, st.SourceHeads.Upsert(ctx, "source:flowX1/a", "k2", []byte(`{}`)))
+	require.NoError(t, st.SourceHeads.Upsert(ctx, "source:flow%/a", "k3", []byte(`{}`)))
+
+	require.NoError(t, st.SourceHeads.DeleteByTopicPrefix(ctx, "source:flow_1/"))
+
+	_, err := st.SourceHeads.Payload(ctx, "source:flow_1/a", "k1")
+	require.Error(t, err)
+	_, err = st.SourceHeads.Payload(ctx, "source:flowX1/a", "k2")
+	require.NoError(t, err, "an underscore in the prefix must not match any character")
+	_, err = st.SourceHeads.Payload(ctx, "source:flow%/a", "k3")
+	require.NoError(t, err, "a percent sign in a topic must not be treated as a wildcard")
 }

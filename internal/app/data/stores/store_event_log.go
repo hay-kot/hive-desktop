@@ -180,10 +180,10 @@ func (s *EventLogStore) ListLatestSnapshots(ctx context.Context, profileID strin
 	return messages, nil
 }
 
-// DeleteByTopicPrefix removes every event_log row under prefix. Used by
-// FlowsService.purgeProfile to erase a deleted profile's log entries.
-func (s *EventLogStore) DeleteByTopicPrefix(ctx context.Context, prefix string) error {
-	return wrap("deleting event log by topic prefix", s.q.Ctx(ctx).DeleteEventLogByTopicPrefix(ctx, prefix))
+// DeleteByTopicPrefix removes every event_log row whose topic starts with
+// topicPrefix, taken literally.
+func (s *EventLogStore) DeleteByTopicPrefix(ctx context.Context, topicPrefix string) error {
+	return wrap("deleting event log by topic prefix", s.q.Ctx(ctx).DeleteEventLogByTopicPrefix(ctx, likePrefix(topicPrefix)))
 }
 
 // DeleteConsumerOffset removes consumer's committed checkpoint. Used by

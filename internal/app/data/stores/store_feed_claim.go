@@ -71,8 +71,13 @@ func (s *FeedClaimStore) DeleteForRemovedSources(ctx context.Context, profileID 
 }
 
 // DeleteUnarchivedByProfile clears every unarchived-item claim profileID
-// holds, the first step of an ActivateReplay activation and of
-// FlowsService.purgeProfile.
+// holds, the first step of an ActivateReplay activation.
 func (s *FeedClaimStore) DeleteUnarchivedByProfile(ctx context.Context, profileID string) error {
 	return wrap("clearing replayable memberships", s.q.Ctx(ctx).DeleteUnarchivedFeedMembershipClaimsByProfile(ctx, profileID))
+}
+
+// DeleteByProfile clears every claim profileID holds, archived items
+// included.
+func (s *FeedClaimStore) DeleteByProfile(ctx context.Context, profileID string) error {
+	return wrap("clearing profile memberships", s.q.Ctx(ctx).DeleteFeedMembershipClaimsForFeedsAll(ctx, profileID))
 }

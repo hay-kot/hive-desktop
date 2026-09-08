@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
@@ -21,49 +20,40 @@ import (
 // the CRUD the editor drives, the layout files the canvas persists, and each
 // profile's sidebar-rail avatar.
 type FlowsService struct {
-	flows *flow.FlowStore
-	// stores is only purgeProfile's: deleting a profile's rows spans
-	// aggregates, so it is the one operation in this service allowed to open
-	// Stores.Tx (clause 3). inboxItems is every other read this service
-	// makes and must not go through the aggregate.
-	stores     *stores.Stores
-	inboxItems *stores.InboxItemStore
-	creds      credentials.Store
-	images     *profileimg.Store
-	marks      *sourcemark.Store
-	scripts    *runtime.ScriptRegistry
-	settings   *settings.Store
-	events     *events.Bus
+	flows    *flow.FlowStore
+	stores   *stores.Stores
+	creds    credentials.Store
+	images   *profileimg.Store
+	marks    *sourcemark.Store
+	scripts  *runtime.ScriptRegistry
+	settings *settings.Store
+	events   *events.Bus
 }
 
 // FlowsDeps is newFlowsService's constructor argument.
 type FlowsDeps struct {
 	Flows *flow.FlowStore
-	// Stores is only purgeProfile's: deleting a profile's rows spans
-	// aggregates, so it is the one operation in this service allowed to open
-	// Stores.Tx (clause 3). InboxItems is every other read this service
-	// makes and must not go through the aggregate.
-	Stores     *stores.Stores
-	InboxItems *stores.InboxItemStore
-	Creds      credentials.Store
-	Images     *profileimg.Store
-	Marks      *sourcemark.Store
-	Scripts    *runtime.ScriptRegistry
-	Settings   *settings.Store
-	Events     *events.Bus
+	// Stores is held whole because purgeProfile spans aggregates and opens
+	// Stores.WithinTx (clause 3).
+	Stores   *stores.Stores
+	Creds    credentials.Store
+	Images   *profileimg.Store
+	Marks    *sourcemark.Store
+	Scripts  *runtime.ScriptRegistry
+	Settings *settings.Store
+	Events   *events.Bus
 }
 
 func newFlowsService(d FlowsDeps) *FlowsService {
 	return &FlowsService{
-		flows:      d.Flows,
-		stores:     d.Stores,
-		inboxItems: d.InboxItems,
-		creds:      d.Creds,
-		images:     d.Images,
-		marks:      d.Marks,
-		scripts:    d.Scripts,
-		settings:   d.Settings,
-		events:     d.Events,
+		flows:    d.Flows,
+		stores:   d.Stores,
+		creds:    d.Creds,
+		images:   d.Images,
+		marks:    d.Marks,
+		scripts:  d.Scripts,
+		settings: d.Settings,
+		events:   d.Events,
 	}
 }
 
@@ -119,7 +109,7 @@ func (s *FlowsService) requireDeletable(ctx context.Context, id string) error {
 	if s.flows.Exists(id) {
 		return nil
 	}
-	items, err := s.inboxItems.ListAll(ctx, id, 1)
+	items, err := s.stores.InboxItems.ListAll(ctx, id, 1)
 	if err != nil {
 		return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
 	}
@@ -277,64 +267,39 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 // tables no aggregate owns together: inbox_item, inbox_event and
 // feed_membership_claim cascade from InboxItemStore.DeleteByProfile's
 // delete, and this composes the rest -- item_session, event_log,
-// consumer_offset, source_head and node_kv -- inside one transaction.
-// FlowsService is the one service allowed to open Stores.Tx (clause 3: a
-// write spanning aggregates is a service operation, not a store one).
+// consumer_offset, source_head and node_kv -- inside one transaction
+// (clause 3: a write spanning aggregates is a service operation).
 func (s *FlowsService) purgeProfile(ctx context.Context, profileID string) error {
-	prefix := "source:" + escapeLike(profileID) + "/%"
-	txCtx, tx, err := s.stores.Tx(ctx)
-	if err != nil {
-		return fmt.Errorf("opening purge transaction for profile %q: %w", profileID, err)
-	}
-	if err := s.doPurgeProfile(txCtx, profileID, prefix); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			return fmt.Errorf("purging profile %q failed: %w (rollback also failed: %w)", profileID, err, rbErr)
+	topicPrefix := "source:" + profileID + "/"
+	return s.stores.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.stores.InboxItems.DeleteByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging inbox items: %w", err)
 		}
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing purge of profile %q: %w", profileID, err)
-	}
-	return nil
-}
-
-func (s *FlowsService) doPurgeProfile(ctx context.Context, profileID, prefix string) error {
-	if err := s.stores.InboxItems.DeleteByProfile(ctx, profileID); err != nil {
-		return fmt.Errorf("purging inbox items: %w", err)
-	}
-	// Defensive: cascade already dropped every claim tied to a deleted item.
-	// This catches a claim recorded under profileID against an item that
-	// belongs to a different profile, which the cascade above cannot reach.
-	if err := s.stores.FeedClaims.DeleteUnarchivedByProfile(ctx, profileID); err != nil {
-		return fmt.Errorf("purging feed membership claims: %w", err)
-	}
-	// The sessions themselves are hive's and survive; only the links go,
-	// because there is no longer an item for them to hang off.
-	if err := s.stores.ItemSessions.DeleteByProfile(ctx, profileID); err != nil {
-		return fmt.Errorf("purging item session links: %w", err)
-	}
-	if err := s.stores.EventLog.DeleteByTopicPrefix(ctx, prefix); err != nil {
-		return fmt.Errorf("purging event log: %w", err)
-	}
-	if err := s.stores.EventLog.DeleteConsumerOffset(ctx, profileID); err != nil {
-		return fmt.Errorf("purging consumer offset: %w", err)
-	}
-	if err := s.stores.SourceHeads.DeleteByTopicPrefix(ctx, prefix); err != nil {
-		return fmt.Errorf("purging source head: %w", err)
-	}
-	if err := s.stores.NodeKV.DeleteByFlow(ctx, profileID); err != nil {
-		return fmt.Errorf("purging node kv: %w", err)
-	}
-	return nil
-}
-
-// escapeLike neutralizes LIKE metacharacters in profileID so a purge's topic
-// prefix cannot accidentally widen past that profile's own rows.
-func escapeLike(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `%`, `\%`)
-	s = strings.ReplaceAll(s, `_`, `\_`)
-	return s
+		// The cascade above dropped every claim tied to a deleted item. This
+		// catches a claim recorded under profileID against another profile's
+		// item, which the cascade cannot reach.
+		if err := s.stores.FeedClaims.DeleteByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging feed membership claims: %w", err)
+		}
+		// The sessions themselves are hive's and survive; only the links go,
+		// because there is no longer an item for them to hang off.
+		if err := s.stores.ItemSessions.DeleteByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging item session links: %w", err)
+		}
+		if err := s.stores.EventLog.DeleteByTopicPrefix(ctx, topicPrefix); err != nil {
+			return fmt.Errorf("purging event log: %w", err)
+		}
+		if err := s.stores.EventLog.DeleteConsumerOffset(ctx, profileID); err != nil {
+			return fmt.Errorf("purging consumer offset: %w", err)
+		}
+		if err := s.stores.SourceHeads.DeleteByTopicPrefix(ctx, topicPrefix); err != nil {
+			return fmt.Errorf("purging source head: %w", err)
+		}
+		if err := s.stores.NodeKV.DeleteByFlow(ctx, profileID); err != nil {
+			return fmt.Errorf("purging node kv: %w", err)
+		}
+		return nil
+	})
 }
 
 // Get returns one flow's full definition for the editor.

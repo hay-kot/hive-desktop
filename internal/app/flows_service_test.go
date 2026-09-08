@@ -221,7 +221,7 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	st := stores.New(db, stores.Options{})
-	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
 	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
@@ -251,7 +251,7 @@ func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	st := stores.New(db, stores.Options{})
-	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
 	_, err = stores.NewSeed(db).InboxItem(t.Context(), queries.InsertInboxItemParams{
@@ -330,18 +330,19 @@ func assertPurgeProfileRowCounts(t *testing.T, db *queries.DB, profileID string,
 
 // FlowsService.purgeProfile is the worked example of clause 3: deleting a
 // profile spans eight tables no aggregate owns together, so it is a service
-// operation opening Stores.Tx rather than a store method.
+// operation opening Stores.WithinTx rather than a store method.
 func TestFlowsServicePurgeProfile_DeletesEveryOwnedRowAndLeavesOtherProfilesIntact(t *testing.T) {
 	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	st := stores.New(db, stores.Options{})
-	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	target := seedPurgeProfileRows(t, db, "p")
 	other := seedPurgeProfileRows(t, db, "other")
 
 	require.NoError(t, service.purgeProfile(t.Context(), "p"))
+	require.NoError(t, service.purgeProfile(t.Context(), "p"), "a second purge of the same profile is a no-op")
 
 	assertPurgeProfileRowCounts(t, db, "p", target, 0)
 	assertPurgeProfileRowCounts(t, db, "other", other, 1)
@@ -357,7 +358,7 @@ func TestFlowsServicePurgeProfile_RollsBackTheWholeTransactionOnFailure(t *testi
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	st := stores.New(db, stores.Options{})
-	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flow.NewFlowStore(t.TempDir(), nil), Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	target := seedPurgeProfileRows(t, db, "p")
 
@@ -383,7 +384,7 @@ func TestFlowsServiceDeleteRemovesAProfileThatDoesNotParse(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	st := stores.New(db, stores.Options{})
-	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	require.NoError(t, service.Delete(t.Context(), "broken"), "the file is gone and there are no rows to purge")
 	assert.NoFileExists(t, filepath.Join(dir, "broken.yaml"))
@@ -395,7 +396,7 @@ func TestFlowsServiceDeleteReportsAnUnknownProfileAsNotFound(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	st := stores.New(db, stores.Options{})
-	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, InboxItems: st.InboxItems, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
 
 	assert.Equal(t, KindNotFound, KindOf(service.Delete(t.Context(), "never-existed")))
 }

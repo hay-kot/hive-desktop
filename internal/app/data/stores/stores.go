@@ -2,7 +2,6 @@ package stores
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -87,10 +86,10 @@ func New(q *queries.DB, opts Options) *Stores {
 	}
 }
 
-// Tx opens a transaction and returns a context carrying it, so store calls
-// made with that context join it. The caller owns Commit and Rollback. It
-// exists so a service that needs a cross-aggregate transaction never imports
-// the queries package.
-func (s *Stores) Tx(ctx context.Context) (context.Context, *sql.Tx, error) {
-	return queries.WithTransaction(ctx, s.q)
+// WithinTx runs fn inside one transaction, joining an ambient one if ctx
+// already carries it. Only the outermost caller commits or rolls back. It is
+// the transaction entry point for a service whose operation spans aggregates
+// (clause 3), so no service imports the queries package.
+func (s *Stores) WithinTx(ctx context.Context, fn func(context.Context) error) error {
+	return s.q.WithinTx(ctx, func(ctx context.Context, _ *queries.DB) error { return fn(ctx) })
 }

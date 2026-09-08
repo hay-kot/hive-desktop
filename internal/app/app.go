@@ -401,15 +401,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(FlowsDeps{
-		Flows:      a.flowStore,
-		Stores:     a.Stores,
-		InboxItems: a.Stores.InboxItems,
-		Creds:      a.credentials,
-		Images:     profileImages,
-		Marks:      sourceMarks,
-		Scripts:    a.scripts,
-		Settings:   a.settingsStore,
-		Events:     a.Events,
+		Flows:    a.flowStore,
+		Stores:   a.Stores,
+		Creds:    a.credentials,
+		Images:   profileImages,
+		Marks:    sourceMarks,
+		Scripts:  a.scripts,
+		Settings: a.settingsStore,
+		Events:   a.Events,
 	})
 	a.Actions = newActionsService(a.actionStore, a.Events)
 	a.System = newSystemService(cfg.Paths)

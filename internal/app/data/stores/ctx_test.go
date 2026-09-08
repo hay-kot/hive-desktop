@@ -2,10 +2,10 @@ package stores
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
@@ -84,15 +84,17 @@ func seedCtxFixture(t *testing.T, st *Stores, db *queries.DB) ctxFixture {
 	return ctxFixture{itemID: item.ID, commandID: command.ID, agentSessID: agentSess.ID}
 }
 
-// TestEveryStoreMethodJoinsTheAmbientTransaction is the checklist phase 3a's
-// success criteria demands: every exported method of every store, called
-// inside one Stores.Tx, must run on that transaction's connection rather
-// than escaping to the pool's second one. A method that escapes would either
-// fail this assertion outright or -- worse -- hang under the DSN's
-// _txlock=immediate and the two-connection pool, which is why this runs
-// under a timeout rather than trusting a bare assertion to catch a hang.
+// TestEveryStoreMethodJoinsTheAmbientTransaction calls every exported method
+// of every store inside one Stores.WithinTx and requires it to run on that
+// transaction's connection. The pool is capped at one connection here, so a
+// call that escapes to the pool cannot get a connection until the
+// transaction ends: it blocks until the step's deadline and fails as
+// context.DeadlineExceeded instead of passing on a second connection.
 func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
-	st, db := openTestStores(t)
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.OpenOptions{MaxOpenConns: 1, MaxIdleConns: 1, BusyTimeout: 5000})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	st := New(db, Options{})
 	fx := seedCtxFixture(t, st, db)
 
 	type step struct {
@@ -174,7 +176,7 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 		{"EventLogStore.DeleteByTopicPrefix", func(ctx context.Context) error {
-			return st.EventLog.DeleteByTopicPrefix(ctx, "source:no-such-flow/%")
+			return st.EventLog.DeleteByTopicPrefix(ctx, "source:no-such-flow/")
 		}},
 		{"EventLogStore.DeleteConsumerOffset", func(ctx context.Context) error {
 			return st.EventLog.DeleteConsumerOffset(ctx, "no-such-consumer")
@@ -287,11 +289,11 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return err
 		}},
 		{"InboxItemStore.ToggleArchived", func(ctx context.Context) error {
-			_, err := st.InboxItems.ToggleArchived(ctx, fx.itemID, 2)
+			_, err := st.InboxItems.ToggleArchived(ctx, fx.itemID, 1)
 			return err
 		}},
 		{"InboxItemStore.ToggleIgnored", func(ctx context.Context) error {
-			_, err := st.InboxItems.ToggleIgnored(ctx, fx.itemID, 3)
+			_, err := st.InboxItems.ToggleIgnored(ctx, fx.itemID, 1)
 			return err
 		}},
 		{"InboxItemStore.DeleteByProfile", func(ctx context.Context) error {
@@ -407,6 +409,11 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		}},
 		{"OutputCommandStore.Rerun", func(ctx context.Context) error {
 			_, err := st.OutputCommands.Rerun(ctx, "no-such-action", "no-such-key", []byte(`{}`), models.ItemRef{})
+			// A miss proves the query ran; an escaped call would have timed
+			// out on the pool instead.
+			if IsNotFound(err) {
+				return nil
+			}
 			return err
 		}},
 		{"OutputCommandStore.Get", func(ctx context.Context) error {
@@ -446,7 +453,7 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			return st.SourceHeads.Delete(ctx, "source:flow-1/b", "item-2")
 		}},
 		{"SourceHeadStore.DeleteByTopicPrefix", func(ctx context.Context) error {
-			return st.SourceHeads.DeleteByTopicPrefix(ctx, "source:no-such-flow/%")
+			return st.SourceHeads.DeleteByTopicPrefix(ctx, "source:no-such-flow/")
 		}},
 
 		// WebhookCaptureStore
@@ -459,18 +466,19 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 		}},
 	}
 
+	errRollBack := errors.New("roll back")
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 			defer cancel()
 
-			txCtx, tx, err := st.Tx(ctx)
-			require.NoError(t, err)
-			defer func() { _ = tx.Rollback() }()
-
-			_ = step.call(txCtx)
-
-			assert.Equal(t, 1, db.Conn().Stats().InUse, "%s must join the ambient transaction rather than escape to the pool", step.name)
+			var callErr error
+			err := st.WithinTx(ctx, func(txCtx context.Context) error {
+				callErr = step.call(txCtx)
+				return errRollBack
+			})
+			require.ErrorIs(t, err, errRollBack)
+			require.NoError(t, callErr, "%s must join the ambient transaction rather than escape to the pool", step.name)
 		})
 	}
 }
