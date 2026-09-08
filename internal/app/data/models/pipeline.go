@@ -18,8 +18,7 @@ import (
 //     (runtime/js.go), including round-tripping through a script that
 //     returns the message it was handed — and a JS number cannot represent
 //     an int64 exactly past 2^53. The string is what keeps a large offset
-//     intact for the script; it is not about Wails, which nothing on this
-//     path crosses anymore.
+//     intact for the script.
 //   - Ts is the row's created_at (unix milliseconds).
 //   - Snapshot is nil for ordinary item events and contains the full current
 //     source item set for successful poll snapshots.
@@ -109,8 +108,8 @@ type Output struct {
 }
 
 // FeedSnapshot declares one source's complete current output scope for a feed.
-// CommitBatch accepts these declarations but does not persist reconciliation
-// state until membership claims are introduced.
+// EventLogStore.Commit reconciles the (feed, source) scope's membership claims
+// down to the feed outputs carrying this SnapshotID.
 type FeedSnapshot struct {
 	FeedID      string `json:"feedId"`
 	SourceTopic string `json:"sourceTopic"`

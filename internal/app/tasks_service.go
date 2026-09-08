@@ -22,9 +22,9 @@ type taskSource interface {
 }
 
 // TasksService is the desktop's tasks view over Hive's hc (Honeycomb) issue
-// tracker. source is nil when the desktop's hive runtime failed to open
-// (openHiveRuntime's failure is fatal today, so this is defensive), so every
-// method nil-guards rather than assuming its caller checked first.
+// tracker. A nil source answers KindUnavailable from every method. Production
+// never builds one: openHiveRuntime's failure is fatal to startup, so the
+// guards exist for the zero value tests construct.
 type TasksService struct {
 	source taskSource
 }
@@ -35,7 +35,6 @@ func newTasksService(source taskSource) *TasksService {
 
 func (s *TasksService) ListTasks(ctx context.Context, repoKey string) ([]dispatch.TaskItem, error) {
 	if s.source == nil {
-		// unavailable: the desktop's hive runtime failed to open (defensive; today that failure is fatal to startup, so this never actually fires).
 		return nil, Errorf(KindUnavailable, "tasks are unavailable")
 	}
 	items, err := s.source.ListTasks(ctx, repoKey)
@@ -47,7 +46,6 @@ func (s *TasksService) ListTasks(ctx context.Context, repoKey string) ([]dispatc
 
 func (s *TasksService) TaskDetail(ctx context.Context, id string) (dispatch.TaskDetail, error) {
 	if s.source == nil {
-		// unavailable: the desktop's hive runtime failed to open (defensive; today that failure is fatal to startup, so this never actually fires).
 		return dispatch.TaskDetail{}, Errorf(KindUnavailable, "tasks are unavailable")
 	}
 	detail, err := s.source.TaskDetail(ctx, id)
@@ -59,7 +57,6 @@ func (s *TasksService) TaskDetail(ctx context.Context, id string) (dispatch.Task
 
 func (s *TasksService) SetTaskStatus(ctx context.Context, id, status string) error {
 	if s.source == nil {
-		// unavailable: the desktop's hive runtime failed to open (defensive; today that failure is fatal to startup, so this never actually fires).
 		return Errorf(KindUnavailable, "tasks are unavailable")
 	}
 	if !validTaskStatus(status) {
@@ -73,7 +70,6 @@ func (s *TasksService) SetTaskStatus(ctx context.Context, id, status string) err
 
 func (s *TasksService) DeleteTask(ctx context.Context, id string) error {
 	if s.source == nil {
-		// unavailable: the desktop's hive runtime failed to open (defensive; today that failure is fatal to startup, so this never actually fires).
 		return Errorf(KindUnavailable, "tasks are unavailable")
 	}
 	if err := s.source.DeleteTask(ctx, id); err != nil {
@@ -89,7 +85,6 @@ const maxPruneOlderThanDays = 36500 // 100 years
 // dispatch DTO's duration out of the frontend binding.
 func (s *TasksService) PruneTasks(ctx context.Context, olderThanDays int, repoKey string, dryRun bool) (int, error) {
 	if s.source == nil {
-		// unavailable: the desktop's hive runtime failed to open (defensive; today that failure is fatal to startup, so this never actually fires).
 		return 0, Errorf(KindUnavailable, "tasks are unavailable")
 	}
 	// The upper bound keeps the day→duration conversion below from overflowing
@@ -111,7 +106,6 @@ func (s *TasksService) PruneTasks(ctx context.Context, olderThanDays int, repoKe
 
 func (s *TasksService) TaskRepoKeys(ctx context.Context) ([]string, error) {
 	if s.source == nil {
-		// unavailable: the desktop's hive runtime failed to open (defensive; today that failure is fatal to startup, so this never actually fires).
 		return nil, Errorf(KindUnavailable, "tasks are unavailable")
 	}
 	keys, err := s.source.TaskRepoKeys(ctx)

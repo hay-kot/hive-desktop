@@ -117,9 +117,10 @@ type App struct {
 	Canvas          *CanvasService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
-	// wake-up events for the frontend. Stores is the one raw persistence
-	// handle a driving adapter may hold: the e2e harness resets tables and
-	// seeds fixtures no per-domain service has a reason to expose.
+	// wake-up events for the frontend. Stores and PipelineDB are the two raw
+	// persistence handles a driving adapter may hold: the e2e harness resets
+	// tables through PipelineDB and seeds fixtures through Stores, neither of
+	// which a per-domain service has a reason to expose.
 	Events *events.Bus
 	Stores *datastores.Stores
 
@@ -132,7 +133,7 @@ type App struct {
 
 	// Domain stores. Nothing outside this package holds these — a bypass
 	// here is exactly the bug this rule exists to prevent: ProfileTray once
-	// wrote through flowStore directly (queries.SetEnabled), duplicating
+	// wrote through flowStore directly (flowStore.SetEnabled), duplicating
 	// FlowsService.SetEnabled minus its typed-error wrapping and its
 	// notifyUpdated event. A domain's need is a method on its service, not
 	// the store underneath it. Activity and Jobs above are the same rule for
@@ -758,8 +759,8 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 
 // openFlows constructs the flow store over settings.FlowsDir() and a watcher
 // that reloads it on any flows/*.yaml change, including the app's own
-// SaveFlow/SaveLayout writes. It must run before the producer and retention:
-// both resolve enabled flow ids live from the queries.
+// SaveFlow/SaveLayout writes. It must run before the producer, which
+// resolves enabled flow ids live from the flow store.
 //
 // The rail order comes from settings.yaml, which the flow package does not
 // read; it is process state the watcher's reloads leave alone. Reordering the

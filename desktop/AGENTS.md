@@ -101,7 +101,7 @@ it.
 
 ## Testing
 
-`mise run test:desktop` is the default gate. `data/queries` and `runtime` tests
+`mise run test:desktop` is the default gate. `data` and `runtime` tests
 use real SQLite.
 
 Engine behaviour changes — routing, sink tagging, node-run accounting — belong

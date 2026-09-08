@@ -20,22 +20,16 @@ A store owns one aggregate's persistence. It is built from `*queries.DB`, takes
 `context.Context` first on every method, returns hand-written domain types, and
 publishes no events. A service coordinates stores and other services, maps
 store errors to `app.Error` kinds, and publishes events. Only services hang off
-`App`.
+`App`; the e2e harness's `App.Stores` and `App.PipelineDB()` are the
+exceptions.
 
-The placement rule has four clauses:
-
-1. A store owns one aggregate root, not one table.
-2. A store method may open its own transaction and call sibling stores when the
-   operation is atomic and belongs to its aggregate.
-3. A service opens `Stores.Tx(ctx)` when an operation spans aggregates or
-   carries policy.
-4. Whole-database maintenance stays on `queries.DB`.
-
-Every store call, including reads, goes through `.Ctx(ctx)` so it joins an
-ambient transaction. `Compact` is the exception because SQLite cannot run
-`VACUUM` inside a transaction. Stores map generated rows through a
-`mapXFromDb` mapper, so a generated sqlc row never leaves a store. The aggregate
-exists only for construction and `Tx`.
+The placement rules, the four clauses and the transaction contract, live in
+`docs/architecture.md` under "Stores and services". The constraint that forced
+them: the database runs `_txlock=immediate` on a two-connection pool, so a
+store that opened a second transaction would stall behind its own caller.
+Every store call therefore goes through `.Ctx(ctx)`, and a service that spans
+aggregates opens `Stores.WithinTx`. `Compact` is the exception because SQLite
+cannot run `VACUUM` inside a transaction.
 
 Persistence moves to `internal/app/data/{models,queries,stores}`. `models`
 holds domain types without a database dependency, `queries` holds sqlc output,
@@ -45,5 +39,6 @@ the DB handle, and migrations, and `stores` holds aggregate persistence.
 
 `internal/app/store` disappears as a name. A multi-table write belongs to its
 owning store or a service, so no third store category grows around cross-table
-work. The generated package stays behind the store boundary, so consumers hold
-a store rather than a database.
+work. The generated package stays behind the store boundary in production
+code; `stores.Seed` is the one test-only seam through it, so a test outside
+`data/` builds a fixture from store types.

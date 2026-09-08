@@ -31,21 +31,17 @@ func (db *DB) boundTo(tx *sql.Tx) *DB {
 // context already carries it rather than opening a second.
 //
 // Joining is not a nicety here. The DSN sets _txlock=immediate and the pool
-// is capped at two connections, so a second BEGIN IMMEDIATE issued while the
-// first still holds the write lock returns SQLITE_BUSY *immediately* --
-// busy_timeout is ignored, because waiting could never succeed. A nesting
-// implementation would deadlock the first time two domains composed.
+// is capped at two connections, so a nested BEGIN IMMEDIATE waits out
+// busy_timeout for a write lock its own caller holds and then fails with
+// SQLITE_BUSY. A nesting implementation would stall every composed write.
 //
 // Only the outermost caller commits or rolls back. An inner fn that fails
 // returns its error up to that caller, which is what rolls the whole unit
 // back.
 //
-// No store call runs on a goroutine that did not open the transaction.
-// JobService.Track is the one store-work path that starts a goroutine. It
-// calls `bg := context.WithoutCancel(ctx)` before it starts that goroutine and
-// remains correct because it has no transactional callers. WithoutCancel
-// copies context values, including a transaction, so Track must not run inside
-// WithinTx.
+// context.WithoutCancel preserves the transaction value, so a goroutine
+// detached from a ctx inside WithinTx would run store calls on a transaction
+// it did not open. Do not start one here.
 func (db *DB) WithinTx(ctx context.Context, fn func(context.Context, *DB) error) error {
 	if tx, ok := txFromContext(ctx); ok {
 		return fn(ctx, db.boundTo(tx))

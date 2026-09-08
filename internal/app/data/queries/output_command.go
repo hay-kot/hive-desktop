@@ -21,9 +21,8 @@ const interruptedOutputCommandError = "interrupted: application stopped while ac
 // have performed its side effect before a crash, so retrying it in the
 // background would be unauthorized and unsafe.
 //
-// This stays a *DB method rather than moving into stores.OutputCommandStore:
-// it writes job rows too, and Open (below) calls it at startup before any
-// store exists. stores.OutputCommandStore.RecoverInterrupted delegates here.
+// Open runs this at startup before any store exists, and it writes both job
+// and output_command rows, so it lives on DB (placement clause 4).
 func (db *DB) RecoverInterruptedOutputCommands(ctx context.Context) error {
 	return db.WithinTx(ctx, func(ctx context.Context, tx *DB) error {
 		if _, err := tx.querier().ExecContext(ctx, `

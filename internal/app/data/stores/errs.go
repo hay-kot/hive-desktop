@@ -7,8 +7,8 @@ import (
 )
 
 // NotFoundError is what a store returns when a query addressed exactly one
-// row and found none. It wraps sql.ErrNoRows, so a caller that still matches
-// on that keeps working while call sites move onto IsNotFound.
+// row and found none. It wraps sql.ErrNoRows, so errors.Is(err,
+// sql.ErrNoRows) also holds.
 type NotFoundError struct {
 	Entity string
 	Key    string
@@ -61,8 +61,7 @@ func errTransformQueryMany(err error) error {
 	return err
 }
 
-// wrap prefixes err with msg, the same convention the old queries package's
-// wrap() used. nil in, nil out.
+// wrap prefixes err with msg; nil in, nil out.
 func wrap(msg string, err error) error {
 	if err == nil {
 		return nil

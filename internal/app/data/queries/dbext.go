@@ -53,10 +53,9 @@ func DefaultOpenOptions() OpenOptions {
 // DB wraps a SQL database connection with sqlc queries plus the hand-written
 // event log API (see log.go).
 //
-// *Queries is embedded rather than held unexported so a sibling package (a
-// phase 3 store) can reach a generated query through the DB it is handed:
-// s.db.Ctx(ctx).InsertAgentWorkspaceSession(...) would not compile against an
-// unexported field.
+// *Queries is embedded so a store in a sibling package can call a generated
+// query on the DB it holds, including the transaction-bound DB that Ctx
+// returns.
 //
 // A DB is either pool-backed or bound to one transaction. Ctx (see ext.go)
 // produces the bound form from an ambient transaction on the context; every

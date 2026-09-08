@@ -226,9 +226,6 @@ func (s *EventLogStore) BackfillOccurrenceKey(ctx context.Context, offset int64,
 // commit and the call is a no-op without touching output_command or
 // node_run. Only output_command needs its own dedup key, since two different
 // batches could legitimately enqueue the same action.
-//
-// Named Commit rather than CommitBatch: EventLogStore.CommitBatch(b
-// CommitBatch) stutters, and the type already says what it is.
 func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error {
 	ctx, span := observe.StartConditionalSpan(ctx, tracer, "db.CommitBatch")
 	defer span.End()
