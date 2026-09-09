@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // A large panel over whatever view is active, sized for TasksView's
-// tree+detail split. Reuses BaseModal's mechanics (teleport, backdrop, focus
+// tree+detail split. ActivityOverlay matches it deliberately — change one and
+// change the other. Reuses BaseModal's mechanics (teleport, backdrop, focus
 // trap, return focus) rather than BaseModal itself: its fixed pixel width and
 // title-only header don't fit a toolbar'd hub view. TasksView already calls
 // useEscapeToClose, so Escape is handled there and not duplicated here.

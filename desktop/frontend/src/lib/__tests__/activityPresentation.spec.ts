@@ -24,16 +24,18 @@ describe('eventStyleKey', () => {
     expect(eventStyleKey(event({ id: 1, category: 'refresh', severity: 'error' }))).toBe('error')
   })
 
-  it('resolves the category for non-error events', () => {
+  it('gives auto-actions their own treatment', () => {
     expect(eventStyleKey(event({ id: 1, category: 'auto_action', severity: 'auto' }))).toBe('auto_action')
-    expect(eventStyleKey(event({ id: 2, category: 'session', severity: 'success' }))).toBe('session')
-    expect(eventStyleKey(event({ id: 3, category: 'action', severity: 'success' }))).toBe('action')
-    expect(eventStyleKey(event({ id: 4, category: 'config', severity: 'info' }))).toBe('config')
-    expect(eventStyleKey(event({ id: 5, category: 'refresh', severity: 'info' }))).toBe('refresh')
   })
 
-  it('falls back to system for unknown categories', () => {
-    expect(eventStyleKey(event({ id: 1, category: 'whatever', severity: 'info' }))).toBe('system')
+  // Hue is severity only, so every category that is neither a failure nor the
+  // app acting on its own resolves to the same quiet row.
+  it('resolves every other category to neutral', () => {
+    expect(eventStyleKey(event({ id: 1, category: 'session', severity: 'success' }))).toBe('neutral')
+    expect(eventStyleKey(event({ id: 2, category: 'action', severity: 'success' }))).toBe('neutral')
+    expect(eventStyleKey(event({ id: 3, category: 'config', severity: 'info' }))).toBe('neutral')
+    expect(eventStyleKey(event({ id: 4, category: 'refresh', severity: 'info' }))).toBe('neutral')
+    expect(eventStyleKey(event({ id: 5, category: 'whatever', severity: 'info' }))).toBe('neutral')
   })
 })
 

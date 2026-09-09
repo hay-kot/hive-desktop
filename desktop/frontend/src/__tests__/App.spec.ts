@@ -2151,6 +2151,41 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // #432: the canvas is the right-hand pane in Chats, so the title bar's
+  // right-panel toggle drives it — the same slot the detail preview uses in
+  // Inbox. It used to carry its own button in the pane status bar.
+  it('drives the Chats canvas from the title bar right-panel toggle', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-agents"]').trigger('click')
+    await vi.waitFor(() => expect(agentsOnScreen(wrapper)).toBe(true))
+    await flushPromises()
+
+    // No chat open: the canvas has nothing to show beside, so the slot is off.
+    expect(wrapper.get('[data-testid="titlebar-toggle-preview"]').attributes('disabled')).toBe('')
+
+    await router.replace({ name: 'agents', params: { workspace: 'web-app' }, query: { chat: '7' } })
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="titlebar-toggle-preview"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-label')).toBe('Show preview')
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBe('1')
+    expect(wrapper.get('[data-testid="titlebar-toggle-preview"]').attributes('aria-label')).toBe('Hide preview')
+
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBeUndefined()
+
+    // The Inbox preview is a different pane on the same slot and is untouched.
+    expect(localStorage.getItem('hive.panel.detailpane.collapsed')).not.toBe('true')
+
+    wrapper.unmount()
+  })
+
   it('toggles the Chats sidebar on its own key, and brings a hidden one back on the focus chord', async () => {
     localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'false')
@@ -2203,49 +2238,84 @@ describe('App', () => {
     expect(router.currentRoute.value.params.section).toBe('integrations')
 
     // Activity is reachable from inside terminal mode without toggling first.
+    // It is an overlay (#441), so it opens over the terminal rather than
+    // navigating away from it — the mode stays mounted and on screen.
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
     await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
     await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('activity')
-    expect(terminalOnScreen(wrapper)).toBe(false)
+    expect(document.querySelector('[data-testid="activity-overlay"]')).not.toBeNull()
+    expect(router.currentRoute.value.name).toBe('terminal')
+    expect(terminalOnScreen(wrapper)).toBe(true)
 
-    // The mode is history like any page: Back returns to the terminal route.
-    router.back()
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('terminal'))
-    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    // Closing it leaves the terminal exactly where it was, with no history step.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+    expect(router.currentRoute.value.name).toBe('terminal')
+    expect(terminalOnScreen(wrapper)).toBe(true)
 
     wrapper.unmount()
   })
 
-  it('opens the tasks overlay from the titlebar icon over the current route, and closes it on Escape', async () => {
+  // #441: Activity used to be its own full-frame route. It is an overlay now,
+  // the same shape as Tasks, so opening it never changes where you are.
+  it('opens the activity overlay over the current route, and toggles it back off from the icon', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push({ name: 'application-settings', params: { section: 'integrations' } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="activity-view"]')).not.toBeNull()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+    expect(router.currentRoute.value.params.section).toBe('integrations')
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+
+    wrapper.unmount()
+  })
+
+  // ViewHeader ships no close button, so the overlay supplies its own — the
+  // title bar's back arrow no longer applies to a surface that is not a page.
+  it('closes the activity overlay from its own X and from the backdrop', async () => {
+    const { wrapper } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    const close = document.querySelector('[data-testid="activity-close"]') as HTMLElement
+    expect(close).not.toBeNull()
+    close.click()
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    const backdrop = document.querySelector('[data-testid="activity-overlay-backdrop"]') as HTMLElement
+    backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('opens the tasks overlay over the current route without navigating, and closes it on Escape', async () => {
     const { wrapper, router } = await mountAppWithRouter()
 
-    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('feed')
     expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
     expect(document.querySelector('[data-testid="tasks-view"]')).not.toBeNull()
-    expect(wrapper.find('[data-testid="titlebar-tasks"]').classes()).toContain('text-accent')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
     expect(router.currentRoute.value.name).toBe('feed')
-
-    wrapper.unmount()
-  })
-
-  it('toggles the tasks overlay closed by clicking the titlebar icon again', async () => {
-    const { wrapper } = await mountAppWithRouter()
-
-    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
-    await flushPromises()
-    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
-
-    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
-    await flushPromises()
-    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
 
     wrapper.unmount()
   })
