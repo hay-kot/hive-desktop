@@ -74,6 +74,38 @@ describe('ActivityView', () => {
     expect(wrapper.find('[data-testid="activity-empty"]').exists()).toBe(true)
   })
 
+  // #439: hue in the ledger means severity and nothing else. The seed covers a
+  // failure, an auto-action and two ordinary categories, so a category hue
+  // creeping back in shows up here.
+  it('paints only failures and auto-actions, leaving every other row neutral', () => {
+    events.value = seed()
+    const wrapper = mount(ActivityView)
+    const dots = wrapper.findAll('[data-testid="activity-row"] span.rounded-full')
+
+    const dotClass = (i: number) => dots[i].attributes('class') ?? ''
+    // Rows are newest-first: refresh, failed refresh, session, auto-action.
+    expect(dotClass(0)).toContain('bg-text-4')
+    expect(dotClass(1)).toContain('bg-severity-error')
+    expect(dotClass(2)).toContain('bg-text-4')
+    expect(dotClass(3)).toContain('bg-accent')
+
+    const html = wrapper.html()
+    for (const banned of ['bg-severity-success', 'bg-node-purple', 'bg-severity-info']) {
+      expect(html).not.toContain(banned)
+    }
+  })
+
+  // Only the two rows a reader scans for carry a rail; the rest lift on hover.
+  it('rails the failure and the auto-action only', () => {
+    events.value = seed()
+    const wrapper = mount(ActivityView)
+    const r = rows(wrapper)
+    expect(r[0].attributes('class')).toContain('hover:bg-row-hover')
+    expect(r[1].attributes('class')).toContain('bg-severity-error-tint')
+    expect(r[2].attributes('class')).toContain('hover:bg-row-hover')
+    expect(r[3].attributes('class')).toContain('bg-accent-tint')
+  })
+
   it('emits close on Escape', async () => {
     events.value = seed()
     const wrapper = mount(ActivityView)

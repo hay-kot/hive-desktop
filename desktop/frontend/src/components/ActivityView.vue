@@ -39,19 +39,18 @@ const filtered = computed(() =>
 )
 const groups = computed(() => groupEventsByDay(filtered.value))
 
-// Severity/category → the row's dot color and (for the two that warrant it) its
-// emphasis rail + tint. Errors and auto-actions get a colored left rail because
-// they are the events a reader scans for; everything else stays quiet and only
-// lifts on hover. The rail is an inset shadow, not a border, so it never colors
-// the row's divider on the sides it doesn't own.
+// Hue means severity, and only severity: red for a failure, accent for the app
+// acting on its own. Those two get an emphasis rail as well, because they are
+// what a reader scans a ledger for; every other event is neutral and only lifts
+// on hover. Categories are named in the row's own text and in the segmented
+// filter, so painting them too (green sessions, purple actions, blue system)
+// left five hues competing with the two that carry meaning. The rail is an
+// inset shadow, not a border, so it never colors the row's divider on the sides
+// it doesn't own, and each rail's tint is the same token as its dot.
 const STYLES: Record<ActivityStyleKey, { dot: string; rail: string }> = {
   error: { dot: 'bg-severity-error', rail: 'bg-severity-error-tint shadow-[inset_2px_0_0_var(--hv-severity-error)]' },
-  auto_action: { dot: 'bg-accent', rail: 'bg-severity-auto-tint shadow-[inset_2px_0_0_var(--hv-accent)]' },
-  refresh: { dot: 'bg-text-4', rail: '' },
-  session: { dot: 'bg-severity-success', rail: '' },
-  action: { dot: 'bg-node-purple', rail: '' },
-  config: { dot: 'bg-text-4', rail: '' },
-  system: { dot: 'bg-severity-info', rail: '' },
+  auto_action: { dot: 'bg-accent', rail: 'bg-accent-tint shadow-[inset_2px_0_0_var(--hv-accent)]' },
+  neutral: { dot: 'bg-text-4', rail: '' },
 }
 
 const ledger = computed(() =>
@@ -160,7 +159,7 @@ onMounted(() => {
       class="flex h-[30px] shrink-0 items-center gap-3.5 border-t border-row bg-sidebar px-5 font-mono text-[11px] text-text-3"
       data-testid="activity-status"
     >
-      <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-severity-success" style="animation: hivePulse 2s infinite" />live</span>
+      <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-text-4" style="animation: hivePulse 2s infinite" />live</span>
       <span>{{ events.length }} {{ events.length === 1 ? 'event' : 'events' }} loaded</span>
     </div>
   </div>

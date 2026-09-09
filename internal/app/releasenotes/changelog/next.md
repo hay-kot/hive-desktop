@@ -11,3 +11,6 @@ summary: ""
 - **The Chats canvas opens from the title bar.** The canvas had its own button
   in the pane status bar; it now rides the title bar's right-panel toggle, the
   same control the Inbox detail pane uses. Its attention dot moved with it.
+- **Activity reads more quietly.** Color in the ledger now marks severity only —
+  red for a failure, amber for something the app did on its own. Sessions,
+  actions and system events are no longer each given their own hue.
