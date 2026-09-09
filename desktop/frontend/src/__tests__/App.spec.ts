@@ -2151,6 +2151,41 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // #432: the canvas is the right-hand pane in Chats, so the title bar's
+  // right-panel toggle drives it — the same slot the detail preview uses in
+  // Inbox. It used to carry its own button in the pane status bar.
+  it('drives the Chats canvas from the title bar right-panel toggle', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-agents"]').trigger('click')
+    await vi.waitFor(() => expect(agentsOnScreen(wrapper)).toBe(true))
+    await flushPromises()
+
+    // No chat open: the canvas has nothing to show beside, so the slot is off.
+    expect(wrapper.get('[data-testid="titlebar-toggle-preview"]').attributes('disabled')).toBe('')
+
+    await router.replace({ name: 'agents', params: { workspace: 'web-app' }, query: { chat: '7' } })
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="titlebar-toggle-preview"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-label')).toBe('Show preview')
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBe('1')
+    expect(wrapper.get('[data-testid="titlebar-toggle-preview"]').attributes('aria-label')).toBe('Hide preview')
+
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBeUndefined()
+
+    // The Inbox preview is a different pane on the same slot and is untouched.
+    expect(localStorage.getItem('hive.panel.detailpane.collapsed')).not.toBe('true')
+
+    wrapper.unmount()
+  })
+
   it('toggles the Chats sidebar on its own key, and brings a hidden one back on the focus chord', async () => {
     localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'false')

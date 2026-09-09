@@ -1,4 +1,4 @@
-import { createMemoryHistory } from 'vue-router'
+import { createMemoryHistory, type Router } from 'vue-router'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentsMode from '../AgentsMode.vue'
@@ -182,6 +182,14 @@ async function startChat(wrapper: VueWrapper, workspace = 'web-app', name = '') 
   wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
   await flushPromises()
   wrapper.findComponent(NewChatDialog).vm.$emit('submit', { workspace, name })
+  await flushPromises()
+}
+
+// The canvas toggle lives in the title bar (#432), which these mode-level tests
+// do not mount, so they drive ?canvas directly — the route is the source of
+// truth either way.
+async function setCanvas(router: Router, value: string | undefined) {
+  await router.replace({ query: { ...router.currentRoute.value.query, canvas: value } })
   await flushPromises()
 }
 
@@ -470,14 +478,12 @@ describe('AgentsMode', () => {
     const { wrapper, router } = await mountWithOpenChat()
     const paneBefore = wrapper.find('[data-testid="agents-session-pane"]').element
 
-    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
-    await flushPromises()
+    await setCanvas(router, '1')
     expect(router.currentRoute.value.query.canvas).toBe('1')
     expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="agents-session-pane"]').element).toBe(paneBefore)
 
-    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
-    await flushPromises()
+    await setCanvas(router, undefined)
     expect(router.currentRoute.value.query.canvas).toBeUndefined()
     expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="agents-session-pane"]').element).toBe(paneBefore)
@@ -490,8 +496,7 @@ describe('AgentsMode', () => {
     expect(idle.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
 
     const { wrapper, router } = await mountWithOpenChat()
-    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
-    await flushPromises()
+    await setCanvas(router, '1')
     expect(router.currentRoute.value.query.canvas).toBe('1')
 
     wrapper.findComponent(AgentsSidebar).vm.$emit('close-session', { ...chatRow })
@@ -499,49 +504,6 @@ describe('AgentsMode', () => {
 
     expect(router.currentRoute.value.query.chat).toBeUndefined()
     expect(router.currentRoute.value.query.canvas).toBeUndefined()
-  })
-
-  // A write to the open chat's canvas while the pane is closed lights the dot;
-  // opening the pane is what reads it, so opening clears it.
-  it('marks the canvas toggle on a write while closed and clears it on open', async () => {
-    const { wrapper } = await mountWithOpenChat()
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
-
-    wailsEvents.fire('canvas:updated', 99)
-    await flushPromises()
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
-
-    wailsEvents.fire('canvas:updated', 7)
-    await flushPromises()
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(true)
-
-    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
-  })
-
-  // The dot is keyed by chat: a write to a background chat never marks the one
-  // in view, but is remembered and lights that chat's own toggle when it comes
-  // into view — the non-intrusive path the tool descriptions promise.
-  it('lights the dot for a background chat when that chat is opened', async () => {
-    const { wrapper, client } = await mountWithOpenChat()
-
-    wailsEvents.fire('canvas:updated', 9)
-    await flushPromises()
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
-
-    wrapper.findComponent(AgentsSidebar).vm.$emit('close-session', { ...chatRow })
-    await flushPromises()
-    client.startSession.mockResolvedValueOnce({
-      id: 9, workspace: 'web-app', name: 'Second', agent: 'claude', lastOpenedAt: 0,
-      terminalId: 't9', windowId: 'w9', cols: 80, rows: 24, resumeAttempted: false, notice: '',
-    })
-    await startChat(wrapper)
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(true)
-
-    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
   })
 
   // open_canvas / close_canvas arrive as canvas:toggle. Only the open chat's

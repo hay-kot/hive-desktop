@@ -29,6 +29,7 @@ import ToastStack from './components/ToastStack.vue'
 import SequenceHint from './components/SequenceHint.vue'
 import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useNotificationSettings } from './composables/useNotificationSettings'
+import { useAgentCanvasRoute } from './composables/useAgentCanvasRoute'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
@@ -153,6 +154,7 @@ const session = useFlowsSession()
 // main page.
 const router = useRouter()
 const route = useRoute()
+const { routeChatId, canvasRequested, canvasUnseen, syncCanvasQuery } = useAgentCanvasRoute()
 const flowsActive = computed(() => route.name === 'flows')
 const activityActive = computed(() => route.name === 'activity')
 const devActive = computed(() => devToolsEnabled.value && route.name === 'dev')
@@ -796,7 +798,22 @@ function toggleSidebar(): void {
   if (collapsed) collapsed.value = !collapsed.value
 }
 
+// The right-panel toggle names whichever pane sits on that edge: the detail
+// preview in Inbox, the Chats canvas in Chats. One control per frame edge is
+// what keeps panel behaviour the same everywhere; the canvas used to carry its
+// own button in the pane status bar instead (#432).
+const agentsCanvasAvailable = computed(() => agentsActive.value && routeChatId.value !== null)
+const previewToggleCollapsed = computed(() =>
+  agentsCanvasAvailable.value ? !canvasRequested.value : previewCollapsed.value,
+)
+const canTogglePreview = computed(() => feedViewActive.value || agentsCanvasAvailable.value)
+const previewUnseen = computed(() => agentsCanvasAvailable.value && canvasUnseen.value)
+
 function togglePreview(): void {
+  if (agentsCanvasAvailable.value) {
+    syncCanvasQuery(!canvasRequested.value)
+    return
+  }
   previewCollapsed.value = !previewCollapsed.value
 }
 
@@ -1252,8 +1269,9 @@ onUnmounted(() => {
         :can-go-forward="canGoForward"
         :sidebar-collapsed="sidebarCollapsed"
         :can-toggle-sidebar="canToggleSidebar"
-        :preview-collapsed="previewCollapsed"
-        :can-toggle-preview="feedViewActive"
+        :preview-collapsed="previewToggleCollapsed"
+        :can-toggle-preview="canTogglePreview"
+        :preview-unseen="previewUnseen"
         @set-mode="setMode"
         @back="router.back()"
         @forward="router.forward()"

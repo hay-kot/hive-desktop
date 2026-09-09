@@ -53,7 +53,9 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // shown as a pulsing amber dot. sidebarCollapsed drives the panel-toggle glyph;
 // canToggleSidebar disables the toggle in views with no left panel (settings,
 // flows, onboarding). previewCollapsed/canTogglePreview are the same pair for
-// the detail preview pane. updateAvailable renders a click-to-install chip in
+// the right-hand pane — the detail preview in Inbox, the canvas in Chats.
+// previewUnseen is that pane's attention dot: in Chats an agent wrote to a
+// canvas that is not on screen. updateAvailable renders a click-to-install chip in
 // the right cluster, independent of profileName so it can show during
 // onboarding too.
 const props = defineProps<{
@@ -73,6 +75,7 @@ const props = defineProps<{
   canToggleSidebar?: boolean
   previewCollapsed?: boolean
   canTogglePreview?: boolean
+  previewUnseen?: boolean
 }>()
 const emit = defineEmits<{
   'set-mode': [mode: 'hub' | 'terminal' | 'agents']
@@ -269,14 +272,21 @@ function onTitlebarDblclick(event: MouseEvent): void {
       <button
         v-if="profileName"
         type="button"
-        class="ml-1 flex size-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:cursor-default disabled:opacity-30"
+        class="relative ml-1 flex size-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:cursor-default disabled:opacity-30"
         style="--wails-draggable: no-drag"
         :disabled="!canTogglePreview"
         :aria-label="previewCollapsed ? 'Show preview' : 'Hide preview'"
         :title="previewCollapsed ? 'Show preview' : 'Hide preview'"
         data-testid="titlebar-toggle-preview"
         @click="emit('toggle-preview')"
-      ><component :is="previewCollapsed ? IconPanelRightOpen : IconPanelRightClose" class="size-3.5" /></button>
+      >
+        <component :is="previewCollapsed ? IconPanelRightOpen : IconPanelRightClose" class="size-3.5" />
+        <span
+          v-if="previewUnseen && previewCollapsed"
+          class="absolute right-1 top-1 size-[6px] rounded-full bg-accent ring-2 ring-raised"
+          data-testid="titlebar-preview-unseen"
+        />
+      </button>
     </div>
   </header>
 </template>
