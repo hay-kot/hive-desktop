@@ -14,3 +14,6 @@ summary: ""
 - **Activity reads more quietly.** Color in the ledger now marks severity only —
   red for a failure, amber for something the app did on its own. Sessions,
   actions and system events are no longer each given their own hue.
+- **Activity opens as a dialog.** It used to be a full screen you navigated to
+  and back from. It now opens over whatever you were reading, the way Tasks
+  does, and closes on Escape, the backdrop, or its own X.

@@ -2238,17 +2238,67 @@ describe('App', () => {
     expect(router.currentRoute.value.params.section).toBe('integrations')
 
     // Activity is reachable from inside terminal mode without toggling first.
+    // It is an overlay (#441), so it opens over the terminal rather than
+    // navigating away from it — the mode stays mounted and on screen.
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
     await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
     await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('activity')
-    expect(terminalOnScreen(wrapper)).toBe(false)
+    expect(document.querySelector('[data-testid="activity-overlay"]')).not.toBeNull()
+    expect(router.currentRoute.value.name).toBe('terminal')
+    expect(terminalOnScreen(wrapper)).toBe(true)
 
-    // The mode is history like any page: Back returns to the terminal route.
-    router.back()
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('terminal'))
-    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    // Closing it leaves the terminal exactly where it was, with no history step.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+    expect(router.currentRoute.value.name).toBe('terminal')
+    expect(terminalOnScreen(wrapper)).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  // #441: Activity used to be its own full-frame route. It is an overlay now,
+  // the same shape as Tasks, so opening it never changes where you are.
+  it('opens the activity overlay over the current route, and toggles it back off from the icon', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push({ name: 'application-settings', params: { section: 'integrations' } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="activity-view"]')).not.toBeNull()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+    expect(router.currentRoute.value.params.section).toBe('integrations')
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+
+    wrapper.unmount()
+  })
+
+  // ViewHeader ships no close button, so the overlay supplies its own — the
+  // title bar's back arrow no longer applies to a surface that is not a page.
+  it('closes the activity overlay from its own X and from the backdrop', async () => {
+    const { wrapper } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    const close = document.querySelector('[data-testid="activity-close"]') as HTMLElement
+    expect(close).not.toBeNull()
+    close.click()
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
+
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    const backdrop = document.querySelector('[data-testid="activity-overlay-backdrop"]') as HTMLElement
+    backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
 
     wrapper.unmount()
   })

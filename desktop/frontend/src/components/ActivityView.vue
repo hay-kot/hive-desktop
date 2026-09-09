@@ -5,9 +5,11 @@
 // a colored rail rather than a filled icon, and one segmented control filters
 // the stream. Events are recorded by backend subsystems through the
 // activity.Recorder and by the frontend via ActivityService.Record; this view
-// only reads and presents them. Reached from the titlebar Activity link.
+// only reads and presents them. Shown in ActivityOverlay, opened from the
+// titlebar Activity icon.
 import { computed, onMounted, ref } from 'vue'
 import IconSearch from '~icons/lucide/search'
+import IconX from '~icons/lucide/x'
 import { useActivity } from '../composables/useActivity'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import ViewHeader from './settings/ViewHeader.vue'
@@ -78,6 +80,14 @@ onMounted(() => {
       <template #title>
         <span class="text-[13px] font-semibold text-text">Activity</span>
         <span class="font-mono text-[11px] text-text-4">{{ events.length }} {{ events.length === 1 ? 'event' : 'events' }}</span>
+        <div class="flex-1" />
+        <button
+          type="button"
+          class="cursor-pointer text-text-3 hover:text-text"
+          aria-label="Close"
+          data-testid="activity-close"
+          @click="emit('close')"
+        ><IconX class="size-4" /></button>
       </template>
     </ViewHeader>
 

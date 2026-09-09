@@ -31,6 +31,16 @@ describe('createAppRouter', () => {
     expect(resolved.params.workspace).toBe('hive')
   })
 
+  // Activity stopped being a route when it became an overlay (#441). A stale
+  // #/activity — a hand-typed link, or a hash left in a window that was never
+  // reloaded — has to land somewhere sensible rather than on a blank shell.
+  it('degrades an old /activity link to the feed', async () => {
+    const router = createAppRouter(createMemoryHistory())
+
+    await router.push('/activity')
+    expect(router.currentRoute.value.name).toBe('feed')
+  })
+
   it('routes every application settings section to itself', () => {
     const router = createAppRouter(createMemoryHistory())
 

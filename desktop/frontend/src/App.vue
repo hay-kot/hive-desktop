@@ -19,7 +19,7 @@ import WhatsNewDialog from './components/WhatsNewDialog.vue'
 import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import FlowsView from './pipeline/components/FlowsView.vue'
-import ActivityView from './components/ActivityView.vue'
+import ActivityOverlay from './components/ActivityOverlay.vue'
 import TasksOverlay from './components/TasksOverlay.vue'
 import DeleteProfileModal from './components/DeleteProfileModal.vue'
 import NewProfileModal from './components/NewProfileModal.vue'
@@ -156,7 +156,6 @@ const router = useRouter()
 const route = useRoute()
 const { routeChatId, canvasRequested, canvasUnseen, syncCanvasQuery } = useAgentCanvasRoute()
 const flowsActive = computed(() => route.name === 'flows')
-const activityActive = computed(() => route.name === 'activity')
 const devActive = computed(() => devToolsEnabled.value && route.name === 'dev')
 const applicationSettingsActive = computed(() => route.name === 'application-settings')
 const profileSettingsActive = computed(() => route.name === 'profile-settings')
@@ -349,13 +348,20 @@ function requestOpenSettings(page: 'application' | 'profile'): void {
 }
 
 // ── Activity (6d) ─────────────────────────────────────────────────────────────
-// App-global audit log. The titlebar's Activity link replaces the old "polling
+// App-global audit log. The titlebar's Activity icon replaces the old "polling
 // github" indicator; unseenActivity drives its dot.
+//
+// Activity is an overlay, not a route (#441) — the same shape as Tasks, so the
+// audit log opens over whatever you were reading instead of navigating away
+// from it. The icon toggles: clicking it while open closes it, matching the
+// tint that communicates open state.
 const { unseenCount: unseenActivity } = useActivity()
 const { activeJobs, hasActive: jobsActive } = useJobs()
 
+const activityOpen = ref(false)
+
 function openActivity(): void {
-  void router.push({ name: 'activity' })
+  activityOpen.value = !activityOpen.value
 }
 
 // Tasks is an overlay, not a route, so the titlebar icon toggles it — clicking
@@ -777,7 +783,7 @@ const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
   !onboardingActive.value && !terminalActive.value && !agentsActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
-  !flowsActive.value && !activityActive.value && !devActive.value &&
+  !flowsActive.value && !devActive.value &&
   !!activeProfile.value,
 )
 // The flag the title-bar toggle drives: whichever mode owns the panel on
@@ -1013,7 +1019,7 @@ function contextActive(context: CommandContext): boolean {
 // suppressed under any of these (report, new-profile, a confirm, ...), same
 // as every other command.
 const otherOverlayOpen = computed(() =>
-  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!actionInputsAction.value || !!pendingNavigation.value,
+  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || activityOpen.value || !!sessionLaunchAction.value || !!actionInputsAction.value || !!pendingNavigation.value,
 )
 // While an overlay owns the screen, only the palette toggle stays live —
 // tasks.toggle gets its own narrower exception below.
@@ -1257,7 +1263,7 @@ onUnmounted(() => {
       <TitleBar
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
-        :activity-active="activityActive"
+        :activity-active="activityOpen"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
         :jobs-active="jobsActive"
@@ -1366,7 +1372,6 @@ onUnmounted(() => {
           @select-section="selectProfileSettingsSection"
         />
         <FlowsView v-else-if="flowsActive" />
-        <ActivityView v-else-if="activityActive" @close="closeSettings" />
         <template v-else>
           <SideBar
             v-if="activeProfile && !feedSidebarCollapsed"
@@ -1549,6 +1554,7 @@ onUnmounted(() => {
       @confirm="confirmDeleteProfile"
     />
     <TasksOverlay v-if="tasksOpen" @close="tasksOpen = false" />
+    <ActivityOverlay v-if="activityOpen" @close="activityOpen = false" />
     <!-- Deploying from this modal can raise the error dialog. Only one is
          rendered at a time: BaseModal closes on any Escape, so stacked
          overlays would both take a single keypress and drop the guard along
