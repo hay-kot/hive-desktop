@@ -39,9 +39,17 @@ func (s *AgentSessionStore) Create(ctx context.Context, in AgentSessionCreate) (
 	now := s.now().UnixMilli()
 	row, err := s.q.Ctx(ctx).InsertAgentWorkspaceSession(ctx, queries.InsertAgentWorkspaceSessionParams{
 		Workspace: in.Workspace, Name: in.Name, Agent: in.Agent, AgentSessionID: in.AgentSessionID,
-		CreatedAt: now, LastOpenedAt: now,
+		CreatedAt: now, LastOpenedAt: now, ScheduleID: in.ScheduleID, EndToken: in.EndToken,
 	})
 	return s.mapper.Err(row, wrap("creating agent workspace session", err))
+}
+
+// GetByEndToken resolves the session whose launch handed out token. An empty
+// token is NotFoundError: a row from before the column existed must not
+// answer for a blank bearer.
+func (s *AgentSessionStore) GetByEndToken(ctx context.Context, token string) (AgentSession, error) {
+	row, err := s.q.Ctx(ctx).GetAgentWorkspaceSessionByEndToken(ctx, token)
+	return s.mapper.Err(row, errTransformQueryOne("agent_workspace_session", "token", err))
 }
 
 // LastOpenedAt controls session ordering.

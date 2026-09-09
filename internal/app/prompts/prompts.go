@@ -173,6 +173,28 @@ type Service struct {
 	templates *template.Template
 }
 
+// frames are the templates rendered at runtime around text the app is about to
+// hand an agent, as opposed to the copyable prompts the registry lists.
+var frames = template.Must(template.New("frames").Funcs(funcs()).ParseFS(templatesFS, "templates/scheduled-run.tmpl"))
+
+type ScheduledRunData struct {
+	ScheduleName  string
+	WorkspaceName string
+	Prompt        string
+	// CanEnd is false when the launch handed the process no end-session URL;
+	// the closing instruction is then left out rather than pointing at nothing.
+	CanEnd bool
+}
+
+// ScheduledRun frames a scheduled chat's rendered prompt as its opening message.
+func ScheduledRun(data ScheduledRunData) (string, error) {
+	var buf strings.Builder
+	if err := frames.ExecuteTemplate(&buf, "scheduled-run.tmpl", data); err != nil {
+		return "", fmt.Errorf("prompts: rendering the scheduled-run frame: %w", err)
+	}
+	return buf.String(), nil
+}
+
 // New parses the embedded templates and binds them to env. It fails only on a
 // malformed template, which is a programming error caught by this package's
 // tests.

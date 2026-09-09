@@ -31,6 +31,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -115,6 +116,7 @@ type App struct {
 	AgentWorkspaces *AgentWorkspacesService
 	Tasks           *TasksService
 	Canvas          *CanvasService
+	Schedules       *SchedulesService
 
 	// Events is the typed bus adapters project into transport-specific events.
 	// Stores is exposed only so the e2e harness can seed fixtures.
@@ -195,6 +197,10 @@ type App struct {
 	// projected onto their bare command, with Flags dropped (ADR a-workspace-declares-its-own-authority). Set
 	// in openHiveRuntime, alongside every other hiveCfg-derived field.
 	agentCommands map[string]string
+
+	// scheduler launches a workspace's scheduled chats when they come due, and
+	// catches up the ones that fell due while the app was closed.
+	scheduler *schedule.Scheduler
 
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR terminal-transport).
@@ -422,13 +428,16 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.AgentWorkspaces = newAgentWorkspacesService(AgentWorkspacesDeps{
 		Store:           a.agentWorkspaceStore,
 		Terminals:       a.terminals,
-		Sessions:        a.Stores.AgentSessions,
+		Stores:          a.Stores,
 		Skills:          a.Skills,
 		ProfileCommands: a.agentCommands,
 		RootProblem:     a.agentWorkspaceRootProblem,
 		ExecEnv:         a.execEnv,
 		EditorCommand:   a.Settings,
 		MCPBase:         a,
+		EndDelay:        a.Settings,
+		Events:          a.Events,
+		Logger:          cfg.Logger,
 	})
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
@@ -438,6 +447,21 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		tasks = a.honeycomb
 	}
 	a.Tasks = newTasksService(tasks)
+
+	// After AgentWorkspaces: the scheduler launches chats through it, and the
+	// service reads the same workspace store the scheduler takes its specs
+	// from.
+	a.scheduler = a.buildScheduler(cfg.Logger)
+	a.Schedules = newSchedulesService(SchedulesDeps{
+		Workspaces: a.agentWorkspaceStore,
+		Schedules:  a.Stores.Schedules,
+		Sessions:   a.Stores.AgentSessions,
+		Scheduler:  a.scheduler,
+		Logger:     cfg.Logger,
+	})
+	// Schedules are saved with the manifest, so the write that reaches the
+	// running loop is the workspace editor's, not a route of its own.
+	a.AgentWorkspaces.OnSchedulesChanged = func(string) { a.scheduler.Reload() }
 
 	return a, nil
 }
@@ -516,6 +540,11 @@ func (a *App) Start(ctx context.Context) error {
 	if a.agentWorkspacesWatcher != nil {
 		a.agentWorkspacesWatcher.Start()
 	}
+	// After the watcher, so the first pass evaluates the workspace set the
+	// watcher is already keeping current. That pass is the catch-up for
+	// everything that came due while the app was closed, so it runs in mock
+	// modes too -- a fixture root simply declares no schedules.
+	a.scheduler.Start(ctx)
 	if a.mock == "" {
 		a.outputs.Start(ctx)
 	}
@@ -606,6 +635,13 @@ func (a *App) HiveConn() *sql.DB {
 // tolerates it or a plugs release makes signal registration optional.
 func (a *App) Close() error {
 	a.cancel()
+
+	// Before the terminals: a pass in flight is launching chats through them,
+	// and stopping the transport underneath it would fail a launch that has
+	// already been recorded as made.
+	if a.scheduler != nil {
+		a.scheduler.Stop()
+	}
 
 	// Before the webhook listener: a terminal WebSocket has hijacked its
 	// connection, which http.Server.Shutdown neither tracks nor closes, so the
@@ -810,6 +846,9 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 		}
 		count := len(a.agentWorkspaceStore.Statuses())
 		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
+		// A hand edit to a manifest's schedules: list is a schedule change like
+		// any other, so the scheduler re-reads on the same signal the UI does.
+		a.scheduler.Reload()
 	}, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("agent workspace hot-reload unavailable")

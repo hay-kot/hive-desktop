@@ -55,6 +55,11 @@ type CanvasToggleRequested struct {
 	Open    bool
 }
 
+// SchedulesUpdated reports that a workspace's manifest was written or one of
+// its schedules ran. The payload names only the workspace: the entry and its
+// run history are both stored state a reader re-reads.
+type SchedulesUpdated struct{ Workspace string }
+
 // ConnectionUpdated reports that one provider's stored credentials changed —
 // connected, rotated, or disconnected. Provider names which ("github"), so a
 // consumer can ignore a provider it does not use; the new state is not in the
@@ -86,5 +91,6 @@ func (ActionsUpdated) eventName() string         { return "actions.updated" }
 func (AgentWorkspacesUpdated) eventName() string { return "agent-workspaces.updated" }
 func (CanvasUpdated) eventName() string          { return "canvas.updated" }
 func (CanvasToggleRequested) eventName() string  { return "canvas.toggle-requested" }
+func (SchedulesUpdated) eventName() string       { return "schedules.updated" }
 func (ConnectionUpdated) eventName() string      { return "connection.updated" }
 func (NotificationRaised) eventName() string     { return "notification.raised" }

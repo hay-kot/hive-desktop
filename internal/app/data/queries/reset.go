@@ -23,6 +23,8 @@ var resetTables = []string{
 	"job",
 	"webhook_capture",
 	"agent_workspace_session",
+	"schedule_run",
+	"schedule_cursor",
 }
 
 // Seeder writes the baseline rows a reset restores. It runs inside the wipe

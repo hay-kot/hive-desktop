@@ -35,19 +35,27 @@ const (
 	PresetSourceHive = "hive"
 )
 
+// PromptTail is how a preset takes a scheduled chat's prompt: quoted as one
+// trailing word behind the end-of-options marker, because a prompt is prose
+// the user wrote and a markdown list ("- Summarize the week") would otherwise
+// reach the CLI as an unknown option. It is exported so a refusal can tell the
+// user exactly what a hand-written command is missing.
+const PromptTail = ` {{ if .Prompt }}-- {{ .Prompt | shq }}{{ end }}`
+
 // claudeTail is the wiring every claude preset shares: the generated
 // .mcp.json (with --strict-mcp-config, so the tool set is exactly what the
-// workspace declares) and the session id, pinned as a resume or a fresh
-// launch. It is duplicated into each preset's text rather than assembled at
-// launch, because the whole point is that the user can see and edit it.
+// workspace declares), the session id, pinned as a resume or a fresh launch,
+// and the prompt. It is duplicated into each preset's text rather than
+// assembled at launch, because the whole point is that the user can see and
+// edit it.
 const claudeTail = ` --strict-mcp-config --mcp-config {{ .MCPConfig | shq }}` +
-	` {{ if .Resume }}--resume{{ else }}--session-id{{ end }} {{ .SessionID }}`
+	` {{ if .Resume }}--resume{{ else }}--session-id{{ end }} {{ .SessionID }}` + PromptTail
 
 // builtinPresets are the shortcuts for the CLIs this build knows the flags
 // for. Codex has no launch-time MCP flag and no resume-by-id form, so its
-// presets are the bare invocation: it discovers .codex/config.toml from the
-// working directory, and a reopened codex session reattaches to its live tmux
-// session rather than resuming a conversation.
+// presets are the bare invocation plus the prompt: it discovers
+// .codex/config.toml from the working directory, and a reopened codex session
+// reattaches to its live tmux session rather than resuming a conversation.
 var builtinPresets = []Preset{
 	{
 		ID: "claude-ask", Agent: "claude", Label: "Ask",
@@ -66,17 +74,17 @@ var builtinPresets = []Preset{
 	},
 	{
 		ID: "codex-ask", Agent: "codex", Label: "Ask",
-		Command: "codex",
+		Command: "codex" + PromptTail,
 		Source:  PresetSourceBuiltin,
 	},
 	{
 		ID: "codex-auto", Agent: "codex", Label: "Auto",
-		Command: "codex --ask-for-approval on-request --sandbox workspace-write",
+		Command: "codex --ask-for-approval on-request --sandbox workspace-write" + PromptTail,
 		Source:  PresetSourceBuiltin,
 	},
 	{
 		ID: "codex-full", Agent: "codex", Label: "Full",
-		Command: "codex --dangerously-bypass-approvals-and-sandbox",
+		Command: "codex --dangerously-bypass-approvals-and-sandbox" + PromptTail,
 		Source:  PresetSourceBuiltin,
 	},
 }

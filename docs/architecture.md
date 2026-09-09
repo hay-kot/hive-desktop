@@ -188,6 +188,7 @@ column is the section that specifies it.
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **metric, span, or log field** | Package-level instrument via `app/observe` against the global provider; bounded attributes only; a span is a trigger or a wait; the SDK stays in `app/telemetry` | [Telemetry](#telemetry), ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration |
+| A new **scheduled/recurring launch** | Registry-free, One instance per process, App-owned lifecycle, Consumer-defined interfaces, Store | [Scheduled chats](#scheduled-chats), ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing. A secret-bearing field holds an `internal/app/secrets` reference, never a value | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | A new **persisted entity** | Store, Unit of Work, Options struct, Consumer-defined interface | [Stores and services](#stores-and-services) |
@@ -334,9 +335,13 @@ internal/
                                   #   AND by an LLM (ADR go-owned-llm-prompts)
     agentws/                      # the agent-workspace root: mcps.yaml, .shared/,
                                   #   one directory per workspace; Workspace/Library
-                                  #   parse+validate, the generator, the launch table
-                                  #   (autonomy flags, MCP wiring), the two-level
+                                  #   parse+validate, the generator, the command
+                                  #   template and MCP wiring, the two-level
                                   #   watcher (ADR a-workspace-declares-its-own-authority, ADR workspace-directories-are-generated-and-disposable)
+    schedule/                     # cron parsing, prompt rendering, and the
+                                  #   catch-up decision behind the run loop; a
+                                  #   leaf, so it is testable with no tmux or DB
+                                  #   (ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite)
     skills/                       # the Agent Skills format: the SKILL.md
                                   #   frontmatter template and the naming rules
                                   #   a target agent enforces. Writing one is the
@@ -1682,9 +1687,14 @@ reveal use.
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
-writer. The workspace editor owns `name`, `agent`, `command`, `mcps:`, and
-`skills:` in the manifest (an empty list removes the key); comments and
-everything else stay the user's. `mcps.yaml` gains entries through the same pattern —
+writer. The workspace editor owns `name`, `command`, `mcps:`, `skills:`, and
+`schedules:` in the manifest (an empty list removes the key); comments and
+everything else stay the user's. It refuses to write at all over a manifest
+that does not currently parse: the form is loaded from the workspace view, and
+on the first load of a run there is no last-good snapshot behind a broken
+file, so the form opens empty and a save would reconcile every list in it to
+nothing. A broken manifest is fixed in the file.
+`mcps.yaml` gains entries through the same pattern —
 `ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
 bare id-to-server map), an id already declared is a conflict rather than an
 overwrite, and only user entries can be removed. The merged catalogue
@@ -1722,8 +1732,8 @@ Both refuse a path that is not a known workspace, the same posture as
 
 A workspace declares `command:` — the whole invocation, as a Go
 `text/template` rendered at spawn (ADR the-workspace-command-is-a-template).
-Its data is `LaunchData` in `launch.go`: `.Dir`, `.MCPConfig`, `.SessionID`
-and `.Resume`, plus `shq` for quoting an interpolated value. It replaced the
+Its data is `LaunchData` in `launch.go`: `.Dir`, `.MCPConfig`, `.SessionID`,
+`.Resume` and `.Prompt`, plus `shq` for quoting an interpolated value. It replaced the
 `autonomy: ask | auto | full` posture enum, whose per-agent flag table could
 only express the two CLIs it had entries for. The template is the only source
 of the launch line; `Resolve` renders it and wraps it in
@@ -1869,9 +1879,9 @@ because clicking the header focuses the workspace instead of folding it.
 Secondary text a row used to stack under its name — the launch command, a
 problem, a notice — is the row's tooltip, with the chevron going amber or red so
 a warning stays a glance rather than a hover. Its trailing edge is three
-controls on one 18px pitch — `+`, edit, fold chevron — with the first two
-revealed on hover, so at rest a header states its name and whether it is open
-and nothing else. The `+` starts a chat in that workspace under the default name
+controls on one 18px pitch: `+`, edit, fold chevron, with the
+first two revealed on hover, so at rest a header states its name and
+whether it is open and nothing else. The `+` starts a chat in that workspace under the default name
 with **no dialog**, because naming the workspace is the only thing
 `NewChatDialog` asks that has no sensible default and the header has already
 answered it. A header carries **no rollup**: no chat count, and no live-or-
@@ -1884,6 +1894,77 @@ agent on the header for a while and earned nothing: the workspaces under one
 root normally run the same agent, so the column was one glyph repeated. What the Code view still lends is the activity vocabulary
 alone: the spinner, the approval alert and the liveness dot mean here exactly
 what they mean there.
+
+### Scheduled chats
+
+`schedules:` in `agent-workspace.yaml` is a list of `{id, name, cron, prompt,
+disabled, on_missed}` entries, and a manifest key like `mcps:` and `skills:`:
+the same `write.go` node-tree call owns it, `WriteManifest` reconciles the
+sequence to exactly the list it is handed (matched by id, an entry the list no
+longer names is deleted, an empty list removes the key), and the editor saves
+it with the rest of the manifest. The MCP tools' per-entry write is
+`agentws.WriteSchedules` through `AgentWorkspacesService.PutSchedule` and
+`RemoveSchedule`; a `SchedulePatch` field the call omits keeps its stored
+value. Both writers refuse a manifest that does not parse, and both refuse a
+schedule on a workspace whose `command:` does not pass `.Prompt`
+(`agentws.SupportsPrompt`, the same render-both-ways probe as
+`SupportsResume`): a scheduled chat whose prompt the template drops would sit
+idle in a detached session with nobody watching. The shipped presets end in
+`agentws.PromptTail`, and a hand-edited manifest that breaks the rule lists
+as a workspace problem. Run state is app-local data in `desktop-pipeline.db`
+behind one store, `stores.ScheduleStore`: a schedule's cursor (how far it has
+been evaluated, with the `cron` it was evaluated against) and its runs
+(history, pruned per schedule inside the insert's own transaction) are one
+aggregate keyed by `(workspace, schedule_id)`, so deleting a workspace's
+schedule state is one store call and the session and schedule deletes join
+one `Stores.WithinTx`
+(ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite).
+
+`internal/app/schedule` is a leaf: cron parsing, the `text/template` prompt
+renderer, and `Evaluate`, the pure catch-up decision. It declares the
+consumer-defined ports `Source`, `Store` and `Launcher`; `App` satisfies them
+in `schedule_adapters.go` over `agentws` and `stores.ScheduleStore`, and the
+package imports neither. The adapter is the only place `time.Time` meets the
+store's unix milliseconds. The rules the planner keeps: a schedule with no cursor, or whose
+`cron` differs from the cursor's, starts from now with no run; every
+occurrence since the cursor folds into one run tagged `catch_up`, or one
+`skipped` record under `on_missed: skip`; a run is skipped while the previous
+run's chat is live; a failed launch is recorded and never retried.
+
+`App.scheduler` is one `*schedule.Scheduler` on the App-owned lifecycle,
+started after the agent-workspace watcher and stopped before
+`terminals.Stop`. It reloads on `AgentWorkspacesService.OnSchedulesChanged`
+and on the watcher's reload. `AgentWorkspacesService` publishes
+`events.SchedulesUpdated{Workspace}` after a manifest write and after a
+scheduled chat ends itself, and the scheduler's `OnRun` publishes it after a
+run; the Wails boundary degrades it to the coalesced `schedules:updated`
+wake-up. Both services list schedules through one `scheduleHistory`, so the
+workspace view and the MCP tools cannot disagree about a row's last run.
+`app.SchedulesService` fronts the scheduler with
+`RunNow`, `Runs` and `Preview`, on the token-guarded
+`/api/terminal/agents/schedules/...` prefix because "run now" spawns a
+process. The MCP server carries `list_workspaces`, `list_schedules`,
+`put_schedule`, `remove_schedule`, `preview_schedule` and `schedule_runs`, and
+no run-now: that surface never spawns a process.
+
+Schedules are a section of the workspace editor, not a surface of their own:
+a calendar-style form that compiles to cron on the way out.
+`WorkspaceView.schedules` carries each entry with its `nextRunAt` and
+`lastRun`. `name` is the manifest's own, empty when there is none, and the
+client falls back to the id so the editor never writes the id back as a name.
+`SessionView.scheduleId` is a column the launch writes, not a derivation from
+`schedule_run`, because session ids are reused and history is pruned.
+
+A scheduled chat ends itself: every launch mints a token, stores it on the
+session row, and hands the process `HIVE_AGENT_SESSION_TOKEN` and
+`HIVE_AGENT_SESSION_END_URL`. `POST /api/sessions/end` with that bearer
+deletes that chat and no other after the `agent_workspaces.session_end_delay`
+grace, answering 202 with when. It is a base route, not a `/api/terminal/`
+one, because a chat must not hold the frontend's token, and not an MCP tool,
+because a workspace need not declare the app's server for its schedules to
+work. `prompts.ScheduledRun` frames the prompt with what started it and the
+exact `curl` to run when done
+(ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 
 ## Execution model
 

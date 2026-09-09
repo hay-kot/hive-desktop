@@ -153,6 +153,8 @@ func TestToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 		"get_profile_image", "set_profile_image", "clear_profile_image",
 		"get_node_image", "set_node_image", "clear_node_image",
 		"execute_flow",
+		"list_workspaces", "list_schedules", "put_schedule", "remove_schedule",
+		"preview_schedule", "schedule_runs",
 	}, names)
 }
 

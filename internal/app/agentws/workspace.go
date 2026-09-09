@@ -3,6 +3,8 @@ package agentws
 import (
 	"fmt"
 	"slices"
+
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 )
 
 // Workspace is one agent-workspace.yaml. Dir is the directory name under the
@@ -24,7 +26,19 @@ type Workspace struct {
 	MCPs    []string `yaml:"mcps,omitempty"`
 	// Skills names skill packages defined in skills.yml, not individual
 	// skills — the unit a workspace enables is the package (ADR skill-packages-are-the-unit-a-workspace-enables).
-	Skills []string `yaml:"skills,omitempty"`
+	Skills    []string        `yaml:"skills,omitempty"`
+	Schedules []schedule.Spec `yaml:"schedules,omitempty"`
+}
+
+// withDir stamps dir onto the workspace and onto every schedule it owns. A
+// Spec's Workspace is not in the file: it travels to the scheduler on its own
+// and has to carry the directory it came from.
+func (w Workspace) withDir(dir string) Workspace {
+	w.Dir = dir
+	for i := range w.Schedules {
+		w.Schedules[i].Workspace = dir
+	}
+	return w
 }
 
 // Agent is the label AgentFor reads off Command. There is no agent: key: a
@@ -59,6 +73,23 @@ func (w Workspace) Validate() error {
 	}
 	if slices.Contains(w.Skills, "") {
 		return fmt.Errorf("agent-workspace.yaml: skill package entries must not be empty")
+	}
+	// A schedule whose prompt the command drops would start an agent that sits
+	// idle in a detached session with nobody watching, so it is a workspace
+	// problem the list can explain rather than a run that silently does
+	// nothing.
+	if len(w.Schedules) > 0 && !SupportsPrompt(w.Command) {
+		return fmt.Errorf("agent-workspace.yaml: schedules need a command that passes the prompt; add%s", PromptTail)
+	}
+	seen := make(map[string]bool, len(w.Schedules))
+	for _, spec := range w.Schedules {
+		if err := spec.Validate(); err != nil {
+			return fmt.Errorf("agent-workspace.yaml: %w", err)
+		}
+		if seen[spec.ID] {
+			return fmt.Errorf("agent-workspace.yaml: duplicate schedule %q", spec.ID)
+		}
+		seen[spec.ID] = true
 	}
 	return nil
 }

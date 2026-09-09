@@ -604,6 +604,406 @@
     "title": "List profiles"
   },
   {
+    "description": "List one workspace's schedules in manifest order, each with when it fires next and its newest run whatever the outcome. A workspace that does not exist is not_found; one whose manifest does not parse is invalid, with the reason.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "workspace": {
+          "description": "The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace"
+      ],
+      "type": "object"
+    },
+    "name": "list_schedules",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "schedules": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "cron": {
+                "type": "string"
+              },
+              "disabled": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string"
+              },
+              "lastRun": {
+                "additionalProperties": false,
+                "description": "The newest run whatever its outcome. Absent when the schedule has never run.",
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "integer"
+                  },
+                  "missed": {
+                    "description": "How many earlier occurrences were folded into this run.",
+                    "type": "integer"
+                  },
+                  "reason": {
+                    "description": "due, catch_up, or manual.",
+                    "type": "string"
+                  },
+                  "scheduleId": {
+                    "type": "string"
+                  },
+                  "scheduledFor": {
+                    "description": "RFC 3339, local time: the occurrence this run honored.",
+                    "type": "string"
+                  },
+                  "session": {
+                    "description": "The chat the run launched. Absent when it launched none, and once that chat has ended: a scheduled chat deletes itself when its task is done.",
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "startedAt": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "description": "launched, skipped, or failed.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "scheduleId",
+                  "scheduledFor",
+                  "startedAt",
+                  "reason",
+                  "status",
+                  "missed"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "name": {
+                "description": "As stored. Absent when the schedule has none; the UI and the launched chat then use the id.",
+                "type": "string"
+              },
+              "nextRunAt": {
+                "description": "RFC 3339, local time. Absent when the schedule is disabled or its cron does not parse.",
+                "type": "string"
+              },
+              "onMissed": {
+                "type": "string"
+              },
+              "prompt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "cron",
+              "prompt",
+              "disabled",
+              "onMissed"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "schedules"
+      ],
+      "type": "object"
+    },
+    "title": "List a workspace's scheduled chats"
+  },
+  {
+    "description": "List every agent workspace with its command template, whether that command carries a permission bypass (danger), and its schedule ids. dir is what every schedule tool's workspace argument takes. A workspace whose manifest does not parse still lists, with problem set; it refuses schedule writes until the file is fixed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "name": "list_workspaces",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "workspaces": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "danger": {
+                "type": "boolean"
+              },
+              "dir": {
+                "description": "The directory name every schedule tool's workspace argument takes.",
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "problem": {
+                "type": "string"
+              },
+              "schedules": {
+                "description": "The ids of the workspace's schedules.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "dir",
+              "name",
+              "command",
+              "danger",
+              "schedules"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "workspaces"
+      ],
+      "type": "object"
+    },
+    "title": "List agent workspaces"
+  },
+  {
+    "description": "Report the next occurrences a cron expression produces and the prompt template rendered against sample data, both with a previous run behind it and as the first run sees it with .LastRun unset, without saving anything. A cron or template that does not parse comes back in cronError or promptError rather than as a failed call. Use it before put_schedule.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cron": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "workspace": {
+          "description": "The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "cron",
+        "prompt"
+      ],
+      "type": "object"
+    },
+    "name": "preview_schedule",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cronError": {
+          "type": "string"
+        },
+        "firstRunPrompt": {
+          "description": "The same template as the first run sees it, with .LastRun unset. Empty when it does not render.",
+          "type": "string"
+        },
+        "next": {
+          "description": "The next occurrences the cron produces, RFC 3339 local time. Empty when it does not parse.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "prompt": {
+          "description": "The template rendered against sample data with a previous run behind it. Empty when it does not render.",
+          "type": "string"
+        },
+        "promptError": {
+          "description": "Why the template does not render. One that only fails on the first run says so.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "next",
+        "prompt",
+        "firstRunPrompt"
+      ],
+      "type": "object"
+    },
+    "title": "Dry-run a schedule edit"
+  },
+  {
+    "description": "Create or update one schedule in a workspace's agent-workspace.yaml. A new id is appended and needs cron and prompt. An existing id is edited in place, field by field: a field you omit keeps its stored value, so re-timing a paused schedule leaves it paused, and name: \"\" clears the name. Every other key and comment in the file is kept. The cron and the prompt template are validated before anything is written; a rejected edit is invalid and leaves the file as it was. The schedule is live as soon as the call returns. A new or re-timed schedule never fires for a time before it existed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cron": {
+          "description": "A 5-field cron expression, or @hourly, @daily, @weekly, @monthly, @every 1h. Local time. Required for a new schedule.",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "disabled": {
+          "description": "true pauses the schedule, false resumes it. Omitted, an existing schedule keeps its state.",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "id": {
+          "description": "[a-z0-9-]+, unique in the workspace. An existing id is edited in place; a new one is appended.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Optional. Shown in the UI and used to name the launched chat; when empty, both fall back to the id, and list_schedules reports no name. Pass \"\" to clear a stored name.",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "onMissed": {
+          "description": "run (a new schedule's default) folds occurrences missed while the app was closed into one catch-up launch; skip records them instead of launching. Omitted, an existing schedule keeps its setting.",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "prompt": {
+          "description": "A Go text/template rendered into the agent's opening message. Required for a new schedule. Variables: .Now, .ScheduledFor, .LastRun (unset on the first run: guard it with {{ if .LastRun }}), .Reason, .Missed, .Schedule.ID, .Schedule.Name, .Schedule.Cron, .Workspace.Dir, .Workspace.Name; date \"2006-01-02\" .LastRun formats a time and renders empty when it is unset. Write the task itself: Hive frames it with what started the chat and how to end the session. Use preview_schedule to check both renders.",
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "workspace": {
+          "description": "The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "put_schedule",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "cron": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastRun": {
+          "additionalProperties": false,
+          "description": "The newest run whatever its outcome. Absent when the schedule has never run.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "id": {
+              "type": "integer"
+            },
+            "missed": {
+              "description": "How many earlier occurrences were folded into this run.",
+              "type": "integer"
+            },
+            "reason": {
+              "description": "due, catch_up, or manual.",
+              "type": "string"
+            },
+            "scheduleId": {
+              "type": "string"
+            },
+            "scheduledFor": {
+              "description": "RFC 3339, local time: the occurrence this run honored.",
+              "type": "string"
+            },
+            "session": {
+              "description": "The chat the run launched. Absent when it launched none, and once that chat has ended: a scheduled chat deletes itself when its task is done.",
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "startedAt": {
+              "type": "string"
+            },
+            "status": {
+              "description": "launched, skipped, or failed.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "scheduleId",
+            "scheduledFor",
+            "startedAt",
+            "reason",
+            "status",
+            "missed"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "name": {
+          "description": "As stored. Absent when the schedule has none; the UI and the launched chat then use the id.",
+          "type": "string"
+        },
+        "nextRunAt": {
+          "description": "RFC 3339, local time. Absent when the schedule is disabled or its cron does not parse.",
+          "type": "string"
+        },
+        "onMissed": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "cron",
+        "prompt",
+        "disabled",
+        "onMissed"
+      ],
+      "type": "object"
+    },
+    "title": "Create or update a scheduled chat"
+  },
+  {
     "description": "Force one producer tick across all sources, dropping fetch caches. Returns aggregate totals rather than a per-source breakdown. Use it after changing a flow or pushing a test event instead of waiting for the next poll.",
     "inputSchema": {
       "additionalProperties": false,
@@ -634,6 +1034,131 @@
       "type": "object"
     },
     "title": "Force a source refresh"
+  },
+  {
+    "description": "Delete one schedule from a workspace's agent-workspace.yaml. Its run history stays readable through schedule_runs. An id that matches no schedule is not_found; nothing is ever reported as removed that was not.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "workspace": {
+          "description": "The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "remove_schedule",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "removed"
+      ],
+      "type": "object"
+    },
+    "title": "Remove a scheduled chat"
+  },
+  {
+    "description": "List one schedule's runs, newest first: what each honored, why it ran, whether it launched a chat, and any error. An empty list means the schedule has not run. History outlives the schedule, so a removed schedule still answers; a workspace that does not exist, or an id that is neither declared nor has ever run, is not_found. A run's session is the chat it launched, gone once that chat has ended. Running a schedule now is not a tool here: it spawns an agent CLI, which this server never does. That is the Chats area's \"Run now\".",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "limit": {
+          "description": "How many newest runs to return. 0 takes the default of 50.",
+          "type": "integer"
+        },
+        "workspace": {
+          "description": "The workspace directory name, as list_workspaces reports it in dir. For the workspace this chat runs in, this process's HIVE_AGENT_WORKSPACE holds the workspace's absolute path: pass it as is, or its last path segment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace",
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "schedule_runs",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "runs": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "id": {
+                "type": "integer"
+              },
+              "missed": {
+                "description": "How many earlier occurrences were folded into this run.",
+                "type": "integer"
+              },
+              "reason": {
+                "description": "due, catch_up, or manual.",
+                "type": "string"
+              },
+              "scheduleId": {
+                "type": "string"
+              },
+              "scheduledFor": {
+                "description": "RFC 3339, local time: the occurrence this run honored.",
+                "type": "string"
+              },
+              "session": {
+                "description": "The chat the run launched. Absent when it launched none, and once that chat has ended: a scheduled chat deletes itself when its task is done.",
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "status": {
+                "description": "launched, skipped, or failed.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "scheduleId",
+              "scheduledFor",
+              "startedAt",
+              "reason",
+              "status",
+              "missed"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "title": "Read a schedule's run history"
   },
   {
     "description": "Set a source node's feed-mark image from base64-encoded image bytes (PNG, JPEG, GIF or WebP). It is normalized to a 128x128 PNG and shown on that source's items instead of its icon. Webhook and command sources carry a mark; other node types are rejected.",

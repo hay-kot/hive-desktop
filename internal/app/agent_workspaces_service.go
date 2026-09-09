@@ -13,12 +13,16 @@ import (
 
 	"github.com/colonyops/hive/pkg/osopen"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
+	"github.com/hay-kot/hive-desktop/internal/app/prompts"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
@@ -50,15 +54,18 @@ const (
 
 // AgentWorkspacesService opens agent workspaces and drives the sessions run
 // inside them: an agent CLI in a tmux session named agentws-<record id>,
-// resolved through the launch table in agentws (autonomy flags, MCP wiring,
-// session/resume args) and addressed by a durable stores.AgentSession
-// record. Sessions are tmux's, not this process's -- they outlive App.Close
+// resolved through the workspace's command template (agentws.Resolve) and
+// addressed by a durable stores.AgentSession record. Sessions are tmux's, not this process's -- they outlive App.Close
 // by design, which is what makes reopening a codex session (no resume form)
 // a real reattach instead of a fresh relaunch.
 type AgentWorkspacesService struct {
 	store     *agentws.Store
 	terminals *tmuxcc.Manager
+	// tx spans the session and schedule aggregates a workspace delete clears.
+	tx        transactionRunner
 	sessions  *stores.AgentSessionStore
+	schedules *stores.ScheduleStore
+	history   scheduleHistory
 	skills    *SkillsService
 	// profileCommands is agentCommands' result (app.go): hive's configured
 	// agent profiles projected onto a full command line, flags included. It
@@ -81,7 +88,17 @@ type AgentWorkspacesService struct {
 	// is down. Read per call rather than captured, because the listener's
 	// port is not known when this service is built and can change if it
 	// rebinds.
-	mcpBase MCPBaseReader
+	mcpBase  MCPBaseReader
+	endDelay SessionEndDelayReader
+	events   *events.Bus
+	// OnSchedulesChanged is a field rather than a constructor argument because
+	// the scheduler it reloads is built after this service, over it.
+	OnSchedulesChanged func(workspace string)
+	logger             zerolog.Logger
+}
+
+type transactionRunner interface {
+	WithinTx(ctx context.Context, fn func(context.Context) error) error
 }
 
 // EditorCommandReader reads the configured editor on each call, so settings
@@ -100,10 +117,24 @@ type NopMCPBaseReader struct{}
 
 func (NopMCPBaseReader) MCPBaseURL(context.Context) string { return "" }
 
+// SessionEndDelayReader reads agent_workspaces.session_end_delay on each
+// call. A non-positive answer takes the shipped value.
+type SessionEndDelayReader interface {
+	SessionEndDelay(ctx context.Context) time.Duration
+}
+
+type FixedSessionEndDelay time.Duration
+
+func (d FixedSessionEndDelay) SessionEndDelay(context.Context) time.Duration {
+	return time.Duration(d)
+}
+
 type AgentWorkspacesDeps struct {
-	Store           *agentws.Store
-	Terminals       *tmuxcc.Manager
-	Sessions        *stores.AgentSessionStore
+	Store     *agentws.Store
+	Terminals *tmuxcc.Manager
+	// Stores supplies the session and schedule stores and the transaction a
+	// workspace delete spans them with.
+	Stores          *stores.Stores
 	Skills          *SkillsService
 	ProfileCommands map[string]string
 	RootProblem     string
@@ -112,6 +143,10 @@ type AgentWorkspacesDeps struct {
 	EditorCommand EditorCommandReader
 	// MCPBase nil means NopMCPBaseReader.
 	MCPBase MCPBaseReader
+	// EndDelay nil means the shipped defaultEndDelay.
+	EndDelay SessionEndDelayReader
+	Events   *events.Bus
+	Logger   zerolog.Logger
 }
 
 func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
@@ -121,16 +156,25 @@ func newAgentWorkspacesService(d AgentWorkspacesDeps) *AgentWorkspacesService {
 	if d.MCPBase == nil {
 		d.MCPBase = NopMCPBaseReader{}
 	}
+	if d.EndDelay == nil {
+		d.EndDelay = FixedSessionEndDelay(defaultEndDelay)
+	}
 	return &AgentWorkspacesService{
 		store:           d.Store,
 		terminals:       d.Terminals,
-		sessions:        d.Sessions,
+		tx:              d.Stores,
+		sessions:        d.Stores.AgentSessions,
+		schedules:       d.Stores.Schedules,
+		history:         scheduleHistory{store: d.Stores.Schedules, sessions: d.Stores.AgentSessions, logger: d.Logger},
 		skills:          d.Skills,
 		profileCommands: d.ProfileCommands,
 		rootProblem:     d.RootProblem,
 		execEnv:         d.ExecEnv,
 		editorCommand:   d.EditorCommand,
 		mcpBase:         d.MCPBase,
+		endDelay:        d.EndDelay,
+		events:          d.Events,
+		logger:          d.Logger,
 	}
 }
 
@@ -192,6 +236,9 @@ type WorkspaceView struct {
 	// what the workspace declares says so before any session is even started
 	// (spec §7.2, ADR a-workspace-declares-its-own-authority).
 	Notice string `json:"notice"`
+	// Schedules rides the workspace view because the editor that writes it is
+	// the workspace editor, and the sidebar names the next run.
+	Schedules []ScheduleView `json:"schedules"`
 }
 
 // SessionView is one row of a workspace's session list.
@@ -233,6 +280,13 @@ type SessionView struct {
 	ResumeAttempted bool `json:"resumeAttempted"`
 	// Notice carries a fresh-launch, unbounded-MCP or missing-MCP explanation.
 	Notice string `json:"notice"`
+	// ExitedEarly is what the scheduler reads instead of Notice, so the reason
+	// it treats a launch as failed does not depend on a notice's wording.
+	ExitedEarly bool `json:"exitedEarly"`
+	// ScheduleID is a column on the session record rather than a lookup in the
+	// run history: session ids are reused after a delete and the history is
+	// pruned, so a derivation would mislabel or lose it.
+	ScheduleID string `json:"scheduleId"`
 }
 
 // SessionActivityItem is one live session's detected activity, keyed by
@@ -250,6 +304,36 @@ type StartSession struct {
 	Name      string
 	Cols      int
 	Rows      int
+	// Prompt empty produces exactly the interactive launch line.
+	Prompt string
+	// Detached skips the control-client attach, so the session has no
+	// TerminalID or WindowID. A scheduled launch has no pane to render into.
+	Detached   bool
+	ScheduleID string
+}
+
+// AgentSessionEndPath lives here so the URL a launch writes into the agent's
+// environment and the route httpapi serves cannot drift apart.
+const AgentSessionEndPath = "/api/sessions/end"
+
+// defaultEndDelay exists because the end request arrives from inside the
+// agent's own tool call; killing the pane before that call returns would cut
+// the tool result out of the transcript.
+const defaultEndDelay = 10 * time.Second
+
+type SessionEnding struct {
+	Session SessionView
+	EndsAt  time.Time
+}
+
+// StartScheduledSession has no cols/rows because it is always detached.
+// Prompt is the schedule's own template, rendered; the launch frames it.
+type StartScheduledSession struct {
+	Workspace    string
+	ScheduleID   string
+	ScheduleName string
+	Name         string
+	Prompt       string
 }
 
 // OpenResult is what opening a workspace reports back to the UI.
@@ -292,67 +376,77 @@ func (s *AgentWorkspacesService) RootProblem(context.Context) string {
 
 // List returns every recognized workspace, valid or not — a broken manifest
 // carries its last-good content plus Problem, rather than vanishing.
-func (s *AgentWorkspacesService) List(context.Context) ([]WorkspaceView, error) {
+func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, error) {
 	statuses := s.store.Statuses()
 	views := make([]WorkspaceView, 0, len(statuses))
 	for _, st := range statuses {
-		views = append(views, workspaceView(st))
+		views = append(views, s.workspaceView(ctx, st))
 	}
 	return views, nil
 }
 
 // Open regenerates the workspace's disposable artifacts and returns its
-// sessions. It is the only entry point that writes into a workspace, and the
-// resolution chain Generate itself stays pure over: mcps: [...] resolves
-// through the store's Catalogue, skills: [...] through skills.yml's packages
-// (ADR skill-packages-are-the-unit-a-workspace-enables).
+// sessions. It is the only entry point that writes into a workspace.
 func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResult, error) {
-	if !validWorkspaceDir(dir) {
-		return OpenResult{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
-	}
-	st, ok := s.workspaceStatus(dir)
-	if !ok {
-		return OpenResult{}, Errorf(KindNotFound, "workspace %q not found", dir)
-	}
-	if !st.Valid {
-		return OpenResult{}, Wrap(st.Err, KindInvalid, "workspace %q", dir)
-	}
-	ws := st.Workspace
-
-	rendered, missingPackages, err := s.resolveSkills(ctx, ws)
+	regen, err := s.regenerate(ctx, dir)
 	if err != nil {
 		return OpenResult{}, err
-	}
-
-	workspaceDir := filepath.Join(s.store.Root(), dir)
-	genResult, err := agentws.Generate(agentws.GenerateInput{
-		Dir:       workspaceDir,
-		Workspace: ws,
-		Servers:   s.resolveServers(ctx, ws),
-		Skills:    rendered,
-	})
-	if err != nil {
-		return OpenResult{}, Wrap(err, KindInternal, "generating workspace %q", dir)
 	}
 
 	records, err := s.sessions.List(ctx, dir)
 	if err != nil {
 		return OpenResult{}, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
-	sessions := make([]SessionView, 0, len(records))
-	for _, rec := range records {
-		sessions = append(sessions, s.sessionView(ctx, rec))
-	}
+	sessions := s.sessionViews(ctx, records)
 
-	view := workspaceView(st)
-	if len(genResult.Problems) > 0 {
-		view.Problem = strings.Join(genResult.Problems, "; ")
+	view := s.workspaceView(ctx, regen.status)
+	if len(regen.generated.Problems) > 0 {
+		view.Problem = strings.Join(regen.generated.Problems, "; ")
 	}
 
 	return OpenResult{
 		Workspace: view, Sessions: sessions,
-		MissingMCPs: genResult.MissingMCPs, MissingPackages: missingPackages,
+		MissingMCPs: regen.generated.MissingMCPs, MissingPackages: regen.missingPackages,
 	}, nil
+}
+
+type regeneration struct {
+	status          agentws.WorkspaceStatus
+	generated       agentws.Result
+	missingPackages []MissingPackageItem
+}
+
+// regenerate holds the resolution chain Generate itself stays pure over:
+// mcps: [...] resolves through the store's Catalogue, skills: [...] through
+// skills.yml's packages (ADR skill-packages-are-the-unit-a-workspace-enables).
+func (s *AgentWorkspacesService) regenerate(ctx context.Context, dir string) (regeneration, error) {
+	if !validWorkspaceDir(dir) {
+		return regeneration{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	st, ok := s.store.Status(dir)
+	if !ok {
+		return regeneration{}, Errorf(KindNotFound, "workspace %q not found", dir)
+	}
+	if !st.Valid {
+		return regeneration{}, Wrap(st.Err, KindInvalid, "workspace %q", dir)
+	}
+	ws := st.Workspace
+
+	rendered, missingPackages, err := s.resolveSkills(ctx, ws)
+	if err != nil {
+		return regeneration{}, err
+	}
+
+	generated, err := agentws.Generate(agentws.GenerateInput{
+		Dir:       filepath.Join(s.store.Root(), dir),
+		Workspace: ws,
+		Servers:   s.resolveServers(ctx, ws),
+		Skills:    rendered,
+	})
+	if err != nil {
+		return regeneration{}, Wrap(err, KindInternal, "generating workspace %q", dir)
+	}
+	return regeneration{status: st, generated: generated, missingPackages: missingPackages}, nil
 }
 
 // Sessions lists a workspace's session rows without regenerating its
@@ -367,11 +461,7 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
-	views := make([]SessionView, 0, len(records))
-	for _, rec := range records {
-		views = append(views, s.sessionView(ctx, rec))
-	}
-	return views, nil
+	return s.sessionViews(ctx, records), nil
 }
 
 // SessionActivity captures each live session's tmux pane and classifies it
@@ -418,7 +508,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	if !validWorkspaceDir(req.Workspace) {
 		return SessionView{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", req.Workspace)
 	}
-	st, ok := s.workspaceStatus(req.Workspace)
+	st, ok := s.store.Status(req.Workspace)
 	if !ok || !st.Valid {
 		return SessionView{}, Errorf(KindNotFound, "workspace %q not found", req.Workspace)
 	}
@@ -426,19 +516,108 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 
 	workspaceDir := filepath.Join(s.store.Root(), req.Workspace)
 	agentSessionID := uuid.NewString()
-	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), agentSessionID, false)
+	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), agentSessionID, false, req.Prompt)
 	if err != nil {
 		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
 
 	rec, err := s.sessions.Create(ctx, stores.AgentSessionCreate{
 		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
+		ScheduleID: req.ScheduleID,
+		// The token is minted once and reused by every resume, so the
+		// process's environment is the same across launches.
+		EndToken: uuid.NewString(),
 	})
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "creating session %q", req.Name)
 	}
 
-	return s.launchTerminal(ctx, rec, workspaceDir, line, req.Cols, req.Rows, true, "")
+	return s.launchTerminal(ctx, rec, terminalLaunch{
+		dir: workspaceDir, line: line, cols: req.Cols, rows: req.Rows,
+		resumeAttempted: true, detached: req.Detached,
+	})
+}
+
+// StartScheduledSession regenerates the workspace first, as Open does for the
+// UI's launch: otherwise a scheduled run would drive an agent whose .mcp.json
+// and skills are stale. The run history keeps the unframed prompt.
+func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req StartScheduledSession) (SessionView, error) {
+	regen, err := s.regenerate(ctx, req.Workspace)
+	if err != nil {
+		return SessionView{}, err
+	}
+	prompt, err := prompts.ScheduledRun(prompts.ScheduledRunData{
+		ScheduleName: req.ScheduleName, WorkspaceName: regen.status.Workspace.Name,
+		Prompt: req.Prompt, CanEnd: s.sessionEndURL(ctx) != "",
+	})
+	if err != nil {
+		return SessionView{}, Wrap(err, KindInternal, "framing the scheduled prompt")
+	}
+	return s.StartSession(ctx, StartSession{
+		Workspace: req.Workspace, Name: req.Name, Prompt: prompt, Detached: true,
+		ScheduleID: req.ScheduleID,
+	})
+}
+
+func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
+	base := s.mcpBase.MCPBaseURL(ctx)
+	if base == "" {
+		return ""
+	}
+	return strings.TrimSuffix(base, "/") + AgentSessionEndPath
+}
+
+// EndOwnSession answers as soon as the token is matched and deletes the chat,
+// record included, after the delay in the background: a schedule that runs
+// hourly must not leave a row per run in the sidebar.
+func (s *AgentWorkspacesService) EndOwnSession(ctx context.Context, token string) (SessionEnding, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return SessionEnding{}, Errorf(KindUnauthenticated, "a session token is required")
+	}
+	rec, err := s.sessions.GetByEndToken(ctx, token)
+	if stores.IsNotFound(err) {
+		return SessionEnding{}, Errorf(KindUnauthenticated, "no session holds that token")
+	}
+	if err != nil {
+		return SessionEnding{}, Wrap(err, KindInternal, "looking up the session a token names")
+	}
+
+	delay := s.endDelay.SessionEndDelay(ctx)
+	if delay <= 0 {
+		delay = defaultEndDelay
+	}
+	view := s.sessionViews(ctx, []stores.AgentSession{rec})[0]
+	go s.endAfter(context.WithoutCancel(ctx), delay, view)
+	return SessionEnding{Session: view, EndsAt: time.Now().Add(delay)}, nil
+}
+
+// A scheduled chat that ended itself is what the Chats area is showing as
+// live, so the same wake-up a schedule write sends makes it re-read the list.
+func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Duration, view SessionView) {
+	time.Sleep(delay)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	switch err := s.DeleteSession(ctx, view.ID); {
+	case KindOf(err) == KindNotFound:
+		// Deleted by hand in the meantime; there is nothing left to do.
+		return
+	case err != nil:
+		s.logger.Warn().Err(err).Int64("session", view.ID).Msg("a chat asked to end itself but could not be deleted")
+		return
+	}
+	s.logger.Info().Int64("session", view.ID).Msg("a chat ended itself")
+	if view.ScheduleID != "" {
+		s.events.Publish(ctx, events.SchedulesUpdated{Workspace: view.Workspace})
+	}
+}
+
+func (s *AgentWorkspacesService) SessionLive(ctx context.Context, id int64) (bool, error) {
+	alive, err := s.terminals.HasSession(ctx, sessionName(id))
+	if err != nil {
+		return false, terminalError(err, "checking session %d", id)
+	}
+	return alive, nil
 }
 
 // ResumeSession reattaches a session's live tmux session if it still has one
@@ -484,7 +663,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		}, nil
 	}
 
-	st, ok := s.workspaceStatus(rec.Workspace)
+	st, ok := s.store.Status(rec.Workspace)
 	if !ok || !st.Valid {
 		return SessionView{}, Errorf(KindNotFound, "workspace %q not found", rec.Workspace)
 	}
@@ -512,7 +691,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 
 	workspaceDir := filepath.Join(s.store.Root(), rec.Workspace)
-	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), sessionID, resumeAttempted)
+	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), sessionID, resumeAttempted, "")
 	if err != nil {
 		return SessionView{}, agentLaunchError(err, ws.Dir)
 	}
@@ -524,7 +703,10 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		rec.AgentSessionID = sessionID
 	}
 
-	return s.launchTerminal(ctx, rec, workspaceDir, line, cols, rows, resumeAttempted, resumeNotice)
+	return s.launchTerminal(ctx, rec, terminalLaunch{
+		dir: workspaceDir, line: line, cols: cols, rows: rows,
+		resumeAttempted: resumeAttempted, resumeNotice: resumeNotice,
+	})
 }
 
 // CloseSession ends a session's live tmux session and reports whether there
@@ -598,8 +780,14 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	if err := agentws.RemoveWorkspace(s.store.Root(), dir); err != nil {
 		return Wrap(err, KindInternal, "deleting workspace %q", dir)
 	}
-	if err := s.sessions.DeleteByWorkspace(ctx, dir); err != nil {
-		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
+	err = s.tx.WithinTx(ctx, func(ctx context.Context) error {
+		if err := s.sessions.DeleteByWorkspace(ctx, dir); err != nil {
+			return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
+		}
+		return Wrap(s.schedules.DeleteByWorkspace(ctx, dir), KindInternal, "deleting schedule state for workspace %q", dir)
+	})
+	if err != nil {
+		return err
 	}
 	if err := s.store.Reload(); err != nil {
 		return Wrap(err, KindInternal, "reloading workspaces")
@@ -658,13 +846,75 @@ type WorkspaceEdit struct {
 	Command string
 	MCPs    []string
 	Skills  []string
+	// Schedules is the whole list: a write reconciles the manifest to exactly
+	// this, so an entry the editor dropped is deleted by the same call.
+	Schedules []ScheduleEdit
+}
+
+type ScheduleEdit struct {
+	ID       string
+	Name     string
+	Cron     string
+	Prompt   string
+	Disabled bool
+	OnMissed string
+}
+
+func (e ScheduleEdit) spec() schedule.Spec {
+	return schedule.Spec{
+		ID:       strings.TrimSpace(e.ID),
+		Name:     strings.TrimSpace(e.Name),
+		Cron:     strings.TrimSpace(e.Cron),
+		Prompt:   e.Prompt,
+		Disabled: e.Disabled,
+		OnMissed: schedule.OnMissed(strings.TrimSpace(e.OnMissed)),
+	}
+}
+
+// A nil SchedulePatch field keeps its stored value, so an agent told to
+// re-time a paused schedule does not re-enable it.
+type SchedulePatch struct {
+	ID       string
+	Name     *string
+	Cron     *string
+	Prompt   *string
+	Disabled *bool
+	OnMissed *string
+}
+
+func (p SchedulePatch) apply(base schedule.Spec) schedule.Spec {
+	base.ID = strings.TrimSpace(p.ID)
+	if p.Name != nil {
+		base.Name = strings.TrimSpace(*p.Name)
+	}
+	if p.Cron != nil {
+		base.Cron = strings.TrimSpace(*p.Cron)
+	}
+	if p.Prompt != nil {
+		base.Prompt = *p.Prompt
+	}
+	if p.Disabled != nil {
+		base.Disabled = *p.Disabled
+	}
+	if p.OnMissed != nil {
+		base.OnMissed = schedule.OnMissed(strings.TrimSpace(*p.OnMissed))
+	}
+	return base
 }
 
 func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
 	return agentws.ManifestEdit{
 		Name: strings.TrimSpace(e.Name), Command: strings.TrimSpace(e.Command),
-		MCPs: e.MCPs, Skills: e.Skills,
+		MCPs: e.MCPs, Skills: e.Skills, Schedules: e.specs(),
 	}
+}
+
+func (e WorkspaceEdit) specs() []schedule.Spec {
+	specs := make([]schedule.Spec, 0, len(e.Schedules))
+	for _, edit := range e.Schedules {
+		specs = append(specs, edit.spec())
+	}
+	return specs
 }
 
 func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
@@ -702,6 +952,21 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 			seen[id] = true
 		}
 	}
+	if len(req.Schedules) > 0 && !agentws.SupportsPrompt(command) {
+		return promptlessCommandError()
+	}
+	// The id shape, cron and prompt rules are the spec's own; repeating them
+	// here would be a second place for them to drift.
+	seen := make(map[string]bool, len(req.Schedules))
+	for _, spec := range req.specs() {
+		if err := spec.Validate(); err != nil {
+			return Errorf(KindInvalid, "%s", err)
+		}
+		if seen[spec.ID] {
+			return Errorf(KindInvalid, "duplicate schedule %q", spec.ID)
+		}
+		seen[spec.ID] = true
+	}
 	return nil
 }
 
@@ -717,7 +982,7 @@ func (s *AgentWorkspacesService) CreateWorkspace(ctx context.Context, req Worksp
 		}
 		return WorkspaceView{}, Wrap(err, KindInternal, "creating workspace %q", req.Dir)
 	}
-	return s.reloadedView(ctx, req.Dir)
+	return s.savedView(ctx, req.Dir)
 }
 
 // UpdateWorkspace rewrites the editable fields of an existing workspace's
@@ -726,13 +991,115 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
 	}
-	if _, ok := s.workspaceStatus(req.Dir); !ok {
-		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
+	if _, err := s.editableWorkspace(req.Dir); err != nil {
+		return WorkspaceView{}, err
 	}
 	if err := agentws.WriteManifest(s.store.Root(), req.Dir, req.manifest()); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInvalid, "updating workspace %q", req.Dir)
 	}
-	return s.reloadedView(ctx, req.Dir)
+	return s.savedView(ctx, req.Dir)
+}
+
+// PutSchedule upserts one schedules: entry by id and leaves the rest of the
+// manifest alone.
+func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, patch SchedulePatch) (ScheduleView, error) {
+	st, err := s.editableWorkspace(dir)
+	if err != nil {
+		return ScheduleView{}, err
+	}
+	// Refused before the write rather than found by the loader after it: a
+	// schedule saved into a workspace whose command drops the prompt would
+	// turn the whole workspace into a problem the agent never asked for.
+	if !agentws.SupportsPrompt(st.Workspace.Command) {
+		return ScheduleView{}, promptlessCommandError()
+	}
+
+	id := strings.TrimSpace(patch.ID)
+	specs := append([]schedule.Spec(nil), st.Workspace.Schedules...)
+	at := -1
+	for i := range specs {
+		if specs[i].ID == id {
+			at = i
+		}
+	}
+	base := schedule.Spec{ID: id}
+	if at >= 0 {
+		base = specs[at]
+	} else if id != "" && (patch.Cron == nil || patch.Prompt == nil) {
+		return ScheduleView{}, Errorf(KindInvalid, "schedule %q does not exist in workspace %q yet; a new schedule needs a cron and a prompt", id, dir)
+	}
+	spec := patch.apply(base)
+	if err := spec.Validate(); err != nil {
+		return ScheduleView{}, Errorf(KindInvalid, "%s", err)
+	}
+
+	if at >= 0 {
+		specs[at] = spec
+	} else {
+		specs = append(specs, spec)
+	}
+	if err := agentws.WriteSchedules(s.store.Root(), dir, specs); err != nil {
+		return ScheduleView{}, Wrap(err, KindInvalid, "writing schedule %q in workspace %q", spec.ID, dir)
+	}
+
+	view, err := s.savedView(ctx, dir)
+	if err != nil {
+		return ScheduleView{}, err
+	}
+	for _, row := range view.Schedules {
+		if row.ID == spec.ID {
+			return row, nil
+		}
+	}
+	return ScheduleView{}, Errorf(KindInternal, "schedule %q vanished after writing it", spec.ID)
+}
+
+// RemoveSchedule leaves the run history, which outlives its entry on purpose;
+// the cursor is pruned by the scheduler's next pass.
+func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id string) error {
+	st, err := s.editableWorkspace(dir)
+	if err != nil {
+		return err
+	}
+	kept := make([]schedule.Spec, 0, len(st.Workspace.Schedules))
+	found := false
+	for _, spec := range st.Workspace.Schedules {
+		if spec.ID == id {
+			found = true
+			continue
+		}
+		kept = append(kept, spec)
+	}
+	if !found {
+		return Errorf(KindNotFound, "schedule %q not found in workspace %q", id, dir)
+	}
+	if err := agentws.WriteSchedules(s.store.Root(), dir, kept); err != nil {
+		return Wrap(err, KindInvalid, "removing schedule %q from workspace %q", id, dir)
+	}
+	_, err = s.savedView(ctx, dir)
+	return err
+}
+
+func promptlessCommandError() error {
+	return Errorf(KindInvalid, "the workspace command does not pass a prompt to the agent, so it cannot run schedules; pick a shipped command or add%s to it", agentws.PromptTail)
+}
+
+// editableWorkspace refuses a manifest that does not parse: on the first load
+// of a run there is no last-good snapshot behind a broken file, so a write
+// over one would reconcile every list to nothing.
+func (s *AgentWorkspacesService) editableWorkspace(dir string) (agentws.WorkspaceStatus, error) {
+	if !validWorkspaceDir(dir) {
+		return agentws.WorkspaceStatus{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	st, ok := s.store.Status(dir)
+	if !ok {
+		return agentws.WorkspaceStatus{}, Errorf(KindNotFound, "workspace %q not found", dir)
+	}
+	if !st.Valid {
+		return agentws.WorkspaceStatus{}, Errorf(KindInvalid,
+			"agent-workspace.yaml has a problem (%s); fix the file before editing it here", st.Err)
+	}
+	return st, nil
 }
 
 // MCPCatalogueItem is one row of the merged MCP catalogue as the UI shows it:
@@ -968,7 +1335,7 @@ func (s *AgentWorkspacesService) knownWorkspaceDir(dir string) (string, error) {
 	if !validWorkspaceDir(dir) {
 		return "", Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
 	}
-	if _, ok := s.workspaceStatus(dir); !ok {
+	if _, ok := s.store.Status(dir); !ok {
 		return "", Errorf(KindNotFound, "workspace %q not found", dir)
 	}
 	return filepath.Join(s.store.Root(), dir), nil
@@ -983,18 +1350,24 @@ func resolvedCommandLine(server mcpcatalog.Server) string {
 	return server.URL
 }
 
-// reloadedView re-reads the store after a manifest write and returns dir's
-// fresh view, so the response reflects what actually landed on disk rather
-// than what was asked for.
-func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (WorkspaceView, error) {
+// savedView re-reads the store after a manifest write and returns dir's fresh
+// view, so the response reflects what actually landed on disk rather than what
+// was asked for. The hook fires after the reload because the scheduler takes
+// its specs from the same snapshot this read comes out of.
+func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (WorkspaceView, error) {
 	if err := s.store.Reload(); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInternal, "reloading workspaces")
 	}
-	st, ok := s.workspaceStatus(dir)
+	st, ok := s.store.Status(dir)
 	if !ok {
 		return WorkspaceView{}, Errorf(KindInternal, "workspace %q vanished after writing it", dir)
 	}
-	return workspaceView(st), nil
+	view := s.workspaceView(ctx, st)
+	if s.OnSchedulesChanged != nil {
+		s.OnSchedulesChanged(dir)
+	}
+	s.events.Publish(ctx, events.SchedulesUpdated{Workspace: dir})
+	return view, nil
 }
 
 // ResizeSession votes a size for a session's attached control client — the
@@ -1013,32 +1386,51 @@ func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, co
 	return terminalError(client.Resize(ctx, cols, rows), "resizing session %q", rec.Name)
 }
 
+type terminalLaunch struct {
+	dir  string
+	line string
+	cols int
+	rows int
+	// resumeNotice is the caller's own words for a resume that could not
+	// happen, empty when there is nothing to announce.
+	resumeAttempted bool
+	resumeNotice    string
+	detached        bool
+}
+
 // launchTerminal creates rec's tmux session fresh and attaches to it, gives it
 // earlyExitWindow to report that it already died, and assembles the notice
-// the UI shows — resumeNotice is the caller's own words for a resume that
-// could not happen, empty when there is nothing to announce. Both
-// StartSession and ResumeSession's relaunch branch always want a fresh
-// session here — ResumeSession's still-alive branch attaches directly
-// instead, without going through this method.
-func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.AgentSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
+// the UI shows. Both StartSession and ResumeSession's relaunch branch always
+// want a fresh session here — ResumeSession's still-alive branch attaches
+// directly instead, without going through this method.
+func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.AgentSession, opts terminalLaunch) (SessionView, error) {
 	count, err := s.liveSessionCount(ctx)
 	if err != nil {
-		return SessionView{}, terminalError(err, "counting live agent sessions")
+		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "counting live agent sessions"))
 	}
 	if count >= maxConcurrentAgentSessions {
-		return SessionView{}, Errorf(KindConflict, "too many agent sessions are running (%d max); close one first", maxConcurrentAgentSessions)
+		return SessionView{}, s.discardDetached(ctx, rec, opts,
+			Errorf(KindConflict, "too many agent sessions are running (%d max); close one first", maxConcurrentAgentSessions))
 	}
 
 	name := sessionName(rec.ID)
 	// The record id is the canvas tools' session argument; handing it to the
 	// process at launch is what lets the agent name its own chat without
 	// guessing (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
+	// The token and the URL are what let it end its own chat
+	// (ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 	env := []string{
 		fmt.Sprintf("HIVE_AGENT_SESSION=%d", rec.ID),
-		"HIVE_AGENT_WORKSPACE=" + dir,
+		"HIVE_AGENT_WORKSPACE=" + opts.dir,
 	}
-	if err := s.terminals.NewSession(ctx, name, dir, line, env); err != nil {
-		return SessionView{}, terminalError(err, "launching session %q", rec.Name)
+	if rec.EndToken != "" {
+		env = append(env, "HIVE_AGENT_SESSION_TOKEN="+rec.EndToken)
+		if endURL := s.sessionEndURL(ctx); endURL != "" {
+			env = append(env, "HIVE_AGENT_SESSION_END_URL="+endURL)
+		}
+	}
+	if err := s.terminals.NewSession(ctx, name, opts.dir, opts.line, env); err != nil {
+		return SessionView{}, s.discardDetached(ctx, rec, opts, terminalError(err, "launching session %q", rec.Name))
 	}
 
 	if err := s.sessions.Touch(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
@@ -1047,31 +1439,47 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.
 
 	view := SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, Slug: name, ResumeAttempted: resumeAttempted,
+		LastOpenedAt: rec.LastOpenedAt, Slug: name, ResumeAttempted: opts.resumeAttempted,
+		ScheduleID: rec.ScheduleID,
 	}
 
 	if s.awaitEarlyExit(ctx, name) {
+		view.ExitedEarly = true
 		view.Notice = "the session exited immediately; check that the agent CLI is installed and on PATH"
 		return view, nil
 	}
 
-	window, err := s.attach(ctx, name, cols, rows)
-	if err != nil {
-		return SessionView{}, err
+	if !opts.detached {
+		window, err := s.attach(ctx, name, opts.cols, opts.rows)
+		if err != nil {
+			return SessionView{}, err
+		}
+		view.TerminalID = name
+		view.WindowID = window.ID
+		view.Cols, view.Rows = window.Width, window.Height
 	}
-	view.TerminalID = name
-	view.WindowID = window.ID
-	view.Cols, view.Rows = window.Width, window.Height
 
 	var notices []string
-	if resumeNotice != "" {
-		notices = append(notices, resumeNotice)
+	if opts.resumeNotice != "" {
+		notices = append(notices, opts.resumeNotice)
 	}
 	if notice := mcpNotice(rec.Agent); notice != "" {
 		notices = append(notices, notice)
 	}
 	view.Notice = strings.Join(notices, "; ")
 	return view, nil
+}
+
+// A UI launch keeps its record as the row the user retries from. A detached
+// one has no such reader, and a schedule firing every minute against a
+// reached cap would otherwise add a dead row a minute to the sidebar. Failing
+// to delete is not worth losing the launch error over.
+func (s *AgentWorkspacesService) discardDetached(ctx context.Context, rec stores.AgentSession, opts terminalLaunch, cause error) error {
+	if !opts.detached {
+		return cause
+	}
+	_ = s.sessions.Delete(ctx, rec.ID)
+	return cause
 }
 
 // attach opens the control client for name and returns its active window —
@@ -1206,31 +1614,27 @@ func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.W
 	return rendered, missingPackages, nil
 }
 
-func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceStatus, bool) {
-	for _, st := range s.store.Statuses() {
-		if st.Dir == dir {
-			return st, true
+// sessionViews reports read-only rows for records -- unlike launchTerminal's
+// view, nothing here launches or attaches, so WindowID, ResumeAttempted and
+// Notice stay zero-valued.
+func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []stores.AgentSession) []SessionView {
+	views := make([]SessionView, 0, len(records))
+	for _, rec := range records {
+		name := sessionName(rec.ID)
+		live := ""
+		if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
+			live = name
 		}
+		views = append(views, SessionView{
+			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
+			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: live,
+			ScheduleID: rec.ScheduleID,
+		})
 	}
-	return agentws.WorkspaceStatus{}, false
+	return views
 }
 
-// sessionView reports a session record's current, read-only state -- unlike
-// launchTerminal's view, this never launches or attaches anything, so
-// WindowID, ResumeAttempted and Notice stay zero-valued.
-func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec stores.AgentSession) SessionView {
-	name := sessionName(rec.ID)
-	live := ""
-	if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
-		live = name
-	}
-	return SessionView{
-		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: live,
-	}
-}
-
-func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
+func (s *AgentWorkspacesService) workspaceView(ctx context.Context, st agentws.WorkspaceStatus) WorkspaceView {
 	problem, notice := "", ""
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
@@ -1244,8 +1648,9 @@ func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
 		Dir: st.Dir, Name: st.Workspace.Name,
 		Command: st.Workspace.Command, MCPs: st.Workspace.MCPs,
 		Skills: st.Workspace.Skills, Problem: problem,
-		Danger: agentws.CommandIsDangerous(st.Workspace.Command),
-		Notice: notice,
+		Danger:    agentws.CommandIsDangerous(st.Workspace.Command),
+		Notice:    notice,
+		Schedules: s.history.rows(ctx, st.Workspace.Schedules, time.Now()),
 	}
 }
 
@@ -1310,11 +1715,7 @@ func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "listing all sessions")
 	}
-	views := make([]SessionView, 0, len(records))
-	for _, rec := range records {
-		views = append(views, s.sessionView(ctx, rec))
-	}
-	return views, nil
+	return s.sessionViews(ctx, records), nil
 }
 
 // agentLaunchError classifies an agentws launch-resolution failure by

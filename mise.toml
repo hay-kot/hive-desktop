@@ -45,9 +45,9 @@ description = "Generate enum methods using go-enum"
 # The file list appears twice on purpose. `sources` must be a literal array:
 # templating it from a [vars] entry renders to a path that matches nothing, and
 # mise then silently reruns the task every time instead of erroring.
-sources = ["internal/app/activity/activity.go", "internal/app/jobs/jobs.go", "internal/app/data/models/classify.go", "internal/app/flow/flow.go", "internal/app/mcpcatalog/mcpcatalog.go", "internal/app/agentws/workspace.go"]
+sources = ["internal/app/activity/activity.go", "internal/app/jobs/jobs.go", "internal/app/data/models/classify.go", "internal/app/flow/flow.go", "internal/app/mcpcatalog/mcpcatalog.go", "internal/app/agentws/workspace.go", "internal/app/schedule/spec.go"]
 outputs = { auto = true }
-run = "go-enum --nocase --names --marshal -f internal/app/activity/activity.go -f internal/app/jobs/jobs.go -f internal/app/data/models/classify.go -f internal/app/flow/flow.go -f internal/app/mcpcatalog/mcpcatalog.go -f internal/app/agentws/workspace.go"
+run = "go-enum --nocase --names --marshal -f internal/app/activity/activity.go -f internal/app/jobs/jobs.go -f internal/app/data/models/classify.go -f internal/app/flow/flow.go -f internal/app/mcpcatalog/mcpcatalog.go -f internal/app/agentws/workspace.go -f internal/app/schedule/spec.go"
 
 [tasks."generate:sqlc"]
 description = "Generate the store layer from SQL queries and migrations"

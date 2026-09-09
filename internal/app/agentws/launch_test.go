@@ -22,13 +22,13 @@ func TestResolveRendersTheCommandTemplate(t *testing.T) {
 		Dir:     "/abs/demo",
 	}
 
-	line, err := Resolve(w, "sess-1", false)
+	line, err := Resolve(w, "sess-1", false, "")
 	require.NoError(t, err)
 	assert.Contains(t, line, shellQuote(filepath.Join("/abs/demo", ".mcp.json")))
 	assert.Contains(t, line, shellQuote("/abs/demo"))
 	assert.Contains(t, line, "--session-id sess-1")
 
-	resumed, err := Resolve(w, "sess-1", true)
+	resumed, err := Resolve(w, "sess-1", true, "")
 	require.NoError(t, err)
 	assert.Contains(t, resumed, "--resume sess-1")
 	assert.NotContains(t, resumed, "--session-id")
@@ -42,7 +42,7 @@ func TestResolveLaunchesAnAgentThisBuildDoesNotKnow(t *testing.T) {
 	t.Parallel()
 
 	w := Workspace{Command: "pi --some-flag", Dir: "/abs/demo"}
-	line, err := Resolve(w, "sess", false)
+	line, err := Resolve(w, "sess", false, "")
 	require.NoError(t, err)
 	assert.Equal(t, "cd '/abs/demo' && pi --some-flag", line)
 }
@@ -52,19 +52,19 @@ func TestResolveRejectsABrokenTemplate(t *testing.T) {
 
 	t.Run("does not parse", func(t *testing.T) {
 		t.Parallel()
-		_, err := Resolve(Workspace{Command: "claude {{ .SessionID", Dir: "/tmp"}, "s", false)
+		_, err := Resolve(Workspace{Command: "claude {{ .SessionID", Dir: "/tmp"}, "s", false, "")
 		require.ErrorIs(t, err, ErrCommandTemplate)
 	})
 
 	t.Run("names a field LaunchData does not have", func(t *testing.T) {
 		t.Parallel()
-		_, err := Resolve(Workspace{Command: "claude {{ .Nonsense }}", Dir: "/tmp"}, "s", false)
+		_, err := Resolve(Workspace{Command: "claude {{ .Nonsense }}", Dir: "/tmp"}, "s", false, "")
 		require.ErrorIs(t, err, ErrCommandTemplate)
 	})
 
 	t.Run("renders to nothing", func(t *testing.T) {
 		t.Parallel()
-		_, err := Resolve(Workspace{Command: "{{ if .Resume }}claude{{ end }}", Dir: "/tmp"}, "s", false)
+		_, err := Resolve(Workspace{Command: "{{ if .Resume }}claude{{ end }}", Dir: "/tmp"}, "s", false, "")
 		require.ErrorIs(t, err, ErrCommandEmpty)
 	})
 }
@@ -117,7 +117,7 @@ func TestJoinTemplateLinesFoldsTheSource(t *testing.T) {
 		Command: "claude\n  --permission-mode acceptEdits\n\n  --session-id {{ .SessionID }}\n",
 		Dir:     "/abs/demo",
 	}
-	line, err := Resolve(w, "sess", false)
+	line, err := Resolve(w, "sess", false, "")
 	require.NoError(t, err)
 	assert.Equal(t, "cd '/abs/demo' && claude --permission-mode acceptEdits --session-id sess", line)
 }
@@ -149,7 +149,7 @@ func TestLaunchLineQuotesShellMetacharacters(t *testing.T) {
 			require.NoError(t, os.Mkdir(dir, 0o700))
 
 			w := Workspace{Command: "echo {{ .Dir | shq }}", Dir: dir}
-			line, err := Resolve(w, "sess", false)
+			line, err := Resolve(w, "sess", false, "")
 			require.NoError(t, err)
 
 			out, err := exec.Command("sh", "-c", line).CombinedOutput()
@@ -167,7 +167,7 @@ func TestLaunchLineStartsInTheWorkspaceDirectory(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	line, err := Resolve(Workspace{Command: "pwd", Dir: dir}, "sess", false)
+	line, err := Resolve(Workspace{Command: "pwd", Dir: dir}, "sess", false, "")
 	require.NoError(t, err)
 
 	cmd := exec.Command("sh", "-c", line)
@@ -191,7 +191,7 @@ func TestShippedPresetsAreLaunchable(t *testing.T) {
 			t.Parallel()
 			require.NoError(t, ValidateCommand(p.Command))
 
-			line, err := Resolve(Workspace{Command: p.Command, Dir: "/abs/demo"}, "sess", false)
+			line, err := Resolve(Workspace{Command: p.Command, Dir: "/abs/demo"}, "sess", false, "")
 			require.NoError(t, err)
 			assert.True(t, strings.HasPrefix(line, "cd '/abs/demo' && "+p.Agent))
 			assert.Equal(t, CommandIsDangerous(p.Command), p.Danger,
@@ -235,4 +235,51 @@ func TestAgentForReadsTheCommandWord(t *testing.T) {
 	} {
 		assert.Equal(t, want, AgentFor(command), command)
 	}
+}
+
+// TestResolvePassesThePromptThroughEveryPreset pins the contract a scheduled
+// launch rests on: the prompt arrives quoted as one trailing word behind the
+// end-of-options marker, so a prompt that opens with a hyphen is text rather
+// than a flag the CLI rejects, and an empty prompt leaves the interactive line
+// untouched byte for byte.
+func TestResolvePassesThePromptThroughEveryPreset(t *testing.T) {
+	t.Parallel()
+
+	prompts := []string{
+		"Say hello; rm -rf /",
+		"- Summarize the week\n- Name every open question",
+		"--dangerously-skip-permissions",
+	}
+	for _, p := range BuiltinPresets() {
+		t.Run(p.ID, func(t *testing.T) {
+			t.Parallel()
+			w := Workspace{Command: p.Command, Dir: "/abs/demo"}
+			assert.True(t, SupportsPrompt(p.Command))
+
+			bare, err := Resolve(w, "sess-1", false, "")
+			require.NoError(t, err)
+			for _, prompt := range prompts {
+				prompted, err := Resolve(w, "sess-1", false, prompt)
+				require.NoError(t, err)
+				assert.Equal(t, bare+" -- "+shellQuote(prompt), prompted)
+			}
+		})
+	}
+}
+
+// A template that never mentions .Prompt launches the same line either way:
+// the prompt is dropped, never spliced somewhere the shell would run it.
+func TestSupportsPromptComparesBothRenderings(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, SupportsPrompt("claude"))
+	assert.False(t, SupportsPrompt("claude {{ .Prompt | len | print | slice 0 0 }}"), "mentioning the field without changing the line is not support")
+	assert.True(t, SupportsPrompt("pi"+PromptTail))
+
+	w := Workspace{Command: "pi --some-flag", Dir: "/abs/demo"}
+	bare, err := Resolve(w, "sess", false, "")
+	require.NoError(t, err)
+	prompted, err := Resolve(w, "sess", false, "hello")
+	require.NoError(t, err)
+	assert.Equal(t, bare, prompted)
 }

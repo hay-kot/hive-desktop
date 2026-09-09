@@ -116,12 +116,12 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such workspace, or its manifest is invalid"),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/create", Summary: "Create a workspace: a new directory under the root with a fresh agent-workspace.yaml naming the given name, agent label, and command template.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/create", Summary: "Create a workspace: a new directory under the root with a fresh agent-workspace.yaml naming the given name, command template, and any scheduled chats.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceCreate,
 			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, command, mcps, and skills — which names skill packages, not individual skills) in place. The command is a Go template over .Dir, .MCPConfig, .SessionID and .Resume, rejected here if it does not render. Comments, key order, and keys the editor does not own survive the write; an empty mcps or skills removes the key.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, command, mcps, skills — which names skill packages, not individual skills — and schedules) in place. The command is a Go template over .Dir, .MCPConfig, .SessionID, .Resume and .Prompt, rejected here if it does not render; a workspace with schedules needs one that passes .Prompt. Comments, key order, and keys the editor does not own survive the write; an empty mcps, skills or schedules removes the key. The schedules list is reconciled to exactly what is sent: an entry it no longer names is deleted, and each schedule's id shape, cron expression and prompt template are validated before anything is written.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
 			Errors: agentErrors("no such workspace"),
 		},
@@ -235,6 +235,22 @@ func (ctrl *Controller) agentOperations() []Op {
 			Request: agentCanvasExportRequest{}, Response: agentCanvasExportResponse{}, Handler: ctrl.AgentCanvasExport,
 			Errors: agentErrors("no such canvas"),
 		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/run", Summary: "Fire one schedule now, outside its timetable, and return the run it recorded. The cursor is untouched, so the next real occurrence still happens. A run whose previous chat is still open, or whose prompt or launch failed, answers 200 with that outcome on the run rather than an error.",
+			Request: agentScheduleIDRequest{}, Response: agentScheduleRunResponse{}, Handler: ctrl.AgentScheduleRun,
+			Errors: agentErrors("no schedule of that id in that workspace",
+				ErrResp{Status: 503, When: "tmux is unavailable, so whether the previous run's chat is still open cannot be answered"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/runs", Summary: "List one schedule's run history, newest first. A limit of 0 takes the default. History outlives the manifest entry it came from, so a schedule that was deleted, or whose workspace manifest is broken, still answers.",
+			Request: agentScheduleRunsRequest{}, Response: agentScheduleRunsResponse{}, Handler: ctrl.AgentScheduleRuns,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "schedules/preview", Summary: "Dry-run an unsaved edit: the next occurrences the cron produces, and the prompt rendered against sample data. A cron or template that does not parse comes back in cronError/promptError rather than as a failed call, so the editor can show it beside the field being typed in.",
+			Request: agentSchedulePreviewRequest{}, Response: agentSchedulePreviewResponse{}, Handler: ctrl.AgentSchedulePreview,
+			Errors: agentErrors(""),
+		},
 	}
 }
 
@@ -254,7 +270,10 @@ func agentErrors(notFound string, extra ...ErrResp) []ErrResp {
 // build. Both stay HTTP because they answer the question "is the app up, and
 // which build is it?" — one a shell script or a health check asks with a plain
 // GET, and a JSON-RPC handshake is the wrong shape for it. Everything an agent
-// drives is a tool on the MCP server now.
+// drives is a tool on the MCP server now, with one exception: the call a chat
+// makes about itself, ending its own session, which is a curl from inside the
+// agent's shell with the token its launch handed it
+// (ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 func (ctrl *Controller) baseOperations() []Op {
 	return []Op{
 		{
@@ -267,6 +286,11 @@ func (ctrl *Controller) baseOperations() []Op {
 		{
 			Method: "GET", Path: "/api/status", Summary: "Report whether the webhook listener is running and on which host and port.",
 			Response: statusResponse{}, Handler: ctrl.Status,
+		},
+		{
+			Method: "POST", Path: app.AgentSessionEndPath, Summary: "End the calling chat's own session. The bearer is the HIVE_AGENT_SESSION_TOKEN the launch handed that process, so a chat can end itself and nothing else; a scheduled chat is told to call this when its task is done. Answers 202 with when the chat will be gone: the request arrives from inside the agent's own tool call, and the grace (agent_workspaces.session_end_delay) lets that call return first. The chat is deleted with its session, so a schedule leaves no row per run; its run history keeps the outcome.",
+			Response: agentSessionEndResponse{}, Handler: ctrl.AgentSessionEnd,
+			Errors: []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or is not a session's"}},
 		},
 	}
 }

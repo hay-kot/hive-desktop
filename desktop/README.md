@@ -189,6 +189,9 @@ telemetry:
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
                  # A binding is a single combo ("j") or a space-separated
                  # sequence of combos pressed in order ("g i").
+agent_workspaces:
+  dir: "" # workspace root; empty is the config dir's workspaces/ (a leading ~ is expanded)
+  session_end_delay: 10s # grace between a chat asking to end its own session and the session being ended
 paths:
   tmux: "" # absolute path to tmux; empty discovers it (ADR tmux-discovery)
 development:

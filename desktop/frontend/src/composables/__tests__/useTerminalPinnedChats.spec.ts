@@ -18,6 +18,7 @@ function chat(id: number, name: string, terminalId = ''): AgentSession {
     rows: 0,
     resumeAttempted: false,
     notice: '',
+    scheduleId: '',
   }
 }
 

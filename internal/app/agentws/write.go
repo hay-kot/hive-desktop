@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 )
 
 // This file is the manifest writer the Migration Notes reserved: it edits the
@@ -48,6 +49,10 @@ type ManifestEdit struct {
 	Command string
 	MCPs    []string
 	Skills  []string
+	// Schedules is the whole schedules: list, not a delta: the editor holds
+	// every entry while it is open, so a write reconciles the file to exactly
+	// this set.
+	Schedules []schedule.Spec
 }
 
 // CreateWorkspace makes dir under root, writes its first manifest, and seeds
@@ -101,8 +106,8 @@ func RemoveWorkspace(root, dir string) error {
 // WriteManifest sets exactly the ManifestEdit fields in dir's
 // agent-workspace.yaml, creating a fresh version-current document when the
 // file does not exist and editing the existing document in place when it
-// does — everything else the file says survives. An empty mcps or skills
-// removes the key rather than writing an empty list.
+// does — everything else the file says survives. An empty mcps, skills or
+// schedules removes the key rather than writing an empty list.
 func WriteManifest(root, dir string, edit ManifestEdit) error {
 	path := filepath.Join(root, dir, manifestFileName)
 
@@ -150,6 +155,7 @@ func WriteManifest(root, dir string, edit ManifestEdit) error {
 			return err
 		}
 	}
+	reconcileSchedules(mapping, edit.Schedules)
 
 	out, err := encodeManifestDoc(doc)
 	if err != nil {
@@ -180,14 +186,20 @@ func setManifestValue(mapping *yaml.Node, key string, value any) error {
 	if err := v.Encode(value); err != nil {
 		return fmt.Errorf("agent-workspace.yaml: encode %s: %w", key, err)
 	}
+	setManifestNode(mapping, key, &v)
+	return nil
+}
+
+// setManifestNode is setManifestValue over an already-built node, for values
+// whose YAML style matters (a block scalar, say).
+func setManifestNode(mapping *yaml.Node, key string, value *yaml.Node) {
 	for i := 0; i+1 < len(mapping.Content); i += 2 {
 		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = &v
-			return nil
+			mapping.Content[i+1] = value
+			return
 		}
 	}
-	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, &v)
-	return nil
+	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: key}, value)
 }
 
 // removeManifestKey drops key and its value from mapping. The key's own head

@@ -12,7 +12,10 @@
 //
 // /api/status and /api/version are the liveness probe — the plain-GET way to
 // ask whether the app is up and which build it is, which a shell script or a
-// health check needs and JSON-RPC is the wrong shape for.
+// health check needs and JSON-RPC is the wrong shape for. Beside them sits the
+// one call a chat makes about itself, POST /api/sessions/end, guarded by the
+// token its own launch handed it rather than the frontend's
+// (ADR a-scheduled-chat-ends-itself-through-a-capability-token-its-launch-handed-it).
 //
 // What is *not* here any more is the agent-facing control surface this package
 // began as (ADR agent-http-api, ADR self-describing-agent-api). Inbox, feeds, profiles, actions, source

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -17,8 +18,10 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
+	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
 
 // newTestAgentWorkspacesService builds a service over root with a real
@@ -45,10 +48,11 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	return newAgentWorkspacesService(AgentWorkspacesDeps{
 		Store:           awStore,
 		Terminals:       manager,
-		Sessions:        stores.New(db, stores.Options{}).AgentSessions,
+		Stores:          stores.New(db, stores.Options{}),
 		Skills:          newTestSkillsService(t),
 		ProfileCommands: commands,
 		MCPBase:         mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+		Events:          events.New(zerolog.Nop()),
 	})
 }
 
@@ -111,8 +115,9 @@ func newManifestOnlyService(t *testing.T, root string, profileCommands map[strin
 	require.NoError(t, awStore.Reload())
 
 	return newAgentWorkspacesService(AgentWorkspacesDeps{
-		Store: awStore, Sessions: stores.New(db, stores.Options{}).AgentSessions, Skills: newTestSkillsService(t),
+		Store: awStore, Stores: stores.New(db, stores.Options{}), Skills: newTestSkillsService(t),
 		ProfileCommands: profileCommands, MCPBase: mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+		Events: events.New(zerolog.Nop()),
 	})
 }
 
@@ -407,6 +412,41 @@ func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "tmux already ended the session when its command exited")
 }
 
+// TestDetachedLaunchThatNeverStartedLeavesNoRecord: the session row is written
+// before tmux is asked for anything, so a launch that fails there leaves a
+// record for a chat that does not exist. A user-driven launch keeps it -- the
+// error is on screen and the row is what they retry from -- but a schedule
+// firing every minute against a reached cap or a tmux that is down would add
+// one dead row a minute to the sidebar, with nobody watching.
+func TestDetachedLaunchThatNeverStartedLeavesNoRecord(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
+
+	// tmux refuses a session name it already holds, which is how a launch is
+	// made to fail after its record exists. Both ids are taken because the
+	// second launch may reuse the first's rowid once its record is gone.
+	for _, id := range []int64{1, 2} {
+		blocker := exec.CommandContext(t.Context(), "tmux", "new-session", "-d", "-s", sessionName(id))
+		blocker.Env = tmuxtest.ScrubbedEnv()
+		require.NoError(t, blocker.Run())
+	}
+
+	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "scheduled", Detached: true})
+	require.Error(t, err)
+	records, err := svc.sessions.List(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.Empty(t, records, "a scheduled launch that never started must not leave a row the sidebar lists")
+
+	_, err = svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "by hand", Cols: 80, Rows: 24})
+	require.Error(t, err)
+	records, err = svc.sessions.List(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.Len(t, records, 1, "a launch the user made keeps its record to retry from")
+}
+
 // TestLaunchAcceptsAnAgentNoConfigNames is the regression this schema change
 // exists for. Both cases used to be hard refusals at launch: an agent absent
 // from hive's config, and one present there but absent from agentws's launch
@@ -502,11 +542,29 @@ func TestDeleteWorkspaceRemovesTheDirectoryAndTheRecords(t *testing.T) {
 	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
 
+	// Schedule state is app-local like the session records, and a cursor left
+	// behind would back-fire for a workspace rebuilt under the same name.
+	require.NoError(t, svc.schedules.SaveCursor(t.Context(), stores.ScheduleCursor{
+		Workspace: "demo", ScheduleID: "weekly", EvaluatedThrough: 100, Cron: "@weekly",
+	}))
+	_, err = svc.schedules.InsertRun(t.Context(), stores.ScheduleRun{
+		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "weekly",
+		ScheduledFor: 100, StartedAt: 100, Reason: "due", Status: "launched", SessionID: 1,
+	})
+	require.NoError(t, err)
+
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 
 	sessions, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, sessions)
+
+	runs, err := svc.schedules.ListRuns(t.Context(), "demo", "weekly", 10)
+	require.NoError(t, err)
+	assert.Empty(t, runs)
+	_, ok, err := svc.schedules.Cursor(t.Context(), "demo", "weekly")
+	require.NoError(t, err)
+	assert.False(t, ok)
 
 	assert.NoDirExists(t, filepath.Join(root, "demo"))
 	listed, err := svc.List(t.Context())
@@ -667,6 +725,267 @@ func TestWorkspaceEditOwnsTheSkillPackageList(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+// Schedules are a manifest key like mcps: and skills:, so they are saved with
+// the rest of the manifest and reconciled to exactly what the editor sends.
+func TestWorkspaceEditOwnsTheScheduleList(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	var changed []string
+	svc.OnSchedulesChanged = func(workspace string) { changed = append(changed, workspace) }
+
+	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude" + agentws.PromptTail}
+	created := base
+	created.Schedules = []ScheduleEdit{
+		{ID: "weekly", Name: "Weekly summary", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
+		{ID: "daily", Cron: "@daily", Prompt: "Standup."},
+	}
+	view, err := svc.CreateWorkspace(t.Context(), created)
+	require.NoError(t, err)
+	require.Len(t, view.Schedules, 2)
+	assert.Equal(t, "weekly", view.Schedules[0].ID)
+	require.NotNil(t, view.Schedules[0].NextRunAt)
+	assert.Nil(t, view.Schedules[0].LastRun)
+	assert.Equal(t, []string{"demo"}, changed, "a write has to reach the running scheduler")
+
+	updated := base
+	updated.Schedules = []ScheduleEdit{
+		{ID: "weekly", Name: "Weekly summary", Cron: "0 10 * * 1", Prompt: "Summarize the week.", Disabled: true},
+	}
+	view, err = svc.UpdateWorkspace(t.Context(), updated)
+	require.NoError(t, err)
+	require.Len(t, view.Schedules, 1, "an entry the editor stopped naming is deleted by the same write")
+	assert.Equal(t, "0 10 * * 1", view.Schedules[0].Cron)
+	assert.True(t, view.Schedules[0].Disabled)
+
+	view, err = svc.UpdateWorkspace(t.Context(), base)
+	require.NoError(t, err)
+	assert.Empty(t, view.Schedules)
+	assert.Len(t, changed, 3)
+}
+
+func TestWorkspaceEditRejectsAnInvalidSchedule(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	base := WorkspaceEdit{Dir: "demo", Name: "Demo", Command: "claude" + agentws.PromptTail}
+	_, err := svc.CreateWorkspace(t.Context(), base)
+	require.NoError(t, err)
+
+	var changed []string
+	svc.OnSchedulesChanged = func(workspace string) { changed = append(changed, workspace) }
+
+	badCron := base
+	badCron.Name = "Renamed"
+	badCron.Schedules = []ScheduleEdit{{ID: "weekly", Cron: "not a cron", Prompt: "hi"}}
+	_, err = svc.UpdateWorkspace(t.Context(), badCron)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "not a cron", "the reason has to reach the editor")
+
+	duplicate := base
+	duplicate.Schedules = []ScheduleEdit{
+		{ID: "weekly", Cron: "@daily", Prompt: "hi"},
+		{ID: "weekly", Cron: "@weekly", Prompt: "hi"},
+	}
+	_, err = svc.UpdateWorkspace(t.Context(), duplicate)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+
+	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "schedules", "a rejected edit writes nothing")
+	assert.NotContains(t, string(raw), "Renamed", "not even the fields the edit got right")
+	assert.Empty(t, changed, "nothing was written, so the scheduler has nothing to re-read")
+}
+
+// A manifest the loader could not read is not something the editor may write
+// over: its form loads from the workspace view, and on the first load of a run
+// there is no last-good snapshot behind the break, so a save would reconcile
+// every list in the file to nothing.
+func TestUpdateWorkspaceRefusesABrokenManifest(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", brokenScheduleManifest)
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	path := filepath.Join(root, "demo", "agent-workspace.yaml")
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{
+		Dir: "demo", Name: "Renamed", Command: "claude",
+	})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "agent-workspace.yaml has a problem")
+	assert.Contains(t, err.Error(), "not a cron", "the reason names what to fix")
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "a refused edit leaves the file byte for byte")
+}
+
+// A chat ends itself by presenting the token its launch handed it. It is
+// deleted after the configured grace rather than inside the call, so the tool
+// call that made the request returns first, and the record goes with the tmux
+// session: a schedule must not leave a row per run in the sidebar.
+func TestEndOwnSessionDeletesTheChatAfterTheDelay(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agentCmd := fakeAgentBinary(t, "claude", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
+	svc.endDelay = FixedSessionEndDelay(100 * time.Millisecond)
+	ended := make(chan events.SchedulesUpdated, 1)
+	cancel := events.Subscribe(t.Context(), svc.events, "test.ended", events.Buffer(1), func(_ context.Context, e events.SchedulesUpdated) { ended <- e })
+	t.Cleanup(cancel)
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24, ScheduleID: "weekly"})
+	require.NoError(t, err)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, rec.EndToken, "every launch mints a token")
+
+	_, err = svc.EndOwnSession(t.Context(), "not-a-token")
+	require.Error(t, err)
+	assert.Equal(t, KindUnauthenticated, KindOf(err))
+
+	ending, err := svc.EndOwnSession(t.Context(), rec.EndToken)
+	require.NoError(t, err)
+	assert.Equal(t, started.ID, ending.Session.ID)
+	assert.WithinDuration(t, time.Now().Add(100*time.Millisecond), ending.EndsAt, time.Second)
+
+	live, err := svc.SessionLive(t.Context(), started.ID)
+	require.NoError(t, err)
+	assert.True(t, live, "the session outlives the call itself")
+
+	select {
+	case e := <-ended:
+		assert.Equal(t, "demo", e.Workspace, "a scheduled chat that ended itself wakes the Chats area")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the session was not ended after the delay")
+	}
+	live, err = svc.SessionLive(t.Context(), started.ID)
+	require.NoError(t, err)
+	assert.False(t, live)
+
+	sessions, err := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.Empty(t, sessions, "the record goes with the tmux session")
+}
+
+// A scheduled launch hands the agent the framed prompt and the means to end
+// itself: the frame names the schedule and carries the curl, and the process
+// environment carries the token and the URL the curl reads.
+func TestStartScheduledSessionFramesThePromptAndHandsOutTheToken(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	captured := filepath.Join(t.TempDir(), "launch")
+	agentCmd := fakeAgentBinary(t, "claude", `sh -c 'printf "%s\n" "$@" > "$0.args"; env > "$0.env"; exec cat' `+captured+` "$@"`)
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agentCmd+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
+	svc.mcpBase = mcpBaseFunc(func(context.Context) string { return "http://127.0.0.1:4321" })
+
+	started, err := svc.StartScheduledSession(t.Context(), StartScheduledSession{
+		Workspace: "demo", ScheduleID: "weekly", ScheduleName: "Weekly summary",
+		Name: "Weekly summary - Sep 6 09:00", Prompt: "Summarize the week.",
+	})
+	require.NoError(t, err)
+	rec, err := svc.sessions.Get(t.Context(), started.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "weekly", rec.ScheduleID, "the record wears its schedule's id, which is what marks the row in the sidebar")
+
+	var args, env string
+	require.Eventually(t, func() bool {
+		a, errA := os.ReadFile(captured + ".args")
+		e, errE := os.ReadFile(captured + ".env")
+		args, env = string(a), string(e)
+		return errA == nil && errE == nil
+	}, 5*time.Second, 25*time.Millisecond, "the fake agent records what it was launched with")
+
+	assert.Contains(t, args, `scheduled task "Weekly summary" in the "Demo" workspace`)
+	assert.Contains(t, args, "Summarize the week.")
+	assert.Contains(t, args, "you MUST end this session")
+	assert.Contains(t, env, "HIVE_AGENT_SESSION_TOKEN="+rec.EndToken+"\n")
+	assert.Contains(t, env, "HIVE_AGENT_SESSION_END_URL=http://127.0.0.1:4321"+AgentSessionEndPath+"\n")
+}
+
+// PutSchedule and RemoveSchedule are the MCP tools' writes: one entry at a
+// time, in place, with the rest of the manifest and its comments untouched,
+// and the same refusal of a broken manifest the editor's write has.
+func TestPutAndRemoveScheduleEditOneEntryInPlace(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "# keep me\n"+agentWorkspaceYAML("Demo", "claude"+agentws.PromptTail, "mcps: [playwright]\n"))
+	writeAgentWorkspaceManifest(t, root, "broken", brokenScheduleManifest)
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	changed := 0
+	svc.OnSchedulesChanged = func(string) { changed++ }
+
+	row, err := svc.PutSchedule(t.Context(), "demo", SchedulePatch{
+		ID: "weekly", Name: new("Weekly summary"), Cron: new("0 9 * * 5"), Prompt: new("Summarize the week."),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "weekly", row.ID)
+	require.NotNil(t, row.NextRunAt)
+	assert.Equal(t, 1, changed, "a write reaches the scheduler and the UI")
+
+	_, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "daily", Cron: new("@daily"), Prompt: new("Standup.")})
+	require.NoError(t, err)
+	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Disabled: new(true), OnMissed: new("skip")})
+	require.NoError(t, err)
+	assert.True(t, row.Disabled)
+	assert.Equal(t, "Weekly summary", row.Name, "a field the patch omits keeps its stored value")
+	assert.Equal(t, "0 9 * * 5", row.Cron)
+
+	// Re-timing a paused schedule leaves it paused: the case an agent hits
+	// when told "move that schedule to 10:00" about one the user switched off.
+	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Cron: new("0 10 * * 5")})
+	require.NoError(t, err)
+	assert.Equal(t, "0 10 * * 5", row.Cron)
+	assert.True(t, row.Disabled)
+	assert.Equal(t, "skip", row.OnMissed)
+	assert.Equal(t, "Weekly summary", row.Name)
+	row, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "weekly", Name: new("")})
+	require.NoError(t, err)
+	assert.Empty(t, row.Name, "an explicit empty name clears the stored one")
+
+	raw, err := os.ReadFile(filepath.Join(root, "demo", "agent-workspace.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "# keep me")
+	assert.Contains(t, string(raw), "playwright")
+	st, ok := svc.store.Status("demo")
+	require.True(t, ok)
+	require.Len(t, st.Workspace.Schedules, 2, "an existing id is replaced, not appended")
+	assert.Equal(t, "weekly", st.Workspace.Schedules[0].ID)
+
+	_, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "bad", Cron: new("not a cron"), Prompt: new("go")})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	_, err = svc.PutSchedule(t.Context(), "demo", SchedulePatch{ID: "new", Cron: new("@daily")})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err), "a new schedule needs a cron and a prompt")
+	require.ErrorContains(t, err, "does not exist")
+	_, err = svc.PutSchedule(t.Context(), "broken", SchedulePatch{ID: "weekly", Cron: new("@daily"), Prompt: new("go")})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err), "a broken manifest is fixed in the file, never written over")
+	_, err = svc.PutSchedule(t.Context(), "nope", SchedulePatch{ID: "weekly", Cron: new("@daily"), Prompt: new("go")})
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	require.NoError(t, svc.RemoveSchedule(t.Context(), "demo", "weekly"))
+	st, _ = svc.store.Status("demo")
+	require.Len(t, st.Workspace.Schedules, 1)
+	assert.Equal(t, "daily", st.Workspace.Schedules[0].ID)
+	err = svc.RemoveSchedule(t.Context(), "demo", "weekly")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+	assert.Equal(t, 6, changed)
 }
 
 // TestSkillPackagesResolveMembers is the editor's read: packages from

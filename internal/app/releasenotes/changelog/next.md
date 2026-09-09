@@ -19,6 +19,12 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   vocabulary, so stat tiles, card grids and callouts follow your theme instead
   of whatever the model picked. Each canvas is a file in the workspace folder,
   so it outlives the chat that made it.
+- **Scheduled chats** (experimental): a workspace can declare `schedules:` in
+  its manifest, a cron expression and a prompt template, and Hive starts the
+  chat when it comes due, once more for anything missed while the app was
+  closed, and tells the agent to end the session when its task is done. An
+  agent can manage a workspace's schedules through the `hive-desktop` MCP
+  server.
 - **Grafana connector** for metrics, alerts, and IRM alert groups, with
   Alertmanager filtering pushed server-side so large instances stay
   responsive.

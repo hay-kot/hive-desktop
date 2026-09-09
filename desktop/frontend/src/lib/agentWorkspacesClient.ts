@@ -28,6 +28,8 @@ export interface AgentWorkspace {
   command: string
   mcps: string[]
   skills: string[]
+  /** The manifest's schedules, each joined with its next and last run. */
+  schedules: AgentSchedule[]
   problem: string
   /** The command carries a permission bypass this build recognizes. */
   danger: boolean
@@ -74,6 +76,11 @@ export interface WorkspaceEditRequest {
   mcps: string[]
   /** Skill package names from skills.yml, not individual skills. */
   skills: string[]
+  /**
+   * The whole `schedules:` list. The manifest is reconciled to it, so an entry
+   * left out here is removed from the workspace.
+   */
+  schedules: ScheduleEdit[]
 }
 
 /** One row of the merged MCP catalogue: shipped entries plus the user's mcps.yaml. */
@@ -165,6 +172,8 @@ export interface AgentSession {
   rows: number
   resumeAttempted: boolean
   notice: string
+  /** The schedule that launched this chat, empty when a person started it. */
+  scheduleId: string
 }
 
 /** One live session's detected activity — ready, active, or approval. */
@@ -219,6 +228,61 @@ export interface WorkspaceCanvasMeta {
   createdAt: number
   updatedAt: number
   blockCount: number
+}
+
+/**
+ * One `schedules:` entry from a workspace manifest, joined with the app-local
+ * run state the Go side keeps: when it fires next and how it went last time.
+ * `nextRunAt` is null when the schedule is disabled or its cron does not parse.
+ */
+export interface AgentSchedule {
+  id: string
+  name: string
+  cron: string
+  prompt: string
+  disabled: boolean
+  onMissed: 'run' | 'skip'
+  nextRunAt: number | null
+  lastRun: AgentScheduleRun | null
+}
+
+/** One execution of a schedule. */
+export interface AgentScheduleRun {
+  id: number
+  startedAt: number
+  reason: 'due' | 'catch_up' | 'manual'
+  status: 'launched' | 'failed' | 'skipped'
+  /** Earlier occurrences this run stands in for, 0 when it fired on time. */
+  missed: number
+  error: string
+}
+
+/**
+ * A dry run of an unsaved edit: the next occurrences its cron produces. A bad
+ * cron or template is reported in `cronError`/`promptError` rather than as a
+ * failed call, so the editor can show it beside the field the user is still
+ * typing in.
+ */
+export interface AgentSchedulePreview {
+  next: number[]
+  cronError: string
+  promptError: string
+}
+
+/** One `schedules:` entry as the workspace editor writes it. */
+export interface ScheduleEdit {
+  id: string
+  name: string
+  cron: string
+  prompt: string
+  disabled: boolean
+  onMissed: AgentSchedule['onMissed']
+}
+
+export interface SchedulePreviewRequest {
+  workspace: string
+  cron: string
+  prompt: string
 }
 
 export interface AgentWorkspaceOpenResult {
@@ -295,6 +359,12 @@ export interface AgentWorkspacesClient {
   canvasMarkdown(workspace: string, name: string): Promise<string>
   /** Write one canvas's markdown rendering to an absolute path from the save dialog. */
   exportCanvas(workspace: string, name: string, path: string): Promise<void>
+  /** Fires a schedule now, outside its timetable; the cursor is untouched. */
+  runSchedule(workspace: string, id: string): Promise<AgentScheduleRun>
+  /** One schedule's run history, newest first. */
+  scheduleRuns(workspace: string, id: string, limit: number): Promise<AgentScheduleRun[]>
+  /** Validates an unsaved edit and reports what it would do. */
+  previewSchedule(request: SchedulePreviewRequest): Promise<AgentSchedulePreview>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
   openStream(name: string): WebSocket
 }
@@ -432,20 +502,34 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async exportCanvas(workspace, name, path) {
       await post('/canvas/export', { workspace, name, path })
     },
+    async runSchedule(workspace, id) {
+      const body = await post<{ run: AgentScheduleRun }>('/schedules/run', { workspace, id })
+      if (!body?.run) throw new AgentRequestError('the schedule did not run', '')
+      return body.run
+    },
+    async scheduleRuns(workspace, id, limit) {
+      const body = await post<{ runs: AgentScheduleRun[] | null }>('/schedules/runs', { workspace, id, limit })
+      return body?.runs ?? []
+    },
+    async previewSchedule(request) {
+      const body = await post<AgentSchedulePreview>('/schedules/preview', request)
+      if (!body) throw new AgentRequestError('the schedule could not be previewed', '')
+      return { ...body, next: body.next ?? [] }
+    },
     openStream,
   }
 }
 
 function emptyWorkspace(dir: string): AgentWorkspace {
-  return { dir, name: '', command: '', mcps: [], skills: [], problem: '', danger: false, notice: '' }
+  return { dir, name: '', command: '', danger: false, mcps: [], skills: [], schedules: [], problem: '', notice: '' }
 }
 
-// normalizeWorkspace guards against a null mcps or skills array on the wire:
-// the Go side now always sends [], but this is the client boundary, so a
-// template or composable can trust both are iterable without its own null
-// check regardless.
+// normalizeWorkspace guards against a null mcps, skills or schedules array on
+// the wire: the Go side now always sends [], but this is the client boundary,
+// so a template or composable can trust all three are iterable without its own
+// null check regardless.
 function normalizeWorkspace(w: AgentWorkspace): AgentWorkspace {
-  return { ...w, mcps: w.mcps ?? [], skills: w.skills ?? [] }
+  return { ...w, mcps: w.mcps ?? [], skills: w.skills ?? [], schedules: w.schedules ?? [] }
 }
 
 async function failure(response: Response): Promise<AgentRequestError> {

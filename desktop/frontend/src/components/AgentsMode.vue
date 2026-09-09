@@ -267,9 +267,12 @@ watch([paneStatus, openSessionId], ([status, id]) => {
   else if (status === 'idle') syncChatQuery(null)
 })
 
+// A route naming a chat other than the open one is a request to switch. A
+// reload with a stale ?chat is the same shape. Only an in-flight launch is left
+// alone, so two attaches never race for the pane.
 watch([routeChatId, () => props.active], ([id, active]) => {
   if (id === null || !active) return
-  if (openSessionId.value === id || paneStatus.value !== 'idle') return
+  if (openSessionId.value === id || paneStatus.value === 'opening') return
   void resumeChatFromRoute(id)
 }, { immediate: true })
 
@@ -324,10 +327,13 @@ async function resumeChatFromRoute(id: number): Promise<void> {
   await ready()
   if (!available.value) return
   await reloadRecents()
-  if (routeChatId.value !== id || openSessionId.value === id || paneStatus.value !== 'idle') return
+  if (routeChatId.value !== id || openSessionId.value === id || paneStatus.value === 'opening') return
   const session = recents.value.find((row) => row.id === id)
   if (!session?.terminalId) {
-    syncChatQuery(null)
+    // The route named a chat that cannot be attached, so the query goes back
+    // to naming whatever the pane actually holds. Clearing it outright would
+    // take a live chat's ?canvas down with it.
+    syncChatQuery(paneStatus.value === 'live' ? openSessionId.value : null)
     return
   }
   await resumeRow(session)
@@ -343,6 +349,15 @@ async function handleSidebarSelectSession(session: AgentSession): Promise<void> 
   await resumeRow(session)
   void reloadRecents()
 }
+
+// A schedule that fires starts a chat nobody clicked for, so the tree only
+// learns about it from this wake-up: every other reload here hangs off a user
+// action. The workspace list is re-read with it because each workspace carries
+// its schedules, and the header tooltip's next run has just moved.
+useWailsEvent('schedules:updated', () => {
+  void reloadRecents()
+  void reloadWorkspaces()
+})
 
 // ── Workspace editor (DrawerSheet, like every other editor) ──────────────────
 // Create, edit, and delete: the editor is the workspace's whole management
@@ -868,8 +883,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- A sibling of the pane column, never inside it: the terminal host
-           must not be re-keyed or unmounted by the canvas opening, and the
+      <!-- A sibling of the pane column, never inside it: the terminal host must
+           not be re-keyed or unmounted by the canvas opening, and the
            ResizeObserver absorbs the width change with an ordinary size vote. -->
       <AgentCanvasPane
         v-if="canvasVisible && routeChatId !== null"

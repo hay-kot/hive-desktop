@@ -28,6 +28,11 @@ type LaunchData struct {
 	// agent already persisted. A template that does not branch on it reports
 	// no resume support at all — see SupportsResume.
 	Resume bool
+	// Prompt is the agent's first message on a scheduled chat and empty on one
+	// started by hand, so a template that guards on it produces exactly the
+	// interactive line when there is nothing to say. A template that never
+	// interpolates it cannot be scheduled — see SupportsPrompt.
+	Prompt string
 }
 
 var (
@@ -127,6 +132,27 @@ func SupportsResume(command string) bool {
 	return fresh != resumed
 }
 
+// SupportsPrompt reports whether command carries a prompt into the launch. It
+// renders with and without one and compares, for the same reason
+// SupportsResume does: a scheduled chat whose prompt the template drops would
+// sit idle in a detached session with nobody watching, so the caller has to
+// know before it writes the schedule.
+func SupportsPrompt(command string) bool {
+	t, err := parseCommand(command)
+	if err != nil {
+		return false
+	}
+	bare, err := render(t, LaunchData{Dir: "/probe", MCPConfig: "/probe/.mcp.json", SessionID: "probe-session"})
+	if err != nil {
+		return false
+	}
+	prompted, err := render(t, LaunchData{Dir: "/probe", MCPConfig: "/probe/.mcp.json", SessionID: "probe-session", Prompt: "prompt-probe"})
+	if err != nil {
+		return false
+	}
+	return bare != prompted
+}
+
 // dangerousFlags are the permission bypasses this build knows by name. The
 // posture enum used to make `full` self-labelling; with a free-form command
 // the label has to be derived from what the command actually says
@@ -159,7 +185,9 @@ func CommandIsDangerous(command string) bool {
 // the shell parses the author's own words — which is what lets a template
 // carry a pipeline, an env prefix, or quoting of its own. Every value Hive
 // interpolates is quoted by the template through shq.
-func Resolve(w Workspace, sessionID string, resume bool) (string, error) {
+//
+// An empty prompt produces exactly the line an interactive launch produces.
+func Resolve(w Workspace, sessionID string, resume bool, prompt string) (string, error) {
 	t, err := parseCommand(w.Command)
 	if err != nil {
 		return "", err
@@ -169,6 +197,7 @@ func Resolve(w Workspace, sessionID string, resume bool) (string, error) {
 		MCPConfig: filepath.Join(w.Dir, mcpJSONFileName),
 		SessionID: sessionID,
 		Resume:    resume,
+		Prompt:    prompt,
 	})
 	if err != nil {
 		return "", err

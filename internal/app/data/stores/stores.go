@@ -24,6 +24,7 @@ type Stores struct {
 	NodeKV          *NodeKVStore
 	NodeRuns        *NodeRunStore
 	OutputCommands  *OutputCommandStore
+	Schedules       *ScheduleStore
 	SourceHeads     *SourceHeadStore
 	WebhookCaptures *WebhookCaptureStore
 }
@@ -72,6 +73,7 @@ func New(q *queries.DB, opts Options) *Stores {
 		NodeKV:          kv,
 		NodeRuns:        runs,
 		OutputCommands:  commands,
+		Schedules:       NewScheduleStore(q, opts),
 		SourceHeads:     heads,
 		WebhookCaptures: NewWebhookCaptureStore(q, opts),
 	}

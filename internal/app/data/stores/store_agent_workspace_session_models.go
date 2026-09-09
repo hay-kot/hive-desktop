@@ -12,6 +12,14 @@ type AgentSession struct {
 	AgentSessionID string `json:"agentSessionId"`
 	CreatedAt      int64  `json:"createdAt"`
 	LastOpenedAt   int64  `json:"lastOpenedAt"`
+	// ScheduleID names the schedule that started this chat, empty for one
+	// started by hand. It is a column rather than a lookup in the run history:
+	// session ids are reused after a delete and runs are pruned, so a
+	// derivation would mislabel or lose it.
+	ScheduleID string `json:"scheduleId"`
+	// EndToken is the capability a launch hands its own process; presenting it
+	// is what lets a chat end its own session. It never leaves the core.
+	EndToken string `json:"-"`
 }
 
 // AgentSessionCreate is Create's input: an id, CreatedAt and LastOpenedAt are
@@ -21,11 +29,14 @@ type AgentSessionCreate struct {
 	Name           string
 	Agent          string
 	AgentSessionID string
+	ScheduleID     string
+	EndToken       string
 }
 
 func mapAgentSessionFromDB(row queries.AgentWorkspaceSession) AgentSession {
 	return AgentSession{
 		ID: row.ID, Workspace: row.Workspace, Name: row.Name, Agent: row.Agent,
 		AgentSessionID: row.AgentSessionID, CreatedAt: row.CreatedAt, LastOpenedAt: row.LastOpenedAt,
+		ScheduleID: row.ScheduleID, EndToken: row.EndToken,
 	}
 }

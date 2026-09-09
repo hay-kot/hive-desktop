@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/schedule"
 )
 
 func validWorkspace() Workspace {
@@ -64,6 +66,34 @@ func TestWorkspaceValidate(t *testing.T) {
 		t.Parallel()
 		w := validWorkspace()
 		w.Skills = []string{""}
+		require.Error(t, w.Validate())
+	})
+
+	t.Run("SchedulesValidate", func(t *testing.T) {
+		t.Parallel()
+		w := validWorkspace()
+		w.Command += PromptTail
+		w.Schedules = []schedule.Spec{
+			{ID: "weekly", Cron: "0 9 * * 5", Prompt: "Summarize the week."},
+			{ID: "daily", Cron: "@daily", Prompt: "Standup.", OnMissed: schedule.OnMissedSkip},
+		}
+		require.NoError(t, w.Validate())
+	})
+
+	t.Run("BrokenScheduleRejected", func(t *testing.T) {
+		t.Parallel()
+		w := validWorkspace()
+		w.Schedules = []schedule.Spec{{ID: "weekly", Cron: "nope", Prompt: "go"}}
+		require.Error(t, w.Validate())
+	})
+
+	t.Run("DuplicateScheduleIDRejected", func(t *testing.T) {
+		t.Parallel()
+		w := validWorkspace()
+		w.Schedules = []schedule.Spec{
+			{ID: "weekly", Cron: "@daily", Prompt: "go"},
+			{ID: "weekly", Cron: "@hourly", Prompt: "go"},
+		}
 		require.Error(t, w.Validate())
 	})
 }

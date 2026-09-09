@@ -20,15 +20,6 @@ func writeWorkspace(t *testing.T, root, dir, name string) string {
 	return path
 }
 
-func statusByDir(statuses []WorkspaceStatus, dir string) (WorkspaceStatus, bool) {
-	for _, st := range statuses {
-		if st.Dir == dir {
-			return st, true
-		}
-	}
-	return WorkspaceStatus{}, false
-}
-
 func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 	t.Parallel()
 
@@ -42,10 +33,10 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 		s := NewStore(root)
 		require.NoError(t, s.Reload())
 
-		a, ok := statusByDir(s.Statuses(), "a")
+		a, ok := s.Status("a")
 		require.True(t, ok)
 		assert.Equal(t, "Alpha", a.Workspace.Name)
-		b, ok := statusByDir(s.Statuses(), "b")
+		b, ok := s.Status("b")
 		require.True(t, ok)
 		assert.Equal(t, "Bravo", b.Workspace.Name)
 
@@ -54,11 +45,11 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 		writeWorkspace(t, root, "a", "Alpha Prime")
 		require.NoError(t, s.Reload())
 
-		aAfter, ok := statusByDir(s.Statuses(), "a")
+		aAfter, ok := s.Status("a")
 		require.True(t, ok)
 		assert.Equal(t, "Alpha Prime", aAfter.Workspace.Name, "A must reload to its new bytes")
 
-		bStatus, ok := statusByDir(s.Statuses(), "b")
+		bStatus, ok := s.Status("b")
 		require.True(t, ok)
 		assert.False(t, bStatus.Valid)
 		require.Error(t, bStatus.Err)
@@ -86,7 +77,7 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 		assert.False(t, lib.Valid)
 		require.Error(t, lib.Err)
 
-		_, ok := statusByDir(s.Statuses(), "a")
+		_, ok := s.Status("a")
 		assert.True(t, ok, "workspaces must stay loaded when only the library breaks")
 	})
 }
@@ -101,7 +92,7 @@ func TestStoreIgnoresDirectoriesWithoutAManifest(t *testing.T) {
 	s := NewStore(root)
 	require.NoError(t, s.Reload())
 
-	_, ok := statusByDir(s.Statuses(), "empty")
+	_, ok := s.Status("empty")
 	assert.False(t, ok)
 	assert.Len(t, s.Statuses(), 1)
 }
@@ -118,10 +109,10 @@ func TestStoreReportsMalformedEntries(t *testing.T) {
 	s := NewStore(root)
 	require.NoError(t, s.Reload())
 
-	_, ok := statusByDir(s.Statuses(), "stray.txt")
+	_, ok := s.Status("stray.txt")
 	assert.False(t, ok, "a regular file at root must not be read as a workspace")
 
-	weird, ok := statusByDir(s.Statuses(), "weird")
+	weird, ok := s.Status("weird")
 	require.True(t, ok, "a directory-shaped manifest must still surface as a workspace entry")
 	assert.False(t, weird.Valid)
 	require.Error(t, weird.Err)

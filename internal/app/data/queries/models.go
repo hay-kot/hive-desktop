@@ -27,6 +27,8 @@ type AgentWorkspaceSession struct {
 	AgentSessionID string `json:"agent_session_id"`
 	CreatedAt      int64  `json:"created_at"`
 	LastOpenedAt   int64  `json:"last_opened_at"`
+	ScheduleID     string `json:"schedule_id"`
+	EndToken       string `json:"end_token"`
 }
 
 type ConsumerOffset struct {
@@ -147,6 +149,28 @@ type OutputCommand struct {
 	SourceKind  string         `json:"source_kind"`
 	SourceScope string         `json:"source_scope"`
 	ExternalID  string         `json:"external_id"`
+}
+
+type ScheduleCursor struct {
+	Workspace        string `json:"workspace"`
+	ScheduleID       string `json:"schedule_id"`
+	EvaluatedThrough int64  `json:"evaluated_through"`
+	Cron             string `json:"cron"`
+}
+
+type ScheduleRun struct {
+	ID           int64         `json:"id"`
+	Workspace    string        `json:"workspace"`
+	ScheduleID   string        `json:"schedule_id"`
+	ScheduleName string        `json:"schedule_name"`
+	ScheduledFor int64         `json:"scheduled_for"`
+	StartedAt    int64         `json:"started_at"`
+	Reason       string        `json:"reason"`
+	Missed       int64         `json:"missed"`
+	Status       string        `json:"status"`
+	SessionID    sql.NullInt64 `json:"session_id"`
+	Prompt       string        `json:"prompt"`
+	Error        string        `json:"error"`
 }
 
 type SourceHead struct {

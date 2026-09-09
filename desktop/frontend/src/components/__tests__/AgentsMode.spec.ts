@@ -114,9 +114,15 @@ class FakeResizeObserver {
   constructor(_callback: () => void) {}
 }
 
+const weeklySummary = {
+  id: 'weekly-summary', name: 'Weekly summary', cron: '0 9 * * 5',
+  prompt: 'Summarize the week.', disabled: false, onMissed: 'run' as const,
+  nextRunAt: null, lastRun: null,
+}
+
 const workspaceRows = [
-  { dir: 'web-app', name: 'Web App', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
-  { dir: 'api', name: 'API', command: 'claude', danger: false, mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'web-app', name: 'Web App', command: 'claude', danger: false, mcps: [], skills: [], schedules: [weeklySummary], problem: '', notice: '' },
+  { dir: 'api', name: 'API', command: 'claude', danger: false, mcps: [], skills: [], schedules: [], problem: '', notice: '' },
 ]
 
 // A chat row as the cross-workspace listing reports it: terminalId set means
@@ -124,6 +130,7 @@ const workspaceRows = [
 const chatRow = {
   id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
   terminalId: 'agentws-7', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: '',
+  scheduleId: '',
 }
 
 function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
@@ -154,6 +161,9 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     revealSharedSkills: vi.fn().mockResolvedValue(undefined),
     canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', name: 'plan', title: '', session: 7, createdAt: 0, updatedAt: 0, blocks: [] }),
     canvases: vi.fn().mockResolvedValue([]),
+    scheduleRuns: vi.fn().mockResolvedValue([]),
+    runSchedule: vi.fn(),
+    previewSchedule: vi.fn().mockResolvedValue({ next: [], cronError: '', promptError: '' }),
   }
 }
 
@@ -347,6 +357,50 @@ describe('AgentsMode', () => {
 
     expect(client.resumeSession).not.toHaveBeenCalled()
     expect(router.currentRoute.value.query.chat).toBeUndefined()
+  })
+
+  // A route naming another chat is a request to switch, whatever the pane is
+  // holding: the live pane is torn down and the named chat attached.
+  it('switches the live pane to another routed chat when that one is live', async () => {
+    const client = fakeClient()
+    const other = { ...chatRow, id: 9, name: 'Second', terminalId: 'agentws-9' }
+    client.allSessions.mockResolvedValue([other])
+    client.resumeSession.mockResolvedValue({ ...other, windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    const { router } = await mountWithOpenChat(client)
+
+    await router.push({ name: 'agents', params: { workspace: 'web-app' }, query: { chat: '9', canvas: '1' } })
+    await flushPromises()
+
+    expect(client.resumeSession).toHaveBeenCalledWith({ id: 9 })
+    expect(router.currentRoute.value.query.chat).toBe('9')
+  })
+
+  // A route naming a chat that cannot be attached leaves the live one alone:
+  // clearing ?chat here would drop ?canvas too and unmount the canvas pane of
+  // a chat that is still running.
+  it('keeps the live chat in the route when the routed chat is dead', async () => {
+    const client = fakeClient()
+    client.allSessions.mockResolvedValue([{ ...chatRow, id: 9, name: 'Second', terminalId: '' }])
+    const { router } = await mountWithOpenChat(client)
+
+    await router.push({ name: 'agents', params: { workspace: 'web-app' }, query: { chat: '9', canvas: '1' } })
+    await flushPromises()
+
+    expect(client.resumeSession).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.query.chat).toBe('7')
+    expect(router.currentRoute.value.query.canvas).toBe('1')
+  })
+
+  // A schedule firing at 09:00 starts a chat nobody clicked for: the tree
+  // learns about it from the wake-up, not from the next user action.
+  it('reloads the chat list when a schedule reports a change', async () => {
+    const { client } = await mountWithOpenChat()
+    const before = client.allSessions.mock.calls.length
+
+    wailsEvents.fire('schedules:updated', 'web-app')
+    await flushPromises()
+
+    expect(client.allSessions.mock.calls.length).toBeGreaterThan(before)
   })
 
   it('reports a failed open/reveal in the bar instead of dropping it', async () => {

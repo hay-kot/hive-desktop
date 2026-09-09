@@ -34,8 +34,7 @@ func LoadWorkspace(path string) (Workspace, error) {
 	if err != nil {
 		return Workspace{}, fmt.Errorf("agent-workspace.yaml %s: %w", path, err)
 	}
-	w.Dir = filepath.Base(filepath.Dir(path))
-	return w, nil
+	return w.withDir(filepath.Base(filepath.Dir(path))), nil
 }
 
 // parseWorkspace strictly decodes an agent-workspace.yaml document already in

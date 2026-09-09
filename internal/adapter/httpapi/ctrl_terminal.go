@@ -373,12 +373,21 @@ func requireTerminalToken(r *http.Request, token string) error {
 	if token == "" {
 		return app.Errorf(app.KindUnavailable, "the terminal control plane is not configured")
 	}
-	header := r.Header.Get("Authorization")
-	presented, ok := strings.CutPrefix(header, "Bearer ")
-	if !ok || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(presented)), []byte(token)) != 1 {
+	presented := bearerToken(r)
+	if presented == "" || subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
 		return app.Errorf(app.KindUnauthenticated, "a terminal bearer token is required")
 	}
 	return nil
+}
+
+// bearerToken is the Authorization: Bearer credential a request presents, ""
+// when it presents none.
+func bearerToken(r *http.Request) string {
+	presented, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(presented)
 }
 
 // corsPolicy answers preflights and stamps responses for the terminal paths.

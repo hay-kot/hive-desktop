@@ -23,6 +23,7 @@ declare module "@wailsio/runtime" {
             "log:appended": number;
             "notification:activated": wailsui$0.NotificationActivation;
             "notification:toast": wailsui$0.NotificationToast;
+            "schedules:updated": string;
             "update:available": wailsui$0.UpdateInfo;
             "window:blur": boolean;
             "window:focus": boolean;
