@@ -3,6 +3,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -48,9 +49,16 @@ func newTestTerminals(t *testing.T, starter terminalStarter) *TerminalsService {
 // the developer's own home.
 func newTestTerminalsIn(t *testing.T, starter terminalStarter, home func() (string, error)) *TerminalsService {
 	t.Helper()
+	return newTestTerminalsWith(t, starter, home, zerolog.Nop())
+}
+
+// newTestTerminalsWith is newTestTerminalsIn with the logger a test wants to
+// read back, for asserting what a failure logs.
+func newTestTerminalsWith(t *testing.T, starter terminalStarter, home func() (string, error), logger zerolog.Logger) *TerminalsService {
+	t.Helper()
 	manager := tmuxcc.NewManager(t.Context(), tmuxcc.ManagerOptions{Logger: zerolog.Nop()})
 	t.Cleanup(func() { _ = manager.Stop(context.WithoutCancel(t.Context())) })
-	return newTerminalsService(TerminalsDeps{Manager: manager, Starter: starter, Home: home})
+	return newTerminalsService(TerminalsDeps{Manager: manager, Starter: starter, Home: home, Logger: logger})
 }
 
 // spawningStarter stands in for the session service: it creates the tmux session
@@ -371,6 +379,17 @@ func TestTerminalsNewWindowInASessionThatIsNotRunning(t *testing.T) {
 	// A session to add a window to is the caller's to create — a start for a
 	// hive session runs its agent, so this must not do it on their behalf.
 	assert.Equal(t, KindNotFound, KindOf(err))
+}
+
+func TestTerminalsNewWindowInASessionThatIsNotRunningLogsTheSlug(t *testing.T) {
+	privateTmux(t)
+	var logs bytes.Buffer
+	terminals := newTestTerminalsWith(t, &spawningStarter{}, os.UserHomeDir, zerolog.New(&logs))
+
+	_, err := terminals.NewWindow(t.Context(), "hive-gone")
+
+	require.Error(t, err)
+	assert.Contains(t, logs.String(), "hive-gone")
 }
 
 func TestTerminalsStartScratchReportsAnUnreadableHome(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v4/process"
 
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -51,16 +52,18 @@ type TerminalsService struct {
 	// group. It is a field so a test can drive the answer without arranging the
 	// process states it stands for.
 	foreground func(ctx context.Context, pid int) (bool, error)
+	log        zerolog.Logger
 }
 
 type TerminalsDeps struct {
 	Manager *tmuxcc.Manager
 	Starter terminalStarter
 	Home    func() (string, error)
+	Logger  zerolog.Logger
 }
 
 func newTerminalsService(d TerminalsDeps) *TerminalsService {
-	return &TerminalsService{manager: d.Manager, starter: d.Starter, home: d.Home, foreground: processForeground}
+	return &TerminalsService{manager: d.Manager, starter: d.Starter, home: d.Home, foreground: processForeground, log: d.Logger}
 }
 
 // Scratch declares the scratch terminal. It is a constant rather than a probe:
@@ -231,12 +234,17 @@ func (s *TerminalsService) NewWindow(ctx context.Context, slug string) (string, 
 	if !ok {
 		id, err := s.manager.NewWindow(ctx, slug)
 		if err != nil {
+			s.log.Warn().Str("slug", slug).Str("path", "one-shot").Err(err).Msg("creating a window failed")
+			if errors.Is(err, tmuxcc.ErrNotAttached) {
+				return "", terminalError(err, "session %q is not running", slug)
+			}
 			return "", terminalError(err, "creating a window in session %q", slug)
 		}
 		return id, nil
 	}
 	id, err := client.NewWindow(ctx)
 	if err != nil {
+		s.log.Warn().Str("slug", slug).Str("path", "control-client").Err(err).Msg("creating a window failed")
 		return "", terminalError(err, "creating a window in session %q", slug)
 	}
 	return id, nil
