@@ -36,6 +36,7 @@ import { decodeFrame, encodeInputFrames, encodePasteFrames } from '../lib/agentW
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
+import { isEditableTarget } from '../lib/isEditableTarget'
 import { interceptPaste } from '../lib/terminalPaste'
 import { silenceDeviceReports } from '../lib/terminalReports'
 import type { AgentSession, AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
@@ -411,18 +412,34 @@ function openRenameSession(session: AgentSession): void {
   renamingSession.value = session
 }
 
+async function renameSessionTo(id: number, name: string): Promise<void> {
+  await renameSession(id, name)
+  void reloadRecents()
+}
+
 async function saveSessionRename(name: string): Promise<void> {
   if (!renamingSession.value || renameBusy.value) return
   renameBusy.value = true
   renameError.value = ''
   try {
-    await renameSession(renamingSession.value.id, name)
+    await renameSessionTo(renamingSession.value.id, name)
     renamingSession.value = null
-    void reloadRecents()
   } catch (failure) {
     renameError.value = failure instanceof Error ? failure.message : 'The chat could not be renamed.'
   } finally {
     renameBusy.value = false
+  }
+}
+
+// The sidebar's inline editor, not the dialog: by the time an edit commits,
+// the row being renamed is the open chat, so a failure surfaces on the pane
+// status bar rather than on ChatRenameDialog, which is not open.
+async function commitSessionRename(session: AgentSession, name: string): Promise<void> {
+  paneActionError.value = ''
+  try {
+    await renameSessionTo(session.id, name)
+  } catch (failure) {
+    paneActionError.value = failure instanceof Error ? failure.message : 'The chat could not be renamed.'
   }
 }
 
@@ -519,7 +536,10 @@ async function launchIntoPane(workspace: string, action: (size: { cols?: number;
     lastVote = size ?? null
     attachStream(created, result.terminalId, result.windowId)
     paneStatus.value = 'live'
-    created.focus()
+    // A launch that lands while the user is typing elsewhere must not steal
+    // that focus -- the sidebar's inline rename can be one keystroke into a
+    // field opened by the same double click that started this launch.
+    if (!isEditableTarget(document.activeElement)) created.focus()
   } catch (failure) {
     teardownPane()
     paneStatus.value = 'idle'
@@ -746,6 +766,7 @@ onBeforeUnmount(() => {
         @edit-workspace="openEditWorkspace"
         @close-session="closeRow"
         @rename-session="openRenameSession"
+        @commit-rename="commitSessionRename"
         @delete-session="removeRow"
       />
 

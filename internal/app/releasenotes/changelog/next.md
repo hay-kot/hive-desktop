@@ -9,6 +9,10 @@ summary: ""
   `gh pr checkout {{ .Payload.num }} && zed .` puts you in the editor on the
   right branch. A hook that fails leaves the session alone and reports its
   output in the action's run log.
+- **Double-click a chat in the Chats sidebar to rename it in place.** Type
+  the new name, press Enter or click away to save, or press Escape to cancel.
+  An empty or blank name is refused, and the sidebar row menu's `Rename…`
+  still opens the full dialog.
 
 ## Changed
 

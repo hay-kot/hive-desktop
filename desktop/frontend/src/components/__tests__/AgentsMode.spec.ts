@@ -410,6 +410,44 @@ describe('AgentsMode', () => {
     expect(client.resumeSession).not.toHaveBeenCalled()
   })
 
+  // A launch that lands while an editable field holds focus must not steal it
+  // -- the sidebar's inline rename opens on a double click whose first click
+  // is what started this very launch (#434 follow-up).
+  it('does not steal focus from an editable field a launch resolves under', async () => {
+    const client = fakeClient()
+    const other = { ...chatRow, id: 9, name: 'Second', terminalId: 'agentws-9' }
+    let resolveResume: ((session: typeof other) => void) | undefined
+    client.resumeSession.mockImplementation(() => new Promise((resolve) => { resolveResume = resolve }))
+    const { wrapper } = await mountWithOpenChat(client)
+
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+    expect(document.activeElement).toBe(field)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', other)
+    await flushPromises()
+    resolveResume?.({ ...other, windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    await flushPromises()
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    expect(created.focus).not.toHaveBeenCalled()
+    field.remove()
+  })
+
+  it('focuses the newly attached pane when nothing editable holds focus', async () => {
+    const client = fakeClient()
+    const other = { ...chatRow, id: 9, name: 'Second', terminalId: 'agentws-9' }
+    client.resumeSession.mockResolvedValue({ ...other, windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    const { wrapper } = await mountWithOpenChat(client)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', other)
+    await flushPromises()
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    expect(created.focus).toHaveBeenCalled()
+  })
+
   // A failed attach sets openSessionId optimistically but leaves paneStatus
   // 'idle', so the guard must key on the pair — openSessionId alone would
   // make a retry click on the same row a no-op too.

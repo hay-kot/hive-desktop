@@ -77,6 +77,7 @@ const emit = defineEmits<{
   'close-session': [session: AgentSession]
   'rename-session': [session: AgentSession]
   'delete-session': [session: AgentSession]
+  'commit-rename': [session: AgentSession, name: string]
 }>()
 
 const {
@@ -347,6 +348,31 @@ function onSessionMenuSelect(session: AgentSession, id: string): void {
   else if (id === 'delete') pendingDeleteSession.value = session
 }
 
+// ── Inline chat rename ────────────────────────────────────────────────────
+// Same idiom as the Code view's tmux window rename (TerminalMode.vue).
+const renamingSessionId = ref<number | null>(null)
+const renameDraft = ref('')
+
+function startRename(session: AgentSession): void {
+  if (renamingSessionId.value === session.id) return
+  renamingSessionId.value = session.id
+  renameDraft.value = session.name
+}
+
+function commitRename(): void {
+  // Read and clear the id before anything else: Escape sets it to null and
+  // unmounts the input, which fires blur, which calls commitRename again.
+  // Clearing first makes that second call a no-op instead of a save.
+  const id = renamingSessionId.value
+  if (id === null) return
+  renamingSessionId.value = null
+  const session = tree.value.flatMap((node) => node.sessions).find((s) => s.id === id)
+  if (!session) return
+  const name = renameDraft.value.trim()
+  if (!name || name === session.name) return
+  emit('commit-rename', session, name)
+}
+
 // ── Chat delete confirmation ─────────────────────────────────────────────
 // A stacked ConfirmationDialog, deliberately not InlineConfirm: the inline
 // strip is reserved for surfaces the user already opened (the workspace
@@ -355,6 +381,7 @@ const pendingDeleteSession = ref<AgentSession | null>(null)
 
 function confirmDeleteSession(): void {
   if (!pendingDeleteSession.value) return
+  if (renamingSessionId.value === pendingDeleteSession.value.id) renamingSessionId.value = null
   emit('delete-session', pendingDeleteSession.value)
   pendingDeleteSession.value = null
 }
@@ -566,6 +593,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                 :data-open="session.id === openSessionId"
                 :title="chatTooltip(session)"
                 @click="emit('select-session', session)"
+                @dblclick="startRename(session)"
                 @keydown.enter.self.prevent="emit('select-session', session)"
                 @keydown.space.self.prevent="emit('select-session', session)"
                 @contextmenu.prevent="openSessionMenu(session, $event)"
@@ -585,7 +613,25 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                   />
                   <IconMessageSquare v-else class="size-3.5" />
                 </span>
-                <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
+                <!-- @click.stop / @dblclick.stop: without them the row's own
+                     handlers fire through the field and re-select the chat
+                     mid-edit. -->
+                <input
+                  v-if="renamingSessionId === session.id"
+                  v-model="renameDraft"
+                  class="min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none"
+                  data-testid="agents-sidebar-session-rename-input"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  spellcheck="false"
+                  autofocus
+                  @click.stop
+                  @dblclick.stop
+                  @keydown.enter="commitRename"
+                  @keydown.esc="renamingSessionId = null"
+                  @blur="commitRename"
+                >
+                <span v-else class="min-w-0 flex-1 truncate">{{ session.name }}</span>
                 <!-- The pin mark rides the name's line rather than the trailing
                      slot, which the status mark and the menu toggle already
                      share. -->

@@ -361,6 +361,76 @@ describe('AgentsSidebar', () => {
     expect(wrapper.emitted('rename-session')).toEqual([[recentFixtures[0]]])
   })
 
+  // ── Inline chat rename (double-click) ─────────────────────────────────────
+  it('double-clicking a chat row opens an inline rename input seeded with its name', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rename-input"]').exists()).toBe(false)
+
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    expect(input.element.value).toBe('a-session')
+  })
+
+  it('Enter commits the inline rename with the trimmed name', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('  renamed chat  ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('commit-rename')).toEqual([[recentFixtures[1], 'renamed chat']])
+  })
+
+  it('blur commits the inline rename, same as Enter', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('renamed by blur')
+    await input.trigger('blur')
+    expect(wrapper.emitted('commit-rename')).toEqual([[recentFixtures[1], 'renamed by blur']])
+  })
+
+  it('an empty or whitespace-only draft closes the editor without emitting', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('   ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('commit-rename')).toBeUndefined()
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rename-input"]').exists()).toBe(false)
+  })
+
+  it('a draft that matches the current name closes the editor without a round trip', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('  a-session  ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('commit-rename')).toBeUndefined()
+  })
+
+  // Escape must not save what the field held, including the save that would
+  // otherwise arrive via the blur its own unmount triggers. A naive
+  // commitRename bound to the session captured at dblclick time (rather than
+  // read fresh off renamingSessionId) emits here; this is what catches it.
+  it('Escape cancels the edit; the blur its unmount fires saves nothing', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('typed but should not save')
+    await input.trigger('keydown.esc')
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rename-input"]').exists()).toBe(false)
+
+    await input.trigger('blur')
+    expect(wrapper.emitted('commit-rename')).toBeUndefined()
+    expect(recentFixtures[1].name).toBe('a-session')
+  })
+
   it("a workspace's + starts a chat in it with no dialog, and opens the row it lands in", async () => {
     const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
