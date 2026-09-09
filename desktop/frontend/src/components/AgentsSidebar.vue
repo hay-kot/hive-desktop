@@ -562,10 +562,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             <button
               type="button"
               class="ws-toggle"
-              :class="{
-                'ws-toggle-problem': !node.workspace || !!node.workspace.problem,
-                'ws-toggle-notice': !!node.workspace?.notice && !node.workspace?.problem,
-              }"
               :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
               :aria-expanded="expanded(node)"
               data-testid="agents-sidebar-workspace-toggle"
@@ -734,11 +730,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 
 .ws-toggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; }
 .ws-toggle:hover { background: var(--color-app); color: var(--color-text); }
-/* A problem or a notice used to be its own line of text under the name. It is
-   the chevron's colour now, with the message on the row's tooltip — a warning
-   is worth a glance, and its wording is worth a hover. */
-.ws-toggle-notice { color: var(--color-severity-warning); }
-.ws-toggle-problem { color: var(--color-severity-error); }
 
 .ws-well { border-top: 1px solid var(--color-border); background: var(--color-app); padding: 6px 0; }
 

@@ -32,6 +32,8 @@ summary: ""
 - **Activity opens as a dialog.** It used to be a full screen you navigated to
   and back from. It now opens over whatever you were reading, the way Tasks
   does, and closes on Escape, the backdrop, or its own X.
+- The Chats sidebar's workspace chevron is no longer tinted red for a broken
+  workspace or amber for a missing MCP. The row's tooltip still names either.
 
 ## Fixed
 

@@ -236,7 +236,6 @@ describe('AgentsSidebar', () => {
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
     expect(rows[1].text()).toContain('demo-b') // the directory, since there is no name to read
-    expect(rows[1].get('[data-testid="agents-sidebar-workspace-toggle"]').classes()).toContain('ws-toggle-problem')
     expect(rows[1].attributes('title')).toContain('no longer in the workspace root')
     // Nothing to open and nothing to edit, but its chats are still reachable.
     expect(rows[1].find('[data-testid="agents-sidebar-workspace-edit"]').exists()).toBe(false)
