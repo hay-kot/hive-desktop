@@ -323,6 +323,8 @@ async function resumeChatFromRoute(id: number): Promise<void> {
 // order inside their workspace — a resume touches last_opened_at without
 // moving anything.
 async function handleSidebarSelectSession(session: AgentSession): Promise<void> {
+  // openSessionId alone would strand a failed attach (id set, pane idle) with no retry click.
+  if (paneStatus.value === 'live' && openSessionId.value === session.id) return
   await resumeRow(session)
   void reloadRecents()
 }

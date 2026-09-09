@@ -41,3 +41,6 @@ summary: ""
   A refresh that had started before the tab existed treated it as closed, so
   the tab dropped out of the sidebar and renaming, closing or selecting it
   failed until the next refresh came round.
+- **Clicking the chat already open in the pane is a no-op.** It no longer
+  tears the terminal down and reattaches it, so the connection and scroll
+  position stay put.

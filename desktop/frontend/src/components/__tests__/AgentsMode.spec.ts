@@ -399,6 +399,36 @@ describe('AgentsMode', () => {
     expect(router.currentRoute.value.query.canvas).toBe('1')
   })
 
+  // Clicking the row already open in the pane must not tear it down and
+  // re-resume it (#433).
+  it('does nothing when the sidebar selects the session already open in the pane', async () => {
+    const { wrapper, client } = await mountWithOpenChat()
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', { ...chatRow })
+    await flushPromises()
+
+    expect(client.resumeSession).not.toHaveBeenCalled()
+  })
+
+  // A failed attach sets openSessionId optimistically but leaves paneStatus
+  // 'idle', so the guard must key on the pair — openSessionId alone would
+  // make a retry click on the same row a no-op too.
+  it('still resumes the session on a retry click after a failed attach left it idle', async () => {
+    const client = fakeClient()
+    client.startSession.mockResolvedValue({
+      id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
+      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: 'boom',
+    })
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+    await startChat(wrapper)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', { ...chatRow })
+    await flushPromises()
+
+    expect(client.resumeSession).toHaveBeenCalledWith({ id: 7 })
+  })
+
   // A schedule firing at 09:00 starts a chat nobody clicked for: the tree
   // learns about it from the wake-up, not from the next user action.
   it('reloads the chat list when a schedule reports a change', async () => {
