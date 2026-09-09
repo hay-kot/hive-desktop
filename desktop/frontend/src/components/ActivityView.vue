@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // The Activity view (design 15a — "ledger"): a flat, day-grouped chronology of
 // what the app did — refreshes, sessions, automatic and manual actions, config
-// reloads, and errors. A left time gutter anchors every row, severity reads by
+// reloads, and errors. A left time gutter anchors every row, a failure reads by
 // a colored rail rather than a filled icon, and one segmented control filters
 // the stream. Events are recorded by backend subsystems through the
 // activity.Recorder and by the frontend via ActivityService.Record; this view
@@ -41,17 +41,27 @@ const filtered = computed(() =>
 )
 const groups = computed(() => groupEventsByDay(filtered.value))
 
-// Hue means severity, and only severity: red for a failure, accent for the app
-// acting on its own. Those two get an emphasis rail as well, because they are
-// what a reader scans a ledger for; every other event is neutral and only lifts
-// on hover. Categories are named in the row's own text and in the segmented
-// filter, so painting them too (green sessions, purple actions, blue system)
-// left five hues competing with the two that carry meaning. The rail is an
-// inset shadow, not a border, so it never colors the row's divider on the sides
-// it doesn't own, and each rail's tint is the same token as its dot.
+// Two separate signals, and the difference matters:
+//
+//   the dot  — what kind of event this is. Red for a failure, accent for the
+//              app acting on its own, neutral otherwise. Cheap, so it can fire
+//              on every row without costing anything.
+//   the rail — tinted row plus a colored left edge. Expensive: it is what makes
+//              a row jump out of the page, so only a failure earns it.
+//
+// Auto-actions get the dot but not the rail. They are the most common thing in
+// this log by a wide margin — a day of them railed every row, and a page where
+// everything is highlighted highlights nothing. A highlight is worth exactly as
+// much as it is rare.
+//
+// Categories are named in the row's own text and in the segmented filter, so
+// painting them too (green sessions, purple actions, blue system) left five
+// hues competing with the one that carries meaning. The rail is an inset
+// shadow, not a border, so it never colors the row's divider on the sides it
+// doesn't own.
 const STYLES: Record<ActivityStyleKey, { dot: string; rail: string }> = {
   error: { dot: 'bg-severity-error', rail: 'bg-severity-error-tint shadow-[inset_2px_0_0_var(--hv-severity-error)]' },
-  auto_action: { dot: 'bg-accent', rail: 'bg-accent-tint shadow-[inset_2px_0_0_var(--hv-accent)]' },
+  auto_action: { dot: 'bg-accent', rail: '' },
   neutral: { dot: 'bg-text-4', rail: '' },
 }
 
