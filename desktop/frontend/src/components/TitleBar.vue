@@ -195,7 +195,7 @@ function onTitlebarDblclick(event: MouseEvent): void {
       </div>
     </div>
 
-    <!-- Right: status chips · palette launcher · utility icon run (Activity, Report) · preview toggle (frame) -->
+    <!-- Right: status chips · palette launcher · Activity · preview toggle (frame) -->
     <div class="flex shrink-0 items-center justify-end gap-1.5 pl-2 pr-3">
       <button
         v-if="updateAvailable"
@@ -249,12 +249,16 @@ function onTitlebarDblclick(event: MouseEvent): void {
         <span class="min-w-0 flex-1 truncate text-left text-[12.5px]">Search…</span>
         <kbd class="hidden shrink-0 rounded border border-card px-1.5 py-0.5 font-mono text-[10.5px] leading-none text-text-3 min-[700px]:block">{{ isMac ? '⌘' : 'Ctrl ' }}K</kbd>
       </button>
-      <!-- Activity: a 28px icon in the utility run. An amber dot flags activity
-           recorded since the page was last opened; amber fill marks it on. -->
+      <!-- Activity: a 28px icon between the palette and the frame. An amber dot
+           flags activity recorded since the page was last opened; amber fill
+           marks it on — which is why it carries its own ml: as a filled block
+           it needs the same 10px on both sides that separates groups in the
+           left cluster, not the cluster's 6px on one side and 10px on the
+           other. -->
       <button
         v-if="profileName"
         type="button"
-        class="relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px]"
+        class="relative ml-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px]"
         :class="activityActive ? 'bg-accent-tint text-accent' : 'text-text-3 hover:bg-chip hover:text-text'"
         style="--wails-draggable: no-drag"
         data-testid="titlebar-activity"
