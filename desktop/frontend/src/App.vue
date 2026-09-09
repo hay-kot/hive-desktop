@@ -362,12 +362,12 @@ const tasksOpen = ref(false)
 const { repoKey: tasksRepoKey } = useTasks()
 // The attached terminal session's resolved owner/repo, kept live by
 // TerminalMode's continuous report rather than read only on click, so every
-// way of opening Tasks — titlebar, keybinding, palette, the status-bar
-// button itself — scopes to it the same way.
+// way of opening Tasks — keybinding, palette, the status-bar button itself —
+// scopes to it the same way.
 const terminalSessionRepoKey = ref('')
 
 // Every entry point funnels through this one toggle (see runMap's
-// 'tasks.toggle' and TitleBar/TerminalMode's open-tasks emit). Only an
+// 'tasks.toggle' and TerminalMode's open-tasks emit). Only an
 // *opening* click re-resolves the scope: closing must never move it, and a
 // session with no resolved repo (or the hub, with none at all) leaves the
 // persisted last-picked scope alone.
@@ -1241,7 +1241,6 @@ onUnmounted(() => {
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
         :activity-active="activityActive"
-        :tasks-active="tasksOpen"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
         :jobs-active="jobsActive"
@@ -1260,7 +1259,6 @@ onUnmounted(() => {
         @forward="router.forward()"
         @open-error-node="openErrorNode"
         @open-activity="openActivity"
-        @open-tasks="openTasks"
         @open-job-run="openJobRun"
         @open-update="openUpdate"
         @toggle-sidebar="toggleSidebar"

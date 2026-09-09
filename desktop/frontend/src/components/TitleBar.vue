@@ -7,7 +7,6 @@ import IconArrowRight from '~icons/lucide/arrow-right'
 import IconBug from '~icons/lucide/bug'
 import IconInbox from '~icons/lucide/inbox'
 import IconCode from '~icons/lucide/code'
-import IconListTodo from '~icons/lucide/list-todo'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconPanelLeftClose from '~icons/lucide/panel-left-close'
 import IconPanelLeftOpen from '~icons/lucide/panel-left-open'
@@ -52,8 +51,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,
-// shown as a pulsing amber dot. tasksActive marks the Tasks icon on the same
-// way, for the hc issue tracker hub view. sidebarCollapsed drives the panel-toggle glyph;
+// shown as a pulsing amber dot. sidebarCollapsed drives the panel-toggle glyph;
 // canToggleSidebar disables the toggle in views with no left panel (settings,
 // flows, onboarding). previewCollapsed/canTogglePreview are the same pair for
 // the detail preview pane. updateAvailable renders a click-to-install chip in
@@ -63,7 +61,6 @@ const props = defineProps<{
   profileName?: string
   mode?: 'hub' | 'terminal' | 'agents'
   activityActive?: boolean
-  tasksActive?: boolean
   errorCount?: number
   unseenActivity?: number
   jobsActive?: boolean
@@ -84,7 +81,6 @@ const emit = defineEmits<{
   forward: []
   'open-error-node': []
   'open-activity': []
-  'open-tasks': []
   'open-job-run': [commandId: number]
   'open-update': []
   'toggle-sidebar': []
@@ -271,20 +267,6 @@ function onTitlebarDblclick(event: MouseEvent): void {
           class="absolute right-1 top-1 size-[6px] rounded-full bg-accent ring-2 ring-raised [animation:hivePulse_2.4s_ease-in-out_infinite]"
           data-testid="titlebar-activity-unseen"
         />
-      </button>
-      <!-- Tasks: same 28px icon-in-the-utility-run treatment as Activity. -->
-      <button
-        v-if="profileName"
-        type="button"
-        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px]"
-        :class="tasksActive ? 'bg-accent-tint text-accent' : 'text-text-3 hover:bg-chip hover:text-text'"
-        style="--wails-draggable: no-drag"
-        data-testid="titlebar-tasks"
-        aria-label="Open tasks"
-        title="Tasks"
-        @click="emit('open-tasks')"
-      >
-        <IconListTodo class="size-3.5" />
       </button>
       <button
         type="button"

@@ -2218,34 +2218,19 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('opens the tasks overlay from the titlebar icon over the current route, and closes it on Escape', async () => {
+  it('opens the tasks overlay over the current route without navigating, and closes it on Escape', async () => {
     const { wrapper, router } = await mountAppWithRouter()
 
-    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('feed')
     expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
     expect(document.querySelector('[data-testid="tasks-view"]')).not.toBeNull()
-    expect(wrapper.find('[data-testid="titlebar-tasks"]').classes()).toContain('text-accent')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
     expect(router.currentRoute.value.name).toBe('feed')
-
-    wrapper.unmount()
-  })
-
-  it('toggles the tasks overlay closed by clicking the titlebar icon again', async () => {
-    const { wrapper } = await mountAppWithRouter()
-
-    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
-    await flushPromises()
-    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
-
-    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
-    await flushPromises()
-    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
 
     wrapper.unmount()
   })
