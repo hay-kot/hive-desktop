@@ -1,5 +1,8 @@
 <script setup lang="ts">
-// A large panel over whatever view is active, sized for ActivityView's ledger.
+// A large panel over whatever view is active. It is deliberately the same size
+// as TasksOverlay — the two are siblings in the chrome, opened from adjacent
+// title-bar icons, so a different footprint made switching between them look
+// like a layout jump. Change one and change the other.
 // Reuses BaseModal's mechanics (teleport, backdrop, focus trap, return focus)
 // rather than BaseModal itself: its fixed pixel width and title-only header
 // don't fit a toolbar'd view. ActivityView already calls useEscapeToClose, so
@@ -40,7 +43,7 @@ useAutofocus(panel)
     >
       <div
         ref="panel"
-        class="flex h-[88vh] w-[min(1100px,92vw)] flex-col overflow-hidden rounded-xl border border-strong bg-pane text-text shadow-2xl"
+        class="flex h-[88vh] w-[min(1600px,96vw)] flex-col overflow-hidden rounded-xl border border-strong bg-pane text-text shadow-2xl"
         role="dialog"
         aria-label="Activity"
         aria-modal="true"
