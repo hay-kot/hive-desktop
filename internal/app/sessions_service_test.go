@@ -17,9 +17,10 @@ type defaultAgentFunc func(context.Context) string
 func (f defaultAgentFunc) DefaultAgent(ctx context.Context) string { return f(ctx) }
 
 type fakeSessionLauncher struct {
-	opts  dispatch.SessionLaunchOptions
-	calls []dispatch.LaunchSessionRequest
-	err   error
+	opts      dispatch.SessionLaunchOptions
+	calls     []dispatch.LaunchSessionRequest
+	optsCalls int
+	err       error
 }
 
 func (f *fakeSessionLauncher) LaunchSession(_ context.Context, req dispatch.LaunchSessionRequest) (dispatch.SessionExecutionOutcome, error) {
@@ -31,6 +32,7 @@ func (f *fakeSessionLauncher) LaunchSession(_ context.Context, req dispatch.Laun
 }
 
 func (f *fakeSessionLauncher) SessionLaunchOptions(context.Context) (dispatch.SessionLaunchOptions, error) {
+	f.optsCalls++
 	return f.opts, nil
 }
 
@@ -250,6 +252,61 @@ func TestSessionsService_CreateSessionLaunchesAsAJob(t *testing.T) {
 		Agent:  "claude",
 		Repo:   "https://github.com/acme/site.git",
 	}, launcher.calls[0])
+}
+
+// CreateSession resolves an unstated agent through the same env override the
+// form preselects with (#438): the form and the launch it submits must agree
+// on which agent runs.
+func TestSessionsService_CreateSessionResolvesTheEnvironmentAgentWhenNoneIsRequested(t *testing.T) {
+	launcher := &fakeSessionLauncher{opts: dispatch.SessionLaunchOptions{Agents: []string{"claude", "codex"}}}
+	runner := &fakeJobRunner{}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: runner})
+	svc.defaultAgentEnv = defaultAgentFunc(func(context.Context) string { return "codex" })
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Equal(t, "codex", launcher.calls[0].Agent)
+}
+
+func TestSessionsService_CreateSessionKeepsAnExplicitAgentOverTheEnvironment(t *testing.T) {
+	launcher := &fakeSessionLauncher{opts: dispatch.SessionLaunchOptions{Agents: []string{"claude", "codex"}}}
+	runner := &fakeJobRunner{}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: runner})
+	svc.defaultAgentEnv = defaultAgentFunc(func(context.Context) string { return "codex" })
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", Agent: "claude"})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Equal(t, "claude", launcher.calls[0].Agent, "an explicit choice is never overridden")
+}
+
+func TestSessionsService_CreateSessionIgnoresAnEnvironmentAgentWithNoConfiguredProfile(t *testing.T) {
+	launcher := &fakeSessionLauncher{opts: dispatch.SessionLaunchOptions{Agents: []string{"claude"}}}
+	runner := &fakeJobRunner{}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: runner})
+	svc.defaultAgentEnv = defaultAgentFunc(func(context.Context) string { return "aider" })
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Empty(t, launcher.calls[0].Agent, "hive resolves agents.default itself when handed no agent")
+}
+
+func TestSessionsService_CreateSessionLeavesAgentEmptyWithNoEnvironmentDefault(t *testing.T) {
+	launcher := &fakeSessionLauncher{opts: dispatch.SessionLaunchOptions{Agents: []string{"claude"}}}
+	runner := &fakeJobRunner{}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: runner})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Empty(t, launcher.calls[0].Agent)
+	assert.Zero(t, launcher.optsCalls, "no override means nothing to validate, so the workspace scan behind SessionLaunchOptions must not run on the create click")
 }
 
 func TestSessionsService_CreateSessionSurfacesDuplicateNameOnTheJob(t *testing.T) {

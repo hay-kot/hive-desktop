@@ -195,12 +195,52 @@ func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.Se
 // An unknown profile is ignored rather than refused: preselecting is all this
 // does, and hive validates the agent it is handed.
 func (s *SessionsService) withEnvironmentDefaultAgent(ctx context.Context, opts dispatch.SessionLaunchOptions) dispatch.SessionLaunchOptions {
-	preferred := strings.TrimSpace(s.defaultAgentEnv.DefaultAgent(ctx))
-	if preferred == "" || !slices.Contains(opts.Agents, preferred) {
-		return opts
+	if preferred := s.preferredEnvAgent(ctx, opts.Agents); preferred != "" {
+		opts.DefaultAgent = preferred
 	}
-	opts.DefaultAgent = preferred
 	return opts
+}
+
+// preferredEnvAgent answers HIVE_DEFAULT_AGENT when it names one of the given
+// configured profiles, otherwise "". Both the form (withEnvironmentDefaultAgent)
+// and the launch path (resolveLaunchAgent) preselect the same env override
+// against the same profile list, so the check lives here once.
+//
+// An unknown profile answers "" rather than the raw env value: hive refuses a
+// LaunchSessionRequest.Agent it does not recognize with `unknown agent %q`,
+// which would turn a harmless preselection into a failed launch.
+func (s *SessionsService) preferredEnvAgent(ctx context.Context, agents []string) string {
+	preferred := strings.TrimSpace(s.defaultAgentEnv.DefaultAgent(ctx))
+	if preferred == "" || !slices.Contains(agents, preferred) {
+		return ""
+	}
+	return preferred
+}
+
+// resolveLaunchAgent answers the agent a launch should run when the request
+// names none: HIVE_DEFAULT_AGENT when it names a configured profile,
+// otherwise "" so hive resolves its own agents.default. A launch-options read
+// failure also falls through to "": a create must not start failing because a
+// preselection could not be read.
+//
+// This runs synchronously on the click that starts a session
+// (CreateSession builds the request before handing off to the job), so the
+// options read -- a git subprocess per configured workspace
+// (desktop/frontend/src/composables/useNewSession.ts) -- is gated on there
+// being an override to validate. The env read is a cached map lookup, so
+// checking it first is free for the common case of no override at all.
+func (s *SessionsService) resolveLaunchAgent(ctx context.Context, requested string) string {
+	if trimmed := strings.TrimSpace(requested); trimmed != "" {
+		return trimmed
+	}
+	if strings.TrimSpace(s.defaultAgentEnv.DefaultAgent(ctx)) == "" {
+		return ""
+	}
+	opts, err := s.launcher.SessionLaunchOptions(ctx)
+	if err != nil {
+		return ""
+	}
+	return s.preferredEnvAgent(ctx, opts.Agents)
 }
 
 // ListSessions returns every session, whatever its state. Only an active one
@@ -412,7 +452,7 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	launch := dispatch.LaunchSessionRequest{
 		Name:   name,
 		Prompt: strings.TrimSpace(req.Prompt),
-		Agent:  strings.TrimSpace(req.Agent),
+		Agent:  s.resolveLaunchAgent(ctx, req.Agent),
 		Repo:   repo,
 		Origin: origin,
 	}
