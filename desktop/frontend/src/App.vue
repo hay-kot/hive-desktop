@@ -1264,7 +1264,6 @@ onUnmounted(() => {
         @toggle-sidebar="toggleSidebar"
         @toggle-preview="togglePreview"
         @open-palette="togglePalette"
-        @open-report="openReportDialog"
         @toggle-maximise="toggleMaximise"
       />
       <!-- Hold an empty frame until the workspaces resolve so a returning user

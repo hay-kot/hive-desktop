@@ -23,16 +23,6 @@ describe('TitleBar', () => {
     expect(wrapper.emitted('open-activity')).toHaveLength(1)
   })
 
-  it('exposes the report-a-problem icon and emits open-report on click', async () => {
-    const wrapper = mount(TitleBar, { props: {} })
-    const bug = wrapper.find('[data-testid="titlebar-report"]')
-    expect(bug.exists()).toBe(true)
-    expect(bug.attributes('aria-label')).toBe('Report a problem')
-
-    await bug.trigger('click')
-    expect(wrapper.emitted('open-report')).toHaveLength(1)
-  })
-
   it('shows the unseen-activity dot only with unseen events and not while on the Activity page', () => {
     const unseen = mount(TitleBar, { props: { profileName: 'Triage', unseenActivity: 3 } })
     expect(unseen.find('[data-testid="titlebar-activity-unseen"]').exists()).toBe(true)

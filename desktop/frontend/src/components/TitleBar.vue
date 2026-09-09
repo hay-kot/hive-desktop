@@ -4,7 +4,6 @@ import { ref, watch } from 'vue'
 import IconActivity from '~icons/lucide/activity'
 import IconArrowLeft from '~icons/lucide/arrow-left'
 import IconArrowRight from '~icons/lucide/arrow-right'
-import IconBug from '~icons/lucide/bug'
 import IconInbox from '~icons/lucide/inbox'
 import IconCode from '~icons/lucide/code'
 import IconMessagesSquare from '~icons/lucide/messages-square'
@@ -29,8 +28,8 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 //            (min-[860px]) the mode segments drop their labels to icons.
 //   right  — status chips, then the command-palette launcher (compact, width
 //            clamped to the window so it gives way before the tabs do), then
-//            app-level utilities (Activity, Report a problem) as one icon
-//            run, then the preview (right-panel) toggle bracketing the far
+//            app-level utilities (Activity) as one icon run, then the
+//            preview (right-panel) toggle bracketing the far
 //            edge. Panel toggles are the only things at the extremes, so they
 //            read as the frame; new utilities append to the icon run.
 // Every control is one of two shapes: a 28px square icon button or a 28px
@@ -44,7 +43,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // 1.8:1 in the light theme.
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
-// no toggle, no history, no palette — but Report a problem stays reachable.
+// no toggle, no history, no palette.
 // mode is the app-level Inbox|Code|Chats switch. A segment is never disabled,
 // because an unavailable terminal or Chats area explains itself inside the
 // mode.
@@ -86,7 +85,6 @@ const emit = defineEmits<{
   'toggle-sidebar': []
   'toggle-preview': []
   'open-palette': []
-  'open-report': []
   'toggle-maximise': []
 }>()
 
@@ -268,15 +266,6 @@ function onTitlebarDblclick(event: MouseEvent): void {
           data-testid="titlebar-activity-unseen"
         />
       </button>
-      <button
-        type="button"
-        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-        style="--wails-draggable: no-drag"
-        data-testid="titlebar-report"
-        aria-label="Report a problem"
-        :title="isMac ? 'Report a problem  ⌘⇧B' : 'Report a problem  Ctrl+Shift+B'"
-        @click="emit('open-report')"
-      ><IconBug class="size-3.5" /></button>
       <button
         v-if="profileName"
         type="button"
