@@ -13,6 +13,9 @@ summary: ""
   the new name, press Enter or click away to save, or press Escape to cancel.
   An empty or blank name is refused, and the sidebar row menu's `Rename…`
   still opens the full dialog.
+- **Pressing + on a not-started session in the Code view now starts it.**
+  It used to fail with "Could not create a window"; + now opens the
+  session's tab, the same way it does for a session already running.
 
 ## Changed
 

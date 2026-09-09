@@ -1629,28 +1629,31 @@ function closeSession(): void {
 }
 
 // Adding a window is a property of the session, not of what is on screen, so
-// the row offers it whether or not that session is the attached one. A pooled
-// session goes through its own client, which is what makes the new window the
-// active one; an unattached session takes the plain slug-keyed call, and the
-// attach that selecting the row starts lists its windows fresh either way.
+// the row offers it whether or not that session is the attached one. A row
+// with nothing running has no window to add to, so + starts it instead
+// (mirrors enterSessionRow). Every branch selects the row first: a start can
+// fail, and only the row's own pane, with its Start button, shows the error.
+// A pooled session goes through its own client, which is what makes the new
+// window the active one; an unattached but running session takes the plain
+// slug-keyed call, and the attach that selecting the row starts lists its
+// windows fresh.
 async function newWindowIn(row: TerminalSessionRow): Promise<void> {
   const pooled = pool.get(row.slug)
-  selectSession(row.slug)
   if (pooled && pooled.status.value !== 'ended') {
+    selectSession(row.slug)
     await pooled.newWindow()
+    return
+  }
+  if (!rowRunning(row)) {
+    selectSession(row.slug)
+    await startSession(row.slug)
     return
   }
   const transport = client.value
   if (!transport) return
+  selectSession(row.slug)
   try {
     treeError.value = ''
-    // The scratch terminal has no start to have missed: creating the session is
-    // what opens its first tab, so + is the whole affordance and starting is
-    // what it means while tmux is holding nothing. `started` is the server's
-    // answer rather than the tree's, which may not have swept yet. A hive
-    // session is never started from here — that runs its agent (ADR terminal-start-is-an-offered-action) — and
-    // one tmux is not running says so.
-    if (isScratch(row) && (await transport.start(row.slug)).started) return
     await transport.newWindow(row.slug)
   } catch (e) {
     treeError.value = appErrorMessage(e) || 'Could not create a window.'
