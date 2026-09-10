@@ -33,6 +33,7 @@ import IconPinOff from '~icons/lucide/pin-off'
 import IconPlus from '~icons/lucide/plus'
 import IconPower from '~icons/lucide/power'
 import IconTrash2 from '~icons/lucide/trash-2'
+import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import AppMenu from './AppMenu.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
@@ -77,6 +78,7 @@ const emit = defineEmits<{
   'close-session': [session: AgentSession]
   'rename-session': [session: AgentSession]
   'delete-session': [session: AgentSession]
+  'commit-rename': [session: AgentSession, name: string]
 }>()
 
 const {
@@ -220,6 +222,14 @@ function workspaceTooltip(node: WorkspaceNode): string {
   return parts.join('\n')
 }
 
+// A manifest that will not parse and a directory the root no longer lists are
+// both states no action on the row can recover from, so they get a mark of
+// their own. The MCP notice deliberately gets none: it reports a property of
+// the agent rather than anything wrong here, so it would sit lit forever.
+function workspaceBroken(node: WorkspaceNode): boolean {
+  return !node.workspace || !!node.workspace.problem
+}
+
 // A header draws no rollup of its own, so the schedule that fires next is a
 // line on the tooltip rather than a mark on the row. A disabled or unparseable
 // schedule has no nextRunAt and is not a candidate.
@@ -347,6 +357,31 @@ function onSessionMenuSelect(session: AgentSession, id: string): void {
   else if (id === 'delete') pendingDeleteSession.value = session
 }
 
+// ── Inline chat rename ────────────────────────────────────────────────────
+// Same idiom as the Code view's tmux window rename (TerminalMode.vue).
+const renamingSessionId = ref<number | null>(null)
+const renameDraft = ref('')
+
+function startRename(session: AgentSession): void {
+  if (renamingSessionId.value === session.id) return
+  renamingSessionId.value = session.id
+  renameDraft.value = session.name
+}
+
+function commitRename(): void {
+  // Read and clear the id before anything else: Escape sets it to null and
+  // unmounts the input, which fires blur, which calls commitRename again.
+  // Clearing first makes that second call a no-op instead of a save.
+  const id = renamingSessionId.value
+  if (id === null) return
+  renamingSessionId.value = null
+  const session = tree.value.flatMap((node) => node.sessions).find((s) => s.id === id)
+  if (!session) return
+  const name = renameDraft.value.trim()
+  if (!name || name === session.name) return
+  emit('commit-rename', session, name)
+}
+
 // ── Chat delete confirmation ─────────────────────────────────────────────
 // A stacked ConfirmationDialog, deliberately not InlineConfirm: the inline
 // strip is reserved for surfaces the user already opened (the workspace
@@ -355,6 +390,7 @@ const pendingDeleteSession = ref<AgentSession | null>(null)
 
 function confirmDeleteSession(): void {
   if (!pendingDeleteSession.value) return
+  if (renamingSessionId.value === pendingDeleteSession.value.id) renamingSessionId.value = null
   emit('delete-session', pendingDeleteSession.value)
   pendingDeleteSession.value = null
 }
@@ -506,6 +542,15 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @keydown.space.self.prevent="focusWorkspace(node)"
             @contextmenu.prevent="editWorkspace(node)"
           >
+            <!-- Leading, not trailing: the trailing pitch is the three
+                 controls, which are revealed on hover, and a fault has to
+                 read at rest. The row's tooltip carries the wording. -->
+            <IconTriangleAlert
+              v-if="workspaceBroken(node)"
+              class="size-3.5 shrink-0 text-severity-error"
+              data-testid="agents-sidebar-workspace-problem"
+              aria-hidden="true"
+            />
             <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
             <!-- Three controls on one pitch, revealed together: the header
                  says nothing at rest but its own name and whether it is open. -->
@@ -535,10 +580,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             <button
               type="button"
               class="ws-toggle"
-              :class="{
-                'ws-toggle-problem': !node.workspace || !!node.workspace.problem,
-                'ws-toggle-notice': !!node.workspace?.notice && !node.workspace?.problem,
-              }"
               :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
               :aria-expanded="expanded(node)"
               data-testid="agents-sidebar-workspace-toggle"
@@ -566,6 +607,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                 :data-open="session.id === openSessionId"
                 :title="chatTooltip(session)"
                 @click="emit('select-session', session)"
+                @dblclick="startRename(session)"
                 @keydown.enter.self.prevent="emit('select-session', session)"
                 @keydown.space.self.prevent="emit('select-session', session)"
                 @contextmenu.prevent="openSessionMenu(session, $event)"
@@ -585,7 +627,25 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                   />
                   <IconMessageSquare v-else class="size-3.5" />
                 </span>
-                <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
+                <!-- @click.stop / @dblclick.stop: without them the row's own
+                     handlers fire through the field and re-select the chat
+                     mid-edit. -->
+                <input
+                  v-if="renamingSessionId === session.id"
+                  v-model="renameDraft"
+                  class="min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none"
+                  data-testid="agents-sidebar-session-rename-input"
+                  autocapitalize="off"
+                  autocorrect="off"
+                  spellcheck="false"
+                  autofocus
+                  @click.stop
+                  @dblclick.stop
+                  @keydown.enter="commitRename"
+                  @keydown.esc="renamingSessionId = null"
+                  @blur="commitRename"
+                >
+                <span v-else class="min-w-0 flex-1 truncate">{{ session.name }}</span>
                 <!-- The pin mark rides the name's line rather than the trailing
                      slot, which the status mark and the menu toggle already
                      share. -->
@@ -688,11 +748,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 
 .ws-toggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; }
 .ws-toggle:hover { background: var(--color-app); color: var(--color-text); }
-/* A problem or a notice used to be its own line of text under the name. It is
-   the chevron's colour now, with the message on the row's tooltip — a warning
-   is worth a glance, and its wording is worth a hover. */
-.ws-toggle-notice { color: var(--color-severity-warning); }
-.ws-toggle-problem { color: var(--color-severity-error); }
 
 .ws-well { border-top: 1px solid var(--color-border); background: var(--color-app); padding: 6px 0; }
 

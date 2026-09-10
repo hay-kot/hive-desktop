@@ -236,11 +236,47 @@ describe('AgentsSidebar', () => {
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
     expect(rows[1].text()).toContain('demo-b') // the directory, since there is no name to read
-    expect(rows[1].get('[data-testid="agents-sidebar-workspace-toggle"]').classes()).toContain('ws-toggle-problem')
     expect(rows[1].attributes('title')).toContain('no longer in the workspace root')
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(true)
     // Nothing to open and nothing to edit, but its chats are still reachable.
     expect(rows[1].find('[data-testid="agents-sidebar-workspace-edit"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(2)
+  })
+
+  it('marks a workspace whose manifest will not parse, and leaves a healthy one unmarked', async () => {
+    mocks.workspaces.mockResolvedValue({
+      root: '/root',
+      rootProblem: '',
+      available: true,
+      error: '',
+      workspaces: [
+        workspaceFixtures[0],
+        { ...workspaceFixtures[1], problem: 'agent-workspace.yaml: name is required' },
+      ],
+    })
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+
+    expect(rows[0].find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(false)
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(true)
+    expect(rows[1].attributes('title')).toContain('name is required')
+  })
+
+  // The MCP notice reports what the agent does with declared servers, not a
+  // fault in this workspace, so it must not raise the mark.
+  it('leaves a workspace carrying only an MCP notice unmarked', async () => {
+    mocks.workspaces.mockResolvedValue({
+      root: '/root',
+      rootProblem: '',
+      available: true,
+      error: '',
+      workspaces: [{ ...workspaceFixtures[0], notice: 'this agent loads its own global configuration' }],
+    })
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0]
+
+    expect(row.find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(false)
+    expect(row.attributes('title')).toContain('global configuration')
   })
 
   it('has one scroll region: the sidebar keeps its width handle and the workspaces/chats divider is gone', async () => {
@@ -359,6 +395,76 @@ describe('AgentsSidebar', () => {
     menuEntry('agents-sidebar-session-rename')!.click()
     await flushPromises()
     expect(wrapper.emitted('rename-session')).toEqual([[recentFixtures[0]]])
+  })
+
+  // ── Inline chat rename (double-click) ─────────────────────────────────────
+  it('double-clicking a chat row opens an inline rename input seeded with its name', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rename-input"]').exists()).toBe(false)
+
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    expect(input.element.value).toBe('a-session')
+  })
+
+  it('Enter commits the inline rename with the trimmed name', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('  renamed chat  ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('commit-rename')).toEqual([[recentFixtures[1], 'renamed chat']])
+  })
+
+  it('blur commits the inline rename, same as Enter', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('renamed by blur')
+    await input.trigger('blur')
+    expect(wrapper.emitted('commit-rename')).toEqual([[recentFixtures[1], 'renamed by blur']])
+  })
+
+  it('an empty or whitespace-only draft closes the editor without emitting', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('   ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('commit-rename')).toBeUndefined()
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rename-input"]').exists()).toBe(false)
+  })
+
+  it('a draft that matches the current name closes the editor without a round trip', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('  a-session  ')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('commit-rename')).toBeUndefined()
+  })
+
+  // Escape must not save what the field held, including the save that would
+  // otherwise arrive via the blur its own unmount triggers. A naive
+  // commitRename bound to the session captured at dblclick time (rather than
+  // read fresh off renamingSessionId) emits here; this is what catches it.
+  it('Escape cancels the edit; the blur its unmount fires saves nothing', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.trigger('dblclick')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="agents-sidebar-session-rename-input"]')
+    await input.setValue('typed but should not save')
+    await input.trigger('keydown.esc')
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rename-input"]').exists()).toBe(false)
+
+    await input.trigger('blur')
+    expect(wrapper.emitted('commit-rename')).toBeUndefined()
+    expect(recentFixtures[1].name).toBe('a-session')
   })
 
   it("a workspace's + starts a chat in it with no dialog, and opens the row it lands in", async () => {

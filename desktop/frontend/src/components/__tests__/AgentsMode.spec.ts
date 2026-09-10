@@ -399,6 +399,74 @@ describe('AgentsMode', () => {
     expect(router.currentRoute.value.query.canvas).toBe('1')
   })
 
+  // Clicking the row already open in the pane must not tear it down and
+  // re-resume it (#433).
+  it('does nothing when the sidebar selects the session already open in the pane', async () => {
+    const { wrapper, client } = await mountWithOpenChat()
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', { ...chatRow })
+    await flushPromises()
+
+    expect(client.resumeSession).not.toHaveBeenCalled()
+  })
+
+  // A launch that lands while an editable field holds focus must not steal it
+  // -- the sidebar's inline rename opens on a double click whose first click
+  // is what started this very launch (#434 follow-up).
+  it('does not steal focus from an editable field a launch resolves under', async () => {
+    const client = fakeClient()
+    const other = { ...chatRow, id: 9, name: 'Second', terminalId: 'agentws-9' }
+    let resolveResume: ((session: typeof other) => void) | undefined
+    client.resumeSession.mockImplementation(() => new Promise((resolve) => { resolveResume = resolve }))
+    const { wrapper } = await mountWithOpenChat(client)
+
+    const field = document.createElement('input')
+    document.body.appendChild(field)
+    field.focus()
+    expect(document.activeElement).toBe(field)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', other)
+    await flushPromises()
+    resolveResume?.({ ...other, windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    await flushPromises()
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    expect(created.focus).not.toHaveBeenCalled()
+    field.remove()
+  })
+
+  it('focuses the newly attached pane when nothing editable holds focus', async () => {
+    const client = fakeClient()
+    const other = { ...chatRow, id: 9, name: 'Second', terminalId: 'agentws-9' }
+    client.resumeSession.mockResolvedValue({ ...other, windowId: 'w9', cols: 80, rows: 24, resumeAttempted: true })
+    const { wrapper } = await mountWithOpenChat(client)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', other)
+    await flushPromises()
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    expect(created.focus).toHaveBeenCalled()
+  })
+
+  // A failed attach sets openSessionId optimistically but leaves paneStatus
+  // 'idle', so the guard must key on the pair — openSessionId alone would
+  // make a retry click on the same row a no-op too.
+  it('still resumes the session on a retry click after a failed attach left it idle', async () => {
+    const client = fakeClient()
+    client.startSession.mockResolvedValue({
+      id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
+      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: 'boom',
+    })
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+    await startChat(wrapper)
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('select-session', { ...chatRow })
+    await flushPromises()
+
+    expect(client.resumeSession).toHaveBeenCalledWith({ id: 7 })
+  })
+
   // A schedule firing at 09:00 starts a chat nobody clicked for: the tree
   // learns about it from the wake-up, not from the next user action.
   it('reloads the chat list when a schedule reports a change', async () => {

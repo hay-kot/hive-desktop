@@ -1165,14 +1165,63 @@ describe('TerminalMode', () => {
   })
 
   it('adds a window to an unattached session and selects it', async () => {
+    const start = vi.fn().mockResolvedValue({ started: true })
     const newWindow = vi.fn(async () => ({ windowId: '@5' }))
-    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newWindow })
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), start, newWindow })
     const { wrapper, router } = await mountAt()
 
     await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
     await flushPromises()
 
     expect(newWindow).toHaveBeenCalledWith('hive-bump-deps')
+    expect(start).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+  })
+
+  // A stopped session has no window to add to, so + does what the pane's own
+  // Start button does instead of asking tmux for a window it does not have.
+  it('starts a not-started session instead of asking tmux for a window', async () => {
+    const start = vi.fn().mockResolvedValue({ started: true })
+    const newWindow = vi.fn(async () => ({ windowId: '@5' }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), start, newWindow })
+    mocks.SessionStatuses.mockResolvedValue({
+      items: [
+        { sessionId: '1', running: true, windows: [] },
+        { sessionId: '2', running: false, windows: [] },
+      ],
+      pollIntervalMs: 60_000,
+    })
+    const { wrapper, router } = await mountAt()
+
+    await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+
+    expect(start).toHaveBeenCalledWith('hive-bump-deps')
+    expect(newWindow).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+  })
+
+  // A start can fail, and its error renders on the row's own pane rather than
+  // wherever the user was standing, so the row has to be selected regardless
+  // of whether the start that follows succeeds.
+  it('still navigates to a not-started session whose start failed', async () => {
+    const start = vi.fn().mockRejectedValue(new Error('could not start'))
+    const newWindow = vi.fn(async () => ({ windowId: '@5' }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), start, newWindow })
+    mocks.SessionStatuses.mockResolvedValue({
+      items: [
+        { sessionId: '1', running: true, windows: [] },
+        { sessionId: '2', running: false, windows: [] },
+      ],
+      pollIntervalMs: 60_000,
+    })
+    const { wrapper, router } = await mountAt()
+
+    await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+
+    expect(start).toHaveBeenCalledWith('hive-bump-deps')
+    expect(newWindow).not.toHaveBeenCalled()
     expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
   })
 

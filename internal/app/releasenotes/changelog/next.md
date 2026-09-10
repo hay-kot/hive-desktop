@@ -9,6 +9,13 @@ summary: ""
   `gh pr checkout {{ .Payload.num }} && zed .` puts you in the editor on the
   right branch. A hook that fails leaves the session alone and reports its
   output in the action's run log.
+- **Double-click a chat in the Chats sidebar to rename it in place.** Type
+  the new name, press Enter or click away to save, or press Escape to cancel.
+  An empty or blank name is refused, and the sidebar row menu's `Rename…`
+  still opens the full dialog.
+- **Pressing + on a not-started session in the Code view now starts it.**
+  It used to fail with "Could not create a window"; + now opens the
+  session's tab, the same way it does for a session already running.
 
 ## Changed
 
@@ -25,6 +32,10 @@ summary: ""
 - **Activity opens as a dialog.** It used to be a full screen you navigated to
   and back from. It now opens over whatever you were reading, the way Tasks
   does, and closes on Escape, the backdrop, or its own X.
+- A broken workspace in the Chats sidebar now carries a warning icon beside its
+  name, in place of the tinted fold chevron. A manifest that will not parse and
+  a directory that has left the workspace root both raise it, and the row's
+  tooltip names the fault. A missing MCP no longer marks the row at all.
 
 ## Fixed
 
@@ -32,12 +43,14 @@ summary: ""
   `HIVE_DEFAULT_AGENT` set, the form preselected it correctly but the launch
   ignored it and started the configured `agents.default` instead, so the
   session came up on an agent you had not picked.
-- **Adding a tab to a session that is not running now says so.** Pressing `+`
-  on a session you have not started reported a failure to create a window,
-  which named the wrong cause -- the window was never the problem. It now
-  tells you the session is not running, and the failure is written to the log
-  instead of vanishing.
+- **A window request for a session tmux is not holding names the session.** The
+  failure reported a window that could not be created, which named the wrong
+  cause -- the window was never the problem. It now says the session is not
+  running, and the failure is written to the log instead of vanishing.
 - **A tab created while the window list was refreshing no longer disappears.**
   A refresh that had started before the tab existed treated it as closed, so
   the tab dropped out of the sidebar and renaming, closing or selecting it
   failed until the next refresh came round.
+- **Clicking the chat already open in the pane is a no-op.** It no longer
+  tears the terminal down and reattaches it, so the connection and scroll
+  position stay put.
