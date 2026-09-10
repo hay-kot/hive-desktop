@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -127,7 +129,10 @@ type irmAlertPayload struct {
 	URL            string            `json:"url,omitempty"`
 	Labels         []string          `json:"labels,omitempty"`
 	AlertLabels    map[string]string `json:"alertLabels,omitempty"`
+	Annotations    map[string]string `json:"annotations,omitempty"`
 	Severity       string            `json:"severity,omitempty"`
+	Cluster        string            `json:"cluster,omitempty"`
+	Namespace      string            `json:"namespace,omitempty"`
 	Integration    string            `json:"integration,omitempty"`
 	Team           string            `json:"team,omitempty"`
 	AlertsCount    int               `json:"alertsCount"`
@@ -154,20 +159,31 @@ func (s *irmAlertsSource) Produce(ctx context.Context, emit func(models.Msg) err
 }
 
 func alertGroupPayload(group client.AlertGroup) irmAlertPayload {
+	details := latestAlertDetails(group.LastAlert)
 	labels := group.LabelMap()
+	if len(details.Labels) > 0 {
+		if labels == nil {
+			labels = make(map[string]string, len(details.Labels))
+		}
+		maps.Copy(labels, details.Labels)
+	}
 	title := strings.TrimSpace(group.Title)
 	if title == "" {
 		title = "Grafana IRM alert"
 	}
+	severity := labels["severity"]
 	return irmAlertPayload{
 		Title:          title,
 		Kind:           ItemKind,
 		State:          alertGroupState(group.State),
-		Body:           alertGroupBody(group, labels),
+		Body:           alertGroupBody(group, labels, details),
 		URL:            group.URL(),
 		Labels:         labelTags(labels),
 		AlertLabels:    labels,
-		Severity:       labels["severity"],
+		Annotations:    details.Annotations,
+		Severity:       severity,
+		Cluster:        labels["cluster"],
+		Namespace:      labels["namespace"],
 		Integration:    group.IntegrationID,
 		Team:           group.TeamID,
 		AlertsCount:    group.AlertsCount,
@@ -177,24 +193,99 @@ func alertGroupPayload(group client.AlertGroup) irmAlertPayload {
 	}
 }
 
-// alertGroupBody is the detail pane's markdown. A group has no description of
-// its own — its title is the alert's — so the body is the triage state: how
-// many alerts grouped, how long it has been open, and who picked it up.
-func alertGroupBody(group client.AlertGroup, labels map[string]string) string {
-	facts := make([]string, 0, 6)
+type irmSourcePayload struct {
+	CommonLabels      map[string]string `json:"commonLabels"`
+	CommonAnnotations map[string]string `json:"commonAnnotations"`
+	Labels            map[string]string `json:"labels"`
+	Annotations       map[string]string `json:"annotations"`
+	Message           string            `json:"message"`
+	Alerts            []struct {
+		Labels      map[string]string `json:"labels"`
+		Annotations map[string]string `json:"annotations"`
+	} `json:"alerts"`
+}
+
+type irmAlertDetails struct {
+	Labels      map[string]string
+	Annotations map[string]string
+	Message     string
+}
+
+// latestAlertDetails reads the source's own context from the last alert that
+// the public group listing embeds. Alertmanager sends common maps; simpler
+// integrations send top-level maps, and a one-alert payload may only carry
+// them on the alert itself.
+func latestAlertDetails(alert *client.IRMAlert) irmAlertDetails {
+	if alert == nil || len(alert.Payload) == 0 {
+		return irmAlertDetails{}
+	}
+	var payload irmSourcePayload
+	if err := json.Unmarshal(alert.Payload, &payload); err != nil {
+		return irmAlertDetails{}
+	}
+	labels := payload.CommonLabels
+	if len(labels) == 0 {
+		labels = payload.Labels
+	}
+	annotations := payload.CommonAnnotations
+	if len(annotations) == 0 {
+		annotations = payload.Annotations
+	}
+	if len(payload.Alerts) == 1 {
+		if len(labels) == 0 {
+			labels = payload.Alerts[0].Labels
+		}
+		if len(annotations) == 0 {
+			annotations = payload.Alerts[0].Annotations
+		}
+	}
+	return irmAlertDetails{Labels: labels, Annotations: annotations, Message: payload.Message}
+}
+
+// alertGroupBody puts the source alert's explanation and labels before IRM's
+// triage facts, so the detail pane answers what is firing before how IRM has
+// handled the group.
+func alertGroupBody(group client.AlertGroup, labels map[string]string, details irmAlertDetails) string {
+	sections := make([]string, 0, 3)
+	description := strings.TrimSpace(details.Annotations["description"])
+	if description == "" {
+		description = strings.TrimSpace(details.Message)
+	}
+	if description != "" {
+		sections = append(sections, description)
+	}
+	if len(labels) > 0 {
+		keys := make([]string, 0, len(labels))
+		for key := range labels {
+			if !reservedLabel(key) {
+				keys = append(keys, key)
+			}
+		}
+		slices.Sort(keys)
+		if len(keys) > 0 {
+			lines := make([]string, 0, len(keys))
+			for _, key := range keys {
+				lines = append(lines, key+" = "+strconv.Quote(labels[key]))
+			}
+			sections = append(sections, "**Alert labels**\n\n```text\n"+strings.Join(lines, "\n")+"\n```")
+		}
+	}
+	facts := make([]string, 0, 5)
 	add := func(label, value string) {
 		if value = strings.TrimSpace(value); value != "" {
 			facts = append(facts, "- **"+label+"** "+value)
 		}
 	}
-	add("Severity", labels["severity"])
 	if group.AlertsCount > 0 {
-		add("Alerts", strconv.Itoa(group.AlertsCount))
+		add("Alerts in group", strconv.Itoa(group.AlertsCount))
 	}
 	add("Firing since", group.CreatedAt)
 	add("Acknowledged", group.AcknowledgedAt)
 	add("Silenced", group.SilencedAt)
-	return strings.Join(facts, "\n")
+	if len(facts) > 0 {
+		sections = append(sections, strings.Join(facts, "\n"))
+	}
+	return strings.Join(sections, "\n\n")
 }
 
 // alertGroupState maps an upstream state onto the emitted vocabulary. An

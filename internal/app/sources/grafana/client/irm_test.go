@@ -110,7 +110,13 @@ func TestAlertGroupsDecodesAGroup(t *testing.T) {
 			"labels":[
 				{"key":{"id":"k1","name":"severity"},"value":{"id":"v1","name":"critical"}},
 				{"key":{"id":"k2","name":"squad"},"value":{"id":"v2","name":"adaptive-telemetry"}}
-			]
+			],
+			"last_alert":{
+				"id":"AA74DN7T4JQB6",
+				"alert_group_id":"I68T24C13IFW1",
+				"created_at":"2026-08-01T12:03:00Z",
+				"payload":{"commonLabels":{"cluster":"production-east"}}
+			}
 		}],"next":null}`))
 	}))
 	defer server.Close()
@@ -129,6 +135,9 @@ func TestAlertGroupsDecodesAGroup(t *testing.T) {
 	assert.Empty(t, group.SilencedAt)
 	assert.Equal(t, "https://slack.example.com/thread", group.URL())
 	assert.Equal(t, map[string]string{"severity": "critical", "squad": "adaptive-telemetry"}, group.LabelMap())
+	require.NotNil(t, group.LastAlert)
+	assert.Equal(t, "AA74DN7T4JQB6", group.LastAlert.ID)
+	assert.JSONEq(t, `{"commonLabels":{"cluster":"production-east"}}`, string(group.LastAlert.Payload))
 }
 
 // Slack is where the on-call conversation is, so it wins; the IRM web page is

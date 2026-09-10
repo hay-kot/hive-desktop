@@ -60,9 +60,19 @@ type AlertGroup struct {
 	AlertsCount    int        `json:"alerts_count"`
 	Permalinks     Permalinks `json:"permalinks"`
 	Labels         []Label    `json:"labels"`
+	LastAlert      *IRMAlert  `json:"last_alert"`
 	CreatedAt      string     `json:"created_at"`
 	AcknowledgedAt string     `json:"acknowledged_at"`
 	SilencedAt     string     `json:"silenced_at"`
+}
+
+// IRMAlert carries the source payload of one notification in a group. Payload
+// is provider-defined, so interpretation stays in the connector.
+type IRMAlert struct {
+	ID           string          `json:"id"`
+	AlertGroupID string          `json:"alert_group_id"`
+	CreatedAt    string          `json:"created_at"`
+	Payload      json.RawMessage `json:"payload"`
 }
 
 // Permalinks are an alert group's links out. Every field is optional and the

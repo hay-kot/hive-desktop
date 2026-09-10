@@ -52,7 +52,7 @@ Connect a Grafana stack with its URL and a Viewer service account token. IRM als
 - `sources.grafana_irm_alerts` for active IRM alert groups;
 - `sources.grafana_metrics` for a PromQL query result.
 
-Alert sources can be filtered by labels, integration, or team. Metrics sources require a Prometheus-compatible data source UID and an expression.
+Alert sources can be filtered by labels, integration, or team. An IRM alert group's details include the latest source description and common labels. Its payload exposes `alertLabels`, `annotations`, `cluster`, `namespace`, and `severity` to function nodes and action templates. Metrics sources require a Prometheus-compatible data source UID and an expression.
 
 ## PostHog
 

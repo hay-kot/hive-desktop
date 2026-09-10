@@ -69,7 +69,12 @@ func TestIRMAlertsProduceEmitsOnePerAlertGroup(t *testing.T) {
 		{"id":"I1","state":"acknowledged","title":"Memory above 90%","integration_id":"CINT","team_id":"TSQ","alerts_count":6,
 		 "created_at":"2026-08-01T12:00:00Z","acknowledged_at":"2026-08-01T12:04:00Z",
 		 "permalinks":{"slack":"https://slack.example.com/thread"},
-		 "labels":[{"key":{"name":"severity"},"value":{"name":"critical"}}]},
+		 "labels":[{"key":{"name":"irm_priority"},"value":{"name":"high"}}],
+		 "last_alert":{"id":"A1","alert_group_id":"I1","created_at":"2026-08-01T12:03:00Z","payload":{
+		   "commonLabels":{"alertname":"MemoryHigh","cluster":"production-east","namespace":"payments","severity":"critical"},
+		   "commonAnnotations":{"description":"Memory is above its safe threshold.","runbook_url":"https://runbooks.example.com/memory"},
+		   "alerts":[{"labels":{"pod":"api-0"},"annotations":{"summary":"Memory high"}}]
+		 }}},
 		{"id":"I2","state":"new","title":"Disk full"}
 	],"next":null}`)
 	fx, _ := connectedFetcher(t, server.URL)
@@ -91,15 +96,28 @@ func TestIRMAlertsProduceEmitsOnePerAlertGroup(t *testing.T) {
 	assert.Equal(t, "Memory above 90%", first.Title)
 	assert.Equal(t, stateAcknowledged, first.State)
 	assert.Equal(t, "https://slack.example.com/thread", first.URL)
-	assert.Equal(t, "critical", first.Severity, "severity is lifted out of the labels")
+	assert.Equal(t, "critical", first.Severity, "severity is lifted out of the source labels")
+	assert.Equal(t, "production-east", first.Cluster)
+	assert.Equal(t, "payments", first.Namespace)
 	assert.Equal(t, "CINT", first.Integration)
 	assert.Equal(t, "TSQ", first.Team)
 	assert.Equal(t, 6, first.AlertsCount)
 	assert.Equal(t, "2026-08-01T12:04:00Z", first.AcknowledgedAt)
 	assert.Equal(t, ItemKind, first.Kind, "an IRM group is an Alert, like its Alertmanager sibling")
-	assert.Equal(t, []string{"severity=critical"}, first.Labels, "canonical labels are string tags")
-	assert.Equal(t, "critical", first.AlertLabels["severity"], "the raw map survives as provider enrichment")
-	assert.Contains(t, first.Body, "**Alerts** 6")
+	assert.Equal(t, []string{
+		"alertname=MemoryHigh",
+		"cluster=production-east",
+		"irm_priority=high",
+		"namespace=payments",
+		"severity=critical",
+	}, first.Labels, "source labels augment IRM's own labels as sorted canonical tags")
+	assert.Equal(t, "production-east", first.AlertLabels["cluster"], "source labels survive as provider enrichment")
+	assert.Equal(t, "Memory is above its safe threshold.", first.Annotations["description"])
+	assert.Contains(t, first.Body, "Memory is above its safe threshold.")
+	assert.Contains(t, first.Body, `cluster = "production-east"`)
+	assert.Contains(t, first.Body, `namespace = "payments"`)
+	assert.NotContains(t, first.Body, "pod", "a non-common instance label must not describe the whole group")
+	assert.Contains(t, first.Body, "**Alerts in group** 6")
 	assert.Contains(t, first.Body, "**Firing since** 2026-08-01T12:00:00Z")
 	assert.Contains(t, first.Body, "**Acknowledged** 2026-08-01T12:04:00Z")
 
@@ -111,6 +129,24 @@ func TestIRMAlertsProduceEmitsOnePerAlertGroup(t *testing.T) {
 }
 
 // A group with no title would otherwise reach the feed as a blank row.
+func TestLatestAlertDetailsFallsBackForSingleAlertPayloads(t *testing.T) {
+	t.Parallel()
+
+	details := latestAlertDetails(&client.IRMAlert{Payload: json.RawMessage(`{
+		"alerts":[{"labels":{"cluster":"staging"},"annotations":{"description":"Pod is restarting."}}]
+	}`)})
+
+	assert.Equal(t, map[string]string{"cluster": "staging"}, details.Labels)
+	assert.Equal(t, "Pod is restarting.", details.Annotations["description"])
+}
+
+func TestLatestAlertDetailsIgnoresUnknownPayloads(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, latestAlertDetails(nil))
+	assert.Empty(t, latestAlertDetails(&client.IRMAlert{Payload: json.RawMessage(`"plain text"`)}))
+}
+
 func TestIRMAlertsProduceFallsBackToATitle(t *testing.T) {
 	t.Parallel()
 
