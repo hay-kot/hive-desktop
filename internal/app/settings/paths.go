@@ -28,8 +28,16 @@ const (
 	// provenance by name.
 	EnvAgentWorkspacesDir = "HIVE_DESKTOP_AGENT_WORKSPACES_DIR"
 
+	// EnvEnvironmentFile is the environment name behind environment.file, named
+	// here for the same reason as EnvAgentWorkspacesDir.
+	EnvEnvironmentFile = "HIVE_DESKTOP_ENVIRONMENT_FILE"
+
 	EnvPerfEnabled = "HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"
 )
+
+// envFileName is the default env file, sitting beside bootstrap.yaml in the
+// fixed config location rather than in the movable config root.
+const envFileName = ".env"
 
 // Paths is the immutable startup snapshot of every desktop-owned location.
 // Runtime code receives this value instead of resolving process environment
@@ -46,7 +54,14 @@ type Paths struct {
 	ActionsPath string
 	// AgentWorkspacesDir is the agent-workspace root: agent_workspaces.dir,
 	// resolved and `~`-expanded, or <ConfigDir>/workspaces when unset.
-	AgentWorkspacesDir   string
+	AgentWorkspacesDir string
+	// EnvironmentFile is the env file startup seeds the process environment
+	// from: environment.file, resolved and `~`-expanded, or the fixed
+	// <XDG_CONFIG_HOME>/hive/desktop/.env when unset. Like BootstrapPath the
+	// default ignores a relocated config dir — a synced config root would carry
+	// one machine's environment onto another
+	// (ADR the-desktop-seeds-its-environment-from-a-file-the-settings-name).
+	EnvironmentFile      string
 	SettingsPath         string
 	CredentialsIndexPath string
 	LogFile              string
@@ -63,6 +78,9 @@ type ResolveOptions struct {
 	// AgentWorkspacesDir is settings' agent_workspaces.dir. Empty resolves to
 	// <ConfigDir>/workspaces; a leading `~` is expanded here.
 	AgentWorkspacesDir string
+	// EnvironmentFile is settings' environment.file. Empty resolves to the
+	// fixed default beside bootstrap.yaml; a leading `~` is expanded here.
+	EnvironmentFile string
 }
 
 // ResolvePaths applies explicit environment overrides over bootstrap and
@@ -87,12 +105,7 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	if !configOverride {
 		configDir = b.ConfigDir
 		if configDir == "" {
-			configHome := os.Getenv("XDG_CONFIG_HOME")
-			if configHome == "" {
-				home, _ := os.UserHomeDir()
-				configHome = filepath.Join(home, ".config")
-			}
-			configDir = filepath.Join(configHome, "hive", "desktop")
+			configDir = FixedConfigDir()
 		}
 	}
 
@@ -126,6 +139,16 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 		agentWorkspacesDir = expandHome(agentWorkspacesDir)
 	}
 
+	environmentFile, environmentFileEnv := os.LookupEnv(EnvEnvironmentFile)
+	if !environmentFileEnv || environmentFile == "" {
+		environmentFile = opts.EnvironmentFile
+	}
+	if environmentFile == "" {
+		environmentFile = filepath.Join(FixedConfigDir(), envFileName)
+	} else {
+		environmentFile = expandHome(environmentFile)
+	}
+
 	return Paths{
 		DataDir:              dataDir,
 		HiveDataDir:          hiveDataDir,
@@ -134,6 +157,7 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 		FlowsDir:             flowsDir,
 		ActionsPath:          actionsPath,
 		AgentWorkspacesDir:   agentWorkspacesDir,
+		EnvironmentFile:      environmentFile,
 		SettingsPath:         filepath.Join(configDir, settingsFileName),
 		CredentialsIndexPath: filepath.Join(stateDir, "credentials.json"),
 		LogFile:              filepath.Join(stateDir, logFileName),
@@ -142,9 +166,23 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	}
 }
 
-// expandHome resolves a leading `~` in a configured agent-workspace root.
-// Every other Paths field is derived from XDG bases and is already absolute,
-// so this is the one place ResolvePaths needs it.
+// FixedConfigDir is the default desktop config location — XDG_CONFIG_HOME, then
+// ~/.config — with the config-dir override deliberately ignored. It anchors the
+// files that must not move when the config root does: the bootstrap pointer
+// that records where the config root went, and the env file, whose whole
+// purpose is to differ between machines that share a synced config root.
+func FixedConfigDir() string {
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		home, _ := os.UserHomeDir()
+		configHome = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configHome, "hive", "desktop")
+}
+
+// expandHome resolves a leading `~` in the two settings-supplied locations, the
+// agent-workspace root and the env file. Every other Paths field is derived
+// from XDG bases and is already absolute.
 func expandHome(dir string) string {
 	if dir != "~" && !strings.HasPrefix(dir, "~/") {
 		return dir

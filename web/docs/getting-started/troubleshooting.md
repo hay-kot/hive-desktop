@@ -28,6 +28,10 @@ which codex
 
 Hive reads your login shell environment at launch. Fix the shell's `PATH`, then restart Hive.
 
+## An agent is missing an API key or another variable
+
+Hive starts from the Dock or Spotlight, so it only sees what your login shell reports at launch. If a variable your agent needs is missing, put it in an env file and restart Hive. See [Environment file](../configuration/settings.md#environment-file).
+
 ## Notifications never appear as banners
 
 Open **Settings ▸ Notifications** and check the master switch, delivery mode, and system permission.

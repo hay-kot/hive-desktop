@@ -142,6 +142,16 @@ type AgentWorkspacesSettings struct {
 	SessionEndDelay Duration `yaml:"session_end_delay,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_SESSION_END_DELAY"`
 }
 
+// EnvironmentSettings names the env file the app seeds its process environment
+// from at startup (ADR the-desktop-seeds-its-environment-from-a-file-the-settings-name).
+// File is a path, `~`-expanded; empty takes the fixed default beside
+// bootstrap.yaml. It is a setting rather than a fixed location so a synced
+// settings.yaml can name one path on every machine while the file it points at
+// stays machine-local.
+type EnvironmentSettings struct {
+	File string `yaml:"file,omitempty" env:"HIVE_DESKTOP_ENVIRONMENT_FILE"`
+}
+
 // PathsSettings locates the external binaries the app execs. Each is the escape
 // hatch for an install discovery does not know about (ADR tmux-discovery): empty — the
 // shipped value — searches PATH and the usual package-manager prefixes.
@@ -280,6 +290,7 @@ type Settings struct {
 	Telemetry       TelemetrySettings       `yaml:"telemetry"`
 	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
 	Paths           PathsSettings           `yaml:"paths,omitempty"`
+	Environment     EnvironmentSettings     `yaml:"environment,omitempty"`
 	Editor          EditorSettings          `yaml:"editor,omitempty"`
 	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`
 	Development     DevelopmentSettings     `yaml:"development"`

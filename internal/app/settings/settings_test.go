@@ -89,6 +89,34 @@ func TestPathsTmuxYAMLThenEnvironment(t *testing.T) {
 	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_PATHS_TMUX"))
 }
 
+func TestEnvironmentFileYAMLThenEnvironment(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, os.WriteFile(path, []byte("environment:\n  file: ~/.config/hive/desktop/.env\n"), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "~/.config/hive/desktop/.env", cfg.Environment.File, "the path is carried verbatim; ResolvePaths expands it")
+
+	t.Setenv(EnvEnvironmentFile, "/etc/hive/machine.env")
+	cfg, err = LoadSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "/etc/hive/machine.env", cfg.Environment.File)
+	assert.True(t, cfg.EnvironmentOverridden(EnvEnvironmentFile))
+}
+
+// The section marshals away when it is unset, so a settings.yaml that never
+// named an env file does not grow an empty one on an unrelated save.
+func TestUnsetEnvironmentSectionIsNotWritten(t *testing.T) {
+	path := isolateSettings(t)
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+
+	require.NoError(t, SaveSettings(cfg))
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(written), "environment:")
+}
+
 func TestLoadSettingsStrictNestedYAMLThenEnvironment(t *testing.T) {
 	path := isolateSettings(t)
 	require.NoError(t, os.WriteFile(path, []byte(`

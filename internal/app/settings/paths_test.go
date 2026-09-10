@@ -118,3 +118,45 @@ func TestAgentWorkspacesRootResolution(t *testing.T) {
 		assert.Equal(t, envDir, paths.AgentWorkspacesDir)
 	})
 }
+
+func TestEnvironmentFileResolution(t *testing.T) {
+	// The default sits beside bootstrap.yaml rather than in the config root: a
+	// config root that is synced between machines would otherwise carry one
+	// machine's environment onto the other, which is the reason the path is a
+	// setting at all.
+	t.Run("DefaultsToTheFixedLocation", func(t *testing.T) {
+		unsetEnv(t, EnvEnvironmentFile)
+		home := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", home)
+
+		paths := ResolvePaths(Bootstrap{ConfigDir: filepath.Join(t.TempDir(), "synced-config")}, ResolveOptions{})
+		assert.Equal(t, filepath.Join(home, "hive", "desktop", ".env"), paths.EnvironmentFile)
+		assert.Equal(t, filepath.Dir(BootstrapPath()), filepath.Dir(paths.EnvironmentFile))
+	})
+
+	t.Run("ResolveOptionsFieldWins", func(t *testing.T) {
+		unsetEnv(t, EnvEnvironmentFile)
+		custom := filepath.Join(t.TempDir(), "machine.env")
+
+		paths := ResolvePaths(Bootstrap{}, ResolveOptions{EnvironmentFile: custom})
+		assert.Equal(t, custom, paths.EnvironmentFile)
+	})
+
+	t.Run("TildeExpands", func(t *testing.T) {
+		unsetEnv(t, EnvEnvironmentFile)
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		paths := ResolvePaths(Bootstrap{}, ResolveOptions{EnvironmentFile: "~/.config/hive/desktop/.env"})
+		assert.Equal(t, filepath.Join(home, ".config", "hive", "desktop", ".env"), paths.EnvironmentFile)
+	})
+
+	t.Run("EnvWinsOverYAML", func(t *testing.T) {
+		root := t.TempDir()
+		fromEnv := filepath.Join(root, "env.env")
+		t.Setenv(EnvEnvironmentFile, fromEnv)
+
+		paths := ResolvePaths(Bootstrap{}, ResolveOptions{EnvironmentFile: filepath.Join(root, "yaml.env")})
+		assert.Equal(t, fromEnv, paths.EnvironmentFile)
+	})
+}

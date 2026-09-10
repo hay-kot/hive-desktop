@@ -28,16 +28,9 @@ type Bootstrap struct {
 // BootstrapPath is the fixed location of the bootstrap pointer file. It is
 // deliberately anchored to the default XDG config location and is NEVER
 // affected by a config-dir override — otherwise relocating the config dir
-// would move the very file that records where the config dir went. It mirrors
-// the config-dir resolution's default-location logic (XDG_CONFIG_HOME, then
-// ~/.config) but ignores the movable desktop config-directory override.
+// would move the very file that records where the config dir went.
 func BootstrapPath() string {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, _ := os.UserHomeDir()
-		configHome = filepath.Join(home, ".config")
-	}
-	return filepath.Join(configHome, "hive", "desktop", bootstrapFileName)
+	return filepath.Join(FixedConfigDir(), bootstrapFileName)
 }
 
 // LoadBootstrap reads the pointer file. A missing file is not an error: it

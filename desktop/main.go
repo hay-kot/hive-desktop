@@ -25,6 +25,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
@@ -81,7 +82,21 @@ func main() {
 	paths = settings.ResolvePaths(bootstrap, settings.ResolveOptions{
 		MockMode:           cfg.MockMode(),
 		AgentWorkspacesDir: cfg.AgentWorkspaces.Dir,
+		EnvironmentFile:    cfg.Environment.File,
 	})
+
+	// Seeded here because everything that reads the environment reads it later:
+	// telemetry's `env:` references below, the hive config load inside app.New,
+	// and every command the app spawns. Settings are already loaded and stay
+	// that way — the file cannot set HIVE_DESKTOP_*, so nothing it carries can
+	// contradict the document that named it. A fixture run is skipped: it must
+	// no more take the machine's environment file than it takes the machine's
+	// login shell.
+	if cfg.MockMode() == "" {
+		if err := execenv.ApplyFile(paths.EnvironmentFile, logger); err != nil {
+			logger.Error().Err(err).Msg("environment file unusable; nothing in it is set")
+		}
+	}
 
 	// Cancelled by shutdown rather than deferred: log.Fatal below would skip a
 	// defer, and shutdown is the one path both exits take.

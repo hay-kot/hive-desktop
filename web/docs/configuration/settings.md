@@ -33,6 +33,7 @@ Hive keeps its user configuration under `~/.config/hive/desktop/` by default.
 | Flows | `flows/` |
 | Actions | `actions.yml` |
 | Agent workspaces | `workspaces/` |
+| Environment file | `.env` |
 | Application data and logs | `~/.local/share/hive/desktop/` |
 | Account tokens | OS keychain |
 
@@ -58,6 +59,8 @@ editor:
   command: ""
 agent_workspaces:
   dir: ""
+environment:
+  file: ""
 ```
 
 - `polling.interval` has a minimum of 60 seconds.
@@ -65,8 +68,50 @@ agent_workspaces:
 - `paths.tmux` accepts an absolute path when Hive cannot find tmux.
 - `editor.command` accepts an executable name or absolute path without arguments.
 - `agent_workspaces.dir` changes where Chats workspaces are stored.
+- `environment.file` names an env file Hive reads at startup. See [Environment file](#environment-file).
 
 Every scalar setting can be overridden for one launch with an environment variable based on its YAML path. For example, `polling.interval` becomes `HIVE_DESKTOP_POLLING_INTERVAL`.
+
+## Environment file
+
+Hive starts from the Dock or Spotlight, not from your terminal, so it does not
+see the variables your shell exports. Put them in an env file instead:
+
+```bash title="~/.config/hive/desktop/.env"
+HIVE_DEFAULT_AGENT=pi
+ANTHROPIC_API_KEY=sk-...
+EDITOR=nvim
+```
+
+Hive reads the file once at startup. It uses the variables for its own
+configuration, for `env:` references in settings, and for every command it runs:
+agents, session hooks, and shell actions.
+
+The default path is `~/.config/hive/desktop/.env`. Point somewhere else with:
+
+```yaml
+environment:
+  file: ~/.hive.env
+```
+
+Setting the path here rather than fixing it lets you keep the same
+`settings.yaml` on two machines and a different env file on each. The default
+path stays put even if you move the config folder, for the same reason.
+
+What to expect:
+
+- One `NAME=value` per line. Quote a value with spaces. A `#` after a space
+  starts a comment. Values cannot span lines.
+- Hive reads the file at startup only. Restart the app after you edit it.
+- A variable already set for the launch keeps its value.
+- `PATH` and any `HIVE_DESKTOP_*` name are ignored. Hive finds `PATH` from your
+  login shell, and desktop settings belong in `settings.yaml`.
+- A missing file is fine. A file with a mistake in it is skipped whole, so
+  nothing changes and the log names the line.
+
+!!! warning "The file holds secrets"
+    Keep it out of a synced folder and out of version control. Hive never logs
+    a value from it, only the variable names.
 
 ## Updates
 

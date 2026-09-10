@@ -194,6 +194,9 @@ agent_workspaces:
   session_end_delay: 10s # grace between a chat asking to end its own session and the session being ended
 paths:
   tmux: "" # absolute path to tmux; empty discovers it (ADR tmux-discovery)
+environment:
+  file: "" # env file seeded into the process at startup; empty is
+           # ~/.config/hive/desktop/.env (a leading ~ is expanded)
 development:
   mocks:
     mode: live # live, feed, pipeline, onboarding, or action-smoke
@@ -225,6 +228,22 @@ misses; it must be absolute, a configured path that does not work is an error
 rather than a fallback to a different tmux, and changing it takes a relaunch.
 Installing tmux does not: a failed lookup is retried, so only a successful one
 is remembered.
+
+`environment.file` is the env file the app seeds its own process environment
+from at startup (ADR the-desktop-seeds-its-environment-from-a-file-the-settings-name). It exists because a launched `.app`
+has the launcher's environment and not a shell's, so a variable exported from an
+rc file — `HIVE_DEFAULT_AGENT`, `ANTHROPIC_API_KEY`, `EDITOR` — is invisible to
+it unless the login shell probe happens to find it. The values reach hive's
+config load, every command the app spawns, and `env:` secret references alike.
+
+The path is a setting rather than a fixed location so a dotfiles-managed
+`settings.yaml` can name the same path on every machine while the file at that
+path stays machine-local; the default, `<XDG_CONFIG_HOME>/hive/desktop/.env`,
+sits beside `bootstrap.yaml` and ignores a relocated config root for the same
+reason. Four rules: a variable this launch already carries wins, `PATH` and
+`HIVE_DESKTOP_*` are ignored, the file is read once at startup, and a file that
+does not parse sets nothing. Values are single-line, `#` after whitespace is a
+comment, and `'single quotes'` keep a value verbatim.
 
 `telemetry` sends the app's own signals to an OpenTelemetry endpoint with no
 collector in between; `development.metrics` serves the same instruments at
@@ -275,7 +294,10 @@ Every scalar override mirrors its YAML path, for example
 `HIVE_DESKTOP_HTTP_PORT`. Paths and logging use
 `HIVE_DESKTOP_DATA_DIR`, `HIVE_DESKTOP_CONFIG_DIR`,
 `HIVE_DESKTOP_FLOWS_DIR`, `HIVE_DESKTOP_ACTIONS_PATH`, and
-`HIVE_DESKTOP_LOG_LEVEL`. Wails, credentials, build stamping, and release
+`HIVE_DESKTOP_LOG_LEVEL`. These come from the launch, never from
+`environment.file`: that file is named by `settings.yaml`, so a desktop
+override in it would take effect on a later settings read and not on the
+startup one. Wails, credentials, build stamping, and release
 secrets are separate environment boundaries rather than settings fields.
 `development.pprof` is parsed and validated but does not start an endpoint yet;
 that waits for the common plugs lifecycle.

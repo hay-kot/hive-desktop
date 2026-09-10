@@ -49,6 +49,13 @@ keybindings:               # sparse overrides keyed by command id
 paths:
   tmux: ""                 # absolute path to a tmux binary; empty discovers one
 
+environment:
+  file: ""                 # env file read once at startup; empty is
+                           # ~/.config/hive/desktop/.env. A leading ~ is
+                           # expanded. The path is a setting so a synced
+                           # settings.yaml can name one path on every machine
+                           # while the file itself stays machine-local.
+
 editor:
   command: ""              # single-word CLI launcher "Open in editor" actions run
                            # on a directory (zed, code, cursor, subl, or a path);
@@ -97,7 +104,8 @@ development:
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
 - `telemetry.enabled` requires `telemetry.endpoint`, `telemetry.instance_id` and `telemetry.token`, and the endpoint must be https. It is the one URL setting that is deliberately not loopback-only.
-- `telemetry.token` must be a reference (`env:`, `file:`, `op://`), never a pasted credential; a literal is a validation error. `telemetry.endpoint` and `telemetry.instance_id` accept either a reference or a written-out value, so one secret can hold a whole destination. Prefer `file:` or `op://` for an installed app, since a launched .app inherits almost no environment.
+- `telemetry.token` must be a reference (`env:`, `file:`, `op://`), never a pasted credential; a literal is a validation error. `telemetry.endpoint` and `telemetry.instance_id` accept either a reference or a written-out value, so one secret can hold a whole destination. An installed .app inherits almost no environment, so `env:` works only for a name `environment.file` supplies; `file:` and `op://` need nothing.
 - `profiles.order` never has to be exhaustive: name only the profiles whose position matters. Dragging a tile in the rail rewrites the whole key; editing it here takes effect on the next launch.
+- `environment.file` is read once, at startup: editing the file, or this key, takes a relaunch. `PATH` and any `HIVE_DESKTOP_*` name in it are ignored — PATH is resolved from the login shell, and desktop settings belong in this file. A launch that already carries a variable keeps its value. A file that does not parse sets nothing at all.
 - `keybindings` has its own command-id vocabulary. Read the ids off Settings ▸ Keyboard rather than guessing them. A binding can be a single combo (`j`) or a space-separated sequence of combos pressed in order (`g i`).
 {{template "task" .}}

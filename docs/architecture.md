@@ -768,7 +768,11 @@ distinct from the SQLite schema migrations (`internal/hivecore/data/migrate`)
 that track applied versions in a table.
 
 Paths resolve before settings because the config root determines where
-`settings.yaml` lives. The fixed XDG `bootstrap.yaml` stores only `data_dir`
+`settings.yaml` lives. Two files are anchored to the fixed XDG location
+(`settings.FixedConfigDir`) and never follow a relocated config root:
+`bootstrap.yaml`, which records where the config root went, and the default
+`.env`, whose whole purpose is to differ between machines that share a synced
+config root (ADR the-desktop-seeds-its-environment-from-a-file-the-settings-name). The fixed XDG `bootstrap.yaml` stores only `data_dir`
 and `config_dir`; explicit `HIVE_DESKTOP_DATA_DIR` and
 `HIVE_DESKTOP_CONFIG_DIR` values win, then bootstrap, then XDG defaults.
 `desktop/main.go` derives one immutable `settings.Paths` snapshot — data and
@@ -1066,6 +1070,31 @@ the probe shell's own process rather than the child's. Two rules follow:
   default by setting it to nothing, and a startup file must not refill it.
   `Getenv` differs on purpose — it answers what a terminal would show, where
   empty and unset are one answer.
+
+**An env file the settings name seeds the process environment at startup**
+(ADR the-desktop-seeds-its-environment-from-a-file-the-settings-name). `environment.file` — default
+`<XDG_CONFIG_HOME>/hive/desktop/.env`, anchored like `bootstrap.yaml` so a
+synced config root cannot carry one machine's environment to another — is
+applied by `execenv.ApplyFile` in `desktop/main.go`, before telemetry resolves
+its `env:` references and before `app.New` loads hive's config. It is a source
+of values, not a resolver: the names it sets are process environment by the time
+anything reads one, so `Getenv`, `Environ` and hive's own `os.Getenv` all answer
+from it unchanged. The order is the launch environment, then the file, then the
+login shell.
+
+Three rules follow:
+
+- **A name this process already carries wins**, presence rather than a non-empty
+  value, so a launch still opts out by setting a variable to nothing.
+- **`PATH` and `HIVE_DESKTOP_*` are refused.** PATH is the resolver's own
+  answer; `HIVE_DESKTOP_*` belongs to `settings.yaml`, the file that named this
+  one, and honouring it here would apply on a later `Effective()` reload but not
+  on the startup read. Both are logged and skipped, and the rest of the file
+  applies.
+- **Startup only, whole-file, and never logged by value.** No hot reload: a
+  spawned session already holds the old values. A file that does not parse
+  applies nothing and startup continues. Errors name the line and the variable
+  — a `.env` is where tokens live.
 
 **A hive config override the CLI takes from the environment is read through
 `execenv.Getenv`, never `os.Getenv`** (ADR hive-env-overrides-resolve-through-the-login-shell): the launch that has no PATH
