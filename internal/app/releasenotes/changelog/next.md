@@ -25,3 +25,7 @@ summary: ""
 - **Saving a flow runs it.** An added or edited source node used to produce
   nothing until the next poll tick, up to a minute later, which read as a flow
   that did not work. A deploy now fetches immediately.
+- **A per-entity feed item takes its time from its payload.** A `function`
+  node that splits one source message into one item per entity can set
+  `updatedAt` on each payload, and the item's age is what it says. It was
+  ignored before, so every such item was stamped when Hive first saw it.

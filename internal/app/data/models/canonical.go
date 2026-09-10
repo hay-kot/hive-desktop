@@ -45,3 +45,24 @@ func CanonicalFields(payload []byte) (id, kind, state string) {
 	}
 	return id, kind, state
 }
+
+// FeedFields is the one shared decode for the presentation an item payload
+// carries: the title and url a feed row renders, and the time the item's own
+// source says it last changed.
+//
+// Both boundaries that mint an inbox row read it — the poll producer, for a
+// message a source emitted, and CommitBatch, for a key a function node
+// synthesized (ADR function-node-per-entity-feed-items) — so `updatedAt` on a
+// per-entity payload means what it means on a source's own.
+//
+// updatedAt is unix milliseconds. Zero means the payload did not say, and the
+// caller substitutes its own clock rather than stamping the item at the epoch.
+func FeedFields(payload []byte) (title, url string, updatedAt int64) {
+	var wire struct {
+		Title     string `json:"title"`
+		URL       string `json:"url"`
+		UpdatedAt int64  `json:"updatedAt"`
+	}
+	_ = json.Unmarshal(payload, &wire)
+	return wire.Title, wire.URL, wire.UpdatedAt
+}
