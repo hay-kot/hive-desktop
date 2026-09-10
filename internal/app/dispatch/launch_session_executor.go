@@ -9,9 +9,12 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 // defaultPostHookTimeout is generous for a hook that hands the checkout to
@@ -103,7 +106,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}
-	outcome, err := e.launcher.LaunchSession(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origin: data.Origin})
+	outcome, err := e.launch(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origin: data.Origin})
 	if err != nil {
 		return ExecutionResult{Attempted: true}, err
 	}
@@ -112,6 +115,18 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		Outcome:   &ExecutionOutcome{Session: &outcome},
 		Log:       e.runPostHook(ctx, action, cfg, data, repo, outcome),
 	}, nil
+}
+
+// The launcher is the wait a launch-session action mostly is: hive clones or
+// resolves the checkout and starts the agent before it answers.
+func (e *LaunchSessionExecutor) launch(ctx context.Context, req LaunchSessionRequest) (outcome SessionExecutionOutcome, err error) {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "dispatch.launch-session", trace.WithAttributes(
+		attribute.String(attrAgent, req.Agent),
+		attribute.String(attrRepo, req.Repo),
+	))
+	defer observe.End(span, &err)
+
+	return e.launcher.LaunchSession(ctx, req)
 }
 
 // A failure stays in the log and never becomes the action's error: the session
@@ -129,7 +144,7 @@ func (e *LaunchSessionExecutor) runPostHook(
 	}
 	logger := e.logger.With().Str("action_id", action.ID).Str("session_id", outcome.ID).Logger()
 	failed := func(err error) ExecutionLog {
-		logger.Warn().Err(err).Msg("launch-session: post hook failed")
+		logger.Warn().Ctx(ctx).Err(err).Msg("launch-session: post hook failed")
 		return ExecutionLog{Stderr: "post_hook: " + err.Error()}
 	}
 	if e.env == nil {
@@ -153,12 +168,12 @@ func (e *LaunchSessionExecutor) runPostHook(
 	if timeout == 0 {
 		timeout = defaultPostHookTimeout
 	}
-	log, err := runShell(ctx, e.env, shellCommand{Command: command, Dir: outcome.Path, Timeout: timeout})
+	log, err := runShell(ctx, e.env, "dispatch.post-hook", shellCommand{Command: command, Dir: outcome.Path, Timeout: timeout})
 	if err != nil {
-		logger.Warn().Err(err).Msg("launch-session: post hook failed")
+		logger.Warn().Ctx(ctx).Err(err).Msg("launch-session: post hook failed")
 		log.Stderr = strings.TrimRight("post_hook: "+err.Error()+"\n"+log.Stderr, "\n")
 		return log
 	}
-	logger.Info().Msg("launch-session: post hook ran")
+	logger.Info().Ctx(ctx).Msg("launch-session: post hook ran")
 	return log
 }

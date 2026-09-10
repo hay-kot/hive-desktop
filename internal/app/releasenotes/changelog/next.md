@@ -8,6 +8,9 @@ summary: ""
   the tmux handshake, the size vote, the window list and the pane capture as
   separate steps, so a terminal that was slow to open resolves to the step that
   took the time.
+- **Running an action is one trace.** The shell command, the session launch,
+  the post hook, the notification and the message publish each report as their
+  own step, so an action that took a minute resolves to the step that spent it.
 - **Every source node has a poll interval.** Grafana, GitHub, PostHog and
   Gitea sources take an `interval` — `1h`, `15m` — the same way command
   sources always have. Leave it empty to fetch every poll. The floor rounds up
