@@ -1,13 +1,15 @@
 <script setup lang="ts">
 // The Activity view (design 15a — "ledger"): a flat, day-grouped chronology of
 // what the app did — refreshes, sessions, automatic and manual actions, config
-// reloads, and errors. A left time gutter anchors every row, severity reads by
+// reloads, and errors. A left time gutter anchors every row, a failure reads by
 // a colored rail rather than a filled icon, and one segmented control filters
 // the stream. Events are recorded by backend subsystems through the
 // activity.Recorder and by the frontend via ActivityService.Record; this view
-// only reads and presents them. Reached from the titlebar Activity link.
+// only reads and presents them. Shown in ActivityOverlay, opened from the
+// titlebar Activity icon.
 import { computed, onMounted, ref } from 'vue'
 import IconSearch from '~icons/lucide/search'
+import IconX from '~icons/lucide/x'
 import { useActivity } from '../composables/useActivity'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import ViewHeader from './settings/ViewHeader.vue'
@@ -39,19 +41,28 @@ const filtered = computed(() =>
 )
 const groups = computed(() => groupEventsByDay(filtered.value))
 
-// Severity/category → the row's dot color and (for the two that warrant it) its
-// emphasis rail + tint. Errors and auto-actions get a colored left rail because
-// they are the events a reader scans for; everything else stays quiet and only
-// lifts on hover. The rail is an inset shadow, not a border, so it never colors
-// the row's divider on the sides it doesn't own.
+// Two separate signals, and the difference matters:
+//
+//   the dot  — what kind of event this is. Red for a failure, accent for the
+//              app acting on its own, neutral otherwise. Cheap, so it can fire
+//              on every row without costing anything.
+//   the rail — tinted row plus a colored left edge. Expensive: it is what makes
+//              a row jump out of the page, so only a failure earns it.
+//
+// Auto-actions get the dot but not the rail. They are the most common thing in
+// this log by a wide margin — a day of them railed every row, and a page where
+// everything is highlighted highlights nothing. A highlight is worth exactly as
+// much as it is rare.
+//
+// Categories are named in the row's own text and in the segmented filter, so
+// painting them too (green sessions, purple actions, blue system) left five
+// hues competing with the one that carries meaning. The rail is an inset
+// shadow, not a border, so it never colors the row's divider on the sides it
+// doesn't own.
 const STYLES: Record<ActivityStyleKey, { dot: string; rail: string }> = {
   error: { dot: 'bg-severity-error', rail: 'bg-severity-error-tint shadow-[inset_2px_0_0_var(--hv-severity-error)]' },
-  auto_action: { dot: 'bg-accent', rail: 'bg-severity-auto-tint shadow-[inset_2px_0_0_var(--hv-accent)]' },
-  refresh: { dot: 'bg-text-4', rail: '' },
-  session: { dot: 'bg-severity-success', rail: '' },
-  action: { dot: 'bg-node-purple', rail: '' },
-  config: { dot: 'bg-text-4', rail: '' },
-  system: { dot: 'bg-severity-info', rail: '' },
+  auto_action: { dot: 'bg-accent', rail: '' },
+  neutral: { dot: 'bg-text-4', rail: '' },
 }
 
 const ledger = computed(() =>
@@ -79,6 +90,14 @@ onMounted(() => {
       <template #title>
         <span class="text-[13px] font-semibold text-text">Activity</span>
         <span class="font-mono text-[11px] text-text-4">{{ events.length }} {{ events.length === 1 ? 'event' : 'events' }}</span>
+        <div class="flex-1" />
+        <button
+          type="button"
+          class="cursor-pointer text-text-3 hover:text-text"
+          aria-label="Close"
+          data-testid="activity-close"
+          @click="emit('close')"
+        ><IconX class="size-4" /></button>
       </template>
     </ViewHeader>
 
@@ -160,7 +179,7 @@ onMounted(() => {
       class="flex h-[30px] shrink-0 items-center gap-3.5 border-t border-row bg-sidebar px-5 font-mono text-[11px] text-text-3"
       data-testid="activity-status"
     >
-      <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-severity-success" style="animation: hivePulse 2s infinite" />live</span>
+      <span class="flex items-center gap-1.5"><span class="size-1.5 rounded-full bg-text-4" style="animation: hivePulse 2s infinite" />live</span>
       <span>{{ events.length }} {{ events.length === 1 ? 'event' : 'events' }} loaded</span>
     </div>
   </div>

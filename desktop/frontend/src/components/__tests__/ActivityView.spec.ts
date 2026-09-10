@@ -74,6 +74,62 @@ describe('ActivityView', () => {
     expect(wrapper.find('[data-testid="activity-empty"]').exists()).toBe(true)
   })
 
+  // #439: hue in the ledger means severity and nothing else. The seed covers a
+  // failure, an auto-action and two ordinary categories, so a category hue
+  // creeping back in shows up here.
+  it('paints only failures and auto-actions, leaving every other row neutral', () => {
+    events.value = seed()
+    const wrapper = mount(ActivityView)
+    const dots = wrapper.findAll('[data-testid="activity-row"] span.rounded-full')
+
+    const dotClass = (i: number) => dots[i].attributes('class') ?? ''
+    // Rows are newest-first: refresh, failed refresh, session, auto-action.
+    expect(dotClass(0)).toContain('bg-text-4')
+    expect(dotClass(1)).toContain('bg-severity-error')
+    expect(dotClass(2)).toContain('bg-text-4')
+    expect(dotClass(3)).toContain('bg-accent')
+
+    const html = wrapper.html()
+    for (const banned of ['bg-severity-success', 'bg-node-purple', 'bg-severity-info']) {
+      expect(html).not.toContain(banned)
+    }
+  })
+
+  // Only a failure earns the tinted row. Auto-actions keep their dot but not
+  // the rail: they are the most common event here, so railing them tinted the
+  // whole page and highlighted nothing.
+  it('rails the failure only, leaving auto-actions to their dot', () => {
+    events.value = seed()
+    const wrapper = mount(ActivityView)
+    const r = rows(wrapper)
+    expect(r[0].attributes('class')).toContain('hover:bg-row-hover')
+    expect(r[1].attributes('class')).toContain('bg-severity-error-tint')
+    expect(r[2].attributes('class')).toContain('hover:bg-row-hover')
+    expect(r[3].attributes('class')).toContain('hover:bg-row-hover')
+    expect(r[3].attributes('class')).not.toContain('bg-accent-tint')
+  })
+
+  // A log made entirely of auto-actions must not come out as a wall of tint.
+  it('leaves a page of nothing but auto-actions untinted', () => {
+    const now = Date.now()
+    events.value = Array.from({ length: 6 }, (_, i) => ({
+      id: i + 1,
+      createdAt: now - i * 1000,
+      category: 'auto_action',
+      severity: 'auto',
+      title: 'Auto-action · Outside contributor',
+      body: 'rule notify:personal/notify-external',
+    }))
+    const wrapper = mount(ActivityView)
+
+    const r = rows(wrapper)
+    expect(r).toHaveLength(6)
+    for (const row of r) {
+      expect(row.attributes('class')).toContain('hover:bg-row-hover')
+    }
+    expect(wrapper.html()).not.toContain('bg-accent-tint')
+  })
+
   it('emits close on Escape', async () => {
     events.value = seed()
     const wrapper = mount(ActivityView)

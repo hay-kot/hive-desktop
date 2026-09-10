@@ -3,9 +3,9 @@ import type { Event as ActivityEvent } from '../../bindings/github.com/hay-kot/h
 
 // Pure presentation helpers for the Activity view: which filter pills exist,
 // how an event matches a filter/search, how events group by day, and the style
-// key that drives its icon and accent color. Kept framework-free (no icon
-// components, no Vue) so it is trivially unit-testable; ActivityView maps the
-// style key to a lucide icon + Tailwind token classes.
+// key that drives its dot and rail. Kept framework-free (no Vue) so it is
+// trivially unit-testable; ActivityView maps the style key to Tailwind token
+// classes.
 
 export type ActivityFilterId = 'all' | 'session' | 'auto_action' | 'refresh' | 'error'
 
@@ -36,26 +36,17 @@ export function filterCounts(events: ActivityEvent[]): Record<ActivityFilterId, 
   return counts
 }
 
-// The style key resolves an event to one visual treatment. Severity=error wins
-// over category, so a failed refresh reads as an error, matching the design.
-export type ActivityStyleKey = 'error' | 'auto_action' | 'refresh' | 'session' | 'action' | 'config' | 'system'
+// The style key resolves an event to one visual treatment. Hue in the ledger
+// means severity and nothing else: a failure, or the app acting on its own.
+// Category is already carried by the row's text and by the segmented filter, so
+// spending a hue on it too only cost the rows that matter their contrast — hence
+// three keys rather than one per category. Severity=error wins over category, so
+// a failed refresh reads as an error.
+export type ActivityStyleKey = 'error' | 'auto_action' | 'neutral'
 
 export function eventStyleKey(event: ActivityEvent): ActivityStyleKey {
   if (event.severity === 'error') return 'error'
-  switch (event.category) {
-    case 'auto_action':
-      return 'auto_action'
-    case 'refresh':
-      return 'refresh'
-    case 'session':
-      return 'session'
-    case 'action':
-      return 'action'
-    case 'config':
-      return 'config'
-    default:
-      return 'system'
-  }
+  return event.category === 'auto_action' ? 'auto_action' : 'neutral'
 }
 
 export function matchesFilter(event: ActivityEvent, filter: ActivityFilterId): boolean {
