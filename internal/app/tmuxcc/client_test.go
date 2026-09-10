@@ -325,6 +325,52 @@ func TestWindowAddTriggersReconcile(t *testing.T) {
 	}, client.Windows())
 }
 
+// A reconcile's snapshot is a round trip old by the time it is merged, so a
+// window that appeared while it was in flight is missing from it. Removing what
+// the snapshot does not have drops a window tmux is still holding and publishes
+// a close for it, and every rename, close or select on that id fails until a
+// later reconcile puts it back (#278).
+func TestReconcileKeepsAWindowItsSnapshotIsTooOldToHold(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	client := attachFake(t, f, Options{})
+
+	// The hook runs before the reply is composed, so @2 is announced while the
+	// snapshot that predates it is still in flight, and the reader applies the
+	// add before it can deliver that reply. tmux catches up from the next
+	// snapshot on, which is what a real server would answer. The renames ride
+	// along as markers for which merge has run.
+	calls := 0
+	f.setOnCommand(func(cmd string) {
+		if !strings.HasPrefix(cmd, "list-windows") {
+			return
+		}
+		calls++
+		if calls == 1 {
+			f.setWindows("@1 1 %1 120 40 renamed")
+			f.emit("%window-add @2")
+			return
+		}
+		f.setWindows("@1 1 %1 120 40 settled", "@2 0 %2 120 40 shell")
+	})
+	f.emit("%layout-change @1 b25d,120x40,0,0,1")
+
+	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
+		wc, ok := ev.(WindowChanged)
+		return ok && wc.Kind == WindowRenamed && wc.Window.ID == "@1" && wc.Window.Name == "settled"
+	})
+	defer unsubscribe()
+
+	for _, ev := range events {
+		wc, ok := ev.(WindowChanged)
+		require.False(t, ok && wc.Kind == WindowClosed && wc.Window.ID == "@2",
+			"a window the snapshot is too old to hold is not reported closed")
+	}
+	require.Equal(t, []string{"@1", "@2"}, windowIDs(client.Windows()))
+}
+
 // %window-add carries no pane, so %output for the new window is unroutable
 // until the reconcile lands and would otherwise be lost — along with the new
 // tab's prompt. The snapshot the reconcile takes is what puts both on screen.

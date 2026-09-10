@@ -122,10 +122,11 @@ func TestControllerReconcileDiffs(t *testing.T) {
 	t.Parallel()
 
 	c := seededController()
+	since := c.mark()
 	events := c.reconcile([]Window{
 		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24},
 		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24},
-	})
+	}, since)
 
 	require.Equal(t, []Event{
 		WindowChanged{Kind: WindowResized, Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24}},
@@ -142,10 +143,11 @@ func TestControllerReconcileAdoptsTmuxOrder(t *testing.T) {
 	t.Parallel()
 
 	c := seededController()
+	since := c.mark()
 	events := c.reconcile([]Window{
 		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
 		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
-	})
+	}, since)
 
 	require.Empty(t, events, "a pure reorder changes nothing about any window")
 	require.Equal(t, []string{"@2", "@1"}, windowIDs(c.Windows()))
@@ -158,12 +160,13 @@ func TestControllerReconcileFillsPlaceholder(t *testing.T) {
 
 	c := seededController()
 	c.apply(WindowAddNotification{Window: "@3"})
+	since := c.mark()
 
 	events := c.reconcile([]Window{
 		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
 		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
 		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40},
-	})
+	}, since)
 
 	require.Equal(t, []Event{WindowChanged{
 		Kind:   WindowRenamed,
@@ -190,6 +193,36 @@ func TestParseWindowLine(t *testing.T) {
 	require.False(t, ok)
 	_, ok = parseWindowLine("@277 0 %514 shell")
 	require.False(t, ok, "a row without dimensions is not this format")
+}
+
+// reconcile's snapshot is fetched before it is merged, so a window added in
+// between is in the set and not in the snapshot. Treating that absence as a
+// close drops a window tmux is still holding (#278). Only the removal pass is
+// unsafe against a stale snapshot; the add and update pass is idempotent.
+func TestControllerReconcileKeepsWindowsAddedAfterTheSnapshot(t *testing.T) {
+	t.Parallel()
+
+	c := seededController()
+	since := c.mark()
+	c.apply(WindowAddNotification{Window: "@3"})
+
+	events := c.reconcile([]Window{
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+	}, since)
+
+	require.Empty(t, events, "a snapshot that predates @3 reports nothing about it")
+	require.Equal(t, []string{"@1", "@2", "@3"}, windowIDs(c.Windows()),
+		"the window survives the merge and keeps its place in the order")
+
+	// It is a placeholder until a snapshot that has seen it fills it in, and
+	// that snapshot is also what may legitimately close it.
+	since = c.mark()
+	c.reconcile([]Window{
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+	}, since)
+	require.Equal(t, []string{"@1"}, windowIDs(c.Windows()),
+		"a snapshot taken after the add is authoritative and does close it")
 }
 
 func windowIDs(windows []Window) []string {

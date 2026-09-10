@@ -497,11 +497,12 @@ func moveWindowCommand(windows []Window, from, to int) string {
 // what changed. tmux flushes a command's notifications before it answers the
 // next one, so the snapshot this reads is the last word on what the command did.
 func (c *Client) resync(ctx context.Context) ([]Window, error) {
+	since := c.ctrl.mark()
 	windows, err := c.listWindows(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for _, ev := range c.ctrl.reconcile(windows) {
+	for _, ev := range c.ctrl.reconcile(windows, since) {
 		c.publish(ev)
 	}
 	return c.ctrl.Windows(), nil
@@ -876,6 +877,7 @@ func (c *Client) worker(ctx context.Context) {
 // carries no pane: its output is unroutable until this runs, so the snapshot is
 // the only thing that puts the new tab's prompt on screen.
 func (c *Client) runReconcile(ctx context.Context) {
+	since := c.ctrl.mark()
 	windows, err := c.listWindows(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -890,7 +892,7 @@ func (c *Client) runReconcile(ctx context.Context) {
 			unpainted = append(unpainted, w)
 		}
 	}
-	for _, ev := range c.ctrl.reconcile(windows) {
+	for _, ev := range c.ctrl.reconcile(windows, since) {
 		c.publish(ev)
 	}
 	for i, w := range unpainted {

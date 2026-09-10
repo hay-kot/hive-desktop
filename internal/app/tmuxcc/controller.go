@@ -24,10 +24,25 @@ type controller struct {
 	order   []string
 	windows map[string]Window
 	panes   map[string]string // pane id -> window id
+	// generation increments on every add the reader folds in. addedAt records
+	// the generation a window entered the set under, so a merge can tell a
+	// window its snapshot could not have seen from one the snapshot dropped.
+	generation uint64
+	addedAt    map[string]uint64
 }
 
 func newController() *controller {
-	return &controller{windows: map[string]Window{}, panes: map[string]string{}}
+	return &controller{windows: map[string]Window{}, panes: map[string]string{}, addedAt: map[string]uint64{}}
+}
+
+// mark reports the generation a caller is about to take a snapshot at. A
+// reconcile of that snapshot passes it back so windows added during the round
+// trip -- after the mark, so the snapshot cannot hold them -- are not mistaken
+// for windows the snapshot legitimately omits because tmux closed them (#278).
+func (c *controller) mark() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.generation
 }
 
 // apply folds one notification into the window set and returns the events it
@@ -43,6 +58,8 @@ func (c *controller) apply(n Notification) []Event {
 		if _, ok := c.windows[v.Window]; ok {
 			return nil
 		}
+		c.generation++
+		c.addedAt[v.Window] = c.generation
 		w := Window{ID: v.Window}
 		c.windows[v.Window] = w
 		c.order = append(c.order, v.Window)
@@ -102,11 +119,15 @@ func (c *controller) apply(n Notification) []Event {
 	}
 }
 
-// reconcile replaces the window set with the authoritative list-windows
-// snapshot and reports what changed. One window yields at most one event: every
+// reconcile merges an authoritative list-windows snapshot taken at generation
+// since and reports what changed. One window yields at most one event: every
 // window event carries the whole window, so a consumer reads the current size
 // off whichever kind it gets.
-func (c *controller) reconcile(next []Window) []Event {
+//
+// since is the value mark returned right before the snapshot's round trip
+// started. A window added afterward cannot be in the snapshot, so its absence
+// is not evidence tmux closed it -- the removal pass leaves it alone (#278).
+func (c *controller) reconcile(next []Window, since uint64) []Event {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -116,6 +137,9 @@ func (c *controller) reconcile(next []Window) []Event {
 		seen[w.ID] = true
 		prev, existed := c.windows[w.ID]
 		c.storeLocked(w)
+		// The snapshot has now seen this window, so it is ordinary again and a
+		// later snapshot may legitimately report it closed.
+		delete(c.addedAt, w.ID)
 		switch {
 		case !existed:
 			events = append(events, WindowChanged{Kind: WindowAdded, Window: w})
@@ -127,31 +151,47 @@ func (c *controller) reconcile(next []Window) []Event {
 			events = append(events, WindowChanged{Kind: WindowResized, Window: w})
 		}
 	}
-	for _, id := range append([]string(nil), c.order...) {
+
+	oldOrder := append([]string(nil), c.order...)
+	tooNew := make(map[string]bool)
+	for _, id := range oldOrder {
 		if seen[id] {
+			continue
+		}
+		if c.addedAt[id] > since {
+			tooNew[id] = true
 			continue
 		}
 		w := c.windows[id]
 		c.removeLocked(id)
 		events = append(events, WindowChanged{Kind: WindowClosed, Window: w})
 	}
-	// tmux's order is the authoritative one, and it is the only thing a reorder
-	// changes: every window comes back identical, so nothing above would notice
-	// and the set would keep the order it was first discovered in.
+
+	// tmux's order is authoritative for every window the snapshot saw. A window
+	// the snapshot is too old to hold keeps its place at the end, which is where
+	// %window-add put it; the next snapshot that does see it settles its order.
 	c.order = c.order[:0]
 	for _, w := range next {
 		c.order = append(c.order, w.ID)
 	}
+	for _, id := range oldOrder {
+		if tooNew[id] {
+			c.order = append(c.order, id)
+		}
+	}
+
 	return events
 }
 
 // set installs the initial window set without deriving events — Attach returns
-// the snapshot to its caller directly.
+// the snapshot to its caller directly. It is authoritative, the same as a
+// reconcile with nothing held back: no window survives it as a placeholder.
 func (c *controller) set(next []Window) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, w := range next {
 		c.storeLocked(w)
+		delete(c.addedAt, w.ID)
 	}
 }
 
@@ -199,6 +239,7 @@ func (c *controller) removeLocked(id string) {
 	w := c.windows[id]
 	delete(c.panes, w.ActivePane)
 	delete(c.windows, id)
+	delete(c.addedAt, id)
 	for i, existing := range c.order {
 		if existing == id {
 			c.order = append(c.order[:i], c.order[i+1:]...)
