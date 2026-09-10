@@ -76,7 +76,7 @@ version = "0.9.4"
 backend = "go:github.com/abice/go-enum"
 
 [[tools."go:github.com/wailsapp/wails/v3/cmd/wails3"]]
-version = "3.0.0-beta.8"
+version = "3.0.0-beta.16"
 backend = "go:github.com/wailsapp/wails/v3/cmd/wails3"
 
 [[tools."go:golang.org/x/tools/cmd/deadcode"]]
