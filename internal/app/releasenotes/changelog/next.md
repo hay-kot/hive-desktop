@@ -32,8 +32,10 @@ summary: ""
 - **Activity opens as a dialog.** It used to be a full screen you navigated to
   and back from. It now opens over whatever you were reading, the way Tasks
   does, and closes on Escape, the backdrop, or its own X.
-- The Chats sidebar's workspace chevron is no longer tinted red for a broken
-  workspace or amber for a missing MCP. The row's tooltip still names either.
+- A broken workspace in the Chats sidebar now carries a warning icon beside its
+  name, in place of the tinted fold chevron. A manifest that will not parse and
+  a directory that has left the workspace root both raise it, and the row's
+  tooltip names the fault. A missing MCP no longer marks the row at all.
 
 ## Fixed
 

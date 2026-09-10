@@ -33,6 +33,7 @@ import IconPinOff from '~icons/lucide/pin-off'
 import IconPlus from '~icons/lucide/plus'
 import IconPower from '~icons/lucide/power'
 import IconTrash2 from '~icons/lucide/trash-2'
+import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import AppMenu from './AppMenu.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
@@ -219,6 +220,14 @@ function workspaceTooltip(node: WorkspaceNode): string {
   if (node.workspace.problem) parts.push(node.workspace.problem)
   else if (node.workspace.notice) parts.push(node.workspace.notice)
   return parts.join('\n')
+}
+
+// A manifest that will not parse and a directory the root no longer lists are
+// both states no action on the row can recover from, so they get a mark of
+// their own. The MCP notice deliberately gets none: it reports a property of
+// the agent rather than anything wrong here, so it would sit lit forever.
+function workspaceBroken(node: WorkspaceNode): boolean {
+  return !node.workspace || !!node.workspace.problem
 }
 
 // A header draws no rollup of its own, so the schedule that fires next is a
@@ -533,6 +542,15 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @keydown.space.self.prevent="focusWorkspace(node)"
             @contextmenu.prevent="editWorkspace(node)"
           >
+            <!-- Leading, not trailing: the trailing pitch is the three
+                 controls, which are revealed on hover, and a fault has to
+                 read at rest. The row's tooltip carries the wording. -->
+            <IconTriangleAlert
+              v-if="workspaceBroken(node)"
+              class="size-3.5 shrink-0 text-severity-error"
+              data-testid="agents-sidebar-workspace-problem"
+              aria-hidden="true"
+            />
             <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
             <!-- Three controls on one pitch, revealed together: the header
                  says nothing at rest but its own name and whether it is open. -->

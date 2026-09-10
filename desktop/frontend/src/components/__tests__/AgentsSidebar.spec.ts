@@ -237,9 +237,46 @@ describe('AgentsSidebar', () => {
     expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
     expect(rows[1].text()).toContain('demo-b') // the directory, since there is no name to read
     expect(rows[1].attributes('title')).toContain('no longer in the workspace root')
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(true)
     // Nothing to open and nothing to edit, but its chats are still reachable.
     expect(rows[1].find('[data-testid="agents-sidebar-workspace-edit"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(2)
+  })
+
+  it('marks a workspace whose manifest will not parse, and leaves a healthy one unmarked', async () => {
+    mocks.workspaces.mockResolvedValue({
+      root: '/root',
+      rootProblem: '',
+      available: true,
+      error: '',
+      workspaces: [
+        workspaceFixtures[0],
+        { ...workspaceFixtures[1], problem: 'agent-workspace.yaml: name is required' },
+      ],
+    })
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+
+    expect(rows[0].find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(false)
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(true)
+    expect(rows[1].attributes('title')).toContain('name is required')
+  })
+
+  // The MCP notice reports what the agent does with declared servers, not a
+  // fault in this workspace, so it must not raise the mark.
+  it('leaves a workspace carrying only an MCP notice unmarked', async () => {
+    mocks.workspaces.mockResolvedValue({
+      root: '/root',
+      rootProblem: '',
+      available: true,
+      error: '',
+      workspaces: [{ ...workspaceFixtures[0], notice: 'this agent loads its own global configuration' }],
+    })
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0]
+
+    expect(row.find('[data-testid="agents-sidebar-workspace-problem"]').exists()).toBe(false)
+    expect(row.attributes('title')).toContain('global configuration')
   })
 
   it('has one scroll region: the sidebar keeps its width handle and the workspaces/chats divider is gone', async () => {
