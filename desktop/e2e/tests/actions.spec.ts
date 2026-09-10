@@ -25,6 +25,8 @@ async function select(page: Page, id: string): Promise<void> {
 
 function action(runID: string, suffix: string): string { return `smoke-${runID}-${suffix}` }
 
+const nonEmpty = expect.stringMatching(/.+/)
+
 // The three surfaces the catalog's order has to agree on: the settings list,
 // the file itself, and the detail pane's action cards.
 async function rowIds(page: Page): Promise<string[]> {
@@ -211,7 +213,8 @@ test('publishes rendered message and launches templated and dialog sessions agai
   await expect.poll(async () => (await smoke(page)).outputCommands.find((command) => command.actionId === templated)).toEqual(expect.objectContaining({
     key: 'pr2841',
     status: 'done',
-    result: { session: { id: expect.any(String), name: `${templated}-pr2841` } },
+    result: { session: { id: expect.any(String), name: `${templated}-pr2841`, slug: nonEmpty, path: nonEmpty } },
+    stdout: `post-hook pr2841 ${templated}-pr2841`,
   }))
 
   await select(page, 'iss1190')
@@ -225,7 +228,7 @@ test('publishes rendered message and launches templated and dialog sessions agai
   await expect.poll(async () => (await smoke(page)).outputCommands.find((command) => command.actionId === action(state.runId, 'dialog-launch'))).toEqual(expect.objectContaining({
     key: 'iss1190',
     status: 'done',
-    result: { session: { id: expect.any(String), name: interactiveName } },
+    result: { session: { id: expect.any(String), name: interactiveName, slug: nonEmpty, path: nonEmpty } },
   }))
 })
 

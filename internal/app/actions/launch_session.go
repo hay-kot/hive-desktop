@@ -19,11 +19,22 @@ type LaunchSessionConfig struct {
 	// RepoTemplate optionally renders which repo the session is created
 	// against; empty means the launcher's own default.
 	RepoTemplate string `yaml:"repo_template,omitempty"`
+	// PostHook is a shell command rendered over the same data as the templates
+	// above plus `.Session`, then run in the new checkout.
+	PostHook string `yaml:"post_hook,omitempty"`
+	// PostHookTimeout bounds the hook; zero means the executor's default.
+	PostHookTimeout Duration `yaml:"post_hook_timeout,omitempty"`
 }
 
 func (c *LaunchSessionConfig) Validate() error {
 	if strings.TrimSpace(c.PromptTemplate) == "" {
 		return fmt.Errorf("launch-session: prompt_template is required")
+	}
+	if c.PostHookTimeout < 0 {
+		return fmt.Errorf("launch-session: post_hook_timeout must be positive")
+	}
+	if strings.TrimSpace(c.PostHook) == "" && c.PostHookTimeout != 0 {
+		return fmt.Errorf("launch-session: post_hook_timeout is set without post_hook")
 	}
 	return nil
 }

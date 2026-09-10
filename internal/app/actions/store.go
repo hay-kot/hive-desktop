@@ -535,6 +535,12 @@ func actionNode(a Action) (*yaml.Node, error) {
 		if c.Agent != "" {
 			add("agent", c.Agent)
 		}
+		if c.PostHook != "" {
+			add("post_hook", c.PostHook)
+		}
+		if c.PostHookTimeout != 0 {
+			add("post_hook_timeout", c.PostHookTimeout.String())
+		}
 	case *ShellConfig:
 		add("command_template", c.CommandTemplate)
 		if c.Cwd != "" {

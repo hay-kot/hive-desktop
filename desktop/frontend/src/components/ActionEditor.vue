@@ -109,6 +109,8 @@ onMounted(async () => {
         <TextareaField v-model="action.launch.promptTemplate" label="Prompt template" :rows="4" monospace testid="action-launch-prompt" />
         <TextField v-model="action.launch.repoTemplate" label="Repository template" testid="action-launch-repo" />
         <TextField v-model="action.launch.agent" label="Agent (optional)" testid="action-launch-agent" />
+        <TextareaField :model-value="action.launch.postHook ?? ''" label="Post hook" :rows="2" monospace testid="action-launch-post-hook" @update:model-value="action.launch.postHook = $event" />
+        <TextField v-model="action.launch.postHookTimeout" label="Post hook timeout" placeholder="e.g. 1m" testid="action-launch-post-hook-timeout" />
       </template>
       <template v-if="action.shell">
         <TextareaField v-model="action.shell.commandTemplate" label="Command template" monospace testid="action-shell-command" />

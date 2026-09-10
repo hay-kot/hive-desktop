@@ -2,6 +2,14 @@
 summary: ""
 ---
 
+## Added
+
+- **A launch-session action can run a command after the session starts.** Give
+  it a `post_hook` and it runs in the new checkout with your shell's `PATH` —
+  `gh pr checkout {{ .Payload.num }} && zed .` puts you in the editor on the
+  right branch. A hook that fails leaves the session alone and reports its
+  output in the action's run log.
+
 ## Changed
 
 - **The Tasks button has left the title bar.** Tasks is still a chord away —

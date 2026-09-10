@@ -127,6 +127,12 @@ export interface SessionDraft {
 export interface SessionExecutionOutcome {
     "id": string;
     "name": string;
+
+    /**
+     * Slug names the tmux session; Path is the checkout a post hook runs in.
+     */
+    "slug"?: string;
+    "path"?: string;
 }
 
 /**

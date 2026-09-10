@@ -61,31 +61,46 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	if command == "" {
 		return ExecutionResult{}, fmt.Errorf("shell: command_template rendered blank")
 	}
+	log, err := runShell(ctx, e.env, shellCommand{
+		Command: command,
+		Dir:     shellWorkingDir(cfg, data),
+		Env:     cfg.Env,
+		Timeout: cfg.Timeout.Duration(),
+	})
+	if err != nil {
+		e.logger.Warn().Err(err).Str("action_id", action.ID).Msg("shell action: command failed")
+		return ExecutionResult{Attempted: true, Log: log}, fmt.Errorf("shell: command failed: %w", err)
+	}
+	e.logger.Info().Str("action_id", action.ID).Msg("shell action: command executed")
+	return ExecutionResult{Attempted: true, Log: log}, nil
+}
+
+type shellCommand struct {
+	Command string
+	Dir     string
+	Env     map[string]string
+	Timeout time.Duration
+}
+
+func runShell(ctx context.Context, env ExecEnvironment, cmd shellCommand) (ExecutionLog, error) {
 	runCtx := ctx
-	if d := cfg.Timeout.Duration(); d > 0 {
+	if cmd.Timeout > 0 {
 		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, d)
+		runCtx, cancel = context.WithTimeout(ctx, cmd.Timeout)
 		defer cancel()
 	}
-	cmd := exec.CommandContext(runCtx, "sh", "-c", command)
-	cmd.WaitDelay = shellKillGrace
-	cmd.Dir = shellWorkingDir(cfg, data)
-	env := e.env.Environ(runCtx)
-	for k, v := range cfg.Env {
-		env = append(env, k+"="+v)
+	proc := exec.CommandContext(runCtx, "sh", "-c", cmd.Command)
+	proc.WaitDelay = shellKillGrace
+	proc.Dir = cmd.Dir
+	environ := env.Environ(runCtx)
+	for k, v := range cmd.Env {
+		environ = append(environ, k+"="+v)
 	}
-	cmd.Env = env
+	proc.Env = environ
 	stdout, stderr := &boundedExecutionWriter{}, &boundedExecutionWriter{}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
-		result := ExecutionResult{Attempted: true, Log: ExecutionLog{Stdout: stdout.String(), Stderr: stderr.String()}}
-		e.logger.Warn().Err(err).Str("action_id", action.ID).Msg("shell action: command failed")
-		return result, fmt.Errorf("shell: command failed: %w", err)
-	}
-	result := ExecutionResult{Attempted: true, Log: ExecutionLog{Stdout: stdout.String(), Stderr: stderr.String()}}
-	e.logger.Info().Str("action_id", action.ID).Msg("shell action: command executed")
-	return result, nil
+	proc.Stdout, proc.Stderr = stdout, stderr
+	err := proc.Run()
+	return ExecutionLog{Stdout: stdout.String(), Stderr: stderr.String()}, err
 }
 
 // shellWorkingDir resolves the directory the command runs in. A configured

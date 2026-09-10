@@ -40,6 +40,9 @@ type ExecutionLog struct {
 type SessionExecutionOutcome struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Slug names the tmux session; Path is the checkout a post hook runs in.
+	Slug string `json:"slug,omitempty"`
+	Path string `json:"path,omitempty"`
 }
 
 type MessageExecutionOutcome struct {

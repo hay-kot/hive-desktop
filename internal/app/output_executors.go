@@ -32,7 +32,7 @@ func outputExecutors(
 	logger zerolog.Logger,
 ) map[string]dispatch.Executor {
 	return map[string]dispatch.Executor{
-		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(launcher),
+		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(logger, launcher, env),
 		"shell":                          dispatch.NewShellExecutor(logger, env),
 		"publish-message":                dispatch.NewPublishMessageExecutor(publisher),
 		"clipboard":                      dispatch.NewClipboardExecutor(),

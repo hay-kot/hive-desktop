@@ -2,6 +2,7 @@ package actions
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,4 +107,12 @@ func TestPublishMessageConfig_Validate_RequiresTopic(t *testing.T) {
 	cfg.MessageTemplate = "message"
 	cfg.Topic = "some.topic"
 	require.NoError(t, cfg.Validate())
+}
+
+func TestLaunchSessionConfig_PostHookTimeoutNeedsAPostHook(t *testing.T) {
+	err := (&LaunchSessionConfig{PromptTemplate: "go", PostHookTimeout: Duration(time.Minute)}).Validate()
+	require.ErrorContains(t, err, "post_hook_timeout is set without post_hook")
+
+	require.NoError(t, (&LaunchSessionConfig{PromptTemplate: "go", PostHook: "zed .", PostHookTimeout: Duration(time.Minute)}).Validate())
+	require.NoError(t, (&LaunchSessionConfig{PromptTemplate: "go", PostHook: "zed ."}).Validate())
 }

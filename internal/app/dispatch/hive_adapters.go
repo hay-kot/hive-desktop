@@ -294,7 +294,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 		}
 		l.recorder.Record(ctx, activity.SessionCreated(name, req.Agent, req.Repo))
 	}
-	return SessionExecutionOutcome{ID: s.ID, Name: s.Name}, nil
+	return SessionExecutionOutcome{ID: s.ID, Name: s.Name, Slug: s.Slug, Path: s.Path}, nil
 }
 
 // SessionLaunchOptions exposes only labels, remotes, and configured agent keys

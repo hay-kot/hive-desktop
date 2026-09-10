@@ -32,6 +32,17 @@ describe('ActionSettingsView', () => {
     wrapper.unmount()
   })
 
+  it('saves a launch post hook and its timeout', async () => {
+    mocks.UpdateAction.mockResolvedValue(launch)
+    const wrapper = mountSettings(); await flushPromises()
+    await wrapper.get('[data-testid="action-row-review"] button').trigger('click')
+    await setValue(editor<HTMLTextAreaElement>('action-launch-post-hook'), 'gh pr checkout {{ .Payload.num }} && zed .')
+    await setValue(editor<HTMLInputElement>('action-launch-post-hook-timeout'), '2m')
+    editor<HTMLButtonElement>('action-save').click(); await flushPromises()
+    expect(mocks.UpdateAction.mock.calls[0][1].launch).toEqual(expect.objectContaining({ postHook: 'gh pr checkout {{ .Payload.num }} && zed .', postHookTimeout: '2m' }))
+    wrapper.unmount()
+  })
+
   it('saves shell fields and closes the slideover via Escape', async () => {
     mocks.CreateAction.mockResolvedValue({ id: 'run', label: 'Run', type: 'shell' })
     const wrapper = mountSettings([]); await flushPromises()
