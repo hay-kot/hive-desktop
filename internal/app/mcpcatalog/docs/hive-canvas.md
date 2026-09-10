@@ -21,8 +21,8 @@ Blocks are:
 - **markdown** — a title (optional) and a body, rendered as GitHub-flavored
   markdown. Raw HTML in the body is escaped, not rendered.
 - **html** — a title (optional) and a body of markup, for layout markdown
-  cannot express: a row of stat tiles, a two-column comparison, a card grid.
-  See [Writing an html block](#writing-an-html-block).
+  cannot express: a row of stat tiles, a two-column comparison, a card grid,
+  or a drawn diagram. See [Writing an html block](#writing-an-html-block).
 - **link** — a title and an `http`, `https`, or `mailto` URL, shown as an
   openable link.
 
@@ -47,13 +47,15 @@ Sectioning and text (`div`, `section`, `article`, `header`, `footer`, `aside`,
 `q`, `time`, `br`, `hr`, `blockquote`), lists (`ul`, `ol`, `li`, `dl`, `dt`,
 `dd`), code (`pre`, `code`, `kbd`, `samp`, `var`), tables (`table`, `thead`,
 `tbody`, `tfoot`, `tr`, `th`, `td`, `caption`, `colgroup`, `col`), disclosure
-(`details`, `summary`), and `a` with an `http`, `https` or `mailto` href.
+(`details`, `summary`), `a` with an `http`, `https` or `mailto` href, and the
+drawing tags in [Diagrams](#diagrams).
 
 Everything else is refused: no `script`, `style`, `iframe`, `object`, `embed`,
 `form` or form controls, no event handlers, no `style` attribute — and **no
 `img`**, because a remote image URL in the app's window is a request to
 whoever you named. Attributes are `class`, `href` on `a`, `colspan`/`rowspan`
-and `scope` on cells, and `open` on `details`.
+and `scope` on cells, `open` on `details`, and the geometry attributes in
+[Diagrams](#diagrams).
 
 ### Classes
 
@@ -73,8 +75,44 @@ key/value table.
 **Emphasis** — `hv-badge` (an inline pill), `hv-muted` (de-emphasised text),
 `hv-mono` (monospace, for ids, shas and figures).
 
-**Tones**, for `hv-callout` and `hv-badge` only — `hv-info`, `hv-success`,
-`hv-warn`, `hv-error`, `hv-accent`. Without one, both are neutral.
+**Tones**, for `hv-callout`, `hv-badge` and the diagram roles — `hv-info`,
+`hv-success`, `hv-warn`, `hv-error`, `hv-accent`. Without one, each is
+neutral.
+
+### Diagrams
+
+Prose and boxes cannot say which node feeds which, or which path is a return
+path. Draw that as an `svg`: you place the geometry, Hive picks the size and
+every colour, exactly as it does for the classes above.
+
+Rules that make a diagram survive the write:
+
+- **A `viewBox` is required, and `width`/`height` on the `svg` are refused.**
+  Draw in whatever coordinate system suits the picture; the pane scales it to
+  whatever width the user dragged the pane to.
+- **Never write a colour.** No `fill`, `stroke`, `stroke-width` or
+  `font-size` attributes — pick a role class and a tone instead.
+- Coordinates are plain numbers in `viewBox` units. No percentages, no `px`.
+
+**Tags** — `svg`, `g` (a group, to move or tone several shapes at once),
+`path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `text`
+and `tspan`. There is no `defs`, `marker` or `use`: draw an arrowhead as a
+`polygon`.
+
+**Attributes** — `viewBox` on `svg`; `transform` on anything inside it
+(`translate`, `scale`, `rotate`, `matrix`, `skewX`, `skewY`); `d` on `path`;
+`points` on `polyline`/`polygon`; `x`/`y`/`width`/`height`/`rx`/`ry` on
+`rect`; `cx`/`cy`/`r` on `circle`; `cx`/`cy`/`rx`/`ry` on `ellipse`;
+`x1`/`y1`/`x2`/`y2` on `line`; `x`/`y`/`dx`/`dy`/`text-anchor` on
+`text`/`tspan`.
+
+**Roles** — `hv-node` (a filled, bordered shape: one box in the diagram),
+`hv-edge` (a stroked connector), `hv-arrow` (a filled arrowhead or any other
+solid mark), `hv-label` (text the reader reads first), and `hv-dashed`
+alongside `hv-edge` for a path that is conditional, asynchronous, or a read
+rather than a write. A tone on the element — or on a `g` around a whole path
+— colours it; `hv-muted` and `hv-mono` work on `text` exactly as they do on a
+`span`.
 
 ### Worked examples
 
@@ -131,10 +169,32 @@ Facts, and something the reader must not miss:
 </div>
 ```
 
+A pipeline with a return path:
+
+```html
+<svg viewBox="0 0 300 120">
+  <g class="hv-accent">
+    <rect class="hv-node" x="4" y="10" width="90" height="40" rx="7" />
+    <text class="hv-label" x="49" y="35" text-anchor="middle">Poller</text>
+  </g>
+  <rect class="hv-node" x="150" y="10" width="90" height="40" rx="7" />
+  <text class="hv-label" x="195" y="35" text-anchor="middle">Store</text>
+
+  <line class="hv-edge" x1="94" y1="30" x2="140" y2="30" />
+  <polygon class="hv-arrow" points="140,26 149,30 140,34" />
+
+  <path class="hv-edge hv-dashed" d="M195 50 L195 90 L49 90 L49 50" />
+  <polygon class="hv-arrow" points="45,58 49,50 53,58" />
+  <text class="hv-muted" x="122" y="105" text-anchor="middle">re-read on wake</text>
+</svg>
+```
+
 An html block is exported as its markup, so a canvas saved to a file keeps
 the structure and loses the styling — the `hv-` names mean nothing outside
-Hive. Reach for `markdown` for prose and `html` only when the layout is the
-point.
+Hive. **A diagram does not survive that at all**: svg with no stylesheet
+behind it draws black boxes and no edges, so if the canvas is meant to be
+exported, say the same thing in prose in a block beside it. Reach for
+`markdown` for prose and `html` only when the layout is the point.
 
 ## Tools
 

@@ -1819,6 +1819,18 @@ policy of its own. `renderGithubMarkdown` is untouched — it is shared with
 untrusted GitHub bodies and stays as strict as they require, which is why an
 html block renders under its own `.hv-html` scope instead.
 
+An html block may also **draw**: eleven svg elements and their geometry
+attributes are in the allowlist, and five role classes colour what they draw
+(ADR canvas-diagrams-are-a-narrow-svg-subset-the-class-vocabulary-colours).
+The split is the vocabulary's, one level down — the agent owns the geometry
+inside a `viewBox`, the app owns the size and every colour. `htmlAttrs` is
+the single declaration behind it: each attribute names the elements it may
+appear on and the values it may carry, and the bluemonday policy and
+`RejectedHTML` are both built from it, so a value the render would strip is a
+value the write refuses. The integration points where a browser parses HTML
+again inside an svg — `foreignObject`, `desc`, `title` — have their content
+dropped alongside `math` and `template`.
+
 `agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
 or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is
 nested, so it maintains a watch at two levels — one on the root itself (which

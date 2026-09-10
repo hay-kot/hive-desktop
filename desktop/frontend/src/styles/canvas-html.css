@@ -134,10 +134,47 @@
 .hv-muted { color: var(--color-text-4); }
 .hv-mono { font-family: var(--font-mono); font-size: 0.9em; font-variant-numeric: tabular-nums; }
 
-/* Tones for hv-callout and hv-badge. These must stay after the two
-   components: they carry the same specificity, so source order is the only
-   thing that lets `class="hv-badge hv-error"` win over the component's own
-   default tone. */
+/* Diagrams. The agent draws inside a viewBox — where the boxes sit, which
+   edge joins which — and the app owns the size, every colour and every
+   weight, the same split the classes above make for layout
+   (ADR canvas-diagrams-are-a-narrow-svg-subset-the-class-vocabulary-colours).
+   The size comes from width/height here rather than from the markup, which
+   is why the sanitizer refuses both attributes on <svg> and requires the
+   viewBox that gives this an aspect ratio to scale by. */
+.hv-html svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 10px 0;
+  color: var(--color-text-3);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  font-size: 12px;
+}
+
+/* No font rule here: it lives on the svg above so that hv-mono and hv-muted
+   win on a <text> exactly as they do on a <span>. */
+.hv-html svg text { fill: currentColor; stroke: none; }
+
+/* Roles. Each takes its colour from --hv-tone when a tone class sets one —
+   on the element, or on a <g> around a whole path — and otherwise from the
+   ink that role reads best in. */
+.hv-html svg .hv-node {
+  fill: var(--color-raised); stroke: currentColor;
+  color: var(--hv-tone, var(--color-border));
+}
+.hv-html svg .hv-edge { fill: none; stroke: currentColor; color: var(--hv-tone, var(--color-text-4)); }
+.hv-html svg .hv-arrow { fill: currentColor; stroke: none; color: var(--hv-tone, var(--color-text-4)); }
+.hv-html svg .hv-label { color: var(--hv-tone, var(--color-text)); font-weight: 600; }
+.hv-html svg .hv-dashed { stroke-dasharray: 5 4; }
+
+/* Tones for hv-callout, hv-badge and the diagram roles. These must stay after
+   the two components: they carry the same specificity, so source order is the
+   only thing that lets `class="hv-badge hv-error"` win over the component's
+   own default tone. */
 .hv-info { --hv-tone: var(--color-severity-info); }
 .hv-success { --hv-tone: var(--color-severity-success); }
 .hv-warn { --hv-tone: var(--color-severity-warning); }

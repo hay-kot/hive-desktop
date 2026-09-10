@@ -34,7 +34,15 @@ func TestSanitizeHTMLDropsHostileInput(t *testing.T) {
 		{"style element", `<style>body{display:none}</style>`, ``},
 		{"stylesheet link", `<link rel="stylesheet" href="https://x.example/e.css">`, ``},
 		{"form and its controls", `<form action="https://x.example"><input name="password"><button>go</button></form>`, ``},
-		{"svg wrapping a script", `<svg><script>alert(1)</script></svg>`, ``},
+		{"svg wrapping a script", `<svg viewBox="0 0 10 10"><script>alert(1)</script></svg>`, `<svg viewBox="0 0 10 10"></svg>`},
+		{"svg handler attribute", `<svg viewBox="0 0 10 10" onload="alert(1)"><circle r="2"/></svg>`, `<svg viewBox="0 0 10 10"><circle r="2"/></svg>`},
+		{"mutation via svg foreignObject", `<svg viewBox="0 0 10 10"><foreignObject><img src=x onerror=alert(1)></foreignObject></svg>`, `<svg viewBox="0 0 10 10"></svg>`},
+		{"mutation via svg desc", `<svg viewBox="0 0 10 10"><desc><style><!--</style><img src=x onerror=alert(1)></desc></svg>`, `<svg viewBox="0 0 10 10"></svg>`},
+		{"mutation via svg title", `<svg viewBox="0 0 10 10"><title><a href="</title><img src=x onerror=alert(1)>"></title></svg>`, `<svg viewBox="0 0 10 10">&#34;&gt;</svg>`},
+		{"mutation via svg cdata", `<svg viewBox="0 0 10 10"><![CDATA[</svg><img src=x onerror=alert(1)>]]></svg>`, `<svg viewBox="0 0 10 10">]]&gt;</svg>`},
+		{"svg style element", `<svg viewBox="0 0 10 10"><style>body{display:none}</style><circle r="2"/></svg>`, `<svg viewBox="0 0 10 10"><circle r="2"/></svg>`},
+		{"svg reaching out for a document", `<svg viewBox="0 0 10 10"><use href="#x"/><image href="https://x.example/a.png"/></svg>`, `<svg viewBox="0 0 10 10"></svg>`},
+		{"agent-picked colours", `<svg viewBox="0 0 10 10"><path d="M0 0 L9 9" fill="red" stroke="#f00"/></svg>`, `<svg viewBox="0 0 10 10"><path d="M0 0 L9 9"/></svg>`},
 		{"template smuggling an image", `<template><img src=x onerror=alert(1)></template>`, ``},
 		{"mutation via math foreign content", `<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>`, ``},
 		{"mutation via noscript title", `<noscript><p title="</noscript><img src=x onerror=alert(1)>">`, `&#34;&gt;`},
@@ -77,6 +85,11 @@ func TestSanitizeHTMLKeepsStructureAndVocabulary(t *testing.T) {
 		{"a table", `<table><tr><th scope="col">a</th><td colspan="2">b</td></tr></table>`, `<table><tr><th scope="col">a</th><td colspan="2">b</td></tr></table>`},
 		{"a disclosure", `<details open><summary>s</summary><p>b</p></details>`, `<details open=""><summary>s</summary><p>b</p></details>`},
 		{"entities in text", `<p>a &amp; b &lt;c&gt;</p>`, `<p>a &amp; b &lt;c&gt;</p>`},
+		{
+			"a diagram",
+			`<svg viewBox="0 0 200 60"><g class="hv-accent"><rect class="hv-node" x="1" y="1" width="70" height="34" rx="6"/><text class="hv-label" x="36" y="22" text-anchor="middle">Poll</text></g><line class="hv-edge hv-dashed" x1="72" y1="18" x2="130" y2="18"/><polygon class="hv-arrow" points="130,14 138,18 130,22"/></svg>`,
+			`<svg viewBox="0 0 200 60"><g class="hv-accent"><rect class="hv-node" x="1" y="1" width="70" height="34" rx="6"/><text class="hv-label" x="36" y="22" text-anchor="middle">Poll</text></g><line class="hv-edge hv-dashed" x1="72" y1="18" x2="130" y2="18"/><polygon class="hv-arrow" points="130,14 138,18 130,22"/></svg>`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -85,26 +98,60 @@ func TestSanitizeHTMLKeepsStructureAndVocabulary(t *testing.T) {
 	}
 }
 
-// htmlAttrs restates what the policy grants, and a drift between the two
-// would either refuse a write the policy would have kept or — the direction
-// that matters — accept one it silently strips.
-func TestHTMLPolicyMatchesAttributeAllowlist(t *testing.T) {
+// htmlAttrs is the one declaration the policy and RejectedHTML are both
+// built from, so what is left to hold is that every rule in it reaches a
+// real sanitize: a rule the policy loop passes over allows nothing and
+// strips everything, and the write-time check would never see it.
+func TestHTMLPolicyKeepsEveryDeclaredAttribute(t *testing.T) {
 	sample := map[string]string{
 		"class": "hv-card", "href": "https://example.com/", "colspan": "2",
 		"rowspan": "2", "scope": "col", "open": "",
+		"viewbox": "0 0 100 40", "transform": "translate(4 4)",
+		"d": "M0 0 L9 9", "points": "0,0 9,9",
+		"x": "1", "y": "1", "dx": "1", "dy": "1", "width": "10", "height": "10",
+		"rx": "2", "ry": "2", "cx": "5", "cy": "5", "r": "4",
+		"x1": "0", "y1": "0", "x2": "9", "y2": "9", "text-anchor": "middle",
 	}
-	for attr, elements := range htmlAttrs {
+	for attr, rule := range htmlAttrs {
+		value, ok := sample[attr]
+		require.True(t, ok, "no sample value for the %s rule", attr)
+		elements := rule.on
 		if len(elements) == 0 {
 			elements = []string{"div"}
 		}
 		for _, el := range elements {
-			src := `<` + el + ` ` + attr + `="` + sample[attr] + `">x</` + el + `>`
-			assert.Contains(t, SanitizeHTML(src), attr+`="`, "policy drops %s on <%s>, which htmlAttrs claims is allowed", attr, el)
+			src := `<` + el + ` ` + attr + `="` + value + `">x</` + el + `>`
+			// Lowercased because svgCasing spells viewBox the way SVG needs
+			// it, and htmlAttrs is keyed by the name the tokenizer folds to.
+			assert.Contains(t, strings.ToLower(SanitizeHTML(src)), attr+`="`, "policy drops %s on <%s>, which htmlAttrs allows", attr, el)
+			assert.Empty(t, RejectedHTML(src), "the write check refuses %s on <%s>, which htmlAttrs allows", attr, el)
 		}
 	}
 
 	for _, attr := range []string{"style", "id", "onclick", "onerror", "src", "target", "srcdoc", "data-x", "hidden"} {
 		assert.NotContains(t, SanitizeHTML(`<div `+attr+`="v">x</div>`), attr, "%s must not survive", attr)
+	}
+}
+
+// A value the policy would strip is as invisible to the agent as an element
+// it would drop, so the shape rules are part of the write-time contract too.
+func TestSanitizeHTMLDropsValuesOutsideTheShapeRules(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"a percentage width", `<rect width="50%" height="4"/>`, `<rect height="4"/>`},
+		{"a unit on a coordinate", `<circle cx="4px" cy="4" r="2"/>`, `<circle cy="4" r="2"/>`},
+		{"a url in a transform", `<g transform="url(#x)"><circle r="2"/></g>`, `<g><circle r="2"/></g>`},
+		{"a script call in path data", `<path d="alert(1)"/>`, `<path/>`},
+		{"a colspan that is not a number", `<td colspan="one">x</td>`, `<td>x</td>`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, SanitizeHTML(tc.src))
+			assert.NotEmpty(t, RejectedHTML(tc.src), "the write check must refuse what the policy strips")
+		})
 	}
 }
 
@@ -130,6 +177,14 @@ func TestRejectedHTMLNamesTheFirstOffender(t *testing.T) {
 		{"javascript href", `<a href="javascript:alert(1)">x</a>`, `the link "javascript:alert(1)"`},
 		{"relative href", `<a href="/settings">x</a>`, `the link "/settings"`},
 		{"element beats class", `<script class="nope">x</script>`, "the <script> element"},
+		{"a clean diagram", `<svg viewBox="0 0 40 20"><rect class="hv-node" width="10" height="10"/></svg>`, ""},
+		{"svg without a viewBox", `<svg><circle r="2"/></svg>`, "an <svg> with no viewBox"},
+		{"svg sizing itself", `<svg viewBox="0 0 40 20" width="400" height="200"></svg>`, "the width attribute on <svg>"},
+		{"an agent-picked colour", `<path d="M0 0" fill="red"/>`, "the fill attribute on <path>"},
+		{"a stroke weight", `<line x1="0" y1="0" x2="9" y2="9" stroke-width="4"/>`, "the stroke-width attribute on <line>"},
+		{"a percentage coordinate", `<rect width="50%" height="4"/>`, `the width value "50%" on <rect>`},
+		{"a url in a transform", `<g transform="url(#x)"></g>`, `the transform value "url(#x)" on <g>`},
+		{"defs for a marker", `<svg viewBox="0 0 40 20"><defs></defs></svg>`, "the <defs> element"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
