@@ -28,6 +28,7 @@ actions:
     applies_to: [pr]
     repo_template: "__REMOTE__"
     prompt_template: "launch {{ .Payload.id }}"
+    post_hook: 'printf "post-hook %s %s" {{ .Payload.id }} {{ .Session.Name }}'
   - id: smoke-__RUN_ID__-dialog-launch
     label: Smoke dialog launch
     type: launch-session

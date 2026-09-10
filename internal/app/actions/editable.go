@@ -40,9 +40,11 @@ type EditableCatalog struct {
 }
 
 type EditableLaunchConfig struct {
-	PromptTemplate string `json:"promptTemplate"`
-	Agent          string `json:"agent,omitempty"`
-	RepoTemplate   string `json:"repoTemplate,omitempty"`
+	PromptTemplate  string `json:"promptTemplate"`
+	Agent           string `json:"agent,omitempty"`
+	RepoTemplate    string `json:"repoTemplate,omitempty"`
+	PostHook        string `json:"postHook,omitempty"`
+	PostHookTimeout string `json:"postHookTimeout,omitempty"`
 }
 
 type EditableShellConfig struct {
@@ -65,7 +67,11 @@ func editableFromAction(a Action) (EditableAction, error) {
 	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, Targets: effectiveTargets(a), AppliesTo: append([]string(nil), a.AppliesTo...), Inputs: cloneInputs(a.Inputs)}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
-		out.Launch = &EditableLaunchConfig{PromptTemplate: c.PromptTemplate, Agent: c.Agent, RepoTemplate: c.RepoTemplate}
+		postHookTimeout := ""
+		if c.PostHookTimeout != 0 {
+			postHookTimeout = time.Duration(c.PostHookTimeout).String()
+		}
+		out.Launch = &EditableLaunchConfig{PromptTemplate: c.PromptTemplate, Agent: c.Agent, RepoTemplate: c.RepoTemplate, PostHook: c.PostHook, PostHookTimeout: postHookTimeout}
 	case *ShellConfig:
 		timeout := ""
 		if c.Timeout != 0 {
@@ -109,7 +115,15 @@ func actionFromEditable(e EditableAction) (Action, error) {
 		if e.Launch == nil {
 			return Action{}, fmt.Errorf("action %q: launch config is required for launch-session", e.ID)
 		}
-		a.Config = &LaunchSessionConfig{PromptTemplate: e.Launch.PromptTemplate, Agent: e.Launch.Agent, RepoTemplate: e.Launch.RepoTemplate}
+		var postHookTimeout Duration
+		if e.Launch.PostHookTimeout != "" {
+			d, err := time.ParseDuration(e.Launch.PostHookTimeout)
+			if err != nil {
+				return Action{}, fmt.Errorf("action %q: post_hook_timeout: %w", e.ID, err)
+			}
+			postHookTimeout = Duration(d)
+		}
+		a.Config = &LaunchSessionConfig{PromptTemplate: e.Launch.PromptTemplate, Agent: e.Launch.Agent, RepoTemplate: e.Launch.RepoTemplate, PostHook: e.Launch.PostHook, PostHookTimeout: postHookTimeout}
 	case "shell":
 		if e.Shell == nil {
 			return Action{}, fmt.Errorf("action %q: shell config is required for shell", e.ID)

@@ -2,14 +2,23 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
+
+// defaultPostHookTimeout bounds a post hook that declares no timeout of its
+// own. A hook is meant to prepare the checkout and hand it to something else —
+// check out a pull request, open an editor — so a minute is generous, and a
+// hook that wants longer says so in post_hook_timeout.
+const defaultPostHookTimeout = time.Minute
 
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to
 // a SessionLauncher.
@@ -31,14 +40,17 @@ type SessionLauncher interface {
 // LaunchSessionExecutor renders a launch-session action's templates over
 // the triggering msg and hands the result to a SessionLauncher.
 type LaunchSessionExecutor struct {
+	logger   zerolog.Logger
 	launcher SessionLauncher
+	env      ExecEnvironment
 }
 
-// NewLaunchSessionExecutor builds a LaunchSessionExecutor over launcher.
+// NewLaunchSessionExecutor builds a LaunchSessionExecutor over launcher, with
+// env supplying the environment a post hook runs in.
 // A nil launcher leaves the executor unavailable rather than acknowledging an
 // action without creating its session.
-func NewLaunchSessionExecutor(launcher SessionLauncher) *LaunchSessionExecutor {
-	return &LaunchSessionExecutor{launcher: launcher}
+func NewLaunchSessionExecutor(logger zerolog.Logger, launcher SessionLauncher, env ExecEnvironment) *LaunchSessionExecutor {
+	return &LaunchSessionExecutor{logger: logger, launcher: launcher, env: env}
 }
 
 func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Action, data OutputData, input ActionInvocationInput) (ExecutionResult, error) {
@@ -71,6 +83,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		return ExecutionResult{}, fmt.Errorf("launch-session: derived session name: %w", err)
 	}
 
+	agent := cfg.Agent
 	if cfg.RepoTemplate == "" {
 		if input.Session == nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: repository, name, and agent input are required")
@@ -83,7 +96,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 			return ExecutionResult{}, fmt.Errorf("launch-session: session name: %w", err)
 		}
 		if input.Session.Agent != "" {
-			cfg = &actions.LaunchSessionConfig{Agent: input.Session.Agent}
+			agent = input.Session.Agent
 		}
 	} else if repo == "" {
 		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template rendered blank")
@@ -94,9 +107,68 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}
-	outcome, err := e.launcher.LaunchSession(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: cfg.Agent, Repo: repo, Origin: data.Origin})
+	outcome, err := e.launcher.LaunchSession(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origin: data.Origin})
 	if err != nil {
 		return ExecutionResult{Attempted: true}, err
 	}
-	return ExecutionResult{Attempted: true, Outcome: &ExecutionOutcome{Session: &outcome}}, nil
+	return ExecutionResult{
+		Attempted: true,
+		Outcome:   &ExecutionOutcome{Session: &outcome},
+		Log:       e.runPostHook(ctx, action, cfg, data, repo, outcome),
+	}, nil
+}
+
+// runPostHook runs cfg.PostHook in the checkout that was just created and
+// returns whatever it wrote. It reports a failure in the log and never as the
+// action's error: the session exists by this point, so failing the command
+// would both state something false and hand the output worker a retry that
+// creates a second session — the same reasoning that keeps a failed
+// item-session link off the launch's result.
+func (e *LaunchSessionExecutor) runPostHook(
+	ctx context.Context,
+	action actions.Action,
+	cfg *actions.LaunchSessionConfig,
+	data OutputData,
+	repo string,
+	outcome SessionExecutionOutcome,
+) ExecutionLog {
+	if strings.TrimSpace(cfg.PostHook) == "" {
+		return ExecutionLog{}
+	}
+	logger := e.logger.With().Str("action_id", action.ID).Str("session_id", outcome.ID).Logger()
+	failed := func(err error) ExecutionLog {
+		logger.Warn().Err(err).Msg("launch-session: post hook failed")
+		return ExecutionLog{Stderr: "post_hook: " + err.Error()}
+	}
+	if e.env == nil {
+		return failed(errors.New("no execution environment configured"))
+	}
+	if outcome.Path == "" {
+		return failed(errors.New("the launcher reported no checkout to run in"))
+	}
+	// Binding .Session to the session that was just created is what makes the
+	// hook's data the same shape a session-target action reads. Branch is not
+	// among the fields: hive reports no branch for a fresh session, and a hook
+	// that wants one is already a shell in the checkout.
+	data.Session = &SessionTarget{ID: outcome.ID, Name: outcome.Name, Slug: outcome.Slug, Repo: repo, Path: outcome.Path}
+	command, err := tmpl.New(tmpl.Config{}).Render(cfg.PostHook, data)
+	if err != nil {
+		return failed(err)
+	}
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return failed(errors.New("rendered blank"))
+	}
+	timeout := cfg.PostHookTimeout.Duration()
+	if timeout == 0 {
+		timeout = defaultPostHookTimeout
+	}
+	log, err := runShell(ctx, e.env, shellCommand{Command: command, Dir: outcome.Path, Timeout: timeout})
+	if err != nil {
+		logger.Warn().Err(err).Msg("launch-session: post hook failed")
+		log.Stderr = strings.TrimRight("post_hook: "+err.Error()+"\n"+log.Stderr, "\n")
+		return log
+	}
+	logger.Info().Msg("launch-session: post hook ran")
+	return log
 }

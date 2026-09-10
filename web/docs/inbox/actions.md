@@ -47,6 +47,23 @@ Template fields depend on where the action runs:
 
 Use the `shq` template function when inserting item or input data into a shell command.
 
+## Run a command after the session starts
+
+A `launch-session` action can run a `post_hook` once the session exists. The command runs in the new checkout with your shell's `PATH`, so it can check the pull request out and open your editor on it:
+
+```yaml
+- id: review-pr
+  label: Review PR
+  type: launch-session
+  applies_to: [pr]
+  repo_template: "https://github.com/{{ .Payload.repo }}.git"
+  prompt_template: "Review pull request #{{ .Payload.num }}"
+  post_hook: "gh pr checkout {{ .Payload.num }} && zed ."
+  post_hook_timeout: "2m"
+```
+
+The hook reads the same template fields as the action, plus `{{ .Session.Path }}` and `{{ .Session.Slug }}` for the session that was just created. `post_hook_timeout` defaults to one minute. A hook that fails leaves the session in place and reports its output in the action's run log.
+
 ## Where actions run
 
 Use `targets` to choose where an action appears:

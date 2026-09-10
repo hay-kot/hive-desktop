@@ -16,6 +16,40 @@ spawn agents automatically.
   time** for referencing it.
 - `agent` — a non-default agent profile (e.g. `claude`, `aider`). Omit for the
   launcher's default.
+- `post_hook` — a shell command to run once the session exists, in its
+  checkout. See below.
+- `post_hook_timeout` — how long the hook may run, as a duration string
+  (`"2m"`). Defaults to one minute.
+
+## Post hook
+
+`post_hook` runs after the session is created, through `sh -c`, with the new
+session's checkout as the working directory and the login shell's environment
+(so `gh`, `zed`, and the rest of your `PATH` resolve). It is the place to put
+the setup the agent's prompt cannot do — check out the pull request the item is
+about, then open an editor on it:
+
+```yaml
+- id: review-pr
+  label: Review PR
+  type: launch-session
+  applies_to: [pr]
+  repo_template: "https://github.com/{{ .Payload.repo }}.git"
+  prompt_template: "Review pull request #{{ .Payload.num }}"
+  post_hook: "gh pr checkout {{ .Payload.num }} && zed ."
+```
+
+The hook is rendered over the same data as the other templates, plus
+`.Session`, bound to the session that was just created: `{{ .Session.Path }}`,
+`{{ .Session.Slug }}` (its tmux session name), `{{ .Session.Name }}`,
+`{{ .Session.ID }}`, and `{{ .Session.Repo }}`. `{{ .Session.Branch }}` is
+empty here — a fresh session has no branch to report, and the hook is a shell
+in the checkout already.
+
+A hook that fails does **not** fail the action: the session exists by then, so
+reporting the launch as failed would be untrue and would invite a retry that
+creates a second session. Its exit status and output land in the action's run
+log instead, under the item it ran for.
 
 ## Item target only
 

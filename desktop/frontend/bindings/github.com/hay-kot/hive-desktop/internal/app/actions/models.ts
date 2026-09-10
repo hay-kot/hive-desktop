@@ -49,6 +49,8 @@ export interface EditableLaunchConfig {
     "promptTemplate": string;
     "agent"?: string;
     "repoTemplate"?: string;
+    "postHook"?: string;
+    "postHookTimeout"?: string;
 }
 
 export interface EditableMessageConfig {

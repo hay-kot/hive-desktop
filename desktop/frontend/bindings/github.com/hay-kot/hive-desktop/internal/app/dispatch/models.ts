@@ -127,6 +127,14 @@ export interface SessionDraft {
 export interface SessionExecutionOutcome {
     "id": string;
     "name": string;
+
+    /**
+     * Slug is the tmux session name and Path the checkout on disk. Both are
+     * here for the launch-session post hook, which runs in that directory and
+     * can address that tmux session; nothing else reads them back.
+     */
+    "slug"?: string;
+    "path"?: string;
 }
 
 /**

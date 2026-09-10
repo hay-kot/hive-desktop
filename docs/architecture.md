@@ -1381,6 +1381,15 @@ learn what an inbox item is. Four rules are load-bearing:
   it. `OutputData.Origin` is how it reaches an executor; a launcher records the
   link and never fails the launch over it.
 
+**A `launch-session` action's `post_hook` runs after the session exists, and its
+failure is not the action's.** The hook is a shell command rendered over the
+same data as the action's other templates with `.Session` bound to the session
+just created, run in that checkout through the shared `runShell` helper.
+Everything after `LaunchSession` returns follows the same rule as the item link
+above: report the failure in `ExecutionResult.Log`, never as the executor's
+error, because a failed command is retried and a retry here creates a second
+session.
+
 **The user's own operations on a session are `actions.yml` entries, not a second
 config** (ADR actions-target-terminal-sessions-and-windows). An action declares its surfaces in `targets:` — `item`
 (the default, and what every pre-terminal action means), `session`, `window` —

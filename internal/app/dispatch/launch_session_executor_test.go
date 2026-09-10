@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,12 +25,13 @@ import (
 // fakeSessionLauncher records every LaunchSession call.
 type fakeSessionLauncher struct {
 	calls []LaunchSessionRequest
+	path  string
 	err   error
 }
 
 func (f *fakeSessionLauncher) LaunchSession(_ context.Context, req LaunchSessionRequest) (SessionExecutionOutcome, error) {
 	f.calls = append(f.calls, req)
-	return SessionExecutionOutcome{ID: "session-1", Name: req.Name}, f.err
+	return SessionExecutionOutcome{ID: "session-1", Name: req.Name, Slug: "slug-1", Path: f.path}, f.err
 }
 
 type fakeSessionCreator struct {
@@ -58,7 +63,7 @@ func (f *fakeSessionCreator) CreateSession(_ context.Context, opts hive.CreateOp
 
 func TestLaunchSessionExecutor_RendersPromptAndRepoTemplates(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
-	exec := NewLaunchSessionExecutor(launcher)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
 
 	action := actions.Action{
 		ID:   "spawn-review",
@@ -88,7 +93,7 @@ func TestLaunchSessionExecutor_RendersPromptAndRepoTemplates(t *testing.T) {
 
 func TestLaunchSessionExecutor_RerunUsesUniqueSessionName(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
-	exec := NewLaunchSessionExecutor(launcher)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{
 		PromptTemplate: "hi", RepoTemplate: "git@github.com:colonyops/hive.git",
 	}}
@@ -100,7 +105,7 @@ func TestLaunchSessionExecutor_RerunUsesUniqueSessionName(t *testing.T) {
 
 func TestLaunchSessionExecutor_ConfiguredRepoTemplateIgnoresInteractiveOverride(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
-	exec := NewLaunchSessionExecutor(launcher)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{
 		PromptTemplate: "hi", RepoTemplate: "git@github.com:colonyops/hive.git", Agent: "configured-agent",
 	}}
@@ -113,7 +118,7 @@ func TestLaunchSessionExecutor_ConfiguredRepoTemplateIgnoresInteractiveOverride(
 
 func TestLaunchSessionExecutor_NoRepoTemplate_LeavesRepoEmpty(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
-	exec := NewLaunchSessionExecutor(launcher)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
 
 	action := actions.Action{
 		ID:     "spawn-review",
@@ -129,7 +134,7 @@ func TestLaunchSessionExecutor_NoRepoTemplate_LeavesRepoEmpty(t *testing.T) {
 
 func TestLaunchSessionExecutor_PropagatesLaunchFailure(t *testing.T) {
 	launcher := &fakeSessionLauncher{err: errors.New("clone failed")}
-	exec := NewLaunchSessionExecutor(launcher)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{PromptTemplate: "hi"}}
 
 	_, err := exec.Execute(t.Context(), action, OutputData{Key: "item-1", Payload: map[string]any{}}, ActionInvocationInput{Session: &SessionInvocationInput{Name: "spawn-review-item-1", Repository: "git@example/repo"}})
@@ -138,7 +143,7 @@ func TestLaunchSessionExecutor_PropagatesLaunchFailure(t *testing.T) {
 }
 
 func TestLaunchSessionExecutor_WrongConfigType_IsError(t *testing.T) {
-	exec := NewLaunchSessionExecutor(&fakeSessionLauncher{})
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), &fakeSessionLauncher{}, hostEnvironment{})
 	action := actions.Action{ID: "x", Type: "launch-session", Config: &actions.ShellConfig{}}
 
 	_, err := exec.Execute(t.Context(), action, OutputData{}, ActionInvocationInput{})
@@ -146,7 +151,7 @@ func TestLaunchSessionExecutor_WrongConfigType_IsError(t *testing.T) {
 }
 
 func TestLaunchSessionExecutor_NilLauncherIsError(t *testing.T) {
-	exec := NewLaunchSessionExecutor(nil)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), nil, hostEnvironment{})
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{PromptTemplate: "hi"}}
 	_, err := exec.Execute(t.Context(), action, OutputData{Key: "item-1", Payload: map[string]any{}}, ActionInvocationInput{})
 	require.Error(t, err)
@@ -251,7 +256,7 @@ func TestHiveSessionLauncher_ReportsSuccessWhenTheLinkCannotBeWritten(t *testing
 // routed from, and the executor hands it to the launcher.
 func TestLaunchSessionExecutor_CarriesTheCommandsOriginToTheLauncher(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
-	exec := NewLaunchSessionExecutor(launcher)
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{
 		PromptTemplate: "review", RepoTemplate: "acme/site",
 	}}
@@ -263,4 +268,104 @@ func TestLaunchSessionExecutor_CarriesTheCommandsOriginToTheLauncher(t *testing.
 	require.NoError(t, err)
 	require.Len(t, launcher.calls, 1)
 	assert.Equal(t, ref, launcher.calls[0].Origin)
+}
+
+func launchWithPostHook(hook string, timeout actions.Duration) actions.Action {
+	return actions.Action{
+		ID:   "spawn-review",
+		Type: "launch-session",
+		Config: &actions.LaunchSessionConfig{
+			PromptTemplate:  "Review {{ .Payload.title }}",
+			RepoTemplate:    "{{ .Payload.repo }}",
+			PostHook:        hook,
+			PostHookTimeout: timeout,
+		},
+	}
+}
+
+func reviewItem() OutputData {
+	return OutputData{
+		Key:     "pr-42",
+		Payload: map[string]any{"title": "Fix it", "repo": "example/repo", "num": 42},
+		Raw:     json.RawMessage(`{"title":"Fix it","repo":"example/repo","num":42}`),
+	}
+}
+
+// The use case the hook exists for: prepare the checkout the session was
+// created in, then hand it to something else. The command has to see the new
+// session's directory as its cwd and its coordinates as `.Session`.
+func TestLaunchSessionExecutor_PostHookRunsInTheNewCheckout(t *testing.T) {
+	dir := t.TempDir()
+	launcher := &fakeSessionLauncher{path: dir}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
+
+	action := launchWithPostHook("pwd && echo {{ .Payload.num }} {{ .Session.Slug }} > checked-out", 0)
+
+	result, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.NotNil(t, result.Outcome.Session)
+	assert.Equal(t, dir, result.Outcome.Session.Path)
+
+	written, readErr := os.ReadFile(filepath.Join(dir, "checked-out"))
+	require.NoError(t, readErr)
+	assert.Equal(t, "42 slug-1", strings.TrimSpace(string(written)))
+
+	cwd, readErr := filepath.EvalSymlinks(strings.TrimSpace(result.Log.Stdout))
+	require.NoError(t, readErr)
+	resolved, readErr := filepath.EvalSymlinks(dir)
+	require.NoError(t, readErr)
+	assert.Equal(t, resolved, cwd)
+}
+
+// The session exists once LaunchSession returns, so a failing hook must not
+// fail the command: the output worker retries a failure, and a retry here
+// creates a second session.
+func TestLaunchSessionExecutor_FailingPostHookKeepsTheLaunchSuccessful(t *testing.T) {
+	launcher := &fakeSessionLauncher{path: t.TempDir()}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
+
+	action := launchWithPostHook("echo nope >&2; exit 3", 0)
+
+	result, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.NotNil(t, result.Outcome.Session)
+	assert.Equal(t, "session-1", result.Outcome.Session.ID)
+	assert.Contains(t, result.Log.Stderr, "post_hook: ")
+	assert.Contains(t, result.Log.Stderr, "exit status 3")
+	assert.Contains(t, result.Log.Stderr, "nope")
+}
+
+func TestLaunchSessionExecutor_PostHookTimeoutDoesNotFailTheLaunch(t *testing.T) {
+	launcher := &fakeSessionLauncher{path: t.TempDir()}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
+
+	action := launchWithPostHook("sleep 30", actions.Duration(50*time.Millisecond))
+
+	result, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.NotNil(t, result.Outcome.Session)
+	assert.Contains(t, result.Log.Stderr, "post_hook: ")
+}
+
+// A hook that cannot run at all is still only a log entry, for the same
+// reason a failing one is.
+func TestLaunchSessionExecutor_PostHookTemplateErrorIsReportedNotReturned(t *testing.T) {
+	launcher := &fakeSessionLauncher{path: t.TempDir()}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
+
+	action := launchWithPostHook("echo {{ .Payload.missing }}", 0)
+
+	result, err := exec.Execute(t.Context(), action, reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.NotNil(t, result.Outcome.Session)
+	assert.Contains(t, result.Log.Stderr, "post_hook: ")
+}
+
+func TestLaunchSessionExecutor_NoPostHookRunsNothing(t *testing.T) {
+	launcher := &fakeSessionLauncher{path: t.TempDir()}
+	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
+
+	result, err := exec.Execute(t.Context(), launchWithPostHook("", 0), reviewItem(), ActionInvocationInput{})
+	require.NoError(t, err)
+	assert.Equal(t, ExecutionLog{}, result.Log)
 }

@@ -46,6 +46,10 @@ func (e *recordingActionExecutor) Execute(_ context.Context, _ actions.Action, d
 	return e.result, e.err
 }
 
+type stubExecEnv struct{}
+
+func (stubExecEnv) Environ(context.Context) []string { return os.Environ() }
+
 type recordingSessionLauncher struct {
 	calls []dispatch.LaunchSessionRequest
 }
@@ -347,7 +351,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 
 	launcher := &recordingSessionLauncher{}
 	worker := newTestWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
-		"launch-session": dispatch.NewLaunchSessionExecutor(launcher),
+		"launch-session": dispatch.NewLaunchSessionExecutor(zerolog.Nop(), launcher, stubExecEnv{}),
 	}), 0, zerolog.Nop())
 	service := newTestInboxService(db, actionStore, worker)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
