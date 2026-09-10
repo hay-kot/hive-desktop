@@ -68,8 +68,9 @@ func NewFactory(fetchers *Fetchers) connector.Factory {
 				Classifier: classifier{},
 				// Per instance rather than per factory: the absence confirmer
 				// fetches, so it has to fetch as the same account the source did.
-				Absence: &absenceConfirmer{fetcher: fetcher},
-				Config:  config,
+				Absence:     &absenceConfirmer{fetcher: fetcher},
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 	}

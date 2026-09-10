@@ -59,7 +59,8 @@ func NewMetricsFactory(fetchers *Fetchers) connector.Factory {
 					topic:   node.Topic(),
 					key:     node.NodeID,
 				},
-				Config: config,
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 	}

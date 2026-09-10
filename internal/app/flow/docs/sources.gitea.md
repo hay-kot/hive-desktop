@@ -16,6 +16,7 @@ The rest apply to `search` only, and a `notifications` node carrying any of them
 - `owner` — limit the search to one user's or organization's repositories.
 - `labels` — return items carrying any of these labels.
 - `text` — free-text search over title and body.
+- `interval` — optional, e.g. `1h`. The shortest time between fetches, for a source that costs more than its freshness is worth. It still only runs on a poll tick, so the real cadence rounds up to the next one; empty fetches every tick. A manual refresh ignores it, and it is not persisted — a restart fetches once from every source.
 
 Everything is optional: a search with no filters returns every open issue and pull request the token can see, newest-updated first.
 

@@ -8,7 +8,7 @@
 // no search syntax — its endpoint takes discrete parameters — so the fields
 // here are the whole vocabulary a search has.
 import { computed } from 'vue'
-import { FieldRow, GlobListField, NumberField, SelectField, TextField, ToggleField, type SelectOption } from '../../fields'
+import { FieldRow, GlobListField, IntervalField, NumberField, SelectField, TextField, ToggleField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import { INVOLVING, ITEMS, STATES, type Config, type Involving, type Items, type Kind, type State } from './config'
 
@@ -203,6 +203,11 @@ function toggleInvolving(value: Involving, on: boolean) {
       hint="Max items per fetch. 0 uses the default (50)."
       testid="sources.gitea-editor-limit"
       @update:model-value="(limit: number) => update({ limit: limit || undefined })"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.gitea-editor-interval"
+      @update:model-value="(interval?: string) => update({ interval })"
     />
   </div>
 </template>

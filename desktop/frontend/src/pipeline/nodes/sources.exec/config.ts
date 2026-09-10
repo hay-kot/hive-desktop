@@ -1,6 +1,7 @@
 // Runs on the backend (internal/app/sources/exec); role 'source' means no runtime.ts here.
 
 import IconTerminal from '~icons/lucide/terminal'
+import { DURATION, intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.exec'
 export const role = 'source' as const
@@ -33,9 +34,6 @@ export const defaults: Config = {
   timeout: '30s',
 }
 
-/** Mirrors Go's connector.Duration: a Go duration string, never a bare number. */
-const DURATION = /^\d+(\.\d+)?(ns|us|µs|ms|s|m|h)([\d.]+(ns|us|µs|ms|s|m|h))*$/
-
 /** UX-only — Go's SaveFlow validator is authoritative. */
 export function validate(config: Config): string[] {
   const errors: string[] = []
@@ -45,8 +43,8 @@ export function validate(config: Config): string[] {
   if (!timeout) errors.push('a timeout is required, like "30s"')
   else if (!DURATION.test(timeout)) errors.push('timeout must be a duration like "30s", not a bare number')
 
-  const interval = (config.interval ?? '').trim()
-  if (interval && !DURATION.test(interval)) errors.push('interval must be a duration like "1h", not a bare number')
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
 
   const cwd = (config.cwd ?? '').trim()
   if (cwd && !cwd.startsWith('/') && cwd !== '~' && !cwd.startsWith('~/')) {

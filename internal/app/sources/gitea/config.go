@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/gitea/giteaclient"
 )
 
@@ -99,6 +100,9 @@ type Config struct {
 	Text string `json:"text,omitempty" yaml:"text,omitempty" jsonschema:"title=Text,description=Free-text search over title and body. Only for kind search."`
 	// Limit bounds items per fetch. 0 means the per-kind default.
 	Limit int `json:"limit,omitempty" yaml:"limit,omitempty" jsonschema:"title=Limit,minimum=0,maximum=100,description=Maximum items per fetch. Search caps at 100 and notifications at 50; 0 uses the default of 50."`
+	// Interval is the floor between fetches, for an instance that should not
+	// be searched on every tick.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 // Validate rejects what Gitea would silently ignore. Its search endpoint
@@ -167,7 +171,7 @@ func (c *Config) validateSearch() error {
 			return fmt.Errorf("gitea source: label %q contains a comma, which Gitea's search cannot express", label)
 		}
 	}
-	return nil
+	return connector.ValidateInterval("gitea source", c.Interval)
 }
 
 // rejectSearchFields fails a notifications source carrying search filters.

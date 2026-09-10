@@ -8,6 +8,7 @@ A **Grafana metrics source** node runs a PromQL query against a connected Grafan
 - `datasource_uid` — required. The uid of the Prometheus-compatible datasource the query runs against.
 - `expr` — required. A PromQL expression, for example `up` or `sum(rate(http_requests_total[5m]))`.
 - `title` — optional. The feed item's title. Defaults to the query when empty.
+- `interval` — optional, e.g. `1h`. The shortest time between fetches, for a source that costs more than its freshness is worth. It still only runs on a poll tick, so the real cadence rounds up to the next one; empty fetches every tick. A manual refresh ignores it, and it is not persisted — a restart fetches once from every source.
 
 ## Behavior
 

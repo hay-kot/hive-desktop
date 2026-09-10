@@ -3,7 +3,7 @@
 import { computed } from 'vue'
 import BaseButton from '../../../components/BaseButton.vue'
 import { defaultExecSourceIcon, feedIconComponent, feedIconOptions } from '../../../lib/feedIcons'
-import { MarkImageField, SelectField, TextField, TextareaField, type MarkImageClient } from '../../fields'
+import { IntervalField, MarkImageField, SelectField, TextField, TextareaField, type MarkImageClient } from '../../fields'
 import IconTrash from '~icons/lucide/trash-2'
 import type { Config } from './config'
 
@@ -151,6 +151,11 @@ const iconGlyph = computed(() => feedIconComponent(props.config.icon || defaultE
       :client="props.client"
       testid="sources.exec-editor-mark"
       @update:model-value="(image: string | undefined) => update({ image })"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.exec-editor-interval"
+      @update:model-value="(interval?: string) => update({ interval })"
     />
   </div>
 </template>

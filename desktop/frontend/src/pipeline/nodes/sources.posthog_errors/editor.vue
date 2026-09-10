@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NumberField, SelectField, TextField, ToggleField, type SelectOption } from '../../fields'
+import { IntervalField, NumberField, SelectField, TextField, ToggleField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import { MAX_LIMIT, ORDERINGS, STATUSES, type Config, type Ordering, type Status } from './config'
 
@@ -98,6 +98,11 @@ function update(patch: Partial<Config>) {
       hint="Include traffic PostHog classifies as internal or test."
       testid="sources.posthog_errors-editor-include-test-accounts"
       @update:model-value="(include_test_accounts: boolean) => update({ include_test_accounts })"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.posthog_errors-editor-interval"
+      @update:model-value="(interval?: string) => update({ interval })"
     />
   </div>
 </template>

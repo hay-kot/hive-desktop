@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { GlobListField, SelectField, TextField, type SelectOption } from '../../fields'
+import { GlobListField, IntervalField, SelectField, TextField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import type { Config } from './config'
 
@@ -63,6 +63,11 @@ function updateMatchers(matchers: string[]) {
       :rows="3"
       testid="sources.grafana_alerts-editor-matchers"
       @update:model-value="updateMatchers"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.grafana_alerts-editor-interval"
+      @update:model-value="(interval?: string) => emit('update:config', { ...props.config, interval })"
     />
   </div>
 </template>

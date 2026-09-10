@@ -69,8 +69,8 @@ func (c *Config) Validate() error {
 	case timeout > maxTimeout:
 		return fmt.Errorf("exec source: timeout %s exceeds the maximum %s", c.Timeout, connector.Duration(maxTimeout))
 	}
-	if c.Interval.Duration() < 0 {
-		return fmt.Errorf("exec source: interval must not be negative")
+	if err := connector.ValidateInterval("exec source", c.Interval); err != nil {
+		return err
 	}
 	if cwd := c.Cwd; cwd != "" && !filepath.IsAbs(cwd) && !strings.HasPrefix(cwd, "~/") && cwd != "~" {
 		return fmt.Errorf("exec source: cwd %q must be an absolute path (a relative one resolves against the app's directory, not yours)", cwd)

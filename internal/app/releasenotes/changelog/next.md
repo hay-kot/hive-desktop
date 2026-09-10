@@ -8,6 +8,10 @@ summary: ""
   the tmux handshake, the size vote, the window list and the pane capture as
   separate steps, so a terminal that was slow to open resolves to the step that
   took the time.
+- **Every source node has a poll interval.** Grafana, GitHub, PostHog and
+  Gitea sources take an `interval` — `1h`, `15m` — the same way command
+  sources always have. Leave it empty to fetch every poll. The floor rounds up
+  to the next tick, and a manual refresh ignores it.
 
 ## Fixed
 

@@ -1,6 +1,7 @@
 // Runs on the backend (internal/app/sources/posthog); role 'source' means no runtime.ts here.
 
 import PostHogMark from '../../../components/marks/PostHogMark.vue'
+import { intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.posthog_alerts'
 export const role = 'source' as const
@@ -13,6 +14,8 @@ export interface Config {
    */
   credential: string
   firing_only?: boolean
+  /** Go duration string: the shortest time between fetches. */
+  interval?: string
 }
 
 export const label = 'PostHog insight alerts source'
@@ -39,5 +42,7 @@ export function validate(config: Config): string[] {
   } else if (!/^posthog\/[^/]+$/.test(credential)) {
     errors.push('credential must look like "posthog/<account>"')
   }
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
   return errors
 }

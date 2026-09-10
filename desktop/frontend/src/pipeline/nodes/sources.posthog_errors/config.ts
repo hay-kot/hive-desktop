@@ -1,6 +1,7 @@
 // Runs on the backend (internal/app/sources/posthog); role 'source' means no runtime.ts here.
 
 import PostHogMark from '../../../components/marks/PostHogMark.vue'
+import { intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.posthog_errors'
 export const role = 'source' as const
@@ -25,6 +26,8 @@ export interface Config {
   date_from?: string
   limit?: number
   include_test_accounts?: boolean
+  /** Go duration string: the shortest time between fetches. */
+  interval?: string
 }
 
 export const label = 'PostHog error tracking source'
@@ -67,5 +70,7 @@ export function validate(config: Config): string[] {
   } else if (limit > MAX_LIMIT) {
     errors.push(`limit caps at ${MAX_LIMIT}`)
   }
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
   return errors
 }

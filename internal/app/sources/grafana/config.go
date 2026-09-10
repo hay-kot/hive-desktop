@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
 // MetricsConfig is a Grafana metrics source node's configuration. credential is
@@ -19,6 +20,9 @@ type MetricsConfig struct {
 	DatasourceUID string `json:"datasource_uid"  yaml:"datasource_uid"  jsonschema:"title=Datasource UID,description=The uid of the Prometheus-compatible datasource to query."`
 	Expr          string `json:"expr"            yaml:"expr"            jsonschema:"title=Query,description=A PromQL expression, e.g. 'up' or 'sum(rate(http_requests_total[5m]))'."`
 	Title         string `json:"title,omitempty" yaml:"title,omitempty" jsonschema:"title=Title,description=The feed item's title. Defaults to the query when empty."`
+	// Interval is the floor between fetches, for a query too expensive to
+	// run on every tick.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 func (c *MetricsConfig) Validate() error {
@@ -31,7 +35,7 @@ func (c *MetricsConfig) Validate() error {
 	if strings.TrimSpace(c.Expr) == "" {
 		return fmt.Errorf("grafana source: expr is required")
 	}
-	return nil
+	return connector.ValidateInterval("grafana source", c.Interval)
 }
 
 func (c *MetricsConfig) CredentialRef() (credentials.Ref, error) {

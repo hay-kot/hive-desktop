@@ -10,6 +10,7 @@ A **PostHog error tracking source** node emits one item per error-tracking issue
 - `date_from` — the start of the window the counts cover, as a PostHog relative date such as `-7d` (default) or `-24h`.
 - `limit` — how many issues one poll fetches, 1 to 100. Defaults to 25. Because ranking happens before the cut, this is "the top N issues by `order_by`", not "the first N".
 - `include_test_accounts` — include traffic PostHog classifies as internal or test. Off by default, matching PostHog's own default.
+- `interval` — optional, e.g. `1h`. The shortest time between fetches, for a source that costs more than its freshness is worth. It still only runs on a poll tick, so the real cadence rounds up to the next one; empty fetches every tick. A manual refresh ignores it, and it is not persisted — a restart fetches once from every source.
 
 ## Behavior
 

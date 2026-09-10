@@ -2,9 +2,12 @@ package grafana
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
 func TestMetricsConfigValidate(t *testing.T) {
@@ -73,4 +76,25 @@ func TestMetricsConfigCredentialRef(t *testing.T) {
 
 	_, err = (&MetricsConfig{Credential: "posthog/x"}).CredentialRef()
 	assert.Error(t, err, "a ref naming another provider is a config mistake, rejected at load")
+}
+
+// The cadence floor is optional everywhere it is offered, and a negative one
+// is a config error rather than a floor of zero.
+func TestMetricsConfigInterval(t *testing.T) {
+	t.Parallel()
+	base := func() MetricsConfig {
+		return MetricsConfig{Credential: "grafana/stack-1", DatasourceUID: "ds", Expr: "up"}
+	}
+
+	unset := base()
+	require.NoError(t, unset.Validate())
+	assert.Zero(t, unset.Interval.Duration())
+
+	hourly := base()
+	hourly.Interval = connector.Duration(time.Hour)
+	require.NoError(t, hourly.Validate())
+
+	negative := base()
+	negative.Interval = connector.Duration(-time.Second)
+	assert.ErrorContains(t, negative.Validate(), "interval must not be negative")
 }

@@ -4,7 +4,7 @@
 // "notifications" source drains the inbox — matching the backend
 // github.Config it round-trips to.
 import { computed } from 'vue'
-import { NumberField, SelectField, TextField, type SelectOption } from '../../fields'
+import { IntervalField, NumberField, SelectField, TextField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import type { Config, SourceKind } from './config'
 
@@ -110,6 +110,11 @@ function updateLimit(limit: number) {
       hint="Max items per fetch. 0 uses the default (50)."
       testid="sources.github-editor-limit"
       @update:model-value="updateLimit"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.github-editor-interval"
+      @update:model-value="(interval?: string) => emit('update:config', { ...props.config, interval })"
     />
   </div>
 </template>

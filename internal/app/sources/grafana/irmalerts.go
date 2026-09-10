@@ -23,11 +23,16 @@ type IRMAlertsConfig struct {
 	// squad's alerts.
 	Integration string `json:"integration,omitempty" yaml:"integration,omitempty" jsonschema:"title=Integration,description=An IRM integration id to scope to, e.g. 'CFRPV98RPR1U8'. Empty fetches every integration."`
 	Team        string `json:"team,omitempty"        yaml:"team,omitempty"        jsonschema:"title=Team,description=An IRM team id to scope to. Empty fetches every team."`
+	// Interval is the floor between fetches, for a scope whose alert groups
+	// are expensive to pull on every tick.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 func (c *IRMAlertsConfig) Validate() error {
-	_, err := c.CredentialRef()
-	return err
+	if _, err := c.CredentialRef(); err != nil {
+		return err
+	}
+	return connector.ValidateInterval("grafana irm alerts", c.Interval)
 }
 
 func (c *IRMAlertsConfig) CredentialRef() (credentials.Ref, error) {
@@ -82,9 +87,10 @@ func NewIRMAlertsFactory(fetchers *Fetchers) connector.Factory {
 					},
 					topic: node.Topic(),
 				},
-				Classifier: irmAlertsClassifier{},
-				Absence:    irmAlertsAbsence{},
-				Config:     config,
+				Classifier:  irmAlertsClassifier{},
+				Absence:     irmAlertsAbsence{},
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 	}

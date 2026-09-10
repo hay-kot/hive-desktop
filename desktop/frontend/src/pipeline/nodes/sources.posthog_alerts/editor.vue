@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SelectField, TextField, ToggleField, type SelectOption } from '../../fields'
+import { IntervalField, SelectField, TextField, ToggleField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import type { Config } from './config'
 
@@ -57,6 +57,11 @@ function update(patch: Partial<Config>) {
       hint="Leave off so an alert that stops firing updates its existing item instead of vanishing."
       testid="sources.posthog_alerts-editor-firing-only"
       @update:model-value="(firing_only: boolean) => update({ firing_only })"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.posthog_alerts-editor-interval"
+      @update:model-value="(interval?: string) => update({ interval })"
     />
   </div>
 </template>

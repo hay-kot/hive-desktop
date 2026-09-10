@@ -11,6 +11,7 @@
 // on that flow-qualified topic — see engine/runGraph.ts's `acceptsEntry`.
 
 import GithubMark from '../../../components/marks/GithubMark.vue'
+import { intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.github'
 export const role = 'source' as const
@@ -33,6 +34,8 @@ export interface Config {
   query?: string
   /** Max items per fetch (search caps at 100, notifications at 50). */
   limit?: number
+  /** Go duration string: the shortest time between fetches. */
+  interval?: string
 }
 
 // ── App-registry metadata ───────────────────────────────────────────────────
@@ -72,5 +75,7 @@ export function validate(config: Config): string[] {
     errors.push('kind must be "search" or "notifications"')
   }
   if (typeof config.limit === 'number' && config.limit < 0) errors.push('limit must not be negative')
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
   return errors
 }
