@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 // minMajor/minMinor is the control-mode floor: 3.2 is where pause mode and
@@ -453,7 +455,15 @@ func (m *Manager) ListAllWindows(ctx context.Context, slugs []string) (map[strin
 // The resolved environment goes with it because a pane inherits the client
 // that created it, so this is what puts an agent binary on NewSession's PATH
 // (ADR tmux-runs-in-the-resolved-environment).
+//
+// The span is named for the subcommand, which every call site passes as a
+// literal, so the name stays a bounded search key. It records no error status:
+// a non-zero exit is how has-session answers "no" and how kill-session reports
+// nothing to kill, so only the caller knows whether this failed.
 func (m *Manager) oneShot(ctx context.Context, args ...string) ([]string, error) {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "tmux."+args[0])
+	defer span.End()
+
 	m.mu.Lock()
 	binary := m.binary
 	m.mu.Unlock()

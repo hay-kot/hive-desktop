@@ -17,6 +17,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 const (
@@ -329,7 +333,14 @@ func (c *Client) Resize(ctx context.Context, cols, rows int) error {
 // the moment the surface's own vote lands. The %layout-change notification is
 // asynchronous, so only an explicit list after the vote reads the size tmux
 // actually settled on.
-func (c *Client) Renegotiate(ctx context.Context, cols, rows int) error {
+func (c *Client) Renegotiate(ctx context.Context, cols, rows int) (err error) {
+	// The same span name a fresh attach's negotiate carries: it is the same
+	// vote-then-list round trip, and a re-attach is the half of "slow to open"
+	// a search for one name has to find.
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "tmux.negotiate",
+		trace.WithAttributes(attribute.Bool(attrUnsized, false)))
+	defer observe.End(span, &err)
+
 	if err := c.Resize(ctx, cols, rows); err != nil {
 		return err
 	}
@@ -544,7 +555,13 @@ func (c *Client) Close(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) awaitHandshake(ctx context.Context) error {
+// awaitHandshake waits for tmux's first control-mode output. The span covers
+// the wait rather than the spawn above it: exec returns as soon as the child is
+// forked, so a tmux server that has to start itself is time spent here.
+func (c *Client) awaitHandshake(ctx context.Context) (err error) {
+	_, span := observe.StartConditionalSpan(ctx, tracer, "tmux.handshake")
+	defer observe.End(span, &err)
+
 	select {
 	case <-c.handshake:
 		return nil
@@ -561,7 +578,11 @@ func (c *Client) awaitHandshake(ctx context.Context) error {
 // negotiate votes the opening size before it enumerates or captures anything,
 // so the snapshot each window is first painted from is already the size tmux
 // settled on rather than one it is about to reflow away from.
-func (c *Client) negotiate(ctx context.Context, opts Options) error {
+func (c *Client) negotiate(ctx context.Context, opts Options) (err error) {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "tmux.negotiate",
+		trace.WithAttributes(attribute.Bool(attrUnsized, opts.unsized())))
+	defer observe.End(span, &err)
+
 	if !opts.unsized() {
 		if _, err := c.gw.Send(ctx, fmt.Sprintf("refresh-client -C %d,%d", opts.Cols, opts.Rows)); err != nil {
 			return err
@@ -582,6 +603,7 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 	// afterwards, on the client's own lifetime, and reach the same stream in
 	// the same order — see paintBackground.
 	deferred := c.holdBackground(windows)
+	span.SetAttributes(attribute.Int(attrDeferred, len(deferred)))
 	if active, ok := activeWindow(windows); ok {
 		if err := c.firstPaint(ctx, active.ActivePane, active.Height); err != nil {
 			c.releaseRemaining(deferred)
@@ -678,7 +700,14 @@ func (c *Client) releaseRemaining(windows []Window) {
 // The broker is reset first, which is what makes the snapshot the caller's:
 // see broker.reset. The captures are bounded like an attach's own, because the
 // manager runs this under the lock every other attach queues behind.
-func (c *Client) Repaint(ctx context.Context) error {
+func (c *Client) Repaint(ctx context.Context) (err error) {
+	// Its own span rather than a flag on the attach above it: what separates a
+	// re-attach from a fresh one in a trace is which children it has. The time
+	// this span holds beyond its first paint is the two joins below: a
+	// deferred pass from the previous attach can still be capturing.
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "tmux.repaint")
+	defer observe.End(span, &err)
+
 	c.repaintMu.Lock()
 	defer c.repaintMu.Unlock()
 
@@ -761,6 +790,12 @@ func (c *Client) paintEveryWindow(ctx context.Context) error {
 
 	windows := c.Windows()
 	deferred := c.holdBackground(windows)
+	// Onto the repaint span when a re-attach opened one, onto nothing when the
+	// overflow resync is what got here.
+	trace.SpanFromContext(paintCtx).SetAttributes(
+		attribute.Int(attrWindows, len(windows)),
+		attribute.Int(attrDeferred, len(deferred)),
+	)
 	if active, ok := activeWindow(windows); ok {
 		if err := c.firstPaint(paintCtx, active.ActivePane, active.Height); err != nil {
 			c.releaseRemaining(deferred)
@@ -774,13 +809,25 @@ func (c *Client) paintEveryWindow(ctx context.Context) error {
 // firstPaint snapshots a pane and replays the live output that arrived while
 // the snapshot was in flight. Every path releases the pane: one left held
 // buffers its output forever.
+//
+// The span is the answer to "why was the terminal slow to open": capture-pane
+// costs a few microseconds per scrollback line, so this is most of an attach.
+// It stays bounded at one per attach because the only callers holding a
+// trigger's context paint the active window alone. Every other pass runs on
+// the client's lifetime, where a conditional span emits nothing.
 func (c *Client) firstPaint(ctx context.Context, pane string, rows int) error {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "tmux.first-paint",
+		trace.WithAttributes(attribute.Int(attrPaintRows, rows)))
+	defer span.End()
+
 	c.paint.mark(pane)
 	painted, err := c.snapshot(ctx, pane, rows)
 	if err != nil {
+		observe.RecordError(span, err)
 		c.paint.release(pane, nil)
 		return err
 	}
+	span.SetAttributes(attribute.Int(attrPaintBytes, len(painted)))
 	c.paint.release(pane, painted)
 	return nil
 }
@@ -836,8 +883,12 @@ func (c *Client) snapshotCmd(ctx context.Context, pane, cmd string) ([]string, e
 }
 
 func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "tmux.list-windows")
+	defer span.End()
+
 	lines, err := c.gw.Send(ctx, `list-windows -F "`+listWindowsFormat+`"`)
 	if err != nil {
+		observe.RecordError(span, err)
 		return nil, err
 	}
 	windows := make([]Window, 0, len(lines))
@@ -849,6 +900,7 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 		}
 		windows = append(windows, w)
 	}
+	span.SetAttributes(attribute.Int(attrWindows, len(windows)))
 	return windows, nil
 }
 
