@@ -40,9 +40,7 @@ type ExecutionLog struct {
 type SessionExecutionOutcome struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
-	// Slug is the tmux session name and Path the checkout on disk. Both are
-	// here for the launch-session post hook, which runs in that directory and
-	// can address that tmux session; nothing else reads them back.
+	// Slug names the tmux session; Path is the checkout a post hook runs in.
 	Slug string `json:"slug,omitempty"`
 	Path string `json:"path,omitempty"`
 }

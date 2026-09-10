@@ -14,10 +14,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 )
 
-// defaultPostHookTimeout bounds a post hook that declares no timeout of its
-// own. A hook is meant to prepare the checkout and hand it to something else —
-// check out a pull request, open an editor — so a minute is generous, and a
-// hook that wants longer says so in post_hook_timeout.
+// defaultPostHookTimeout is generous for a hook that hands the checkout to
+// something else. Anything slower says so in post_hook_timeout.
 const defaultPostHookTimeout = time.Minute
 
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to
@@ -45,10 +43,8 @@ type LaunchSessionExecutor struct {
 	env      ExecEnvironment
 }
 
-// NewLaunchSessionExecutor builds a LaunchSessionExecutor over launcher, with
-// env supplying the environment a post hook runs in.
-// A nil launcher leaves the executor unavailable rather than acknowledging an
-// action without creating its session.
+// NewLaunchSessionExecutor treats a nil launcher as unavailable, so an action
+// fails rather than reporting a session it never created.
 func NewLaunchSessionExecutor(logger zerolog.Logger, launcher SessionLauncher, env ExecEnvironment) *LaunchSessionExecutor {
 	return &LaunchSessionExecutor{logger: logger, launcher: launcher, env: env}
 }
@@ -118,12 +114,8 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 	}, nil
 }
 
-// runPostHook runs cfg.PostHook in the checkout that was just created and
-// returns whatever it wrote. It reports a failure in the log and never as the
-// action's error: the session exists by this point, so failing the command
-// would both state something false and hand the output worker a retry that
-// creates a second session — the same reasoning that keeps a failed
-// item-session link off the launch's result.
+// A failure stays in the log and never becomes the action's error: the session
+// already exists, so a retry would create a second one.
 func (e *LaunchSessionExecutor) runPostHook(
 	ctx context.Context,
 	action actions.Action,
@@ -146,10 +138,8 @@ func (e *LaunchSessionExecutor) runPostHook(
 	if outcome.Path == "" {
 		return failed(errors.New("the launcher reported no checkout to run in"))
 	}
-	// Binding .Session to the session that was just created is what makes the
-	// hook's data the same shape a session-target action reads. Branch is not
-	// among the fields: hive reports no branch for a fresh session, and a hook
-	// that wants one is already a shell in the checkout.
+	// Branch is absent: hive reports none for a fresh session, and a hook that
+	// wants one is already a shell in the checkout.
 	data.Session = &SessionTarget{ID: outcome.ID, Name: outcome.Name, Slug: outcome.Slug, Repo: repo, Path: outcome.Path}
 	command, err := tmpl.New(tmpl.Config{}).Render(cfg.PostHook, data)
 	if err != nil {

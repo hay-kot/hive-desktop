@@ -291,9 +291,6 @@ func reviewItem() OutputData {
 	}
 }
 
-// The use case the hook exists for: prepare the checkout the session was
-// created in, then hand it to something else. The command has to see the new
-// session's directory as its cwd and its coordinates as `.Session`.
 func TestLaunchSessionExecutor_PostHookRunsInTheNewCheckout(t *testing.T) {
 	dir := t.TempDir()
 	launcher := &fakeSessionLauncher{path: dir}
@@ -317,9 +314,6 @@ func TestLaunchSessionExecutor_PostHookRunsInTheNewCheckout(t *testing.T) {
 	assert.Equal(t, resolved, cwd)
 }
 
-// The session exists once LaunchSession returns, so a failing hook must not
-// fail the command: the output worker retries a failure, and a retry here
-// creates a second session.
 func TestLaunchSessionExecutor_FailingPostHookKeepsTheLaunchSuccessful(t *testing.T) {
 	launcher := &fakeSessionLauncher{path: t.TempDir()}
 	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})
@@ -347,8 +341,6 @@ func TestLaunchSessionExecutor_PostHookTimeoutDoesNotFailTheLaunch(t *testing.T)
 	assert.Contains(t, result.Log.Stderr, "post_hook: ")
 }
 
-// A hook that cannot run at all is still only a log entry, for the same
-// reason a failing one is.
 func TestLaunchSessionExecutor_PostHookTemplateErrorIsReportedNotReturned(t *testing.T) {
 	launcher := &fakeSessionLauncher{path: t.TempDir()}
 	exec := NewLaunchSessionExecutor(zerolog.Nop(), launcher, hostEnvironment{})

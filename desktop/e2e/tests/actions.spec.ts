@@ -25,8 +25,6 @@ async function select(page: Page, id: string): Promise<void> {
 
 function action(runID: string, suffix: string): string { return `smoke-${runID}-${suffix}` }
 
-// The launcher reports the checkout a launch-session post hook runs in, so a
-// blank slug or path is a regression rather than a value worth matching.
 const nonEmpty = expect.stringMatching(/.+/)
 
 // The three surfaces the catalog's order has to agree on: the settings list,

@@ -75,10 +75,6 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	return ExecutionResult{Attempted: true, Log: log}, nil
 }
 
-// shellCommand is one `sh -c` invocation: the rendered command line, the
-// directory it runs in, environment on top of the login shell's, and the
-// deadline it must finish inside. A zero Timeout leaves the invoking context's
-// own deadline as the only bound.
 type shellCommand struct {
 	Command string
 	Dir     string
@@ -86,9 +82,6 @@ type shellCommand struct {
 	Timeout time.Duration
 }
 
-// runShell runs cmd through `sh -c` and returns its bounded output alongside
-// the process error. Callers decide what a failure means: a shell action fails
-// its command, a launch-session post hook only reports one.
 func runShell(ctx context.Context, env ExecEnvironment, cmd shellCommand) (ExecutionLog, error) {
 	runCtx := ctx
 	if cmd.Timeout > 0 {

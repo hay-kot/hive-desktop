@@ -19,13 +19,10 @@ type LaunchSessionConfig struct {
 	// RepoTemplate optionally renders which repo the session is created
 	// against; empty means the launcher's own default.
 	RepoTemplate string `yaml:"repo_template,omitempty"`
-	// PostHook optionally renders a shell command to run in the new session's
-	// checkout once it exists — checking out a pull request and opening an
-	// editor on it, say. It is rendered over the same data as the templates
-	// above, with `.Session` bound to the session that was just created.
+	// PostHook is a shell command rendered over the same data as the templates
+	// above plus `.Session`, then run in the new checkout.
 	PostHook string `yaml:"post_hook,omitempty"`
-	// PostHookTimeout bounds how long the hook may run; zero means the
-	// executor's own default.
+	// PostHookTimeout bounds the hook; zero means the executor's default.
 	PostHookTimeout Duration `yaml:"post_hook_timeout,omitempty"`
 }
 
