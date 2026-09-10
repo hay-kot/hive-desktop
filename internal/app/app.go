@@ -111,6 +111,9 @@ type App struct {
 	// DevTools samples what the install costs the machine, for the in-app
 	// developer tools (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting).
 	DevTools *DevToolsService
+	// Sources runs ingestion on demand — the refresh a user pressed, and the
+	// one a flow edit earns.
+	Sources *SourcesService
 
 	PopupTerminals  *PopupTerminalsService
 	AgentWorkspaces *AgentWorkspacesService
@@ -374,6 +377,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
+	a.Sources = newSourcesService(a.producer, a.fetchers)
 	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
 	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
 	a.Sessions = newSessionsService(SessionsDeps{
@@ -867,25 +871,40 @@ func (a *App) PublishLogAppended(nextOffset int64) {
 	a.Events.Publish(a.ctx, events.LogAppended{NextOffset: nextOffset})
 }
 
-// PublishFlowsUpdated announces a change to the flow set and reinstalls the
-// engine's runners against it. The app's own writes go through it too, so a
-// save and an external edit are one path.
+// PublishFlowsUpdated announces a change to the flow set, reinstalls the
+// engine's runners against it, and drains the sources. The app's own writes go
+// through it too, so a save and an external edit are one path.
+//
+// The drain is what makes an edit visible: without it a new or retyped source
+// node produces nothing until the next poll tick, which is up to
+// settings.MinPollInterval away and reads as a broken canvas. One deploy earns
+// one drain — the flows watcher coalesces a deploy's flow and layout writes
+// into a single reload before this is called.
 func (a *App) PublishFlowsUpdated(reason string) {
 	a.engine.Reload()
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
+	a.runSourcesForFlowChange()
+}
+
+// runSourcesForFlowChange drains the sources detached from its caller. A tick
+// is network I/O, and PublishFlowsUpdated is called from the flows watcher's
+// goroutine and from a save RPC — neither may block on a fetch.
+func (a *App) runSourcesForFlowChange() {
+	if a.Sources == nil {
+		return
+	}
+	go func() {
+		if _, err := a.Sources.Run(a.ctx); err != nil {
+			a.logger.Debug().Err(err).Msg("source run after flow change unavailable")
+		}
+	}()
 }
 
 // RefreshSources clears fetch caches and runs one producer tick. Engine commits
 // are asynchronous, so callers should retry reads briefly. Mock modes return
 // KindUnavailable.
 func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
-	if a.producer == nil {
-		return ingest.TickSummary{}, Errorf(KindUnavailable, "source refresh is unavailable in this mode")
-	}
-	if a.fetchers != nil {
-		a.fetchers.InvalidateAll()
-	}
-	return a.producer.Refresh(ctx), nil
+	return a.Sources.Refresh(ctx)
 }
 
 // MountAPI mounts h onto the loopback webhook listener at prefix so the HTTP API

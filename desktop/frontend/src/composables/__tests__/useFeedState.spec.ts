@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   ListFlows: vi.fn(), GetFlow: vi.fn(), CreateFlow: vi.fn(), SeedStarterFlow: vi.fn(), RenameFlow: vi.fn(), SetFlowEnabled: vi.fn(), DeleteFlow: vi.fn(), GetSidebar: vi.fn(), SaveSidebar: vi.fn(),
   ListByFeed: vi.fn(), ListArchivedByFeed: vi.fn(), ListTrash: vi.fn(), FeedCounts: vi.fn(), SetUnread: vi.fn(), MarkRead: vi.fn(), ToggleArchived: vi.fn(), ToggleIgnored: vi.fn(), Events: vi.fn(),
   ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), RenderClipboardAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(), SetText: vi.fn(),
-  notify: vi.fn(),
+  notify: vi.fn(), RefreshSources: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, SeedStarterFlow: mocks.SeedStarterFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
@@ -18,6 +18,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, RenderClipboardAction: mocks.RenderClipboardAction,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({ SessionLaunchOptions: mocks.SessionLaunchOptions }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sourcesservice', () => ({ Refresh: mocks.RefreshSources }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On }, Window: { Hide: mocks.Hide }, Browser: { OpenURL: mocks.OpenURL }, Clipboard: { SetText: mocks.SetText }, Call: { ByID: vi.fn() } }))
 vi.mock('../useNotify', () => ({ useNotify: () => ({ notify: mocks.notify }) }))
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   mocks.ToggleIgnored.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, ignoredAt: Date.now() }))
   mocks.SetFlowEnabled.mockImplementation(async (id: string, enabled: boolean) => ({ id, name: 'Frontend Triage', enabled, valid: true }))
   mocks.On.mockReturnValue(() => {})
+  mocks.RefreshSources.mockResolvedValue({ sources: 1, appended: 0, failed: 0 })
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -541,6 +543,46 @@ describe('useFeedState', () => {
     expect(get().items.value[0]).toMatchObject({ id: 9 })
     await get().refresh()
     expect(mocks.ListTrash).toHaveBeenLastCalledWith('triage', 500)
+  })
+
+  it('fetches from the sources on a manual refresh and never on the passive one', async () => {
+    const get = mountState(); await flushPromises()
+    await get().refresh()
+    expect(mocks.RefreshSources).not.toHaveBeenCalled()
+
+    await get().refreshSources()
+    expect(mocks.RefreshSources).toHaveBeenCalledTimes(1)
+    expect(get().refreshingSources.value).toBe(false)
+  })
+
+  it('coalesces manual refreshes while one is in flight', async () => {
+    let release!: () => void
+    mocks.RefreshSources.mockReturnValueOnce(new Promise<void>((resolve) => { release = () => resolve() }))
+    const get = mountState(); await flushPromises()
+
+    const first = get().refreshSources()
+    expect(get().refreshingSources.value).toBe(true)
+    await get().refreshSources()
+    expect(mocks.RefreshSources).toHaveBeenCalledTimes(1)
+
+    release(); await first
+    expect(get().refreshingSources.value).toBe(false)
+  })
+
+  it('still reloads when a source fetch fails, and stays quiet when there is nothing to fetch', async () => {
+    const get = mountState(); await flushPromises()
+
+    mocks.RefreshSources.mockRejectedValueOnce(Object.assign(new Error('call failed'), { cause: { kind: 'unavailable', message: 'source refresh is unavailable in this mode' } }))
+    await get().refreshSources()
+    expect(mocks.notify).not.toHaveBeenCalled()
+
+    mocks.RefreshSources.mockRejectedValueOnce(Object.assign(new Error('call failed'), { cause: { kind: 'internal', message: 'grafana: 502' } }))
+    mocks.ListTrash.mockClear()
+    await get().selectSidebar({ type: 'trash' })
+    mocks.ListTrash.mockClear()
+    await get().refreshSources()
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'grafana: 502', severity: 'error' }))
+    expect(mocks.ListTrash).toHaveBeenCalled()
   })
 
   it('navigates only across the searched unread subset as selected rows become read', async () => {

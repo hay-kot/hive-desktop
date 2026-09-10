@@ -4,8 +4,9 @@ import { Browser, Window } from '@wailsio/runtime'
 import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, MarkImages, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled, SetFlowOrder, SetProfileImage } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
 import { ActionRun, ActionViews, Events, FeedCounts, InvokeAction, ListArchivedByFeed, ListByFeed, ListTrash, MarkRead, RenderClipboardAction, SetUnread, ToggleArchived, ToggleIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import { Refresh as RefreshSources } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sourcesservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
-import { appErrorKind, appErrorMessage } from '../lib/appError'
+import { appErrorKind, appErrorMessage, errorText } from '../lib/appError'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
@@ -38,6 +39,9 @@ export function useFeedState() {
   const selection = ref<SidebarSelection>({ type: 'trash' })
 
   const unreadOnly = ref(false)
+  // True while a manual source fetch is in flight, so the refresh control can
+  // say so. A poll tick is not covered: it is not something the user started.
+  const refreshingSources = ref(false)
   const feedSort = useStorage<FeedSort>(feedSortStorageKey, 'newest')
 
   // Last-selected sidebar destination per profile: reopening a workspace
@@ -849,6 +853,37 @@ export function useFeedState() {
     await refreshCurrent()
   }
 
+  // The user-initiated refresh: fetch from every configured source, then
+  // re-read. refresh() above is the passive half and stays that way — it is
+  // what the "inbox:updated" subscription runs, and fetching from there would
+  // make every commit trigger the fetch that produced it.
+  //
+  // The reload is unconditional. A source that failed still leaves whatever
+  // the others appended, and the engine commits after this returns anyway, so
+  // the list the user ends up looking at comes from "inbox:updated" either
+  // way; this one just guarantees a redraw when nothing new arrived.
+  async function refreshSources() {
+    if (refreshingSources.value) return
+    refreshingSources.value = true
+    try {
+      await RefreshSources()
+    } catch (error) {
+      // Mock modes have no producer. There is nothing to fetch and nothing
+      // the user can do about it, so fall through to the reload silently.
+      if (appErrorKind(error) !== 'unavailable') {
+        console.warn('Unable to refresh sources', error)
+        await notify({
+          title: errorText(error, 'Could not refresh the sources.'),
+          severity: 'error',
+          category: 'refresh',
+        })
+      }
+    } finally {
+      refreshingSources.value = false
+    }
+    await refresh()
+  }
+
   async function runAction(actionID: string, input: Record<string, unknown> = {}, item = selectedItem.value) {
     if (!item) return false
     const key = actionKey(item.id, actionID)
@@ -1095,6 +1130,8 @@ export function useFeedState() {
   })
 
   return {
+    refreshingSources,
+    refreshSources,
     profiles,
     profilesLoaded,
     profilesError,

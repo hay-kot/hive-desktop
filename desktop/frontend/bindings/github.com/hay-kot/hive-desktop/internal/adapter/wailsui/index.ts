@@ -21,6 +21,7 @@ import * as ReleaseNotesService from "./releasenotesservice.js";
 import * as ReportService from "./reportservice.js";
 import * as SessionService from "./sessionservice.js";
 import * as SettingsService from "./settingsservice.js";
+import * as SourcesService from "./sourcesservice.js";
 import * as SystemService from "./systemservice.js";
 import * as TasksService from "./tasksservice.js";
 import * as TerminalService from "./terminalservice.js";
@@ -48,6 +49,7 @@ export {
     ReportService,
     SessionService,
     SettingsService,
+    SourcesService,
     SystemService,
     TasksService,
     TerminalService,
@@ -81,6 +83,7 @@ export type {
     PerfSample,
     PopupTerminalAvailability,
     PopupTerminalEndpoint,
+    RefreshResult,
     ReleaseNote,
     ReportInput,
     ReportPreview,

@@ -102,7 +102,7 @@ const {
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, reorderProfiles, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
-  toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, cancelActionInputs, submitActionInputs, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
+  toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, refreshSources, refreshingSources, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, cancelActionInputs, submitActionInputs, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
 } = useFeedState()
 
 // The feed-item kinds currently in the system — what the actions editor
@@ -929,7 +929,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.open-in-browser': openSelectedInBrowser,
   'feed.toggle-unread': navigateUnreadToggle,
   'feed.toggle-preview': togglePreview,
-  'feed.refresh': refresh,
+  'feed.refresh': refreshSources,
   'feed.toggle-archive': async () => { if (selectedItem.value) await toggleArchive(selectedItem.value) },
   'feed.mark-unread': async () => { if (selectedItem.value) await markItemUnread(selectedItem.value, true) },
   'feed.mark-all-read': markSelectedFeedRead,
@@ -1432,6 +1432,7 @@ onUnmounted(() => {
               :search="search"
               :sort="feedSort"
               :load-error="loadError"
+              :refreshing="refreshingSources"
               :source-icons="sourceIcons"
               :source-images="sourceImages"
               @select="selectItem"
@@ -1441,7 +1442,7 @@ onUnmounted(() => {
               @set-unread="navigateUnreadFilter"
               @toggle-archived="toggleArchivedSection"
               @set-trash-filter="setTrashFilter"
-              @refresh="refresh"
+              @refresh="refreshSources"
               @mark-all-read="markSelectedFeedRead"
               @item-set-unread="markItemUnread"
               @item-toggle-archive="toggleArchive"
