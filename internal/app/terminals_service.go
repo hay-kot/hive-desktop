@@ -8,7 +8,10 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v4/process"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
@@ -94,17 +97,34 @@ func (s *TerminalsService) Available(ctx context.Context) error {
 // answer comes from a has-session probe rather than from a dead control
 // stream's message, which is unclassifiable and reads as an internal fault.
 func (s *TerminalsService) Attach(ctx context.Context, slug string, cols, rows int) ([]tmuxcc.Window, error) {
+	// A trigger, and the one behind "why was the terminal slow to open": the
+	// probe, the handshake, the size vote and the first paint all hang off it,
+	// and only this level knows they were one attach
+	// (ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration).
+	ctx, span := tracer.Start(ctx, "terminal.attach", trace.WithAttributes(
+		attribute.String(attrTerminalSlug, slug),
+		attribute.Int(attrTerminalCols, cols),
+		attribute.Int(attrTerminalRows, rows),
+	))
+	defer span.End()
+
 	exists, err := s.manager.HasSession(ctx, slug)
 	if err != nil {
+		observe.RecordError(span, err)
 		return nil, terminalError(err, "attaching to session %q", slug)
 	}
+	// A session tmux is not running answers the attach rather than failing it,
+	// so the attribute is what separates that span from one that attached.
+	span.SetAttributes(attribute.Bool(attrTerminalRunning, exists))
 	if !exists {
 		return nil, Errorf(KindNotFound, "session %q is not running", slug)
 	}
 	windows, err := s.manager.Attach(ctx, slug, cols, rows)
 	if err != nil {
+		observe.RecordError(span, err)
 		return nil, terminalError(err, "attaching to session %q", slug)
 	}
+	span.SetAttributes(attribute.Int(attrTerminalWindows, len(windows)))
 	return windows, nil
 }
 

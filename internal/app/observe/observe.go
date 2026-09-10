@@ -47,6 +47,19 @@ func RecordError(span trace.Span, err error, msg ...string) {
 	span.SetStatus(codes.Error, err.Error())
 }
 
+// End ends span, failing it when err points at one. It pairs with a named
+// return, `defer observe.End(span, &err)`, for the common case where the
+// error a function returns is the thing the span exists to explain.
+//
+// A pointer because defer evaluates its arguments immediately: an error value
+// would be read before the function had one.
+func End(span trace.Span, err *error) {
+	if *err != nil {
+		RecordError(span, *err)
+	}
+	span.End()
+}
+
 // StartConditionalSpan starts a span only when ctx already carries one. A wait
 // is worth recording under the work that caused it and worthless as a root of
 // its own (ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration).
