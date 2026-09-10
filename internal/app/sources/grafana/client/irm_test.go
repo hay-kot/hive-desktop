@@ -39,30 +39,38 @@ func TestOnCallURLRejectsAnUnconfiguredPlugin(t *testing.T) {
 	assert.ErrorContains(t, err, "no OnCall API URL")
 }
 
-func TestAlertGroupsSendsScopeAndAuth(t *testing.T) {
+func TestAlertGroupsFetchesEachStateWithScopeAndAuth(t *testing.T) {
 	t.Parallel()
 
-	var query, auth, grafanaURL string
+	var states [][]string
+	var integrations, teams, auths, grafanaURLs []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/v1/alert_groups/", r.URL.Path)
-		query, auth, grafanaURL = r.URL.RawQuery, r.Header.Get("Authorization"), r.Header.Get("X-Grafana-URL")
-		_, _ = w.Write([]byte(`{"results":[],"next":null}`))
+		query := r.URL.Query()
+		states = append(states, query["state"])
+		integrations = append(integrations, query.Get("integration_id"))
+		teams = append(teams, query.Get("team_id"))
+		auths = append(auths, r.Header.Get("Authorization"))
+		grafanaURLs = append(grafanaURLs, r.Header.Get("X-Grafana-URL"))
+		_, _ = fmt.Fprintf(w, `{"results":[{"id":%q,"state":%q}],"next":null}`, query.Get("state"), query.Get("state"))
 	}))
 	defer server.Close()
 
-	client := NewOnCallClient(server.URL, "https://stack.example.com", "t")
-	_, err := client.AlertGroups(t.Context(), AlertGroupQuery{
-		States:        []string{"new", "acknowledged"},
+	groups, err := NewOnCallClient(server.URL, "https://stack.example.com", "t").AlertGroups(t.Context(), AlertGroupQuery{
+		States:        []string{"new", "acknowledged", "silenced"},
 		IntegrationID: "CFRPV98RPR1U8",
 		TeamID:        "T3HRAP3K2FE1J",
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "Bearer t", auth)
-	assert.Equal(t, "https://stack.example.com", grafanaURL, "OnCall resolves the token's org from the stack URL")
-	assert.Contains(t, query, "state=new&state=acknowledged", "states go out as repeated params")
-	assert.Contains(t, query, "integration_id=CFRPV98RPR1U8")
-	assert.Contains(t, query, "team_id=T3HRAP3K2FE1J")
+	assert.Equal(t, [][]string{{"new"}, {"acknowledged"}, {"silenced"}}, states, "each request carries exactly one state")
+	assert.Equal(t, []string{"CFRPV98RPR1U8", "CFRPV98RPR1U8", "CFRPV98RPR1U8"}, integrations)
+	assert.Equal(t, []string{"T3HRAP3K2FE1J", "T3HRAP3K2FE1J", "T3HRAP3K2FE1J"}, teams)
+	assert.Equal(t, []string{"Bearer t", "Bearer t", "Bearer t"}, auths)
+	assert.Equal(t, []string{"https://stack.example.com", "https://stack.example.com", "https://stack.example.com"}, grafanaURLs,
+		"OnCall resolves the token's org from the stack URL")
+	require.Len(t, groups, 3)
+	assert.Equal(t, []string{"new", "acknowledged", "silenced"}, []string{groups[0].ID, groups[1].ID, groups[2].ID})
 }
 
 // An empty scope must not send empty params — the API reads integration_id=""
@@ -137,26 +145,70 @@ func TestAlertGroupURLPrefersSlackThenWeb(t *testing.T) {
 	assert.Empty(t, AlertGroup{}.URL(), "a group with no links has no url rather than a broken one")
 }
 
-func TestAlertGroupsWalksEveryPage(t *testing.T) {
+func TestAlertGroupsWalksEveryPageForEachState(t *testing.T) {
 	t.Parallel()
 
-	var pages []string
+	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		page := r.URL.Query().Get("page")
-		pages = append(pages, page)
+		state, page := r.URL.Query().Get("state"), r.URL.Query().Get("page")
+		requests = append(requests, state+"/"+page)
 		if page == "1" {
-			_, _ = fmt.Fprintf(w, `{"results":[{"id":"a"}],"next":"%s/api/v1/alert_groups/?page=2"}`, r.Host)
+			_, _ = fmt.Fprintf(w, `{"results":[{"id":%q}],"next":"%s/api/v1/alert_groups/?page=2"}`, state+page, r.Host)
 			return
 		}
-		_, _ = w.Write([]byte(`{"results":[{"id":"b"}],"next":null}`))
+		_, _ = fmt.Fprintf(w, `{"results":[{"id":%q}],"next":null}`, state+page)
 	}))
 	defer server.Close()
 
-	groups, err := NewOnCallClient(server.URL, "https://stack.example.com", "t").AlertGroups(t.Context(), AlertGroupQuery{})
+	groups, err := NewOnCallClient(server.URL, "https://stack.example.com", "t").AlertGroups(t.Context(), AlertGroupQuery{
+		States: []string{"new", "acknowledged"},
+	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"1", "2"}, pages)
-	require.Len(t, groups, 2)
-	assert.Equal(t, "b", groups[1].ID)
+	assert.Equal(t, []string{"new/1", "new/2", "acknowledged/1", "acknowledged/2"}, requests)
+	require.Len(t, groups, 4)
+	assert.Equal(t, []string{"new1", "new2", "acknowledged1", "acknowledged2"},
+		[]string{groups[0].ID, groups[1].ID, groups[2].ID, groups[3].ID})
+}
+
+func TestAlertGroupsDeduplicatesByIDDeterministically(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("state") {
+		case "new":
+			_, _ = w.Write([]byte(`{"results":[{"id":"shared","state":"new"},{"id":"new-only","state":"new"}],"next":null}`))
+		case "acknowledged":
+			_, _ = w.Write([]byte(`{"results":[{"id":"shared","state":"acknowledged"},{"id":"ack-only","state":"acknowledged"}],"next":null}`))
+		}
+	}))
+	defer server.Close()
+
+	groups, err := NewOnCallClient(server.URL, "https://stack.example.com", "t").AlertGroups(t.Context(), AlertGroupQuery{
+		States: []string{"new", "acknowledged"},
+	})
+	require.NoError(t, err)
+	require.Len(t, groups, 3)
+	assert.Equal(t, []string{"shared", "new-only", "ack-only"}, []string{groups[0].ID, groups[1].ID, groups[2].ID})
+	assert.Equal(t, "acknowledged", groups[0].State, "the later request has the freshest state")
+}
+
+func TestAlertGroupsReturnsNoPartialResultsOnError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("state") == "acknowledged" {
+			http.Error(w, "failed", http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"results":[{"id":"new"}],"next":null}`))
+	}))
+	defer server.Close()
+
+	groups, err := NewOnCallClient(server.URL, "https://stack.example.com", "t").AlertGroups(t.Context(), AlertGroupQuery{
+		States: []string{"new", "acknowledged"},
+	})
+	require.Error(t, err)
+	assert.Nil(t, groups, "a failed state must discard results from earlier states")
 }
 
 // A short snapshot would read as "these groups are gone" and archive live

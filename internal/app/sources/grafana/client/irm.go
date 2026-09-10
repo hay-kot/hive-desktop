@@ -164,12 +164,39 @@ func NewOnCallClient(oncallBase, stackURL, token string, opts ...Option) *OnCall
 	}
 }
 
-// AlertGroups lists every alert group matching the query, walking pagination to
-// exhaustion so the result is the complete matching set.
+// AlertGroups lists every alert group matching the query, fetching and paging
+// each state separately because the OnCall API accepts only one state per
+// request. A later state replaces an earlier duplicate while retaining its
+// position in the combined result.
 func (c *OnCallClient) AlertGroups(ctx context.Context, query AlertGroupQuery) ([]AlertGroup, error) {
+	states := query.States
+	if len(states) == 0 {
+		states = []string{""}
+	}
+
+	var groups []AlertGroup
+	positions := make(map[string]int)
+	for _, state := range states {
+		stateGroups, err := c.alertGroupsForState(ctx, query, state)
+		if err != nil {
+			return nil, err
+		}
+		for _, group := range stateGroups {
+			if position, ok := positions[group.ID]; ok {
+				groups[position] = group
+				continue
+			}
+			positions[group.ID] = len(groups)
+			groups = append(groups, group)
+		}
+	}
+	return groups, nil
+}
+
+func (c *OnCallClient) alertGroupsForState(ctx context.Context, query AlertGroupQuery, state string) ([]AlertGroup, error) {
 	var groups []AlertGroup
 	for page := 1; page <= maxAlertGroupPages; page++ {
-		body, err := c.alertGroupPage(ctx, query, page)
+		body, err := c.alertGroupPage(ctx, query, state, page)
 		if err != nil {
 			return nil, err
 		}
@@ -190,10 +217,10 @@ type alertGroupPage struct {
 	Next *string `json:"next"`
 }
 
-func (c *OnCallClient) alertGroupPage(ctx context.Context, query AlertGroupQuery, page int) (alertGroupPage, error) {
+func (c *OnCallClient) alertGroupPage(ctx context.Context, query AlertGroupQuery, state string, page int) (alertGroupPage, error) {
 	params := url.Values{}
-	for _, state := range query.States {
-		params.Add("state", state)
+	if state != "" {
+		params.Set("state", state)
 	}
 	if query.IntegrationID != "" {
 		params.Set("integration_id", query.IntegrationID)
