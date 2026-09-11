@@ -511,6 +511,17 @@ specified rather than left to grow. ADR source-connector-registry records why.
   quantized to the tick. Not drained is not drained-empty: `Produce` is not
   called, so nothing about the tracked set changes. `Producer.Refresh` — what a
   manual refresh calls — ignores every floor. Zero, the default, is every tick.
+  Every pull connector's config offers the floor as `interval`; a pull
+  connector that does not is a source a user cannot slow down, and a registry
+  test fails for it.
+- **Two things outside the ticker drain the sources**, both through
+  `app.SourcesService` and both forced. A user pressing refresh calls `Refresh`,
+  which drops the fetch caches first: they asserted that something upstream
+  changed. A flow change calls `Run` from `PublishFlowsUpdated`, which keeps
+  them — an added or retyped source node has nothing cached under its query, and
+  a deploy must not cost a full refetch of everything else. Without the second
+  one an edited source produces nothing until the next tick, which is up to
+  `settings.MinPollInterval` away and reads as a broken canvas.
 - **Config references credentials, never embeds them.** See below.
 - **Never mirror the upstream API's shape in connector config.** Provider
   vocabulary leaking into the flow schema is permanent.

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -118,6 +119,40 @@ func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 		assert.Equalf(t, connectorType, instance.Type, "connector %q builds an instance of another type", connectorType)
 		assert.NotEmptyf(t, instance.Metadata.SourceKind, "connector %q builds an instance with no source kind", connectorType)
 		assert.Equalf(t, "f", instance.Metadata.ProfileID, "connector %q does not scope items to the owning flow", connectorType)
+	}
+}
+
+// A pull connector's `interval` is a promise the factory has to keep. The
+// producer reads the floor off the instance, so a config field that no factory
+// copies into MinInterval is a setting the editor offers and the poll loop
+// ignores — the source keeps running every tick and the user has no way to
+// tell.
+//
+// Reflection rather than a per-connector case: the point is that a connector
+// added later cannot quietly skip the wiring.
+func TestPullFactoriesCarryTheConfiguredInterval(t *testing.T) {
+	t.Parallel()
+
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), execenv.NewResolver(execenv.Options{}))
+	const floor = 90 * time.Minute
+
+	for _, connectorType := range sources.Types() {
+		descriptor, _ := sources.Lookup(connectorType)
+		if descriptor.Mode != connector.ModePull {
+			continue
+		}
+
+		config := descriptor.NewConfig()
+		require.NoErrorf(t, seedValidConfig(config), "connector %q", connectorType)
+		interval := reflect.ValueOf(config).Elem().FieldByName("Interval")
+		require.Truef(t, interval.IsValid() && interval.CanSet(), "pull connector %q has no settable Interval field", connectorType)
+		interval.Set(reflect.ValueOf(connector.Duration(floor)))
+		require.NoErrorf(t, config.Validate(), "connector %q rejects an interval", connectorType)
+
+		instance, err := factories[connectorType].New(connector.Node{FlowID: "f", NodeID: "n"}, config)
+		require.NoErrorf(t, err, "connector %q", connectorType)
+		assert.Equalf(t, floor, instance.MinInterval,
+			"connector %q accepts an interval in its config but does not declare it as MinInterval", connectorType)
 	}
 }
 

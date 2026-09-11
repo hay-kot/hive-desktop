@@ -1,6 +1,7 @@
 // Runs on the backend (internal/app/sources/grafana); role 'source' means no runtime.ts here.
 
 import GrafanaMark from '../../../components/marks/GrafanaMark.vue'
+import { intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.grafana_alerts'
 export const role = 'source' as const
@@ -14,6 +15,8 @@ export interface Config {
   credential: string
   /** Alertmanager label matchers the stack filters on before responding. */
   matchers: string[]
+  /** Go duration string: the shortest time between fetches. */
+  interval?: string
 }
 
 export const label = 'Grafana alerts source'
@@ -65,5 +68,7 @@ export function validate(config: Config): string[] {
       errors.push(`matcher "${matcher}" has no label name`)
     }
   }
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
   return errors
 }

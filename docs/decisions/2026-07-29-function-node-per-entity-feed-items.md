@@ -28,8 +28,10 @@ appeared.
 **A feed output whose key has no inbox row is minted at commit, from the payload
 it carried.** `feedSinks` now carries `msg.Payload` on the output; when
 `CommitBatch`'s feed branch resolves a non-empty key to no row, it inserts one
-(title/url read from the payload the same way the ingest boundary reads them,
-lifecycle `active`) and claims membership against it. A key the producer already
+(title, url and `updatedAt` read from the payload the same way the ingest
+boundary reads them — one decode, `models.FeedFields` — lifecycle `active`) and
+claims membership against it. A payload that states no `updatedAt` is stamped at
+mint time, never at the epoch. A key the producer already
 ingested still resolves to its classifier-owned row and is left untouched, so
 this changes nothing for ordinary source items.
 
@@ -65,8 +67,8 @@ same item cleanly.
   after its snapshot, and — once minted — survives redeploys because replay
   reinstalls its claim. This is consistent and self-healing, not a special case.
 - A synthesized item's payload is frozen at first appearance: a later poll
-  re-claims the existing row without refreshing its title or payload, and no
-  `inbox_event` history is recorded. Feeds are membership surfaces that never
+  re-claims the existing row without refreshing its title, payload or
+  `updatedAt`, and no `inbox_event` history is recorded. Feeds are membership surfaces that never
   notify, so neither matters for the feed. The per-entity payload the use case
   needs (a series' identity labels, for an `applies_to` action) is static, so
   freezing it is correct rather than merely tolerable. Refresh-on-change can be

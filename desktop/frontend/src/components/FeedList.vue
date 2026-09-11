@@ -31,6 +31,7 @@ const props = defineProps<{
   search: string
   sort: FeedSort
   loadError: string | null
+  refreshing: boolean
   sourceIcons?: Record<string, string>
   sourceImages?: Record<string, string>
 }>()
@@ -144,6 +145,9 @@ watch(() => props.selectedId, async (id) => {
           Unread<span class="seg-count">{{ unreadCount }}</span>
         </button>
       </div>
+      <!-- The view menu closes on click, so without this a manual refresh has
+           no visible effect until items land. -->
+      <IconRefreshCw v-if="refreshing" class="size-3.5 shrink-0 animate-spin text-text-3" data-testid="feed-refreshing" aria-label="Refreshing" />
       <div ref="viewMenu" class="relative shrink-0">
         <button type="button" class="view-trigger" data-testid="view-menu-toggle" aria-haspopup="menu" :aria-expanded="viewMenuOpen" @click="viewMenuOpen = !viewMenuOpen">
           <IconSlidersHorizontal class="size-3.5" />
@@ -162,9 +166,9 @@ watch(() => props.selectedId, async (id) => {
             <IconMailCheck class="size-3.5 text-text-3" />
             <span>Mark all as read</span>
           </button>
-          <button type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-refresh" @click="refreshFromMenu">
-            <IconRefreshCw class="size-3.5 text-text-3" />
-            <span>Refresh</span>
+          <button type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-refresh" :disabled="refreshing" @click="refreshFromMenu">
+            <IconRefreshCw class="size-3.5 text-text-3" :class="{ 'animate-spin': refreshing }" />
+            <span>{{ refreshing ? 'Refreshing…' : 'Refresh' }}</span>
           </button>
         </div>
       </div>
@@ -175,7 +179,7 @@ watch(() => props.selectedId, async (id) => {
         <div class="state-icon text-accent"><IconTriangleAlert class="size-5" /></div>
         <div class="text-[13.5px] font-semibold">GitHub unreachable</div>
         <div class="max-w-[240px] text-xs leading-relaxed text-text-3">{{ loadError }}</div>
-        <button class="state-action" @click="emit('refresh')">Retry now</button>
+        <button class="state-action" :disabled="refreshing" @click="emit('refresh')">{{ refreshing ? 'Refreshing…' : 'Retry now' }}</button>
       </div>
       <template v-else>
         <template v-for="group in itemGroups" :key="group.key">
@@ -252,7 +256,7 @@ watch(() => props.selectedId, async (id) => {
             <div class="text-[13.5px] font-semibold">No items yet</div>
             <div class="max-w-[240px] text-xs leading-relaxed text-text-3">New items will show up here as they arrive.</div>
           </template>
-          <button v-if="!search.trim()" class="state-action" @click="emit('refresh')">Refresh now</button>
+          <button v-if="!search.trim()" class="state-action" :disabled="refreshing" @click="emit('refresh')">{{ refreshing ? 'Refreshing…' : 'Refresh now' }}</button>
         </div>
       </template>
     </div>

@@ -27,11 +27,16 @@ type AlertsConfig struct {
 	// opt-in so the zero value emits every alert, which is what makes the
 	// firing→resolved transition visible on the item that was already there.
 	FiringOnly bool `json:"firing_only,omitempty" yaml:"firing_only,omitempty" jsonschema:"title=Firing only,description=Emit only alerts that are currently firing. Off by default, so an alert that stops firing updates its existing item instead of vanishing."`
+	// Interval is the floor between fetches, for a project whose alert list is
+	// not worth pulling on every tick.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 func (c *AlertsConfig) Validate() error {
-	_, err := c.CredentialRef()
-	return err
+	if _, err := c.CredentialRef(); err != nil {
+		return err
+	}
+	return connector.ValidateInterval("posthog alerts", c.Interval)
 }
 
 func (c *AlertsConfig) CredentialRef() (credentials.Ref, error) {
@@ -74,9 +79,10 @@ func NewAlertsFactory(fetchers *Fetchers) connector.Factory {
 					SourceScope: ref.Account,
 					Policy:      node.Policy,
 				},
-				Pull:       &alertsSource{fetcher: fetchers.For(ref), firingOnly: config.FiringOnly, topic: node.Topic()},
-				Classifier: alertsClassifier{},
-				Config:     config,
+				Pull:        &alertsSource{fetcher: fetchers.For(ref), firingOnly: config.FiringOnly, topic: node.Topic()},
+				Classifier:  alertsClassifier{},
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 	}

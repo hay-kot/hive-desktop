@@ -74,8 +74,9 @@ func NewFactory(fetchers *Fetchers) connector.Factory {
 				Classifier: classifier{},
 				// Per instance rather than per factory: the absence confirmer
 				// fetches, so it has to fetch as the same account the source did.
-				Absence: &absenceConfirmer{live: live},
-				Config:  config,
+				Absence:     &absenceConfirmer{live: live},
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 		Prefetch: func(ctx context.Context, instances []connector.Instance) error {

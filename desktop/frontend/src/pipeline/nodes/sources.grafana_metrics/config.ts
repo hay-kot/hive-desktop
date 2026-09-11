@@ -1,6 +1,7 @@
 // Runs on the backend (internal/app/sources/grafana); role 'source' means no runtime.ts here.
 
 import GrafanaMark from '../../../components/marks/GrafanaMark.vue'
+import { intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.grafana_metrics'
 export const role = 'source' as const
@@ -15,6 +16,8 @@ export interface Config {
   datasource_uid: string
   expr: string
   title?: string
+  /** Go duration string: the shortest time between fetches. */
+  interval?: string
 }
 
 export const label = 'Grafana metrics source'
@@ -45,5 +48,7 @@ export function validate(config: Config): string[] {
   }
   if (!(config.datasource_uid ?? '').trim()) errors.push('a datasource uid is required')
   if (!(config.expr ?? '').trim()) errors.push('a PromQL query is required')
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
   return errors
 }

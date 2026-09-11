@@ -354,6 +354,17 @@ export interface PopupTerminalEndpoint {
 }
 
 /**
+ * RefreshResult is what one manual tick was worth. Appended counts rows added
+ * to the event log, not inbox items the user will see: the engine routes them
+ * afterwards, and a flow may drop them.
+ */
+export interface RefreshResult {
+    "sources": number;
+    "appended": number;
+    "failed": number;
+}
+
+/**
  * ReleaseNote is the frontend-facing view of one set of release notes. Date is
  * a plain YYYY-MM-DD string rather than a timestamp: a release is dated, not
  * clocked, and formatting it here keeps the frontend from having to decide

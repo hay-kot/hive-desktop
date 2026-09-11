@@ -8,6 +8,7 @@ A **GitHub source** node emits messages from an embedded GitHub search or notifi
 - `kind` — `search` runs a GitHub Search API query; `notifications` drains that account's inbox.
 - `query` — required for `search`, unused for `notifications`.
 - `limit` — optional max items per fetch (search caps at 100, notifications at 50).
+- `interval` — optional, e.g. `1h`. The shortest time between fetches, for a source that costs more than its freshness is worth. It still only runs on a poll tick, so the real cadence rounds up to the next one; empty fetches every tick. A manual refresh ignores it, and it is not persisted — a restart fetches once from every source.
 
 ## Behavior
 

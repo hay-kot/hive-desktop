@@ -154,6 +154,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewGiteaService(core.Gitea)),
 		application.NewService(NewIntegrationsService(core.Integrations)),
 		application.NewService(NewPipelineService(core.Inbox)),
+		application.NewService(NewSourcesService(core.Sources)),
 		application.NewService(NewSessionService(core.Sessions)),
 		application.NewService(NewFlowsService(core.Flows)),
 		application.NewService(NewActionsService(core.Actions)),

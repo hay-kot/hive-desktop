@@ -6,6 +6,7 @@ A **PostHog insight alerts source** node emits one item per insight alert config
 
 - `credential` — required. The connected PostHog project to fetch as, written as `posthog/<account>`. Connect a project under Settings ▸ Integrations; the key needs the `project:read` and `alert:read` scopes.
 - `firing_only` — emit only alerts that are currently firing. Off by default, because emitting every alert is what lets one that stops firing update the item that was already there rather than silently disappear from the feed.
+- `interval` — optional, e.g. `1h`. The shortest time between fetches, for a source that costs more than its freshness is worth. It still only runs on a poll tick, so the real cadence rounds up to the next one; empty fetches every tick. A manual refresh ignores it, and it is not persisted — a restart fetches once from every source.
 
 ## Behavior
 

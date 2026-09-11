@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SelectField, TextField, type SelectOption } from '../../fields'
+import { IntervalField, SelectField, TextField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import type { Config } from './config'
 
@@ -92,6 +92,11 @@ function updateTitle(title: string) {
       hint="The feed item's title. Defaults to the query when empty."
       testid="sources.grafana_metrics-editor-title"
       @update:model-value="updateTitle"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.grafana_metrics-editor-interval"
+      @update:model-value="(interval?: string) => emit('update:config', { ...props.config, interval })"
     />
   </div>
 </template>

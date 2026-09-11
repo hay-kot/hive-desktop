@@ -1,6 +1,7 @@
 // Runs on the backend (internal/app/sources/gitea); role 'source' means no runtime.ts here.
 
 import GiteaMark from '../../../components/marks/GiteaMark.vue'
+import { intervalError } from '../../lib/sourceInterval'
 
 export const type = 'sources.gitea'
 export const role = 'source' as const
@@ -44,6 +45,8 @@ export interface Config {
   text?: string
   /** Max items per fetch (search caps at 100, notifications at 50). */
   limit?: number
+  /** Go duration string: the shortest time between fetches. */
+  interval?: string
 }
 
 // ── App-registry metadata ───────────────────────────────────────────────────
@@ -116,5 +119,7 @@ export function validate(config: Config): string[] {
   }
 
   if ((config.limit ?? 0) < 0) errors.push('limit must not be negative')
+  const interval = intervalError(config.interval)
+  if (interval) errors.push(interval)
   return errors
 }

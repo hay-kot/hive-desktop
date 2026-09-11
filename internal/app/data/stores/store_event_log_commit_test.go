@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,6 +124,55 @@ func TestCommit_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
 	require.NoError(t, db.Conn().QueryRowContext(ctx,
 		`SELECT title FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").Scan(&title))
 	assert.Equal(t, "prod/flux/kustomization/apps", title)
+}
+
+// A minted item's age is what the feed row renders, so `updatedAt` on the
+// payload is honoured exactly as it is on a source's own message. Without this
+// every per-entity item wore the mint time regardless of what the author put on
+// it, and a payload built from a source that carries no time of its own (a
+// Grafana metrics result) produced a row stamped at the epoch.
+func TestCommit_FeedOutput_MintedItemTakesItsTimeFromThePayload(t *testing.T) {
+	st, db := openTestStores(t)
+	ctx := t.Context()
+
+	const stated = int64(1_600_000_000_000)
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1,
+		Outputs: []models.Output{{
+			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "prod/flux/kustomization/apps",
+			Payload:    json.RawMessage(`{"title":"apps","updatedAt":1600000000000}`),
+			SourceKind: "grafana", SourceScope: "grafana/prod", SourceTopic: "source:flow-1/source-a",
+		}},
+	}))
+
+	var lastEventAt, firstSeenAt int64
+	require.NoError(t, db.Conn().QueryRowContext(ctx,
+		`SELECT last_event_at, first_seen_at FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").
+		Scan(&lastEventAt, &firstSeenAt))
+	assert.Equal(t, stated, lastEventAt, "the item is as old as its payload says")
+	assert.NotEqual(t, stated, firstSeenAt, "first_seen_at is when this app first saw it, not what the payload claims")
+}
+
+// A payload with no time of its own is stamped now. The alternative is a zero
+// last_event_at, which renders as an item from 1970 rather than a new one.
+func TestCommit_FeedOutput_MintedItemWithoutATimeIsStampedNow(t *testing.T) {
+	st, db := openTestStores(t)
+	ctx := t.Context()
+
+	before := time.Now().UnixMilli()
+	require.NoError(t, st.EventLog.Commit(ctx, models.CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1,
+		Outputs: []models.Output{{
+			Sink: models.Sink{Kind: models.SinkKindFeed, TargetID: "feed-a"}, Key: "prod/flux/kustomization/apps",
+			Payload:    json.RawMessage(`{"title":"apps"}`),
+			SourceKind: "grafana", SourceScope: "grafana/prod", SourceTopic: "source:flow-1/source-a",
+		}},
+	}))
+
+	var lastEventAt int64
+	require.NoError(t, db.Conn().QueryRowContext(ctx,
+		`SELECT last_event_at FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").Scan(&lastEventAt))
+	assert.GreaterOrEqual(t, lastEventAt, before)
 }
 
 // A feed output with no key has no identity to mint under (the omitempty

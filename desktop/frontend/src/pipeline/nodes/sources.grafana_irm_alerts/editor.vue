@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { SelectField, TextField, type SelectOption } from '../../fields'
+import { IntervalField, SelectField, TextField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
 import type { Config } from './config'
 
@@ -68,6 +68,11 @@ function update<K extends keyof Config>(key: K, value: Config[K]) {
       monospace
       testid="sources.grafana_irm_alerts-editor-team"
       @update:model-value="update('team', $event)"
+    />
+    <IntervalField
+      :model-value="config.interval"
+      testid="sources.grafana_irm_alerts-editor-interval"
+      @update:model-value="(interval?: string) => update('interval', interval)"
     />
   </div>
 </template>

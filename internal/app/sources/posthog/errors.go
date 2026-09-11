@@ -62,6 +62,9 @@ type ErrorsConfig struct {
 	// IncludeTestAccounts is phrased as an opt-in so the Go zero value is
 	// PostHog's own default of excluding internal traffic.
 	IncludeTestAccounts bool `json:"include_test_accounts,omitempty" yaml:"include_test_accounts,omitempty" jsonschema:"title=Include test accounts,description=Include traffic PostHog classifies as internal or test. Off by default."`
+	// Interval is the floor between fetches, for a project whose issue query
+	// is not worth running on every tick.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 func (c *ErrorsConfig) Validate() error {
@@ -85,7 +88,7 @@ func (c *ErrorsConfig) Validate() error {
 	if c.Limit > maxLimit {
 		return fmt.Errorf("posthog errors: limit %d exceeds the query page cap of %d", c.Limit, maxLimit)
 	}
-	return nil
+	return connector.ValidateInterval("posthog errors", c.Interval)
 }
 
 func (c *ErrorsConfig) CredentialRef() (credentials.Ref, error) {
@@ -157,9 +160,10 @@ func NewErrorsFactory(fetchers *Fetchers) connector.Factory {
 					SourceScope: ref.Account,
 					Policy:      node.Policy,
 				},
-				Pull:       &errorsSource{fetcher: fetchers.For(ref), request: config.request(), topic: node.Topic()},
-				Classifier: errorsClassifier{},
-				Config:     config,
+				Pull:        &errorsSource{fetcher: fetchers.For(ref), request: config.request(), topic: node.Topic()},
+				Classifier:  errorsClassifier{},
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 	}

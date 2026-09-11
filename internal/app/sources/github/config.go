@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
 // Provider is the credentials provider name every GitHub credential is filed
@@ -44,6 +45,9 @@ type Config struct {
 	Query string `json:"query,omitempty" yaml:"query,omitempty" jsonschema:"title=Query,description=A GitHub search query such as 'is:open is:pr archived:false'. Only for kind search."`
 	// Limit bounds items per fetch. 0 means the per-kind default.
 	Limit int `json:"limit,omitempty" yaml:"limit,omitempty" jsonschema:"title=Limit,minimum=0,maximum=100,description=Maximum items per fetch. Search caps at 100 and notifications at 50; 0 uses the default of 50."`
+	// Interval is the floor between fetches, for a query that spends more
+	// rate-limit budget than its freshness is worth.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 // Validate mirrors the GitHub API's own constraints: search needs a query and
@@ -75,7 +79,7 @@ func (c *Config) Validate() error {
 	if c.Limit < 0 {
 		return fmt.Errorf("github source: limit must not be negative")
 	}
-	return nil
+	return connector.ValidateInterval("github source", c.Interval)
 }
 
 // CredentialRef is the parsed credential ref. A ref naming another provider

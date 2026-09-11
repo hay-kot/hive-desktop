@@ -22,6 +22,9 @@ type AlertsConfig struct {
 	// function node is what makes this node unusable at exactly the scale an
 	// alerts feed is worth having.
 	Matchers []string `json:"matchers,omitempty" yaml:"matchers,omitempty" jsonschema:"title=Label matchers,description=Alertmanager label matchers, e.g. 'squad=platform' or 'severity=~critical|warning'. An alert must match every one."`
+	// Interval is the floor between fetches, for a stack whose alert list is
+	// expensive to pull on every tick.
+	Interval connector.Duration `json:"interval,omitempty" yaml:"interval,omitempty" jsonschema:"title=Minimum interval,description=Shortest time between fetches. The source still only runs on a poll tick so the real cadence rounds up to the next one; empty fetches on every tick."`
 }
 
 func (c *AlertsConfig) Validate() error {
@@ -33,7 +36,7 @@ func (c *AlertsConfig) Validate() error {
 			return err
 		}
 	}
-	return nil
+	return connector.ValidateInterval("grafana alerts", c.Interval)
 }
 
 // matcherOperators are Alertmanager's label matcher operators, longest first so
@@ -106,10 +109,11 @@ func NewAlertsFactory(fetchers *Fetchers) connector.Factory {
 					SourceScope: ref.Account,
 					Policy:      node.Policy,
 				},
-				Pull:       &alertsSource{fetcher: fetchers.For(ref), matchers: config.Matchers, topic: node.Topic()},
-				Classifier: alertsClassifier{},
-				Absence:    alertsAbsence{},
-				Config:     config,
+				Pull:        &alertsSource{fetcher: fetchers.For(ref), matchers: config.Matchers, topic: node.Topic()},
+				Classifier:  alertsClassifier{},
+				Absence:     alertsAbsence{},
+				MinInterval: config.Interval.Duration(),
+				Config:      config,
 			}, nil
 		},
 	}

@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"sync"
@@ -507,19 +506,14 @@ func (pr *Producer) record(ctx context.Context, e activity.Event) {
 // genericClassifier keeps non-GitHub/test sources ingestible while adapters
 // supply richer semantics for real source kinds.
 func observationFromMsg(msg Msg, sourceKind, sourceScope string) models.Observation {
-	var wire struct {
-		Title     string `json:"title"`
-		URL       string `json:"url"`
-		UpdatedAt int64  `json:"updatedAt"`
+	title, url, updatedAt := models.FeedFields(msg.Payload)
+	if title == "" {
+		title = msg.Key
 	}
-	_ = json.Unmarshal(msg.Payload, &wire)
-	if wire.Title == "" {
-		wire.Title = msg.Key
+	if updatedAt == 0 {
+		updatedAt = time.Now().UnixMilli()
 	}
-	if wire.UpdatedAt == 0 {
-		wire.UpdatedAt = time.Now().UnixMilli()
-	}
-	return models.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
+	return models.Observation{ExternalID: msg.Key, Title: title, URL: url, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: updatedAt, Payload: msg.Payload}
 }
 
 type genericClassifier struct{}

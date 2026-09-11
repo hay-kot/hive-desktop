@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -319,30 +318,28 @@ func (s *InboxItemStore) GetUnarchivedByID(ctx context.Context, itemID int64, pr
 // CreateSynthesized persists feed outputs that did not pass through ingest.
 // It derives presentation from the payload and marks them active; later
 // snapshots remove only claims, while later ingest upserts the same identity.
+//
+// The payload is read exactly as the ingest boundary reads a source's own, so
+// an author minting per-entity items stamps them with `updatedAt` the same way
+// a connector does. A payload that omits it is stamped now: a feed row shows
+// its age, and an item minted at the epoch reads as decades old.
 func (s *InboxItemStore) CreateSynthesized(ctx context.Context, in InboxItemSynthesize) (InboxItem, error) {
-	title, url := feedItemPresentation(in.ExternalID, in.Payload)
+	title, url, updatedAt := models.FeedFields(in.Payload)
+	if title == "" {
+		title = in.ExternalID
+	}
+	if updatedAt == 0 {
+		updatedAt = in.Now
+	}
 	row, err := s.q.Ctx(ctx).InsertInboxItem(ctx, queries.InsertInboxItemParams{
 		ProfileID: in.ProfileID, SourceKind: in.SourceKind, SourceScope: in.SourceScope, ExternalID: in.ExternalID,
 		Title: title, Url: url, Payload: in.Payload, Unread: 1, Lifecycle: models.LifecycleActive.String(),
-		FirstSeenAt: in.Now, LastEventAt: in.Now,
+		FirstSeenAt: in.Now, LastEventAt: updatedAt,
 	})
 	if err != nil {
 		return InboxItem{}, wrap("minting synthesized inbox item", err)
 	}
 	return s.mapper(row), nil
-}
-
-// Missing or invalid payload titles fall back to the item key.
-func feedItemPresentation(key string, payload []byte) (title, url string) {
-	var wire struct {
-		Title string `json:"title"`
-		URL   string `json:"url"`
-	}
-	_ = json.Unmarshal(payload, &wire)
-	if title = wire.Title; title == "" {
-		title = key
-	}
-	return title, wire.URL
 }
 
 type ItemTriageState struct {

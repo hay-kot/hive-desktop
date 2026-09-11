@@ -72,19 +72,28 @@ return msg.Payload.result.map(function (s) {
     ...msg,                                  // keep Topic, SourceKind, SourceScope
     Key: [s.cluster, s.namespace, s.kind, s.name].join("/"),
     Payload: { title: s.kind + "/" + s.name, cluster: s.cluster, namespace: s.namespace },
+    // No updatedAt: a metrics series carries no time of its own, so the item
+    // is stamped when it is minted.
   };
 });
 ```
 
-Two rules make this work:
+Three rules make this work:
 
 - **Mint `Key`, never `Topic`.** The key is the item's identity — set it to
   whatever makes each entity distinct. `Topic` is what scopes feed membership to
   its source; rewriting it detaches the item and breaks the lifecycle below.
-- **Put what the item renders and acts on in `Payload`.** `title` and `url` are
-  read from it; the rest is yours (an `applies_to` action reads `.Payload`). A
-  key the source never emitted has no inbox row yet, so the feed mints one on
-  first appearance from this payload.
+- **Put what the item renders and acts on in `Payload`.** `title`, `url` and
+  `updatedAt` are read from it; the rest is yours (an `applies_to` action reads
+  `.Payload`). A key the source never emitted has no inbox row yet, so the feed
+  mints one on first appearance from this payload.
+- **Set `updatedAt` if the entity has a time of its own.** It is unix
+  milliseconds and it is what a feed row shows as the item's age. Omit it and
+  the item is stamped when it was minted, which is right for an entity that has
+  no timestamp — a metrics series does not. Do not compute it from a payload
+  field the source does not carry: `new Date(undefined)` is `0`, and the row
+  then reads as decades old. The value is read once, at mint; a later poll
+  re-claims the existing row without refreshing it.
 
 Lifecycle is presence-based and automatic: each poll restates the whole set, so
 an entity that stops appearing drops from the feed on the next poll (it moves to
