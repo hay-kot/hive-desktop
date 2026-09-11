@@ -280,6 +280,7 @@ function stubTerminalTree(overrides: Partial<TerminalTreeHandles> = {}): Termina
   const handles: TerminalTreeHandles = {
     focusTree: vi.fn(), focusPane: vi.fn(), focusFilter: vi.fn(),
     selectWindow: vi.fn(), newWindow: vi.fn(), closeWindow: vi.fn(), stepWindow: vi.fn(),
+    splitPane: vi.fn(), closePane: vi.fn(), zoomPane: vi.fn(), focusPaneDirection: vi.fn(),
     ...overrides,
   }
   setTerminalTreeHandles(handles)
@@ -1197,7 +1198,7 @@ describe('App', () => {
       const { wrapper, router } = await mountAppWithRouter()
       useAgentSessionsAll().recents.value = [{
         id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
-        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', cols: 0, rows: 0,
+        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0,
         resumeAttempted: false, notice: '', scheduleId: '',
       }]
 
@@ -1228,7 +1229,7 @@ describe('App', () => {
       ]
       useAgentSessionsAll().recents.value = [{
         id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
-        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', cols: 0, rows: 0,
+        lastOpenedAt: 0, slug: 'chat-42', terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0,
         resumeAttempted: false, notice: '', scheduleId: '',
       }]
 

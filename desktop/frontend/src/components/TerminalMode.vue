@@ -55,6 +55,7 @@ import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
+import { activePaneOf } from '../lib/terminalLayout'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useEditorSettings } from '../composables/useEditorSettings'
@@ -1188,6 +1189,28 @@ onMounted(() => setTerminalTreeHandles({
     const name = session.tabs.value.find((tab) => tab.windowId === windowId)?.name ?? ''
     void requestCloseWindow(activeSlug.value, windowId, name)
   },
+  // The pane verbs act on the attached session's active pane and answer from
+  // the stream; a chord that splits or zooms is an intent to keep typing, so
+  // the pane may take focus when tmux announces the result.
+  splitPane: (direction): void => {
+    paneMayAutoFocus.value = true
+    void current.value?.splitPane(direction)
+  },
+  closePane: (): void => {
+    const session = current.value
+    const tab = session?.tabs.value.find((candidate) => candidate.windowId === session.activeWindowId.value)
+    const pane = tab && activePaneOf(tab)
+    if (!session || !tab || !pane) return
+    void requestClosePane(activeSlug.value, pane.paneId, tab.name)
+  },
+  zoomPane: (): void => {
+    paneMayAutoFocus.value = true
+    void current.value?.zoomPane()
+  },
+  focusPaneDirection: (direction): void => {
+    paneMayAutoFocus.value = true
+    void current.value?.focusPane(direction)
+  },
 }))
 onBeforeUnmount(() => setTerminalTreeHandles(null))
 
@@ -1305,7 +1328,7 @@ useWailsEvent('jobs:updated', () => { void reloadSessions() })
 
 const tabs = computed<TerminalWindowTab[]>(() => visible.value?.tabs.value ?? [])
 const activeWindowId = computed(() => visible.value?.activeWindowId.value ?? '')
-const activeScrolledUp = computed(() => tabs.value.some((tab) => tab.windowId === activeWindowId.value && tab.scrolledUp))
+const activeScrolledUp = computed(() => tabs.value.some((tab) => tab.windowId === activeWindowId.value && activePaneOf(tab)?.scrolledUp))
 const status = computed(() => visible.value?.status.value ?? 'connecting')
 const endReason = computed(() => visible.value?.endReason.value ?? null)
 // Not a failure: tmux is running nothing under this slug, and starting it runs
@@ -1560,12 +1583,41 @@ async function requestCloseWindow(slug: string, windowId: string, name: string):
   })
 }
 
+// Closing a pane is the tab's close asked of one pane: the same guard, read
+// the same way, because it kills the same kind of thing. tmux closes the window
+// with its last pane, so a one-pane window answers the chord like ⌘W would.
+async function requestClosePane(slug: string, paneId: string, name: string): Promise<void> {
+  const pooled = pool.get(slug)
+  if (!pooled) return
+  const close = (): Promise<void> => pooled.closePane(paneId)
+  const foreground = await paneForeground(slug, paneId)
+  if (!foreground.running) {
+    await close()
+    return
+  }
+  confirmation.request({
+    title: 'Close this pane?',
+    description: `${foreground.command || 'Something'} is still running ${name ? `in ${name}` : 'in this pane'}. Closing the pane stops it.`,
+    confirmLabel: 'Close pane',
+    onConfirm: close,
+  })
+}
+
 // A read that failed is not evidence the tab is idle, and killing a process to
 // find out is the one outcome the confirmation exists to prevent.
 async function windowForeground(slug: string, windowId: string): Promise<WindowForeground> {
   if (!client.value) return { running: true, command: '' }
   try {
     return await client.value.windowForeground(slug, windowId)
+  } catch {
+    return { running: true, command: '' }
+  }
+}
+
+async function paneForeground(slug: string, paneId: string): Promise<WindowForeground> {
+  if (!client.value) return { running: true, command: '' }
+  try {
+    return await client.value.paneForeground(slug, paneId)
   } catch {
     return { running: true, command: '' }
   }
@@ -2376,8 +2428,8 @@ onBeforeUnmount(() => {
               v-for="tab in pane.tabs"
               :key="tab.uid"
               :tab="tab"
+              :session="pane.entry"
               :active="pane.entry === visible && tab.windowId === pane.activeWindowId"
-              @mount="pane.entry.attachTab"
             />
           </template>
           <template v-if="visible">

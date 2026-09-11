@@ -58,18 +58,22 @@ describe('terminal frame codec', () => {
   })
 
   it('decodes window events with their stable string kinds', () => {
-    expect(decodeFrame(jsonFrame(0x01, { kind: 'renamed', windowId: '@2', name: 'shell', active: false, width: 213, height: 55 })))
-      .toEqual({ type: 'window', kind: 'renamed', state: { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 } })
+    const layout = { split: 'leftright', x: 0, y: 0, width: 213, height: 55, cells: [
+      { paneId: '%3', x: 0, y: 0, width: 106, height: 55 },
+      { paneId: '%4', x: 107, y: 0, width: 106, height: 55 },
+    ] }
+    expect(decodeFrame(jsonFrame(0x01, { kind: 'renamed', windowId: '@2', name: 'shell', active: false, activePane: '%4', width: 213, height: 55, zoomed: false, layout })))
+      .toEqual({ type: 'window', kind: 'renamed', state: { windowId: '@2', name: 'shell', active: false, activePane: '%4', width: 213, height: 55, zoomed: false, layout } })
   })
 
-  it('decodes a resize as tmux reporting the size the window must render at', () => {
-    expect(decodeFrame(jsonFrame(0x01, { kind: 'resized', windowId: '@2', name: 'shell', active: true, width: 80, height: 24 })))
-      .toEqual({ type: 'window', kind: 'resized', state: { windowId: '@2', name: 'shell', active: true, width: 80, height: 24 } })
+  it('decodes a layout change as tmux reporting the grid the window must render at', () => {
+    expect(decodeFrame(jsonFrame(0x01, { kind: 'layout-changed', windowId: '@2', name: 'shell', active: true, activePane: '%2', width: 80, height: 24, zoomed: true, layout: { paneId: '%2', x: 0, y: 0, width: 80, height: 24 } })))
+      .toEqual({ type: 'window', kind: 'layout-changed', state: { windowId: '@2', name: 'shell', active: true, activePane: '%2', width: 80, height: 24, zoomed: true, layout: { paneId: '%2', x: 0, y: 0, width: 80, height: 24 } } })
   })
 
-  it('reads an unreported size as 0 rather than inventing one', () => {
+  it('reads an unreported size and layout as 0 and null rather than inventing them', () => {
     expect(decodeFrame(jsonFrame(0x01, { kind: 'added', windowId: '@3' })))
-      .toEqual({ type: 'window', kind: 'added', state: { windowId: '@3', name: '', active: false, width: 0, height: 0 } })
+      .toEqual({ type: 'window', kind: 'added', state: { windowId: '@3', name: '', active: false, activePane: '', width: 0, height: 0, zoomed: false, layout: null } })
   })
 
   it('decodes lifecycle events', () => {
@@ -151,7 +155,7 @@ describe('createTerminalClient', () => {
     const result = await createTerminalClient(endpoint).attach('hive-abc', 120, 40)
 
     // The cols/rows posted are a vote; the sizes that come back are tmux's.
-    expect(result.windows).toEqual([{ windowId: '@1', name: 'agent', active: true, width: 213, height: 55 }])
+    expect(result.windows).toEqual([{ windowId: '@1', name: 'agent', active: true, activePane: '', width: 213, height: 55, zoomed: false, layout: null }])
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('http://127.0.0.1:58006/api/terminal/attach')
     expect(init.headers.Authorization).toBe('Bearer tok-123')
@@ -165,7 +169,7 @@ describe('createTerminalClient', () => {
 
     const result = await createTerminalClient(endpoint).listWindows(['hive-abc', 'hive-never-spawned'])
 
-    expect(result).toEqual({ 'hive-abc': [{ windowId: '@2', name: 'shell', active: false, width: 120, height: 40 }] })
+    expect(result).toEqual({ 'hive-abc': [{ windowId: '@2', name: 'shell', active: false, activePane: '', width: 120, height: 40, zoomed: false, layout: null }] })
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('http://127.0.0.1:58006/api/terminal/windows/list')
     expect(JSON.parse(init.body)).toEqual({ slugs: ['hive-abc', 'hive-never-spawned'] })
@@ -257,6 +261,6 @@ describe('createTerminalClient', () => {
     const socket = createTerminalClient(endpoint).openStream('hive-abc')
 
     expect(socket.binaryType).toBe('arraybuffer')
-    expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/stream?slug=hive-abc&token=tok-123&v=1')
+    expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/stream?slug=hive-abc&token=tok-123&v=2')
   })
 })

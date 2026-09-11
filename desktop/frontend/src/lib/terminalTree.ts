@@ -1,4 +1,5 @@
 import { ref, type Ref } from 'vue'
+import type { PaneDirection, SplitDirection } from './terminalClient'
 
 // The seam between the global keymap and terminal mode's session tree.
 //
@@ -33,6 +34,14 @@ export interface TerminalTreeHandles {
    * wrapping at either end.
    */
   stepWindow(delta: number): void
+  /** Split the active window's active pane; horizontal puts the new pane to the right, vertical below. */
+  splitPane(direction: SplitDirection): void
+  /** Close the active window's active pane, asking first when it is running something. */
+  closePane(): void
+  /** Toggle the active pane between filling its window and its place in the layout. */
+  zoomPane(): void
+  /** Move the keyboard to the active pane's neighbour in a direction. */
+  focusPaneDirection(direction: PaneDirection): void
 }
 
 let handles: TerminalTreeHandles | null = null
@@ -80,4 +89,20 @@ export function closeTerminalWindow(): void {
 
 export function stepTerminalWindow(delta: number): void {
   handles?.stepWindow(delta)
+}
+
+export function splitTerminalPane(direction: SplitDirection): void {
+  handles?.splitPane(direction)
+}
+
+export function closeTerminalPane(): void {
+  handles?.closePane()
+}
+
+export function zoomTerminalPane(): void {
+  handles?.zoomPane()
+}
+
+export function focusTerminalPaneDirection(direction: PaneDirection): void {
+  handles?.focusPaneDirection(direction)
 }

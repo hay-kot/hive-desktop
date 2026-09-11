@@ -43,6 +43,7 @@ type fakeTmux struct {
 	histories map[string][]string
 	cursors   map[string]string
 	failures  map[string]string
+	splitPane string
 	onCommand func(cmd string)
 	closed    bool
 }
@@ -177,6 +178,11 @@ func (f *fakeTmux) respond(cmd string) {
 		f.reply([]string{reported}, false)
 	case strings.HasPrefix(cmd, "new-window"):
 		f.reply([]string{"@9"}, false)
+	case strings.HasPrefix(cmd, "split-window"):
+		f.mu.Lock()
+		pane := f.splitPane
+		f.mu.Unlock()
+		f.reply([]string{pane}, false)
 	default:
 		f.reply(nil, false)
 	}
@@ -268,6 +274,24 @@ func (f *fakeTmux) sentCommands() []string {
 	return append([]string(nil), f.commands...)
 }
 
+// commandsMatching is every command sent so far that contains substr, in order.
+func (f *fakeTmux) commandsMatching(substr string) []string {
+	var matched []string
+	for _, cmd := range f.sentCommands() {
+		if strings.Contains(cmd, substr) {
+			matched = append(matched, cmd)
+		}
+	}
+	return matched
+}
+
+// setSplitPane sets the pane id split-window answers with.
+func (f *fakeTmux) setSplitPane(pane string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.splitPane = pane
+}
+
 func (f *fakeTmux) countCommands(prefix string) int {
 	n := 0
 	for _, cmd := range f.sentCommands() {
@@ -305,7 +329,7 @@ func argAfter(cmd, flag string) string {
 func attachFake(t *testing.T, f *fakeTmux, opts Options) *Client {
 	t.Helper()
 	if len(f.windows) == 0 {
-		f.setWindows("@1 1 %1 120 40 claude")
+		f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	}
 	opts.Slug = f.slug
 	if opts.Cols == 0 {

@@ -129,7 +129,7 @@ const workspaceRows = [
 // the listing's tmux probe found the session alive.
 const chatRow = {
   id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-  terminalId: 'agentws-7', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: '',
+  terminalId: 'agentws-7', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: false, notice: '',
   scheduleId: '',
 }
 
@@ -147,7 +147,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     activity: vi.fn().mockResolvedValue([]),
     startSession: vi.fn().mockResolvedValue({
       id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-      terminalId: 't1', windowId: 'w1', cols: 80, rows: 24, resumeAttempted: false, notice: '',
+      terminalId: 't1', windowId: 'w1', paneId: '%1', cols: 80, rows: 24, resumeAttempted: false, notice: '',
     }),
     resumeSession: vi.fn().mockResolvedValue({ ...chatRow, windowId: 'w1', cols: 80, rows: 24, resumeAttempted: true }),
     closeSession: vi.fn().mockResolvedValue({ closed: true }),
@@ -455,7 +455,7 @@ describe('AgentsMode', () => {
     const client = fakeClient()
     client.startSession.mockResolvedValue({
       id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: 'boom',
+      terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: false, notice: 'boom',
     })
     mocks.createAgentWorkspacesClient.mockReturnValue(client)
     const { wrapper } = await mountAgentsMode('/workspaces/web-app')
@@ -497,7 +497,7 @@ describe('AgentsMode', () => {
     const client = fakeClient()
     client.startSession.mockResolvedValue({
       id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true,
+      terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: true,
       notice: 'the session exited immediately; check that the agent CLI is installed and on PATH',
     })
     mocks.createAgentWorkspacesClient.mockReturnValue(client)

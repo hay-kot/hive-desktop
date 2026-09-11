@@ -264,6 +264,9 @@ type SessionView struct {
 	// (Sessions, Open) leaves it empty even for a live session, since nothing
 	// there attaches.
 	WindowID string `json:"windowId"`
+	// PaneID is that window's active pane, which is what the tmux wire frames
+	// input by. Set beside WindowID.
+	PaneID string `json:"paneId"`
 	// Cols and Rows are tmux's own size for that window at attach — whichever
 	// attached client tmux's window-size option picked, not necessarily the
 	// caller's cols/rows vote. The pane must open its grid at this size or the
@@ -657,7 +660,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		}
 		return SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID,
+			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID, PaneID: window.ActivePane,
 			Cols: window.Width, Rows: window.Height,
 			ResumeAttempted: true,
 		}, nil
@@ -1456,6 +1459,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.
 		}
 		view.TerminalID = name
 		view.WindowID = window.ID
+		view.PaneID = window.ActivePane
 		view.Cols, view.Rows = window.Width, window.Height
 	}
 

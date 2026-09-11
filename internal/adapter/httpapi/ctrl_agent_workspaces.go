@@ -63,6 +63,9 @@ type agentSessionView struct {
 	// output on the windowed tmux wire. Set only by Start/Resume, which
 	// attach; a listing read leaves it empty even for a live session.
 	WindowID string `json:"windowId"`
+	// PaneID is that window's active pane, which client frames on the tmux
+	// wire name. Set beside windowId.
+	PaneID string `json:"paneId"`
 	// Cols and Rows are tmux's own size for that window at attach — the grid
 	// the pane must open at, which may differ from the cols/rows voted. 0
 	// means tmux has not reported one. Set only by Start/Resume, like
@@ -115,7 +118,7 @@ func toAgentWorkspaceViews(in []app.WorkspaceView) []agentWorkspaceView {
 func toAgentSessionView(s app.SessionView) agentSessionView {
 	return agentSessionView{
 		ID: s.ID, Workspace: s.Workspace, Name: s.Name, Agent: s.Agent, LastOpenedAt: s.LastOpenedAt,
-		Slug: s.Slug, TerminalID: s.TerminalID, WindowID: s.WindowID, Cols: s.Cols, Rows: s.Rows,
+		Slug: s.Slug, TerminalID: s.TerminalID, WindowID: s.WindowID, PaneID: s.PaneID, Cols: s.Cols, Rows: s.Rows,
 		ResumeAttempted: s.ResumeAttempted, Notice: s.Notice, ScheduleID: s.ScheduleID,
 	}
 }

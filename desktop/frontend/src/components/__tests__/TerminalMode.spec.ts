@@ -137,8 +137,8 @@ function fakeListWindowsEach(windows: FakeWindow[]) {
 function fakeSession() {
   return {
     tabs: ref([
-      { uid: 1, windowId: '@1', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
-      { uid: 2, windowId: '@2', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 1, windowId: '@1', name: 'agent', active: true, activePane: '%1', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 2, windowId: '@2', name: 'shell', active: false, activePane: '%2', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
     ]),
     activeWindowId: ref('@1'),
     status: ref<'connecting' | 'live' | 'ended'>('live'),
@@ -163,8 +163,16 @@ function fakeSession() {
     closeWindow: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
     moveWindow: vi.fn().mockResolvedValue(undefined),
+    cell: ref(null),
     attachTab: vi.fn(),
+    attachPane: vi.fn(),
     disposeTab: vi.fn(),
+    selectPane: vi.fn().mockResolvedValue(undefined),
+    splitPane: vi.fn().mockResolvedValue(undefined),
+    closePane: vi.fn().mockResolvedValue(undefined),
+    zoomPane: vi.fn().mockResolvedValue(undefined),
+    focusPane: vi.fn().mockResolvedValue(undefined),
+    resizePane: vi.fn().mockResolvedValue(undefined),
     focusActive: vi.fn(),
     scrollToBottom: vi.fn(),
     dispose: vi.fn(),
@@ -345,10 +353,10 @@ describe('TerminalMode', () => {
     })
     const liveSession = fakeSession()
     liveSession.tabs.value = [
-      { uid: 1, windowId: '@1', name: 'working', active: true, scrolledUp: false, term: {}, fit: {} },
-      { uid: 2, windowId: '@2', name: 'approval', active: false, scrolledUp: false, term: {}, fit: {} },
-      { uid: 3, windowId: '@3', name: 'ready', active: false, scrolledUp: false, term: {}, fit: {} },
-      { uid: 4, windowId: '@4', name: 'unknown', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 1, windowId: '@1', name: 'working', active: true, activePane: '%1', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 2, windowId: '@2', name: 'approval', active: false, activePane: '%2', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 3, windowId: '@3', name: 'ready', active: false, activePane: '%3', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 4, windowId: '@4', name: 'unknown', active: false, activePane: '%4', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
     ]
     mocks.useTerminalWindows.mockReturnValue(liveSession)
     mocks.SessionStatuses.mockResolvedValue({
@@ -602,7 +610,7 @@ describe('TerminalMode', () => {
   it('keeps the outgoing attach warm and snaps back to it without re-attaching', async () => {
     const first = fakeSession()
     const second = fakeSession()
-    second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, scrolledUp: false, term: {}, fit: {} }]
+    second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, activePane: '%9', width: 213, height: 55, zoomed: false, layout: null, panes: [] }]
     second.activeWindowId.value = '@9'
     mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
     const { wrapper } = await mountAt()
@@ -677,7 +685,7 @@ describe('TerminalMode', () => {
     expect(shownWindow(wrapper)).toBe('@1')
 
     // First paint is the swap signal.
-    second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, scrolledUp: false, term: {}, fit: {} }]
+    second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, activePane: '%9', width: 213, height: 55, zoomed: false, layout: null, panes: [] }]
     second.activeWindowId.value = '@9'
     second.status.value = 'live'
     second.painted.value = true
@@ -752,7 +760,8 @@ describe('TerminalMode', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
 
-    session.tabs.value[0].scrolledUp = true
+    const first = session.tabs.value[0] as { panes: unknown[] }
+    first.panes = [{ uid: 11, paneId: '%1', term: {}, scrolledUp: true }]
     await flushPromises()
     await wrapper.get('[data-testid="terminal-scroll-to-bottom"]').trigger('click')
     expect(session.scrollToBottom).toHaveBeenCalled()
@@ -779,8 +788,8 @@ describe('TerminalMode', () => {
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const session = fakeSession()
     session.tabs.value = [
-      { uid: 7, windowId: '@7', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
-      { uid: 8, windowId: '@8', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 7, windowId: '@7', name: 'agent', active: true, activePane: '%7', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 8, windowId: '@8', name: 'shell', active: false, activePane: '%8', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
     ]
     session.activeWindowId.value = '@7'
     const { wrapper, router } = await mountAvailable(session)
@@ -874,8 +883,8 @@ describe('TerminalMode', () => {
 
     // The live tab set replaces the stand-ins in place.
     session.tabs.value = [
-      { uid: 7, windowId: '@7', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
-      { uid: 8, windowId: '@8', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 7, windowId: '@7', name: 'agent', active: true, activePane: '%7', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 8, windowId: '@8', name: 'shell', active: false, activePane: '%8', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
     ]
     session.status.value = 'live'
     await flushPromises()

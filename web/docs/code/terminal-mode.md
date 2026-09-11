@@ -46,6 +46,18 @@ Press <kbd>?</kbd> for the current shortcut list. Shortcuts can be changed under
 
 Actions can add commands to session and window menus. Quick terminals can open tools such as `lazygit` in the active checkout. See [Actions](../inbox/actions.md).
 
+## Panes
+
+A window shows every tmux pane where tmux lays it out, including panes split from another tmux client. The pane with the keyboard is tmux's active pane, so a click in a pane also selects it in tmux.
+
+- <kbd>⌘D</kbd> splits the active pane to the right and <kbd>⌘⇧D</kbd> splits it downward. The new pane opens in the active pane's directory.
+- <kbd>⌘⌥←</kbd>, <kbd>⌘⌥→</kbd>, <kbd>⌘⌥↑</kbd>, and <kbd>⌘⌥↓</kbd> move between panes.
+- Drag the border between two panes to resize them.
+- <kbd>⌘⇧↩</kbd> zooms the active pane to fill the window, and again to restore the layout. A `zoomed` badge shows while a pane is zoomed.
+- <kbd>⌘⇧W</kbd> closes the active pane. Closing the last pane closes the window. Hive asks first when the pane is running something.
+
+On Linux, use Control+Shift in place of Command, and Control+Alt with the arrow keys.
+
 ## Appearance
 
 **Settings ▸ Terminal** controls the terminal font, size, weight, line height, letter spacing, visible windows, and status bar.
@@ -62,6 +74,5 @@ set -g window-size largest
 
 ## Current limits
 
-- Split panes are shown as the active pane for each window.
 - Hive loads up to 2,000 lines of scrollback.
 - A large output burst can skip intermediate lines while the view resynchronizes.

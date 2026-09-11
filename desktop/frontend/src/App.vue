@@ -44,7 +44,10 @@ import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { useTasks } from './composables/useTasks'
 import { sessionRepository } from './composables/useTerminalSessions'
-import { closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalTree, newTerminalWindow, selectTerminalWindow, stepTerminalWindow } from './lib/terminalTree'
+import {
+  closeTerminalPane, closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalPaneDirection, focusTerminalTree,
+  newTerminalWindow, selectTerminalWindow, splitTerminalPane, stepTerminalWindow, zoomTerminalPane,
+} from './lib/terminalTree'
 import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
@@ -959,6 +962,14 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'terminal.close-window': closeTerminalWindow,
   'terminal.next-window': () => stepTerminalWindow(1),
   'terminal.prev-window': () => stepTerminalWindow(-1),
+  'terminal.split-right': () => splitTerminalPane('horizontal'),
+  'terminal.split-down': () => splitTerminalPane('vertical'),
+  'terminal.close-pane': closeTerminalPane,
+  'terminal.zoom-pane': zoomTerminalPane,
+  'terminal.focus-pane-left': () => focusTerminalPaneDirection('left'),
+  'terminal.focus-pane-right': () => focusTerminalPaneDirection('right'),
+  'terminal.focus-pane-up': () => focusTerminalPaneDirection('up'),
+  'terminal.focus-pane-down': () => focusTerminalPaneDirection('down'),
   // Same rule as terminal.focus-sidebar: the chord asks to work in the list,
   // so a hidden one comes back rather than swallowing the request.
   'agents.focus-sidebar': () => {

@@ -15,6 +15,7 @@ import IconInbox from '~icons/lucide/inbox'
 import IconKeyboard from '~icons/lucide/keyboard'
 import IconListTodo from '~icons/lucide/list-todo'
 import IconMailCheck from '~icons/lucide/mail-check'
+import IconMaximize2 from '~icons/lucide/maximize-2'
 import IconMinus from '~icons/lucide/minus'
 import IconPanelLeft from '~icons/lucide/panel-left'
 import IconPanelRight from '~icons/lucide/panel-right'
@@ -23,6 +24,8 @@ import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
 import IconSettings from '~icons/lucide/settings'
 import IconSquarePlus from '~icons/lucide/square-plus'
+import IconSquareSplitHorizontal from '~icons/lucide/square-split-horizontal'
+import IconSquareSplitVertical from '~icons/lucide/square-split-vertical'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
 import type { CommandScope } from '../palette/scopes'
@@ -354,6 +357,97 @@ export const commandCatalog: BindableCommand[] = [
   // A position in the window strip, not a tmux window index: the strip is what
   // is on screen, and tmux's indices have gaps as soon as a window is closed.
   ...windowJumpCommands,
+  // The pane lifecycle, on the chords iTerm2 spells them with: ⌘D splits to
+  // the right, ⌘⇧D below, ⌘⇧W closes the pane (⌘W stays the window's), ⌘⇧↩
+  // zooms. They escape a focused pane like the window lifecycle does, so where
+  // `mod` is Ctrl the pane keeps Ctrl+D as end-of-input and the app answers
+  // Ctrl+Shift+D. "Right" and "down" name where the new pane lands; tmux
+  // calls the same two splits horizontal and vertical.
+  {
+    id: 'terminal.split-right',
+    title: 'Split pane right',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'split', 'horizontal', 'right', 'tmux'],
+    icon: IconSquareSplitHorizontal,
+    defaultCombos: ['mod+d'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.split-down',
+    title: 'Split pane down',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'split', 'vertical', 'down', 'below', 'tmux'],
+    icon: IconSquareSplitVertical,
+    defaultCombos: ['mod+shift+d'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.close-pane',
+    title: 'Close pane',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'close', 'kill', 'tmux'],
+    icon: IconX,
+    defaultCombos: ['mod+shift+w'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.zoom-pane',
+    title: 'Zoom pane',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'zoom', 'maximize', 'fullscreen', 'toggle', 'tmux'],
+    icon: IconMaximize2,
+    defaultCombos: ['mod+shift+enter'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  // Moving between panes is an alt chord — ⌘⌥ and an arrow, iTerm2's again —
+  // which the escape form cannot carry (terminalEscapeCombo qualifies only
+  // Command and Ctrl+Shift), so these pierce: they are claimed on the binding
+  // alone. Where `mod` is Ctrl that takes Ctrl+Alt+Arrow away from the shell,
+  // which readline does not bind by default.
+  {
+    id: 'terminal.focus-pane-left',
+    title: 'Focus pane left',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'left', 'tmux'],
+    icon: IconArrowLeft,
+    defaultCombos: ['mod+alt+arrowleft'],
+    context: 'terminal',
+    piercesPane: true,
+  },
+  {
+    id: 'terminal.focus-pane-right',
+    title: 'Focus pane right',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'right', 'tmux'],
+    icon: IconArrowRight,
+    defaultCombos: ['mod+alt+arrowright'],
+    context: 'terminal',
+    piercesPane: true,
+  },
+  {
+    id: 'terminal.focus-pane-up',
+    title: 'Focus pane up',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'up', 'above', 'tmux'],
+    icon: IconArrowUp,
+    defaultCombos: ['mod+alt+arrowup'],
+    context: 'terminal',
+    piercesPane: true,
+  },
+  {
+    id: 'terminal.focus-pane-down',
+    title: 'Focus pane down',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'down', 'below', 'tmux'],
+    icon: IconArrowDown,
+    defaultCombos: ['mod+alt+arrowdown'],
+    context: 'terminal',
+    piercesPane: true,
+  },
   // The Chats area is a plain two-level list beside a pane, not a tree, so it
   // needs only the pair terminal mode's focus chords have — no filter, no
   // window jumps. Combos are new ones, not terminal.*'s: a combo resolves to

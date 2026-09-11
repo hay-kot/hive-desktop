@@ -14,6 +14,7 @@ function chat(id: number, name: string, terminalId = ''): AgentSession {
     slug: `agentws-${id}`,
     terminalId,
     windowId: '',
+    paneId: '',
     cols: 0,
     rows: 0,
     resumeAttempted: false,

@@ -1,6 +1,5 @@
 import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
@@ -11,11 +10,16 @@ import {
   encodeInputFrames,
   encodePasteFrames,
   TerminalRequestError,
+  type PaneDirection,
+  type PaneLayout,
+  type SplitDirection,
   type TerminalClient,
   type WindowEventKind,
   type WindowState,
 } from '../lib/terminalClient'
 import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
+import { proposeGrid, terminalCellSize, terminalScrollbarWidth, type CellSize } from '../lib/terminalGrid'
+import { activePaneOf, paneGrids, windowPanes } from '../lib/terminalLayout'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { interceptPaste } from '../lib/terminalPaste'
@@ -60,6 +64,16 @@ export interface TerminalSizeConstraint {
   granted: TerminalSize
 }
 
+/** One tmux pane: one emulator, placed by its window's layout. */
+export interface TerminalPane {
+  // Unique per Terminal instance, for the same reason a tab's is.
+  uid: number
+  paneId: string
+  term: Terminal
+  // The viewport sits above the live tail, so new output lands below the fold.
+  scrolledUp: boolean
+}
+
 export interface TerminalWindowTab {
   // Unique per Terminal instance, not per tmux window: reconnect rebuilds the
   // terminals under the same window ids, and a v-for keyed on the window id
@@ -68,17 +82,22 @@ export interface TerminalWindowTab {
   windowId: string
   name: string
   active: boolean
-  // The viewport sits above the live tail, so new output lands below the fold.
-  scrolledUp: boolean
-  term: Terminal
-  fit: FitAddon
+  // tmux's active pane, which is also where the keyboard is: a click into a
+  // pane selects it, and tmux's announcement moves focus the other way.
+  activePane: string
+  // tmux's own size for the window — the grid its layout is laid out over.
+  width: number
+  height: number
+  zoomed: boolean
+  layout: PaneLayout | null
+  panes: TerminalPane[]
 }
 
 /**
- * The find bar, which searches one window at a time: the active tab's buffer,
- * scrollback included. `matches` is -1 when there are more than the addon will
- * highlight, and `index` is the 1-based position of the current match, 0 for
- * none.
+ * The find bar, which searches one pane at a time: the active window's active
+ * pane, scrollback included. `matches` is -1 when there are more than the
+ * addon will highlight, and `index` is the 1-based position of the current
+ * match, 0 for none.
  */
 export interface TerminalSearch {
   open: boolean
@@ -104,6 +123,9 @@ export interface UseTerminalWindows {
   // dropped and these panes were repainted from tmux rather than streamed.
   outputDropped: Ref<boolean>
   dismissOutputDropped: () => void
+  // The pixel size of one cell, measured off the first pane opened, and what
+  // turns a layout's cells into pane boxes. Null until a pane has measured.
+  cell: Ref<CellSize | null>
   search: Ref<TerminalSearch>
   openSearch: () => void
   closeSearch: () => void
@@ -118,14 +140,27 @@ export interface UseTerminalWindows {
   rename: (windowId: string, name: string) => Promise<void>
   moveWindow: (windowId: string, position: number) => Promise<void>
   attachTab: (windowId: string, host: HTMLElement) => void
+  attachPane: (paneId: string, host: HTMLElement) => void
   disposeTab: (windowId: string) => void
+  /** Make a pane its window's active pane and put the keyboard in it. */
+  selectPane: (paneId: string) => Promise<void>
+  /** Split the active window's active pane; horizontal puts the new pane to the right, vertical below. */
+  splitPane: (direction: SplitDirection) => Promise<void>
+  /** Close a pane, the active window's active one by default; the last pane of a window closes the window. */
+  closePane: (paneId?: string) => Promise<void>
+  /** Toggle the active window's active pane between filling the window and its place in the layout. */
+  zoomPane: () => Promise<void>
+  /** Move to the neighbour of the active pane in a direction, as tmux's own select-pane picks one. */
+  focusPane: (direction: PaneDirection) => Promise<void>
+  /** Set a pane's size in cells; a divider drag names the pane before it. */
+  resizePane: (paneId: string, size: { width?: number; height?: number }) => Promise<void>
   focusActive: () => void
   scrollToBottom: () => void
   dispose: () => void
 }
 
-// The grid a window renders at while tmux has reported none of its own, and
-// only then. Every path that learns tmux's size overrides it.
+// The grid a pane renders at while tmux has reported none for it, and only
+// then. Every path that learns tmux's size overrides it.
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 }
 const RESIZE_DEBOUNCE_MS = 80
 // How long tmux's answer to a vote is waited for before the difference is
@@ -143,10 +178,15 @@ function openLink(uri: string): void {
 
 const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 
-interface TabRuntime {
+interface WindowRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
-  // The same Terminal the tab holds, reachable without going through the
+}
+
+interface PaneRuntime {
+  windowId: string
+  host?: HTMLElement
+  // The same Terminal the pane holds, reachable without going through the
   // reactive tabs array — see refreshScrolledUp.
   term: Terminal
   finder: SearchAddon
@@ -156,7 +196,7 @@ interface TabRuntime {
   // canvas claim did not survive, which is what makes the next activation
   // retry instead of leaving the pane on the DOM renderer. ADR terminal-renderer-claimed-on-activation.
   rendered?: boolean
-  // The last value written to the tab's reactive `scrolledUp`, held raw so the
+  // The last value written to the pane's reactive `scrolledUp`, held raw so the
   // per-line refresh can tell "unchanged" without touching a Vue proxy. See
   // refreshScrolledUp.
   scrolledUp?: boolean
@@ -177,7 +217,7 @@ const VOTE_KEY = 'hive.terminal.vote'
 // the attach, and the session would land on the error overlay instead.
 const MAX_DIMENSION = 1000
 
-let nextTabUID = 1
+let nextUID = 1
 
 function rememberedVote(metrics: string): TerminalSize | null {
   try {
@@ -214,9 +254,11 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const actionError = ref<string | null>(null)
   const sizeConstraint = ref<TerminalSizeConstraint | null>(null)
   const outputDropped = ref(false)
+  const cell = ref<CellSize | null>(null)
   const search = ref<TerminalSearch>({ open: false, query: '', matches: 0, index: 0 })
 
-  const runtime = new Map<string, TabRuntime>()
+  const windows = new Map<string, WindowRuntime>()
+  const panes = new Map<string, PaneRuntime>()
   const scope = effectScope(true)
   let socket: WebSocket | null = null
   let disposed = false
@@ -246,7 +288,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const { theme } = useTheme()
     watch(theme, () => {
       const palette = xtermTheme()
-      for (const tab of tabs.value) tab.term.options.theme = palette
+      for (const state of panes.values()) state.term.options.theme = palette
       // A decoration keeps the colour it was drawn with, so live highlights
       // would stay in the old theme until the next keystroke.
       if (search.value.open) runSearch('incremental')
@@ -262,13 +304,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       async ([px, family, weight, weightBold, height, spacing]) => {
         await loadTerminalFaces(family, px, weight, weightBold)
         if (disposed) return
-        for (const tab of tabs.value) {
-          tab.term.options.fontFamily = terminalFontStack(family)
-          tab.term.options.fontSize = px
-          tab.term.options.fontWeight = weight
-          tab.term.options.fontWeightBold = weightBold
-          tab.term.options.lineHeight = height
-          tab.term.options.letterSpacing = spacing
+        for (const state of panes.values()) {
+          state.term.options.fontFamily = terminalFontStack(family)
+          state.term.options.fontSize = px
+          state.term.options.fontWeight = weight
+          state.term.options.fontWeightBold = weightBold
+          state.term.options.lineHeight = height
+          state.term.options.letterSpacing = spacing
         }
         scheduleVote()
       },
@@ -279,7 +321,38 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     return tabs.value.find((tab) => tab.windowId === windowId)
   }
 
+  function findPane(paneId: string): { tab: TerminalWindowTab; pane: TerminalPane } | undefined {
+    for (const tab of tabs.value) {
+      const pane = tab.panes.find((candidate) => candidate.paneId === paneId)
+      if (pane) return { tab, pane }
+    }
+    return undefined
+  }
+
+  // The pane the keyboard goes to: the active window's active pane.
+  function activePaneId(): string {
+    const tab = findTab(activeWindowId.value)
+    return tab ? activePaneOf(tab)?.paneId ?? '' : ''
+  }
+
   function createTab(state: WindowState): TerminalWindowTab {
+    windows.set(state.windowId, {})
+    const grids = paneGrids(state)
+    return {
+      uid: nextUID++,
+      windowId: state.windowId,
+      name: state.name,
+      active: state.active,
+      activePane: state.activePane,
+      width: state.width,
+      height: state.height,
+      zoomed: state.zoomed,
+      layout: state.layout,
+      panes: windowPanes(state).map((paneId) => createPane(state.windowId, paneId, grids.get(paneId))),
+    }
+  }
+
+  function createPane(windowId: string, paneId: string, grid: TerminalSize | undefined): TerminalPane {
     const term = markRaw(new Terminal({
       fontFamily: terminalFontStack(fontFamily.value),
       fontSize: fontSizePx.value,
@@ -294,8 +367,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       // through it — without this the first findNext throws and search is dead.
       allowProposedApi: true,
     }))
-    const fit = markRaw(new FitAddon())
-    term.loadAddon(fit)
     term.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
     const finder = markRaw(new SearchAddon())
     term.loadAddon(finder)
@@ -305,7 +376,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }))
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
-    term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
+    term.resize(grid?.cols || unreportedSize().cols, grid?.rows || unreportedSize().rows)
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type !== 'keydown') return true
       if (isSearchCombo(event)) {
@@ -321,7 +392,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       if (piercesPane(event)) return false
       return true
     })
-    runtime.set(state.windowId, {
+    panes.set(paneId, {
+      windowId,
       term,
       finder,
       output,
@@ -329,92 +401,102 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
         finder,
         { dispose: () => output.dispose() },
         silenceDeviceReports(term),
-        term.onData((data: string) => sendInput(state.windowId, data)),
+        term.onData((data: string) => sendInput(paneId, data)),
         // onScroll covers what output does to the buffer — the auto-pin to the
         // tail, and a trim moving it — but *not* the user scrolling: xterm's
         // viewport syncs the buffer from its own DOM scroll handler and
-        // suppresses the event to avoid feeding itself. attachTab listens to
+        // suppresses the event to avoid feeding itself. attachPane listens to
         // that DOM scroll for the other half.
-        term.onScroll(() => refreshScrolledUp(state.windowId)),
+        term.onScroll(() => refreshScrolledUp(paneId)),
         // Entering the alternate screen has no scrollback and fires no scroll
         // event on the way in.
-        term.buffer.onBufferChange(() => refreshScrolledUp(state.windowId)),
+        term.buffer.onBufferChange(() => refreshScrolledUp(paneId)),
         // Fires as output lands too, not just on a new query: a match count is
         // only true of the buffer it was counted in.
         finder.onDidChangeResults(({ resultIndex, resultCount }) => {
-          if (activeWindowId.value !== state.windowId) return
+          if (activePaneId() !== paneId) return
           search.value = { ...search.value, matches: resultCount, index: resultIndex + 1 }
         }),
       ],
     })
-    return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, scrolledUp: false, term, fit }
+    return { uid: nextUID++, paneId, term, scrolledUp: false }
   }
 
-  // Runs once per rendered line of output, per streaming window — xterm fires
+  // Runs once per rendered line of output, per streaming pane — xterm fires
   // onScroll for every line feed that reaches the bottom of the scroll region,
   // and hidden pooled panes keep parsing, so this is the hottest app-owned path
   // there is. Everything reactive is therefore behind an unchanged-value guard
   // read from the raw runtime record: the steady state (pinned to the tail,
   // nothing to say) touches no Vue proxy at all.
   //
-  // The write itself still goes through findTab, because it has to mutate the
-  // reactive proxy rather than the raw object createTab returned — a raw write
+  // The write itself still goes through findPane, because it has to mutate the
+  // reactive proxy rather than the raw object createPane returned — a raw write
   // would leave the pill stale.
-  function refreshScrolledUp(windowId: string): void {
-    const state = runtime.get(windowId)
+  function refreshScrolledUp(paneId: string): void {
+    const state = panes.get(paneId)
     if (!state) return
     const buffer = state.term.buffer.active
     const scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
     if (scrolledUp === state.scrolledUp) return
     state.scrolledUp = scrolledUp
-    const tab = findTab(windowId)
-    if (tab) tab.scrolledUp = scrolledUp
+    const found = findPane(paneId)
+    if (found) found.pane.scrolledUp = scrolledUp
   }
 
-  // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
-  // not reported one — a %window-add placeholder, say — and the reconcile behind
-  // it carries the real size a moment later.
-  function applySize(tab: TerminalWindowTab, width: number, height: number): void {
-    if (!width || !height) return
-    if (tab.term.cols === width && tab.term.rows === height) return
-    resizeTerminalPreservingViewport(tab.term, width, height)
-    refreshScrolledUp(tab.windowId)
+  // applyPaneGrids holds every pane of a window to the grid tmux gives it: its
+  // cell in the layout, or the whole window while it is zoomed. A 0 means tmux
+  // has not reported one — a %window-add placeholder, say — and the reconcile
+  // behind it carries the real size a moment later.
+  function applyPaneGrids(tab: TerminalWindowTab): void {
+    const grids = paneGrids(tab)
+    for (const pane of tab.panes) {
+      const grid = grids.get(pane.paneId)
+      if (!grid?.cols || !grid.rows) continue
+      if (pane.term.cols === grid.cols && pane.term.rows === grid.rows) continue
+      resizeTerminalPreservingViewport(pane.term, grid.cols, grid.rows)
+      refreshScrolledUp(pane.paneId)
+    }
   }
 
-  function sendInput(windowId: string, data: string): void {
+  function sendInput(paneId: string, data: string): void {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
-    for (const frame of encodeInputFrames(windowId, data)) socket.send(frame)
+    for (const frame of encodeInputFrames(paneId, data)) socket.send(frame)
   }
 
-  function sendPaste(windowId: string, text: string): void {
+  function sendPaste(paneId: string, text: string): void {
     if (!socket || socket.readyState !== WebSocket.OPEN) return
-    for (const frame of encodePasteFrames(windowId, text)) socket.send(frame)
+    for (const frame of encodePasteFrames(paneId, text)) socket.send(frame)
   }
 
   function setActive(windowId: string): void {
     if (activeWindowId.value !== windowId) clearHighlights()
     activeWindowId.value = windowId
     for (const tab of tabs.value) tab.active = tab.windowId === windowId
-    showRenderer(windowId)
+    showRenderers(windowId)
     // A search belongs to the buffer it ran against, so switching tabs re-runs
     // it rather than carrying the old window's hit count onto the new one.
     if (search.value.open) runSearch('incremental')
   }
 
   // A GL context is claimed when a window is first shown, not when its pane
-  // mounts. Mounting covers every window of every pooled session, which spends
+  // mounts. Mounting covers every pane of every pooled session, which spends
   // a context per background tab and pushes WebKit past its per-page limit on
   // each attach — and the pane it then kills is somebody else's. ADR terminal-renderer-claimed-on-activation.
-  function showRenderer(windowId: string): void {
-    const state = runtime.get(windowId)
+  function showRenderers(windowId: string): void {
     const tab = findTab(windowId)
-    // No host yet means the pane has not mounted; attachTab claims it there.
-    if (!state?.host || !tab || state.rendered) return
-    loadRenderer(state, tab.term)
+    if (!tab) return
+    for (const pane of tab.panes) showRenderer(pane.paneId)
+  }
+
+  function showRenderer(paneId: string): void {
+    const state = panes.get(paneId)
+    // No host yet means the pane has not mounted; attachPane claims it there.
+    if (!state?.host || state.rendered) return
+    loadRenderer(state)
   }
 
   // ─── Find ────────────────────────────────────────────────────────────────
-  // One bar over one window: the active tab's buffer, scrollback included.
+  // One bar over one pane: the active window's active pane, scrollback included.
 
   function openSearch(): void {
     search.value = { ...search.value, open: true }
@@ -438,7 +520,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // 'incremental' keeps the viewport on the match it is already showing while
   // the query is still being typed; the other two are the user stepping.
   function runSearch(mode: 'incremental' | 'next' | 'previous'): void {
-    const finder = runtime.get(activeWindowId.value)?.finder
+    const finder = panes.get(activePaneId())?.finder
     if (!finder) return
     if (!search.value.query) {
       finder.clearDecorations()
@@ -460,29 +542,51 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   function clearHighlights(): void {
-    for (const state of runtime.values()) state.finder.clearDecorations()
+    for (const state of panes.values()) state.finder.clearDecorations()
   }
 
+  // The window's box is what this client votes tmux's window size from, so the
+  // observer sits on it rather than on any one pane's.
   function attachTab(windowId: string, host: HTMLElement): void {
-    const tab = findTab(windowId)
-    const state = runtime.get(windowId)
-    if (!tab || !state || state.host) return
+    const state = windows.get(windowId)
+    if (!state || state.host) return
     state.host = host
-    tab.term.open(host)
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
-    watchViewportScroll(state, windowId, host)
-    const releasePaste = interceptPaste(host, (text) => sendPaste(windowId, text))
+    scheduleVote()
+  }
+
+  function attachPane(paneId: string, host: HTMLElement): void {
+    const found = findPane(paneId)
+    const state = panes.get(paneId)
+    if (!found || !state || state.host) return
+    state.host = host
+    state.term.open(host)
+    watchViewportScroll(state, paneId, host)
+    const releasePaste = interceptPaste(host, (text) => sendPaste(paneId, text))
     state.disposers.push({ dispose: releasePaste })
-    if (tab.windowId === activeWindowId.value) {
+    if (found.tab.windowId === activeWindowId.value) {
       // After open(), never before: an unopened Terminal defers addon
       // activation to its own open(), which would throw a missing-context
       // error out of there rather than out of the load, past the fallback.
-      showRenderer(windowId)
-      if (paneMayAutoFocus.value) tab.term.focus()
+      showRenderer(paneId)
+      // A pane that opens as its window's active pane takes the keyboard when
+      // the keyboard is already in that window — the pane a split just made,
+      // which tmux has made active. One that opens under a keyboard elsewhere
+      // leaves it there.
+      if (found.tab.activePane === paneId && paneMayAutoFocus.value && (found.tab.panes.length === 1 || focusIsInside(found.tab.windowId))) {
+        state.term.focus()
+      }
     }
+    measureCell()
     scheduleVote()
+  }
+
+  // Whether the keyboard is in one of a window's panes.
+  function focusIsInside(windowId: string): boolean {
+    const host = windows.get(windowId)?.host
+    return !!host && host.contains(document.activeElement)
   }
 
   // The only signal that the user scrolled. xterm's own onScroll is suppressed
@@ -492,10 +596,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // would ever offer the way back. The element only exists after open(), and
   // xterm's own listener is registered inside it, so ours runs second and reads
   // a buffer already synced.
-  function watchViewportScroll(state: TabRuntime, windowId: string, host: HTMLElement): void {
+  function watchViewportScroll(state: PaneRuntime, paneId: string, host: HTMLElement): void {
     const viewport = host.querySelector('.xterm-viewport')
     if (!viewport) return
-    const onScroll = (): void => refreshScrolledUp(windowId)
+    const onScroll = (): void => refreshScrolledUp(paneId)
     viewport.addEventListener('scroll', onScroll, { passive: true })
     state.disposers.push({ dispose: () => viewport.removeEventListener('scroll', onScroll) })
   }
@@ -505,23 +609,44 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     resizeTimer = setTimeout(voteSize, RESIZE_DEBOUNCE_MS)
   }
 
-  // The measurement is a vote, not a resize: it says how big a grid this pane
-  // could show, and tmux answers with the size it actually gave the window
-  // (%layout-change -> a window event). proposeDimensions rather than fit()
-  // because fit() would resize the Terminal itself, which is tmux's call.
+  // The cell every pane of this session renders at. One measurement serves
+  // them all: they share a font, and tmux's grid is one grid.
+  function measureCell(): CellSize | null {
+    for (const state of panes.values()) {
+      if (!state.host) continue
+      const measured = terminalCellSize(state.term)
+      if (!measured) continue
+      if (cell.value?.width !== measured.width || cell.value.height !== measured.height) cell.value = measured
+      return measured
+    }
+    return null
+  }
+
+  function scrollbarWidth(): number {
+    for (const state of panes.values()) {
+      if (state.host) return terminalScrollbarWidth(state.term)
+    }
+    return 0
+  }
+
+  // The measurement is a vote, not a resize: it says how big a grid the window's
+  // box could show, and tmux answers with the size it actually gave the window
+  // (%layout-change -> a window event). The arithmetic is the fit addon's, over
+  // the window's box rather than one pane's, because a split window's panes
+  // share the grid the box is worth.
   function voteSize(): void {
     const tab = findTab(activeWindowId.value)
-    const host = tab ? runtime.get(tab.windowId)?.host : undefined
+    const host = tab ? windows.get(tab.windowId)?.host : undefined
     if (!tab || !host) return
     // A pane inside a display:none subtree — every pooled session behind the
-    // shown one — has no rendered box, but proposeDimensions still produces a
-    // tiny "valid" grid there: getComputedStyle answers the specified '100%',
-    // which FitAddon parses as 100px. Voting it would squeeze every window of
-    // the session to ~8×4 and force the TUI inside to reflow, then reflow
-    // back on reveal — the repaint the pool exists to avoid.
+    // shown one — has no rendered box. Voting from one would squeeze every
+    // window of the session to a few cells and force the TUI inside to reflow,
+    // then reflow back on reveal — the repaint the pool exists to avoid.
     if (!host.clientWidth || !host.clientHeight) return
-    const proposed = tab.fit.proposeDimensions()
-    if (!proposed?.cols || !proposed.rows) return
+    const measured = measureCell()
+    if (!measured) return
+    const proposed = proposeGrid({ width: host.clientWidth, height: host.clientHeight }, measured, scrollbarWidth())
+    if (!proposed) return
     scheduleConstraintCheck()
     if (vote && proposed.cols === vote.cols && proposed.rows === vote.rows) return
     vote = { cols: proposed.cols, rows: proposed.rows }
@@ -531,7 +656,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     })
   }
 
-  // The grid a tab opens at while tmux has reported no size for its window — a
+  // The grid a pane opens at while tmux has reported no size for it — a
   // window created from the toolbar lands at the pane's size rather than
   // snapping to it when the reconcile behind it arrives.
   function unreportedSize(): TerminalSize {
@@ -548,11 +673,11 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // rendering bug unless the rule is named.
   function checkSizeConstraint(): void {
     const tab = findTab(activeWindowId.value)
-    if (!tab || !vote || constraintDismissed) {
+    if (!tab || !vote || constraintDismissed || !tab.width || !tab.height) {
       sizeConstraint.value = null
       return
     }
-    const granted = { cols: tab.term.cols, rows: tab.term.rows }
+    const granted = { cols: tab.width, rows: tab.height }
     sizeConstraint.value = granted.cols === vote.cols && granted.rows === vote.rows
       ? null
       : { voted: { ...vote }, granted }
@@ -574,7 +699,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
     switch (frame.type) {
       case 'output': {
-        runtime.get(frame.windowId)?.output.write(frame.data)
+        panes.get(frame.paneId)?.output.write(frame.data)
         break
       }
       case 'window':
@@ -597,10 +722,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function degraded(): void {
     if (disposed) return
     outputDropped.value = true
-    for (const [windowId, state] of runtime) {
+    for (const [paneId, state] of panes) {
       state.output.reset()
       state.term.reset()
-      refreshScrolledUp(windowId)
+      refreshScrolledUp(paneId)
     }
   }
 
@@ -608,9 +733,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     outputDropped.value = false
   }
 
-  // Every window event carries the whole window, so the size is taken from all
-  // of them rather than from 'resized' alone — a reconcile reports one change
-  // per window and its kind may be any of these.
+  // Every window event carries the whole window, so the layout is taken from
+  // all of them rather than from 'layout-changed' alone — a reconcile reports
+  // one change per window and its kind may be any of these.
   function applyWindowEvent(kind: WindowEventKind, state: WindowState): void {
     const { windowId } = state
     switch (kind) {
@@ -642,12 +767,50 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       case 'active-changed':
         if (state.active && findTab(windowId)) setActive(windowId)
         break
-      case 'resized':
+      case 'layout-changed':
         break
     }
     const tab = findTab(windowId)
-    if (tab) applySize(tab, state.width, state.height)
+    if (tab) applyWindowState(tab, state)
     scheduleConstraintCheck()
+  }
+
+  // Folds tmux's word on a window into the tab: its grid, its layout, its
+  // active pane, and the panes the layout now holds.
+  function applyWindowState(tab: TerminalWindowTab, state: WindowState): void {
+    const previousActivePane = tab.activePane
+    // Read before any pane is disposed: closing the pane the keyboard was in
+    // takes the keyboard with it, and the window's new active pane is where
+    // it should land.
+    const hadFocus = focusIsInside(tab.windowId)
+    if (state.width && state.height) {
+      tab.width = state.width
+      tab.height = state.height
+    }
+    tab.zoomed = state.zoomed
+    if (state.layout) tab.layout = state.layout
+    if (state.activePane) tab.activePane = state.activePane
+    reconcilePanes(tab)
+    applyPaneGrids(tab)
+    if (tab.activePane !== previousActivePane && hadFocus && tab.windowId === activeWindowId.value) {
+      void nextTick(() => panes.get(tab.activePane)?.term.focus())
+    }
+  }
+
+  // Panes come and go with the layout: a split names one nothing has opened,
+  // a kill-pane drops one. The emulator behind a hidden pane — one zoom is
+  // covering — stays, because tmux keeps streaming to it.
+  function reconcilePanes(tab: TerminalWindowTab): void {
+    const wanted = windowPanes(tab)
+    const grids = paneGrids(tab)
+    for (const pane of [...tab.panes]) {
+      if (!wanted.includes(pane.paneId)) disposePane(tab, pane.paneId)
+    }
+    for (const paneId of wanted) {
+      if (tab.panes.some((pane) => pane.paneId === paneId)) continue
+      tab.panes.push(createPane(tab.windowId, paneId, grids.get(paneId)))
+      if (tab.windowId === activeWindowId.value) void nextTick(() => showRenderer(paneId))
+    }
   }
 
   function openSocket(): void {
@@ -711,18 +874,26 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     socket = null
   }
 
-  function disposeTab(windowId: string): void {
-    const state = runtime.get(windowId)
+  function disposePane(tab: TerminalWindowTab, paneId: string): void {
+    const state = panes.get(paneId)
     if (state) {
-      state.observer?.disconnect()
       for (const disposer of state.disposers) disposer.dispose()
-      runtime.delete(windowId)
+      state.term.dispose()
+      panes.delete(paneId)
     }
+    tab.panes = tab.panes.filter((pane) => pane.paneId !== paneId)
+  }
+
+  function disposeTab(windowId: string): void {
     const tab = findTab(windowId)
     if (tab) {
-      tab.fit.dispose()
-      tab.term.dispose()
+      for (const pane of [...tab.panes]) disposePane(tab, pane.paneId)
       tabs.value = tabs.value.filter((other) => other.windowId !== windowId)
+    }
+    const state = windows.get(windowId)
+    if (state) {
+      state.observer?.disconnect()
+      windows.delete(windowId)
     }
     if (activeWindowId.value === windowId) setActive(tabs.value[0]?.windowId ?? '')
   }
@@ -739,19 +910,19 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     outputDropped.value = false
     try {
       // Concurrent, not sequential: the faces have to be resident before
-      // term.open() measures a cell, which attachTab does well after this
+      // term.open() measures a cell, which attachPane does well after this
       // resolves — so ~100ms of woff2 decode has no reason to be spent ahead of
       // the tmux round trip instead of alongside it.
       //
       // 0x0 sets no client size at all: tmux ignores a control client until it
       // sets one, so the session keeps the size its other clients gave it.
-      const [, { windows }] = await Promise.all([
+      const [, { windows: listed }] = await Promise.all([
         loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value),
         client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0),
       ])
       if (disposed) return
-      tabs.value = windows.map(createTab)
-      setActive(windows.find((window) => window.active)?.windowId ?? windows[0]?.windowId ?? '')
+      tabs.value = listed.map(createTab)
+      setActive(listed.find((window) => window.active)?.windowId ?? listed[0]?.windowId ?? '')
       openSocket()
     } catch (e) {
       // The core classifies "tmux is running no such session" rather than
@@ -786,20 +957,20 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
     setActive(windowId)
     await nextTick()
-    if (paneMayAutoFocus.value) findTab(windowId)?.term.focus()
+    if (paneMayAutoFocus.value) focusActive()
     scheduleVote()
     await control(() => client.selectWindow(slug, windowId), 'Could not select that window.')
   }
 
   function focusActive(): void {
-    findTab(activeWindowId.value)?.term.focus()
+    panes.get(activePaneId())?.term.focus()
   }
 
   function scrollToBottom(): void {
-    const tab = findTab(activeWindowId.value)
-    if (!tab) return
-    tab.term.scrollToBottom()
-    tab.term.focus()
+    const state = panes.get(activePaneId())
+    if (!state) return
+    state.term.scrollToBottom()
+    state.term.focus()
   }
 
   // Whichever of the two arrives second activates the window: the stream may
@@ -809,22 +980,35 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // it separates tmux commands. Sent as input, the shell reads it the way it
   // reads anything else the user types — history included — and stays alive
   // once it finishes. The pane's input queue holds the bytes if the shell has
-  // not started reading yet, so this does not race the window coming up.
-  async function newWindow(command = ''): Promise<void> {
+  // not reached its prompt yet.
+  async function newWindow(command?: string): Promise<void> {
     const created = await control(() => client.newWindow(slug), 'Could not create a window.')
-    if (created?.windowId) {
-      if (findTab(created.windowId)) activateCreated(created.windowId)
-      else pendingActivate = created.windowId
-      if (command) sendInput(created.windowId, `${command}\r`)
+    if (!created || disposed) return
+    if (findTab(created.windowId)) activateCreated(created.windowId)
+    else pendingActivate = created.windowId
+    if (command) {
+      // The window's pane is only knowable once tmux has announced its layout,
+      // so the line waits for that rather than being addressed to a window.
+      const typeInto = (): boolean => {
+        const tab = findTab(created.windowId)
+        const pane = tab && activePaneOf(tab)
+        if (!pane) return false
+        sendInput(pane.paneId, `${command}\r`)
+        return true
+      }
+      if (!typeInto()) pendingCommands.set(created.windowId, typeInto)
     }
   }
+
+  // Lines waiting for the window they were meant for to announce a pane.
+  const pendingCommands = new Map<string, () => boolean>()
 
   // A window this view asked for is one to type in, so it takes focus as well —
   // unlike one another client opened, which must not pull the keyboard out of
   // the pane in front of the user.
   function activateCreated(windowId: string): void {
     setActive(windowId)
-    if (paneMayAutoFocus.value) void nextTick(() => findTab(windowId)?.term.focus())
+    if (paneMayAutoFocus.value) void nextTick(() => focusActive())
   }
 
   async function closeWindow(windowId: string): Promise<void> {
@@ -847,15 +1031,77 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     tabs.value = optimistic
     actionError.value = null
     try {
-      const { windows } = await client.moveWindow(slug, windowId, position)
+      const { windows: ordered } = await client.moveWindow(slug, windowId, position)
       if (disposed) return
-      tabs.value = applyOrder(tabs.value, windows.map((window) => window.windowId))
+      tabs.value = applyOrder(tabs.value, ordered.map((window) => window.windowId))
     } catch (e) {
       if (disposed) return
       // The order goes back, not the tab set: a window opened or closed while
       // the move was in flight is tmux's news, and the refusal is not about it.
       tabs.value = applyOrder(tabs.value, before.map((tab) => tab.windowId))
       actionError.value = message(e, 'Could not move that window.')
+    }
+  }
+
+  // ─── Panes ───────────────────────────────────────────────────────────────
+  // Every verb names the active window's active pane unless told otherwise,
+  // and every answer comes back on the stream: tmux owns the layout and the
+  // active pane, so nothing here rearranges a pane on its own.
+
+  // A click into a pane is a select. The tab's active pane moves at once so
+  // the keystrokes that follow are addressed to it — the input frame names a
+  // pane — while tmux's own announcement, which agrees, lands a round trip
+  // later.
+  async function selectPane(paneId: string): Promise<void> {
+    const found = findPane(paneId)
+    if (!found) return
+    panes.get(paneId)?.term.focus()
+    if (found.tab.activePane === paneId) return
+    found.tab.activePane = paneId
+    await control(() => client.selectPane(slug, paneId), 'Could not select that pane.')
+  }
+
+  async function splitPane(direction: SplitDirection): Promise<void> {
+    const paneId = activePaneId()
+    if (!paneId) return
+    await control(() => client.splitPane(slug, paneId, direction), 'Could not split that pane.')
+  }
+
+  async function closePane(paneId: string = activePaneId()): Promise<void> {
+    if (!paneId) return
+    await control(() => client.closePane(slug, paneId), 'Could not close that pane.')
+  }
+
+  async function zoomPane(): Promise<void> {
+    const paneId = activePaneId()
+    if (!paneId) return
+    await control(() => client.zoomPane(slug, paneId), 'Could not zoom that pane.')
+  }
+
+  async function focusPane(direction: PaneDirection): Promise<void> {
+    const paneId = activePaneId()
+    if (!paneId) return
+    await control(() => client.selectPane(slug, paneId, direction), 'Could not select that pane.')
+  }
+
+  // A divider drag produces a size per pointer move and tmux answers each with a
+  // layout; only the latest is worth sending, so one request is in flight at a
+  // time and a newer size replaces one still waiting.
+  let resizeInFlight = false
+  let queuedResize: { paneId: string; size: { width?: number; height?: number } } | null = null
+
+  async function resizePane(paneId: string, size: { width?: number; height?: number }): Promise<void> {
+    queuedResize = { paneId, size }
+    if (resizeInFlight) return
+    resizeInFlight = true
+    try {
+      while (queuedResize && !disposed) {
+        const next = queuedResize
+        queuedResize = null
+        await control(() => client.resizePane(slug, next.paneId, next.size), 'Could not resize that pane.')
+      }
+    } finally {
+      resizeInFlight = false
     }
   }
 
@@ -868,6 +1114,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       return undefined
     }
   }
+
+  // A pending line for a new window is typed the moment its pane appears.
+  scope.run(() => {
+    watch(tabs, () => {
+      for (const [windowId, typeInto] of pendingCommands) {
+        if (typeInto()) pendingCommands.delete(windowId)
+      }
+    }, { deep: true })
+  })
 
   function dispose(): void {
     if (disposed) return
@@ -884,9 +1139,11 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   return {
     tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
-    outputDropped, dismissOutputDropped,
+    outputDropped, dismissOutputDropped, cell,
     search, openSearch, closeSearch, setSearchQuery, findNext, findPrevious,
-    start, reconnect, select, newWindow, closeWindow, rename, moveWindow, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
+    start, reconnect, select, newWindow, closeWindow, rename, moveWindow, attachTab, attachPane, disposeTab,
+    selectPane, splitPane, closePane, zoomPane, focusPane, resizePane,
+    focusActive, scrollToBottom, dispose,
   }
 }
 
@@ -948,9 +1205,9 @@ function message(error: unknown, fallback: string): string {
 
 // A failed claim leaves state.rendered false, which is what makes showRenderer
 // try again the next time the pane is shown (ADR terminal-renderer-claimed-on-activation).
-function loadRenderer(state: TabRuntime, term: Terminal): void {
+function loadRenderer(state: PaneRuntime): void {
   claimAtlasRenderer(
-    term,
+    state.term,
     (addon) => state.disposers.push(addon),
     (rendered) => { state.rendered = rendered },
   )

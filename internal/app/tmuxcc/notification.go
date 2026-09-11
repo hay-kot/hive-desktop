@@ -21,11 +21,14 @@ type (
 	WindowPaneChanged         struct{ Window, Pane string }
 	SessionChanged            struct{ Session, Name string }
 	SessionWindowChanged      struct{ Session, Window string }
-	// LayoutChanged carries the window's new size; Width/Height are 0 when the
-	// layout string could not be read.
+	// LayoutChanged carries the window's new pane tree and whether its active
+	// pane is zoomed over it. Layout is the zero value when the string could
+	// not be read; the reconcile the same notification triggers carries the
+	// tree authoritatively.
 	LayoutChanged struct {
-		Window        string
-		Width, Height int
+		Window string
+		Layout Layout
+		Zoomed bool
 	}
 	PauseNotification    struct{ Pane string }
 	ContinueNotification struct{ Pane string }
@@ -112,12 +115,12 @@ func parseNotification(line []byte) (Notification, error) {
 		return SessionWindowChanged{Session: string(sess), Window: string(win)}, nil
 
 	case "%layout-change":
-		win, layout, _ := bytes.Cut(rest, []byte(" "))
+		win, args, _ := bytes.Cut(rest, []byte(" "))
 		if !isWindowID(win) {
 			return nil, fmt.Errorf("%w: %%layout-change", errMalformed)
 		}
-		width, height := parseLayoutSize(layout)
-		return LayoutChanged{Window: string(win), Width: width, Height: height}, nil
+		layout, zoomed := parseLayoutChange(args)
+		return LayoutChanged{Window: string(win), Layout: layout, Zoomed: zoomed}, nil
 
 	case "%pause":
 		if !isPaneID(rest) {
@@ -163,23 +166,23 @@ func parseExtendedOutput(rest []byte) (Notification, error) {
 	return OutputNotification{Pane: string(pane), Data: decodeOutput(payload)}, nil
 }
 
-// parseLayoutSize reads the size a tmux layout string leads with:
-// `<checksum>,<width>x<height>,<x>,<y>[,...]`. The pane tree behind it is the
-// deferred panes phase's business — only the window's own dimensions are read,
-// and an unreadable layout yields 0,0 rather than an error, because the
-// reconcile the same notification triggers carries the size authoritatively.
-func parseLayoutSize(layout []byte) (width, height int) {
-	first, _, _ := bytes.Cut(layout, []byte(" "))
-	_, tail, ok := bytes.Cut(first, []byte(","))
-	if !ok {
-		return 0, 0
+// parseLayoutChange reads `<layout> <visible-layout> <flags>`. The first
+// layout is the window's unzoomed tree, which is what the renderer lays panes
+// out from; the visible one differs only under zoom, which the `Z` flag says
+// outright. An unreadable layout yields the zero value rather than an error,
+// because the reconcile the same notification triggers carries the tree
+// authoritatively.
+func parseLayoutChange(args []byte) (Layout, bool) {
+	fields := bytes.Fields(args)
+	if len(fields) == 0 {
+		return Layout{}, false
 	}
-	dims, _, _ := bytes.Cut(tail, []byte(","))
-	w, h, ok := bytes.Cut(dims, []byte("x"))
-	if !ok {
-		return 0, 0
+	layout, err := ParseLayout(string(fields[0]))
+	if err != nil {
+		return Layout{}, false
 	}
-	return atoi(w), atoi(h)
+	zoomed := len(fields) >= 3 && bytes.ContainsRune(fields[2], 'Z')
+	return layout, zoomed
 }
 
 func atoi(b []byte) int {
@@ -245,7 +248,8 @@ func isWindowID(b []byte) bool  { return hasIDForm(b, '@') }
 func isPaneID(b []byte) bool    { return hasIDForm(b, '%') }
 func isSessionID(b []byte) bool { return hasIDForm(b, '$') }
 
-// validWindowID gates ids that reach a tmux command line. Window ids arrive
-// from the frontend, so anything but @<digits> is refused rather than
-// interpolated into a command.
+// validWindowID and validPaneID gate ids that reach a tmux command line. Both
+// arrive from the frontend, so anything but @<digits> or %<digits> is refused
+// rather than interpolated into a command.
 func validWindowID(id string) bool { return hasIDForm([]byte(id), '@') }
+func validPaneID(id string) bool   { return hasIDForm([]byte(id), '%') }

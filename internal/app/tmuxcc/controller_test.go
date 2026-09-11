@@ -9,8 +9,8 @@ import (
 func seededController() *controller {
 	c := newController()
 	c.set([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
-		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 	})
 	return c
 }
@@ -33,7 +33,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(WindowCloseNotification{Window: "@2"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowClosed,
-			Window: Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+			Window: Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 		}}, events)
 
 		_, ok := c.windowForPane("%2")
@@ -46,7 +46,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(WindowRenamedNotification{Window: "@2", Name: "logs"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowRenamed,
-			Window: Window{ID: "@2", Name: "logs", ActivePane: "%2", Width: 120, Height: 40},
+			Window: Window{ID: "@2", Name: "logs", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 		}}, events)
 	})
 
@@ -56,7 +56,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(WindowPaneChanged{Window: "@2", Pane: "%7"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowActiveChanged,
-			Window: Window{ID: "@2", Name: "shell", ActivePane: "%7", Width: 120, Height: 40},
+			Window: Window{ID: "@2", Name: "shell", ActivePane: "%7", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 		}}, events)
 
 		w, ok := c.windowForPane("%7")
@@ -74,7 +74,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(SessionWindowChanged{Session: "$1", Window: "@2"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowActiveChanged,
-			Window: Window{ID: "@2", Name: "shell", Active: true, ActivePane: "%2", Width: 120, Height: 40},
+			Window: Window{ID: "@2", Name: "shell", Active: true, ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 		}}, events)
 
 		windows := c.Windows()
@@ -93,18 +93,35 @@ func TestControllerNotifications(t *testing.T) {
 			c.apply(ContinueNotification{Pane: "%1"}))
 	})
 
-	t.Run("layout change carries the window's new size", func(t *testing.T) {
+	t.Run("layout change carries the window's new tree and size", func(t *testing.T) {
 		t.Parallel()
 		c := seededController()
 		require.Equal(t, []Event{WindowChanged{
-			Kind:   WindowResized,
-			Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24},
-		}}, c.apply(LayoutChanged{Window: "@1", Width: 80, Height: 24}))
+			Kind:   WindowLayoutChanged,
+			Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24, Layout: singlePaneLayout("%1", 80, 24)},
+		}}, c.apply(LayoutChanged{Window: "@1", Layout: singlePaneLayout("%1", 80, 24)}))
 
-		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Width: 80, Height: 24}),
-			"a layout change that moves no boundary is not a resize")
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Layout: singlePaneLayout("%1", 80, 24)}),
+			"a layout change that moves no boundary is not a change")
 		require.Nil(t, c.apply(LayoutChanged{Window: "@1"}),
-			"an unreadable layout leaves the size alone; the reconcile it triggers carries it")
+			"an unreadable layout leaves the tree alone; the reconcile it triggers carries it")
+
+		split, err := ParseLayout("f91d,80x24,0,0{40x24,0,0,1,39x24,41,0,9}")
+		require.NoError(t, err)
+		events := c.apply(LayoutChanged{Window: "@1", Layout: split})
+		require.Len(t, events, 1)
+		changed, ok := events[0].(WindowChanged)
+		require.True(t, ok)
+		require.Equal(t, WindowLayoutChanged, changed.Kind)
+		w, ok := c.windowForPane("%9")
+		require.True(t, ok, "every pane in the layout resolves to its window")
+		require.Equal(t, "@1", w.ID)
+		require.Equal(t, []string{"%1", "%9"}, w.Panes())
+
+		require.Equal(t, []Event{WindowChanged{
+			Kind:   WindowLayoutChanged,
+			Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24, Layout: split, Zoomed: true},
+		}}, c.apply(LayoutChanged{Window: "@1", Layout: split, Zoomed: true}), "a zoom is a layout change too")
 	})
 
 	t.Run("notifications for unknown windows are inert", func(t *testing.T) {
@@ -113,7 +130,7 @@ func TestControllerNotifications(t *testing.T) {
 		require.Nil(t, c.apply(WindowCloseNotification{Window: "@99"}))
 		require.Nil(t, c.apply(WindowRenamedNotification{Window: "@99", Name: "x"}))
 		require.Nil(t, c.apply(SessionWindowChanged{Session: "$1", Window: "@99"}))
-		require.Nil(t, c.apply(LayoutChanged{Window: "@99", Width: 80, Height: 24}))
+		require.Nil(t, c.apply(LayoutChanged{Window: "@99", Layout: singlePaneLayout("%99", 80, 24)}))
 		require.Len(t, c.Windows(), 2)
 	})
 }
@@ -124,14 +141,14 @@ func TestControllerReconcileDiffs(t *testing.T) {
 	c := seededController()
 	since := c.mark()
 	events := c.reconcile([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24},
-		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24, Layout: singlePaneLayout("%1", 80, 24)},
+		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24, Layout: singlePaneLayout("%3", 80, 24)},
 	}, since)
 
 	require.Equal(t, []Event{
-		WindowChanged{Kind: WindowResized, Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24}},
-		WindowChanged{Kind: WindowAdded, Window: Window{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24}},
-		WindowChanged{Kind: WindowClosed, Window: Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40}},
+		WindowChanged{Kind: WindowLayoutChanged, Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24, Layout: singlePaneLayout("%1", 80, 24)}},
+		WindowChanged{Kind: WindowAdded, Window: Window{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24, Layout: singlePaneLayout("%3", 80, 24)}},
+		WindowChanged{Kind: WindowClosed, Window: Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)}},
 	}, events)
 
 	require.Equal(t, []string{"@1", "@3"}, windowIDs(c.Windows()))
@@ -145,8 +162,8 @@ func TestControllerReconcileAdoptsTmuxOrder(t *testing.T) {
 	c := seededController()
 	since := c.mark()
 	events := c.reconcile([]Window{
-		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
 	}, since)
 
 	require.Empty(t, events, "a pure reorder changes nothing about any window")
@@ -163,14 +180,14 @@ func TestControllerReconcileFillsPlaceholder(t *testing.T) {
 	since := c.mark()
 
 	events := c.reconcile([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
-		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
-		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
+		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40, Layout: singlePaneLayout("%3", 120, 40)},
 	}, since)
 
 	require.Equal(t, []Event{WindowChanged{
 		Kind:   WindowRenamed,
-		Window: Window{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40},
+		Window: Window{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40, Layout: singlePaneLayout("%3", 120, 40)},
 	}}, events)
 
 	w, ok := c.windowForPane("%3")
@@ -181,13 +198,13 @@ func TestControllerReconcileFillsPlaceholder(t *testing.T) {
 func TestParseWindowLine(t *testing.T) {
 	t.Parallel()
 
-	w, ok := parseWindowLine("@275 1 %512 213 55 claude session")
+	w, ok := parseWindowLine("@275 1 %512 213 55 0 b25f,213x55,0,0,512 claude session")
 	require.True(t, ok)
-	require.Equal(t, Window{ID: "@275", Name: "claude session", Active: true, ActivePane: "%512", Width: 213, Height: 55}, w)
+	require.Equal(t, Window{ID: "@275", Name: "claude session", Active: true, ActivePane: "%512", Width: 213, Height: 55, Layout: singlePaneLayout("%512", 213, 55)}, w)
 
-	w, ok = parseWindowLine("@276 0 %513 80 24")
+	w, ok = parseWindowLine("@276 0 %513 80 24 0 b25f,80x24,0,0,513")
 	require.True(t, ok)
-	require.Equal(t, Window{ID: "@276", ActivePane: "%513", Width: 80, Height: 24}, w)
+	require.Equal(t, Window{ID: "@276", ActivePane: "%513", Width: 80, Height: 24, Layout: singlePaneLayout("%513", 80, 24)}, w)
 
 	_, ok = parseWindowLine("nonsense")
 	require.False(t, ok)
@@ -207,8 +224,8 @@ func TestControllerReconcileKeepsWindowsAddedAfterTheSnapshot(t *testing.T) {
 	c.apply(WindowAddNotification{Window: "@3"})
 
 	events := c.reconcile([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
-		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 	}, since)
 
 	require.Empty(t, events, "a snapshot that predates @3 reports nothing about it")
@@ -219,7 +236,7 @@ func TestControllerReconcileKeepsWindowsAddedAfterTheSnapshot(t *testing.T) {
 	// that snapshot is also what may legitimately close it.
 	since = c.mark()
 	c.reconcile([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
 	}, since)
 	require.Equal(t, []string{"@1"}, windowIDs(c.Windows()),
 		"a snapshot taken after the add is authoritative and does close it")

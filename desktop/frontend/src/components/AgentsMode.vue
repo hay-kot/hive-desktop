@@ -108,6 +108,7 @@ const disposers: IDisposable[] = []
 // socket names the window it belongs to, so the pane has to know which one is
 // its own for the life of one attach.
 let paneWindowId = ''
+let panePaneId = ''
 
 const paneLaidOut = computed(() => paneStatus.value === 'opening' || term.value !== null)
 const paneWorkspaceName = computed(() =>
@@ -534,7 +535,7 @@ async function launchIntoPane(workspace: string, action: (size: { cols?: number;
     // The launch already voted this measurement; seeding the dedup keeps the
     // observer's first fire from re-casting it.
     lastVote = size ?? null
-    attachStream(created, result.terminalId, result.windowId)
+    attachStream(created, result.terminalId, result.windowId, result.paneId)
     paneStatus.value = 'live'
     // A launch that lands while the user is typing elsewhere must not steal
     // that focus -- the sidebar's inline rename can be one keystroke into a
@@ -581,10 +582,11 @@ function measurePane(): { cols: number; rows: number } | undefined {
 // (useTerminalWindows.ts): a host resize is a size *vote* posted to
 // sessions/resize, and the window 'resized' frame tmux answers with is what
 // actually resizes xterm. The fit addon is kept only for proposeDimensions.
-function attachStream(created: Terminal, terminalId: string, windowId: string): void {
+function attachStream(created: Terminal, terminalId: string, windowId: string, paneId: string): void {
   if (!client.value || !paneHost.value) return
 
   paneWindowId = windowId
+  panePaneId = paneId
   disposers.push(silenceDeviceReports(created))
   disposers.push(created.onData((data) => send(data)))
   disposers.push({ dispose: interceptPaste(paneHost.value, sendPaste) })
@@ -601,6 +603,12 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
       if (frame.kind !== 'closed' && frame.state.windowId === paneWindowId && frame.state.width && frame.state.height) {
         created.resize(frame.state.width, frame.state.height)
       }
+      // A chat is one pane, so the window's active pane is the one this
+      // terminal types into — and the frame is what names it when the launch
+      // could not.
+      if (frame.kind !== 'closed' && frame.state.windowId === paneWindowId && frame.state.activePane) {
+        panePaneId = frame.state.activePane
+      }
       return
     }
     if (frame.windowId !== paneWindowId) return
@@ -616,13 +624,13 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
 }
 
 function send(data: string): void {
-  if (socket?.readyState !== WebSocket.OPEN || !paneWindowId) return
-  for (const frame of encodeInputFrames(paneWindowId, data)) socket.send(frame)
+  if (socket?.readyState !== WebSocket.OPEN || !panePaneId) return
+  for (const frame of encodeInputFrames(panePaneId, data)) socket.send(frame)
 }
 
 function sendPaste(text: string): void {
-  if (socket?.readyState !== WebSocket.OPEN || !paneWindowId) return
-  for (const frame of encodePasteFrames(paneWindowId, text)) socket.send(frame)
+  if (socket?.readyState !== WebSocket.OPEN || !panePaneId) return
+  for (const frame of encodePasteFrames(panePaneId, text)) socket.send(frame)
 }
 
 let lastVote: { cols: number; rows: number } | null = null

@@ -162,6 +162,8 @@ export interface AgentSession {
    * a plain sessions() listing leaves it empty even for a live session.
    */
   windowId: string
+  /** That window's active pane, which client frames on the tmux wire name. Set beside windowId. */
+  paneId: string
   /**
    * tmux's own size for that window at attach — the grid the pane must open
    * at, which may differ from the cols/rows voted (tmux's window-size option
