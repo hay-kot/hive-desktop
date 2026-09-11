@@ -56,7 +56,7 @@ A window shows every tmux pane where tmux lays it out, including panes split fro
 - <kbd>⌘⇧↩</kbd> zooms the active pane to fill the window, and again to restore the layout. A `zoomed` badge shows while a pane is zoomed.
 - <kbd>⌘⇧W</kbd> closes the active pane. Closing the last pane closes the window. Hive asks first when the pane is running something.
 
-On Linux, use Control+Shift in place of Command, and Control+Alt with the arrow keys.
+On Linux, <kbd>Ctrl+Shift+D</kbd> splits right, <kbd>Ctrl+Shift+O</kbd> splits down, <kbd>Ctrl+Alt</kbd> with the arrow keys moves between panes, <kbd>Ctrl+Shift+M</kbd> zooms, and <kbd>Ctrl+Shift+Q</kbd> closes the pane.
 
 ## Appearance
 

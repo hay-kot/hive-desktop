@@ -1530,12 +1530,12 @@ drawing and underlines to the cell's device-pixel bounds; xterm's DOM renderer
 cannot join either across cells at any size or device pixel ratio. Four rules
 follow and are the ones to keep (ADRs terminal-atlas-renderer, terminal-renderer-claimed-on-activation): the renderer is claimed after
 `term.open()` and never before, and **when the window is first shown rather than
-when its pane mounts** — the pool mounts a pane per window of every attached
-session, and claiming at mount spends a GL context per background tab and walks
-the page past WebKit's per-page limit, where the context it costs is another
-session's pane; a pane that ends up on the DOM renderer is a logged degradation
-path, not a supported one, and a failed canvas claim is recorded so the next
-activation retries rather than stranding the pane there; **do not set
+when a pane mounts** — the pool mounts a host per pane of every window of every
+attached session, and claiming at mount spends a GL context per background pane
+and walks the page past WebKit's per-page limit, where the context it costs is
+another session's pane; a pane that ends up on the DOM renderer is a logged
+degradation path, not a supported one, and a failed canvas claim is recorded so
+the next activation retries rather than stranding the pane there; **do not set
 `lineHeight` or `letterSpacing`** — every renderer quantises both to whole
 device pixels, so neither can tune a cell onto a cleaner boundary and a
 `lineHeight` above 1 pads the glyph off the edge box drawing has to reach; and
@@ -1645,7 +1645,10 @@ Three rules govern it, and each is a consequence of that:
   the window lifecycle — `terminal.new-window`, `-close-window`, `-next-window`,
   `-prev-window`. That is what leaves a bare Ctrl+K as readline's
   kill-to-end-of-line and Ctrl+T as its transpose-chars while ⌘K and ⌘T are the
-  app's. Prefer escaping: piercing is for a chord the escape form cannot carry.
+  app's. A shifted binding therefore cannot escape where `mod` is Ctrl, so an
+  escaping command whose macOS chord is shifted carries `ctrlDefaultCombos`, an
+  unshifted default for that platform (`terminal.split-down`: ⌘⇧D, Ctrl+Shift+O).
+  Prefer escaping: piercing is for a chord the escape form cannot carry.
   An alt chord is the case that forces it — `terminalEscapeCombo` qualifies only
   Command and Ctrl+Shift, so a user who binds `alt+t` to a command that merely
   escapes gets nothing. Widening the escape chord to accept alt was rejected:

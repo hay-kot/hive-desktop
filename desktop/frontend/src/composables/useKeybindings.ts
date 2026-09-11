@@ -3,7 +3,7 @@ import {
   KeybindingSettings as GetKeybindingSettings,
   SetKeybindingSettings,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
-import { commands } from '../keybindings/catalog'
+import { commands, defaultCombosFor } from '../keybindings/catalog'
 
 // The frontend keybinding layer. Pure normalization (comboFromEvent /
 // formatCombo) is separate from the effective keymap so both are unit-testable
@@ -20,9 +20,10 @@ import { commands } from '../keybindings/catalog'
 type Overrides = Record<string, string[]>
 
 const knownIDs = computed(() => new Set(commands.value.map((c) => c.id)))
-const defaultCombos = computed<Record<string, string[]>>(
-  () => Object.fromEntries(commands.value.map((c) => [c.id, c.defaultCombos])),
-)
+const defaultCombos = computed<Record<string, string[]>>(() => {
+  const mac = detectMac()
+  return Object.fromEntries(commands.value.map((c) => [c.id, defaultCombosFor(c, mac)]))
+})
 
 const MODIFIER_ORDER = ['mod', 'ctrl', 'alt', 'shift'] as const
 
@@ -211,6 +212,9 @@ export function comboFromEvent(e: KeyboardEvent): string | null {
  * without Cmd, Ctrl+Shift is how a terminal emulator spells an app chord
  * (Ctrl+Shift+C is ⌘C), so it stands in for Cmd rather than being part of the
  * combo — which is what lets one configured `mod+k` match on both platforms.
+ * It also means a `mod+shift+<key>` binding can never be reached from a pane
+ * there, which is why the catalog carries `ctrlDefaultCombos` for the escaping
+ * commands whose macOS chord is shifted.
  */
 export function terminalEscapeCombo(e: KeyboardEvent): string | null {
   const escapes = e.ctrlKey ? e.shiftKey && !e.metaKey : e.metaKey && !e.altKey

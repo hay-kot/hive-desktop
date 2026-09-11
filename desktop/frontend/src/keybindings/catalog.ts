@@ -76,6 +76,14 @@ export interface BindableCommand {
   icon?: Component
   /** Canonical default combos; `[]` = bindable but unbound. */
   defaultCombos: string[]
+  /**
+   * The defaults where `mod` is Ctrl, when the macOS ones cannot be used
+   * there. Ctrl+Shift is the pane escape itself and terminalEscapeCombo drops
+   * the Shift before resolving, so a shifted `escapesPane` default such as ⌘⇧W
+   * is unreachable from a pane on that platform and lands on `mod+w` instead.
+   * Read through defaultCombosFor; absent means the same defaults everywhere.
+   */
+  ctrlDefaultCombos?: string[]
   context: CommandContext
   /** Palette scope for the seeded row. Default 'actions'. */
   scope?: CommandScope
@@ -86,7 +94,8 @@ export interface BindableCommand {
    * than on the binding alone — Command on macOS, Ctrl+Shift where there is no
    * Command (useKeybindings.terminalEscapeCombo). Without it the pane keeps the
    * key, which is what leaves Ctrl+T as readline's transpose on a platform
-   * where `mod` is Ctrl.
+   * where `mod` is Ctrl. A shifted binding cannot escape there, since the
+   * Shift is the escape: see `ctrlDefaultCombos`.
    */
   escapesPane?: boolean
   /**
@@ -361,8 +370,14 @@ export const commandCatalog: BindableCommand[] = [
   // the right, ⌘⇧D below, ⌘⇧W closes the pane (⌘W stays the window's), ⌘⇧↩
   // zooms. They escape a focused pane like the window lifecycle does, so where
   // `mod` is Ctrl the pane keeps Ctrl+D as end-of-input and the app answers
-  // Ctrl+Shift+D. "Right" and "down" name where the new pane lands; tmux
-  // calls the same two splits horizontal and vertical.
+  // Ctrl+Shift+D. The three shifted chords cannot cross to that platform,
+  // where Ctrl+Shift+W would collapse to `mod+w` and close the window, so
+  // they take unshifted stand-ins there: O, Q and M rather than Terminator's
+  // X and Z, because a `terminal` command still fires from the session filter
+  // and the rename box (App.vue lets a modifier chord through an editable
+  // target) and Ctrl+X and Ctrl+Z are cut and undo in those. "Right" and
+  // "down" name where the new pane lands; tmux calls the same two splits
+  // horizontal and vertical.
   {
     id: 'terminal.split-right',
     title: 'Split pane right',
@@ -380,6 +395,7 @@ export const commandCatalog: BindableCommand[] = [
     keywords: ['terminal', 'pane', 'split', 'vertical', 'down', 'below', 'tmux'],
     icon: IconSquareSplitVertical,
     defaultCombos: ['mod+shift+d'],
+    ctrlDefaultCombos: ['mod+o'],
     context: 'terminal',
     escapesPane: true,
   },
@@ -390,6 +406,7 @@ export const commandCatalog: BindableCommand[] = [
     keywords: ['terminal', 'pane', 'close', 'kill', 'tmux'],
     icon: IconX,
     defaultCombos: ['mod+shift+w'],
+    ctrlDefaultCombos: ['mod+q'],
     context: 'terminal',
     escapesPane: true,
   },
@@ -400,6 +417,7 @@ export const commandCatalog: BindableCommand[] = [
     keywords: ['terminal', 'pane', 'zoom', 'maximize', 'fullscreen', 'toggle', 'tmux'],
     icon: IconMaximize2,
     defaultCombos: ['mod+shift+enter'],
+    ctrlDefaultCombos: ['mod+m'],
     context: 'terminal',
     escapesPane: true,
   },
@@ -593,6 +611,11 @@ export function commandEscapesPane(commandID: string): boolean {
 /** Whether the command fires over a focused terminal pane on the binding alone. */
 export function commandPiercesPane(commandID: string): boolean {
   return panePierces.has(commandID)
+}
+
+/** The defaults a platform seeds; `mac` is what useKeybindings' detectMac answers. */
+export function defaultCombosFor(command: BindableCommand, mac: boolean): string[] {
+  return mac ? command.defaultCombos : (command.ctrlDefaultCombos ?? command.defaultCombos)
 }
 
 // The namespace a launcher's bindable command id lives in — `launcher.lazygit`
