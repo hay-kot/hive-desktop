@@ -34,12 +34,16 @@ const xterm = vi.hoisted(() => {
       registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
     }
 
+    // The keystroke path: what the pane registered is what a test types through.
+    dataHandler: ((data: string) => void) | null = null
+
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
       FakeTerminal.instances.push(this)
     }
 
-    onData(_handler: (data: string) => void) {
+    onData(handler: (data: string) => void) {
+      this.dataHandler = handler
       return { dispose: vi.fn() }
     }
   }
@@ -104,8 +108,32 @@ class FakeSocket {
   onmessage: ((event: { data: ArrayBuffer }) => void) | null = null
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
-  send(): void {}
+  sent: Uint8Array[] = []
+  send(frame: Uint8Array): void { this.sent.push(frame) }
   close(): void {}
+}
+
+// Mirrors the window-event frame in internal/adapter/httpapi/terminal_stream.go.
+function windowFrame(state: Record<string, unknown>): ArrayBuffer {
+  const body = new TextEncoder().encode(JSON.stringify(state))
+  const bytes = new Uint8Array(1 + body.length)
+  bytes[0] = 0x01
+  bytes.set(body, 1)
+  return bytes.buffer
+}
+
+function openedSocket(client: ReturnType<typeof fakeClient>): FakeSocket {
+  return client.openStream.mock.results.at(-1)!.value as FakeSocket
+}
+
+function typeInPane(data: string): void {
+  xterm.FakeTerminal.instances.at(-1)!.dataHandler?.(data)
+}
+
+// [0x10][idLen][paneId][bytes]: one input frame naming the pane it lands in.
+function inputFrame(paneId: string, data: string): number[] {
+  const id = Array.from(new TextEncoder().encode(paneId))
+  return [0x10, id.length, ...id, ...Array.from(new TextEncoder().encode(data))]
 }
 
 class FakeResizeObserver {
@@ -446,6 +474,47 @@ describe('AgentsMode', () => {
 
     const created = xterm.FakeTerminal.instances.at(-1)!
     expect(created.focus).toHaveBeenCalled()
+  })
+
+  // Input is framed by pane, not by window: a keystroke goes out as one input
+  // frame naming the pane the launch answered.
+  it('frames keystrokes for the pane the launch named', async () => {
+    const { client } = await mountWithOpenChat()
+    const socket = openedSocket(client)
+
+    typeInPane('x')
+
+    expect(socket.sent.map((frame) => Array.from(frame))).toEqual([[0x10, 2, 0x25, 0x31, 0x78]])
+  })
+
+  // A chat is one pane, so the pane tmux reports active for its window is the
+  // one to type into -- the stream's word overrides the launch's.
+  it('re-points input at the active pane a window event names', async () => {
+    const { client } = await mountWithOpenChat()
+    const socket = openedSocket(client)
+
+    socket.onmessage?.({ data: windowFrame({ kind: 'active-changed', windowId: 'w1', activePane: '%5', width: 80, height: 24 }) })
+    typeInPane('x')
+
+    expect(Array.from(socket.sent.at(-1)!)).toEqual(inputFrame('%5', 'x'))
+  })
+
+  // A resume answers no pane id, so a resumed chat can only type once the
+  // stream has named its pane. Until then a keystroke is dropped rather than
+  // framed for a pane that does not exist.
+  it('drops input on a resumed chat until a window event names its pane', async () => {
+    const client = fakeClient()
+    client.allSessions.mockResolvedValue([chatRow])
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    await mountAgentsMode('/workspaces/web-app?chat=7')
+    const socket = openedSocket(client)
+
+    typeInPane('x')
+    expect(socket.sent).toEqual([])
+
+    socket.onmessage?.({ data: windowFrame({ kind: 'layout-changed', windowId: 'w1', activePane: '%3', width: 80, height: 24 }) })
+    typeInPane('x')
+    expect(socket.sent.map((frame) => Array.from(frame))).toEqual([inputFrame('%3', 'x')])
   })
 
   // A failed attach sets openSessionId optimistically but leaves paneStatus

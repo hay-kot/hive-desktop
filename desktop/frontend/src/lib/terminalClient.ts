@@ -16,10 +16,7 @@ import type { TerminalEndpoint } from '../../bindings/github.com/hay-kot/hive-de
 
 export type { TerminalEndpoint }
 
-/**
- * Carried as ?v=; the server rejects anything else before the upgrade. 2 is
- * where client frames started naming a pane instead of a window.
- */
+/** Carried as ?v=; the server rejects anything else before the upgrade. */
 export const TERMINAL_WIRE_VERSION = '2'
 
 /** The server's whole-frame cap on one client -> server message. */

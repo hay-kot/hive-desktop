@@ -15,7 +15,7 @@ import { resetAttachedTerminalWindowsForTests, useAttachedTerminalWindows } from
 import { useCommandPalette } from '../../composables/useCommands'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
-import { closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
+import { closeTerminalPane, closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
 import { createAppRouter } from '../../router'
 import { tooltipFor } from '../../test-utils/tooltip'
 
@@ -134,11 +134,13 @@ function fakeListWindowsEach(windows: FakeWindow[]) {
   return vi.fn(async (slugs: string[]) => Object.fromEntries(slugs.map((slug) => [slug, windows])))
 }
 
+type FakePane = { uid: number; paneId: string; term: object; scrolledUp: boolean }
+
 function fakeSession() {
   return {
     tabs: ref([
-      { uid: 1, windowId: '@1', name: 'agent', active: true, activePane: '%1', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
-      { uid: 2, windowId: '@2', name: 'shell', active: false, activePane: '%2', width: 213, height: 55, zoomed: false, layout: null, panes: [] },
+      { uid: 1, windowId: '@1', name: 'agent', active: true, activePane: '%1', width: 213, height: 55, zoomed: false, layout: null, panes: [] as FakePane[] },
+      { uid: 2, windowId: '@2', name: 'shell', active: false, activePane: '%2', width: 213, height: 55, zoomed: false, layout: null, panes: [] as FakePane[] },
     ]),
     activeWindowId: ref('@1'),
     status: ref<'connecting' | 'live' | 'ended'>('live'),
@@ -177,6 +179,14 @@ function fakeSession() {
     scrollToBottom: vi.fn(),
     dispose: vi.fn(),
   }
+}
+
+// The pane chords act on the active window's active pane, which the plain
+// fixture leaves without one.
+function onePaneSession() {
+  const session = fakeSession()
+  session.tabs.value[0].panes = [{ uid: 11, paneId: '%1', term: {}, scrolledUp: false }]
+  return session
 }
 
 // The scratch terminal's row is pinned above the repositories and is a session
@@ -1140,6 +1150,74 @@ describe('TerminalMode', () => {
     expect(session.closeWindow).not.toHaveBeenCalled()
     expect(document.querySelector('[data-testid="session-confirmation"]')?.textContent).toContain('Something is still running in agent')
     document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
+  })
+
+  // Closing a pane kills the same kind of thing as closing a tab, so the chord
+  // takes the same guard: what the pane is running is read at the moment of the
+  // close, for the pane the close would kill, and the dialog names it.
+  it('confirms before the close-pane chord kills a running pane', async () => {
+    const paneForeground = vi.fn().mockResolvedValue({ running: true, command: 'claude' })
+    mocks.createTerminalClient.mockReturnValue({ paneForeground })
+    const { wrapper, session } = await mountAvailable(onePaneSession())
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    closeTerminalPane()
+    await flushPromises()
+
+    expect(paneForeground).toHaveBeenCalledWith('hive-bump-deps', '%1')
+    expect(session.closePane).not.toHaveBeenCalled()
+    const dialog = document.querySelector('[data-testid="session-confirmation"]')?.textContent
+    expect(dialog).toContain('Close this pane?')
+    expect(dialog).toContain('claude is still running in agent')
+
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')?.click()
+    await flushPromises()
+    expect(session.closePane).toHaveBeenCalledWith('%1')
+  })
+
+  it('leaves the pane and its process alone when the confirmation is cancelled', async () => {
+    mocks.createTerminalClient.mockReturnValue({ paneForeground: vi.fn().mockResolvedValue({ running: true, command: 'claude' }) })
+    const { wrapper, session } = await mountAvailable(onePaneSession())
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    closeTerminalPane()
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
+    await flushPromises()
+
+    expect(session.closePane).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="session-confirmation"]')).toBeNull()
+  })
+
+  it('confirms when what the pane is running could not be read', async () => {
+    mocks.createTerminalClient.mockReturnValue({ paneForeground: vi.fn().mockRejectedValue(new Error('tmux went away')) })
+    const { wrapper, session } = await mountAvailable(onePaneSession())
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    closeTerminalPane()
+    await flushPromises()
+
+    expect(session.closePane).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="session-confirmation"]')?.textContent).toContain('Something is still running in agent')
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
+  })
+
+  it('closes an idle pane on the chord without asking', async () => {
+    const paneForeground = vi.fn().mockResolvedValue({ running: false, command: '' })
+    mocks.createTerminalClient.mockReturnValue({ paneForeground })
+    const { wrapper, session } = await mountAvailable(onePaneSession())
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    closeTerminalPane()
+    await flushPromises()
+
+    expect(paneForeground).toHaveBeenCalledWith('hive-bump-deps', '%1')
+    expect(session.closePane).toHaveBeenCalledWith('%1')
+    expect(document.querySelector('[data-testid="session-confirmation"]')).toBeNull()
   })
 
   // Adding a window is a property of the session, not of what is on screen, so

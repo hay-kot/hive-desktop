@@ -343,7 +343,7 @@ export interface AgentWorkspacesClient {
   sessions(workspace: string): Promise<AgentSession[]>
   /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
-  /** Votes a size for a live session's pane; tmux answers with a window 'resized' frame on the stream. */
+  /** Votes a size for a live session's pane; tmux answers with a window 'layout-changed' frame on the stream. */
   resizeSession(id: number, cols: number, rows: number): Promise<void>
   /** Sets a session's display name; the live terminal, if any, is untouched. */
   renameSession(id: number, name: string): Promise<void>

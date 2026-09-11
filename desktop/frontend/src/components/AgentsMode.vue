@@ -527,7 +527,7 @@ async function launchIntoPane(workspace: string, action: (size: { cols?: number;
     }
     // The grid opens at the size tmux granted at attach — not the size this
     // launch voted, which tmux's window-size option may have overruled — and
-    // from here window 'resized' frames are what change it (the Code view's
+    // from here window 'layout-changed' frames are what change it (the Code view's
     // rule: the pane renders tmux's grid, never its own fit). Opening at any
     // other size tears the TUI's cursor-addressed redraws.
     if (result.cols && result.rows) created.resize(result.cols, result.rows)
@@ -580,7 +580,7 @@ function measurePane(): { cols: number; rows: number } | undefined {
 
 // The pane renders tmux's grid, never its own fit — the Code view's rule
 // (useTerminalWindows.ts): a host resize is a size *vote* posted to
-// sessions/resize, and the window 'resized' frame tmux answers with is what
+// sessions/resize, and the window 'layout-changed' frame tmux answers with is what
 // actually resizes xterm. The fit addon is kept only for proposeDimensions.
 function attachStream(created: Terminal, terminalId: string, windowId: string, paneId: string): void {
   if (!client.value || !paneHost.value) return
@@ -599,7 +599,7 @@ function attachStream(created: Terminal, terminalId: string, windowId: string, p
       // Every window-event kind carries tmux's own size, and the payload doc
       // is explicit about why: the renderer must draw at that size or
       // cursor-addressed output lands wrong. Applying it from any kind also
-      // covers a 'resized' that fired before this socket subscribed.
+      // covers a 'layout-changed' that fired before this socket subscribed.
       if (frame.kind !== 'closed' && frame.state.windowId === paneWindowId && frame.state.width && frame.state.height) {
         created.resize(frame.state.width, frame.state.height)
       }

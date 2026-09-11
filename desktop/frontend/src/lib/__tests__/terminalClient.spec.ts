@@ -241,6 +241,75 @@ describe('createTerminalClient', () => {
       .resolves.toEqual({ running: true, command: '' })
   })
 
+  it('splits a pane and answers the id of the pane it made', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { paneId: '%7' }))
+
+    const result = await createTerminalClient(endpoint).splitPane('hive-abc', '%1', 'vertical')
+
+    expect(result).toEqual({ paneId: '%7' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/panes/split')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', paneId: '%1', direction: 'vertical' })
+  })
+
+  it('reads a split that named no pane as an empty id', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}))
+
+    await expect(createTerminalClient(endpoint).splitPane('hive-abc', '%1', 'horizontal'))
+      .resolves.toEqual({ paneId: '' })
+  })
+
+  // The server reads a missing direction as "this pane" and a zero axis as
+  // "leave it alone", and it reads both from the field, so the client always
+  // sends one.
+  it('spells an absent direction and axis out as empty and zero', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    const client = createTerminalClient(endpoint)
+
+    await client.selectPane('hive-abc', '%1')
+    await client.selectPane('hive-abc', '%1', 'left')
+    await client.resizePane('hive-abc', '%1', { width: 50 })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:58006/api/terminal/panes/select')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ slug: 'hive-abc', paneId: '%1', direction: '' })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ slug: 'hive-abc', paneId: '%1', direction: 'left' })
+    expect(fetchMock.mock.calls[2][0]).toBe('http://127.0.0.1:58006/api/terminal/panes/resize')
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ slug: 'hive-abc', paneId: '%1', width: 50, height: 0 })
+  })
+
+  it('closes and zooms a pane by its id alone', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    const client = createTerminalClient(endpoint)
+
+    await expect(client.closePane('hive-abc', '%1')).resolves.toBeUndefined()
+    await expect(client.zoomPane('hive-abc', '%1')).resolves.toBeUndefined()
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:58006/api/terminal/panes/close')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ slug: 'hive-abc', paneId: '%1' })
+    expect(fetchMock.mock.calls[1][0]).toBe('http://127.0.0.1:58006/api/terminal/panes/zoom')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ slug: 'hive-abc', paneId: '%1' })
+  })
+
+  it('reports what a pane is running before it is closed', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { running: false, command: '' }))
+
+    const result = await createTerminalClient(endpoint).paneForeground('hive-abc', '%1')
+
+    expect(result).toEqual({ running: false, command: '' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/panes/foreground')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', paneId: '%1' })
+  })
+
+  // The same rule as the window: a pane is killed on this answer, so no verdict
+  // is a running one.
+  it('reads a pane with no verdict as running rather than idle', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}))
+
+    await expect(createTerminalClient(endpoint).paneForeground('hive-abc', '%1'))
+      .resolves.toEqual({ running: true, command: '' })
+  })
+
   it('surfaces the core error message and its kind from a failed control action', async () => {
     fetchMock.mockResolvedValue(jsonResponse(404, { kind: 'not_found', message: 'no terminal is attached for that slug' }))
 
