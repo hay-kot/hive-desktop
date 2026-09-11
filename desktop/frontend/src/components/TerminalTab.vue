@@ -14,30 +14,30 @@ onMounted(() => {
 })
 
 const cell = computed(() => props.session.cell.value)
-const rects = computed(() => new Map(visiblePaneRects(props.tab).map((rect) => [rect.paneId, rect])))
 const dividers = computed(() => paneDividers(props.tab))
 const split = computed(() => props.tab.panes.length > 1)
 
-// Cells to pixels. Until a pane has been opened and measured there is no
-// cell to multiply by, so the active pane takes the whole box and the rest
-// wait hidden — which is exactly a one-pane window's arrangement.
-function paneStyle(paneId: string): Record<string, string> | undefined {
-  const rect = rects.value.get(paneId)
-  if (!rect) return undefined
+// Cells to pixels, for every pane on screen; a pane with no entry is hidden.
+// Until a pane has been opened and measured there is no cell to multiply by,
+// so the active pane takes the whole box and the rest wait hidden - which is
+// exactly a one-pane window's arrangement.
+const placements = computed(() => {
   const size = cell.value
-  if (!size) return paneId === props.tab.activePane ? { inset: '0' } : undefined
-  return {
-    left: `${rect.x * size.width}px`,
-    top: `${rect.y * size.height}px`,
-    width: `${rect.width * size.width}px`,
-    height: `${rect.height * size.height}px`,
+  const placed = new Map<string, Record<string, string>>()
+  for (const rect of visiblePaneRects(props.tab)) {
+    if (size) {
+      placed.set(rect.paneId, {
+        left: `${rect.x * size.width}px`,
+        top: `${rect.y * size.height}px`,
+        width: `${rect.width * size.width}px`,
+        height: `${rect.height * size.height}px`,
+      })
+    } else if (rect.paneId === props.tab.activePane) {
+      placed.set(rect.paneId, { inset: '0' })
+    }
   }
-}
-
-function paneShown(paneId: string): boolean {
-  if (!rects.value.has(paneId)) return false
-  return !!cell.value || paneId === props.tab.activePane
-}
+  return placed
+})
 
 // The border tmux leaves between two panes is one cell wide; the line is drawn
 // down its middle and the whole cell is the drag target.
@@ -61,7 +61,15 @@ function dividerStyle(divider: PaneDivider): Record<string, string> | undefined 
 }
 
 function dividerKey(divider: PaneDivider): string {
-  return `${divider.axis}:${divider.before}:${divider.after}`
+  return `${divider.axis}:${divider.beforePanes[0]}:${divider.afterPanes[0]}`
+}
+
+function dividerClass(divider: PaneDivider): string[] {
+  return [
+    divider.axis === 'x' ? 'flex-col' : '',
+    divider.before ? `terminal-divider-draggable ${divider.axis === 'x' ? 'cursor-col-resize' : 'cursor-row-resize'}` : '',
+    dividerTouches(divider, props.tab.activePane) ? 'terminal-divider-active' : '',
+  ]
 }
 
 // A drag names the cell before the divider and the size it should end up at;
@@ -70,7 +78,7 @@ function dividerKey(divider: PaneDivider): string {
 function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
   const size = cell.value
   const box = host.value?.getBoundingClientRect()
-  if (!size || !box) return
+  if (!divider.before || !size || !box) return
   event.preventDefault()
   let last = divider.extent
   startDrag(event, {
@@ -109,23 +117,21 @@ function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
       <TerminalPane
         v-for="pane in tab.panes"
         :key="pane.uid"
-        v-show="paneShown(pane.paneId)"
+        v-show="placements.has(pane.paneId)"
         :pane="pane"
         :active="split && pane.paneId === tab.activePane"
-        :style="paneStyle(pane.paneId)"
+        :style="placements.get(pane.paneId)"
         @mount="session.attachPane"
         @select="session.selectPane"
       />
       <!-- The one-cell border between two panes, drawn the way tmux draws it:
-           a line, brighter beside the active pane, and the whole cell drags. -->
+           a line, brighter beside the active pane, and the whole cell drags
+           when tmux can be told to move it. -->
       <div
         v-for="divider in dividers"
         :key="dividerKey(divider)"
         class="terminal-divider absolute z-10 flex items-center justify-center"
-        :class="[
-          divider.axis === 'x' ? 'cursor-col-resize flex-col' : 'cursor-row-resize',
-          dividerTouches(divider, tab.layout, tab.activePane) ? 'terminal-divider-active' : '',
-        ]"
+        :class="dividerClass(divider)"
         :style="dividerStyle(divider)"
         role="separator"
         :aria-orientation="divider.axis === 'x' ? 'vertical' : 'horizontal'"
@@ -153,6 +159,6 @@ function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
 .terminal-divider { touch-action: none; }
 .terminal-divider-line { background: var(--color-border); }
 .terminal-divider-active .terminal-divider-line { background: var(--color-strong); }
-.terminal-divider:hover .terminal-divider-line,
-.terminal-divider:active .terminal-divider-line { background: var(--color-text-4); }
+.terminal-divider-draggable:hover .terminal-divider-line,
+.terminal-divider-draggable:active .terminal-divider-line { background: var(--color-text-4); }
 </style>

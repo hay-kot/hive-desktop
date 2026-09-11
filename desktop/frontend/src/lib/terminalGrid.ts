@@ -17,7 +17,6 @@ export interface GridSize {
 
 interface TerminalCore {
   _renderService?: { dimensions?: { css?: { cell?: { width: number; height: number } } } }
-  viewport?: { scrollBarWidth?: number }
 }
 
 function core(term: Terminal): TerminalCore | undefined {
@@ -31,16 +30,10 @@ export function terminalCellSize(term: Terminal): CellSize | null {
   return { width: cell.width, height: cell.height }
 }
 
-/** The width the terminal's viewport scrollbar takes from its box; 0 with no scrollback or an overlay scrollbar. */
-export function terminalScrollbarWidth(term: Terminal): number {
-  if (term.options.scrollback === 0) return 0
-  return core(term)?.viewport?.scrollBarWidth || 0
-}
-
-/** How many cells fit a box, the arithmetic the fit addon does over its own host. */
-export function proposeGrid(box: { width: number; height: number }, cell: CellSize, scrollbar: number): GridSize | null {
+/** How many whole cells fit a box. */
+export function proposeGrid(box: { width: number; height: number }, cell: CellSize): GridSize | null {
   if (!box.width || !box.height || !cell.width || !cell.height) return null
-  const cols = Math.floor((box.width - scrollbar) / cell.width)
+  const cols = Math.floor(box.width / cell.width)
   const rows = Math.floor(box.height / cell.height)
   if (cols < 1 || rows < 1) return null
   return { cols, rows }

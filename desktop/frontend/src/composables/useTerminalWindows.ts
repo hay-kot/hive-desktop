@@ -18,7 +18,7 @@ import {
   type WindowState,
 } from '../lib/terminalClient'
 import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
-import { proposeGrid, terminalCellSize, terminalScrollbarWidth, type CellSize } from '../lib/terminalGrid'
+import { proposeGrid, terminalCellSize, type CellSize } from '../lib/terminalGrid'
 import { activePaneOf, paneGrids, windowPanes } from '../lib/terminalLayout'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
@@ -123,7 +123,7 @@ export interface UseTerminalWindows {
   // dropped and these panes were repainted from tmux rather than streamed.
   outputDropped: Ref<boolean>
   dismissOutputDropped: () => void
-  // The pixel size of one cell, measured off the first pane opened, and what
+  // The pixel size of one cell, measured off the shown window's panes, and what
   // turns a layout's cells into pane boxes. Null until a pane has measured.
   cell: Ref<CellSize | null>
   search: Ref<TerminalSearch>
@@ -280,9 +280,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   let resizeTimer: ReturnType<typeof setTimeout> | undefined
   let constraintTimer: ReturnType<typeof setTimeout> | undefined
   let constraintDismissed = false
+  // terminalGrid.ts reads xterm's private _core, which no test against a fake
+  // terminal can notice moving; an opened, visible pane with no cell is the
+  // one signal there is.
+  let warnedUnmeasuredCell = false
   // A window created from the toolbar is only knowable by id once tmux
   // announces it, so the intent to focus it is parked until then.
   let pendingActivate = ''
+  // Lines waiting for the window they were meant for to announce a pane.
+  const pendingCommands = new Map<string, () => boolean>()
 
   scope.run(() => {
     const { theme } = useTheme()
@@ -545,6 +551,14 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     for (const state of panes.values()) state.finder.clearDecorations()
   }
 
+  // A search belongs to the buffer it ran against, so a new active pane re-runs
+  // it rather than carrying the old pane's highlights and hit count over.
+  function retargetSearch(): void {
+    if (!search.value.open) return
+    clearHighlights()
+    runSearch('incremental')
+  }
+
   // The window's box is what this client votes tmux's window size from, so the
   // observer sits on it rather than on any one pane's.
   function attachTab(windowId: string, host: HTMLElement): void {
@@ -610,30 +624,48 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   // The cell every pane of this session renders at. One measurement serves
-  // them all: they share a font, and tmux's grid is one grid.
+  // them all: they share a font, and tmux's grid is one grid. The shown
+  // window's panes are asked first, an atlas-rendered one ahead of the rest:
+  // only the shown window claims a renderer, and the DOM renderer's cell is
+  // the unfloored device width, which drifts from the atlas one by a fraction
+  // of a pixel per column.
   function measureCell(): CellSize | null {
-    for (const state of panes.values()) {
-      if (!state.host) continue
+    for (const state of panesToMeasure()) {
       const measured = terminalCellSize(state.term)
-      if (!measured) continue
+      if (!measured) {
+        warnUnmeasuredCell(state)
+        continue
+      }
       if (cell.value?.width !== measured.width || cell.value.height !== measured.height) cell.value = measured
       return measured
     }
     return null
   }
 
-  function scrollbarWidth(): number {
-    for (const state of panes.values()) {
-      if (state.host) return terminalScrollbarWidth(state.term)
+  function panesToMeasure(): PaneRuntime[] {
+    const rank = (state: PaneRuntime): number => {
+      if (state.windowId !== activeWindowId.value) return 2
+      return state.rendered ? 0 : 1
     }
-    return 0
+    return [...panes.values()]
+      .filter((state) => state.host)
+      .sort((a, b) => rank(a) - rank(b))
+  }
+
+  // A pane inside a display:none subtree measures nothing, and that is
+  // expected; one with a box that has opened and still reports no cell is not.
+  function warnUnmeasuredCell(state: PaneRuntime): void {
+    if (warnedUnmeasuredCell || !state.term.element || !state.host?.clientWidth) return
+    warnedUnmeasuredCell = true
+    console.warn('terminalGrid.ts: an opened terminal reports no cell; xterm may have moved _core._renderService.dimensions')
   }
 
   // The measurement is a vote, not a resize: it says how big a grid the window's
   // box could show, and tmux answers with the size it actually gave the window
-  // (%layout-change -> a window event). The arithmetic is the fit addon's, over
-  // the window's box rather than one pane's, because a split window's panes
-  // share the grid the box is worth.
+  // (%layout-change -> a window event). It is taken over the window's box rather
+  // than one pane's, because a split window's panes share the grid the box is
+  // worth. No column is kept back for a scrollbar: a pane's box is exactly its
+  // canvas, so its scrollbar is hidden and the wheel is the way into scrollback.
   function voteSize(): void {
     const tab = findTab(activeWindowId.value)
     const host = tab ? windows.get(tab.windowId)?.host : undefined
@@ -645,7 +677,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!host.clientWidth || !host.clientHeight) return
     const measured = measureCell()
     if (!measured) return
-    const proposed = proposeGrid({ width: host.clientWidth, height: host.clientHeight }, measured, scrollbarWidth())
+    const proposed = proposeGrid({ width: host.clientWidth, height: host.clientHeight }, measured)
     if (!proposed) return
     scheduleConstraintCheck()
     if (vote && proposed.cols === vote.cols && proposed.rows === vote.rows) return
@@ -733,10 +765,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     outputDropped.value = false
   }
 
+  function applyWindowEvent(kind: WindowEventKind, state: WindowState): void {
+    applyWindowChange(kind, state)
+    if (pendingCommands.get(state.windowId)?.()) pendingCommands.delete(state.windowId)
+  }
+
   // Every window event carries the whole window, so the layout is taken from
   // all of them rather than from 'layout-changed' alone — a reconcile reports
   // one change per window and its kind may be any of these.
-  function applyWindowEvent(kind: WindowEventKind, state: WindowState): void {
+  function applyWindowChange(kind: WindowEventKind, state: WindowState): void {
     const { windowId } = state
     switch (kind) {
       case 'added': {
@@ -754,11 +791,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       case 'closed':
         disposeTab(windowId)
         return
-      case 'renamed': {
-        const tab = findTab(windowId)
-        if (tab) tab.name = state.name
+      case 'renamed':
         break
-      }
       // The kind reports "this window's active flag or pane changed", not
       // "this window is now the session's", and a reconcile emits one for the
       // window that just *lost* the flag as well — in tmux index order, so
@@ -788,12 +822,14 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       tab.height = state.height
     }
     tab.zoomed = state.zoomed
+    if (state.name) tab.name = state.name
     if (state.layout) tab.layout = state.layout
     if (state.activePane) tab.activePane = state.activePane
     reconcilePanes(tab)
     applyPaneGrids(tab)
-    if (tab.activePane !== previousActivePane && hadFocus && tab.windowId === activeWindowId.value) {
-      void nextTick(() => panes.get(tab.activePane)?.term.focus())
+    if (tab.activePane !== previousActivePane && tab.windowId === activeWindowId.value) {
+      retargetSearch()
+      if (hadFocus) void nextTick(() => panes.get(tab.activePane)?.term.focus())
     }
   }
 
@@ -895,6 +931,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       state.observer?.disconnect()
       windows.delete(windowId)
     }
+    pendingCommands.delete(windowId)
     if (activeWindowId.value === windowId) setActive(tabs.value[0]?.windowId ?? '')
   }
 
@@ -1000,9 +1037,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
   }
 
-  // Lines waiting for the window they were meant for to announce a pane.
-  const pendingCommands = new Map<string, () => boolean>()
-
   // A window this view asked for is one to type in, so it takes focus as well —
   // unlike one another client opened, which must not pull the keyboard out of
   // the pane in front of the user.
@@ -1058,6 +1092,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     panes.get(paneId)?.term.focus()
     if (found.tab.activePane === paneId) return
     found.tab.activePane = paneId
+    if (found.tab.windowId === activeWindowId.value) retargetSearch()
     await control(() => client.selectPane(slug, paneId), 'Could not select that pane.')
   }
 
@@ -1114,15 +1149,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       return undefined
     }
   }
-
-  // A pending line for a new window is typed the moment its pane appears.
-  scope.run(() => {
-    watch(tabs, () => {
-      for (const [windowId, typeInto] of pendingCommands) {
-        if (typeInto()) pendingCommands.delete(windowId)
-      }
-    }, { deep: true })
-  })
 
   function dispose(): void {
     if (disposed) return

@@ -19,7 +19,7 @@ onMounted(() => {
        whole number of cells, and the part-cell remainder would otherwise
        swallow it. -->
   <div
-    class="absolute overflow-hidden"
+    class="terminal-pane absolute overflow-hidden"
     data-testid="terminal-pane-host"
     :data-pane-id="pane.paneId"
     :data-active-pane="active ? 'true' : undefined"
@@ -28,3 +28,13 @@ onMounted(() => {
     <div ref="host" class="size-full" />
   </div>
 </template>
+
+<style scoped>
+/* The pane's box is exactly its canvas, which xterm draws over the viewport,
+   so a scrollbar would sit under it and show nowhere while the size vote had
+   to keep a column free for it. Hidden, the wheel and the scrolled-up pill
+   are the way through scrollback; xterm's own wheel handling scrolls the
+   viewport element either way. */
+.terminal-pane :deep(.xterm-viewport) { scrollbar-width: none; }
+.terminal-pane :deep(.xterm-viewport::-webkit-scrollbar) { display: none; }
+</style>

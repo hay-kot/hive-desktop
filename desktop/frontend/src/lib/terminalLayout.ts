@@ -14,11 +14,16 @@ export interface PaneRect {
 
 /**
  * A border between two sibling cells. `at` is the border's column (axis x)
- * or row (axis y), `from`/`to` its extent along the other axis, and `before`
- * names a pane inside the cell ahead of it — the pane a resize is addressed
- * to, since tmux moves the divider on the far side of the cell it is told to
- * resize. `origin` and `extent` are that cell's start and size along the axis,
- * `limit` the most it may grow to before the cell after it disappears.
+ * or row (axis y), `from`/`to` its extent along the other axis, and
+ * `beforePanes`/`afterPanes` the leaves on either side of it.
+ *
+ * `before` is the pane a resize is addressed to. tmux sizes the target's cell
+ * inside its nearest ancestor split on the same axis, so the target has to be
+ * a leaf whose nearest such ancestor is this divider's node: the cell before
+ * the divider when it is a leaf, else one of that cell's direct leaf children.
+ * Empty when the cell has none - no pane can move that divider, so it is not
+ * draggable. `origin` and `extent` are the cell's start and size along the
+ * axis, `limit` the most it may grow to before the cell after it disappears.
  */
 export interface PaneDivider {
   axis: 'x' | 'y'
@@ -26,7 +31,8 @@ export interface PaneDivider {
   from: number
   to: number
   before: string
-  after: string
+  beforePanes: string[]
+  afterPanes: string[]
   origin: number
   extent: number
   limit: number
@@ -112,8 +118,9 @@ function collectDividers(node: PaneLayout, out: PaneDivider[]): void {
       at: horizontal ? before.x + before.width : before.y + before.height,
       from: horizontal ? node.y : node.x,
       to: horizontal ? node.y + node.height : node.x + node.width,
-      before: firstPane(before),
-      after: firstPane(after),
+      before: resizeTarget(before),
+      beforePanes: paneIds(before),
+      afterPanes: paneIds(after),
       origin: horizontal ? before.x : before.y,
       extent,
       limit: extent + next - 1,
@@ -122,8 +129,15 @@ function collectDividers(node: PaneLayout, out: PaneDivider[]): void {
   for (const cell of cells) collectDividers(cell, out)
 }
 
-function firstPane(node: PaneLayout): string {
-  return layoutLeaves(node)[0]?.paneId ?? ''
+// tmux never nests a split directly inside one on the same axis, so a split
+// cell's direct leaf children are the only leaves that resolve to its parent.
+function resizeTarget(cell: PaneLayout): string {
+  if (cell.paneId) return cell.paneId
+  return (cell.cells ?? []).find((child) => child.paneId)?.paneId ?? ''
+}
+
+function paneIds(node: PaneLayout): string[] {
+  return layoutLeaves(node).map((leaf) => leaf.paneId as string)
 }
 
 /**
@@ -132,30 +146,11 @@ function firstPane(node: PaneLayout): string {
  * cell after it vanishes.
  */
 export function draggedExtent(divider: PaneDivider, position: number): number {
-  const wanted = Math.round(position) - divider.origin
+  const wanted = Math.floor(position) - divider.origin
   return Math.min(Math.max(wanted, 1), divider.limit)
 }
 
 /** Whether a divider borders the pane, on either side. */
-export function dividerTouches(divider: PaneDivider, layout: PaneLayout | null, paneId: string): boolean {
-  if (!layout || !paneId) return false
-  const owner = cellOwning(layout, divider)
-  if (!owner) return false
-  const cells = owner.cells ?? []
-  const index = cells.findIndex((cell) => firstPane(cell) === divider.before)
-  if (index < 0) return false
-  return [cells[index], cells[index + 1]].some((cell) => cell && layoutLeaves(cell).some((leaf) => leaf.paneId === paneId))
-}
-
-function cellOwning(node: PaneLayout, divider: PaneDivider): PaneLayout | null {
-  const cells = node.cells ?? []
-  if (node.split && cells.length >= 2) {
-    const horizontal = node.split === 'leftright'
-    if ((horizontal ? 'x' : 'y') === divider.axis && cells.some((cell) => firstPane(cell) === divider.before)) return node
-  }
-  for (const cell of cells) {
-    const found = cellOwning(cell, divider)
-    if (found) return found
-  }
-  return null
+export function dividerTouches(divider: PaneDivider, paneId: string): boolean {
+  return divider.beforePanes.includes(paneId) || divider.afterPanes.includes(paneId)
 }
