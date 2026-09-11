@@ -8,12 +8,15 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 const (
@@ -63,12 +66,41 @@ func NewDispatcher(executors map[string]Executor) *Dispatcher {
 	return &Dispatcher{executors: executors}
 }
 
-func (d *Dispatcher) Execute(ctx context.Context, a actions.Action, data OutputData, input ActionInvocationInput) (ExecutionResult, error) {
+// Execute runs one dispatched action under a root span, with the executors
+// opening conditional children for whatever they wait on. The span belongs
+// here rather than in the worker because every dispatch path funnels through
+// it -- the worker's automatic drain, a detail-pane confirmation, a terminal
+// invocation -- and because it pairs with the jobs record rather than
+// duplicating it: jobs says what happened to a command across its retries, the
+// span says where one attempt spent its time.
+func (d *Dispatcher) Execute(ctx context.Context, a actions.Action, data OutputData, input ActionInvocationInput) (result ExecutionResult, err error) {
+	ctx, span := tracer.Start(ctx, actionSpanName(a.Type), trace.WithAttributes(
+		attribute.String(attrActionID, a.ID),
+		attribute.String(attrActionType, a.Type),
+		attribute.String(attrTarget, data.Key),
+		attribute.Int64(attrCommandID, data.CommandID),
+		attribute.Bool(attrRerun, data.IsRerun),
+	))
+	defer observe.End(span, &err)
+
 	ex, ok := d.executors[a.Type]
 	if !ok {
 		return ExecutionResult{}, fmt.Errorf("dispatcher: no executor registered for action type %q", a.Type)
 	}
-	return ex.Execute(ctx, a, data, input)
+	result, err = ex.Execute(ctx, a, data, input)
+	// A suppressed notify completes successfully having done nothing, so the
+	// span has to say whether the side effect was reached at all.
+	span.SetAttributes(attribute.Bool(attrAttempted, result.Attempted))
+	return result, err
+}
+
+// actionSpanName names the action type, which is the executor registry's
+// closed set; the action id rides as an attribute.
+func actionSpanName(actionType string) string {
+	if actionType == "" {
+		return "dispatch.action"
+	}
+	return "dispatch.action " + actionType
 }
 
 type ActionLister interface {

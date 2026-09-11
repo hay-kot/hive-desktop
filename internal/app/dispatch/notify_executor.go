@@ -10,9 +10,12 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 )
 
 const (
@@ -142,7 +145,7 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 	// retry. ExecutionResult.Attempted stays false so the worker records no
 	// activity for a notification the user never saw.
 	if data.CreatedAt > 0 && now.Sub(time.UnixMilli(data.CreatedAt)) > NotifyMaxAge {
-		e.logger.Debug().Str("action_id", action.ID).Msg("notify: skipped stale notification")
+		e.logger.Debug().Ctx(ctx).Str("action_id", action.ID).Msg("notify: skipped stale notification")
 		return ExecutionResult{}, nil
 	}
 	policy := NotificationPolicy{Allowed: true, Sound: true}
@@ -150,11 +153,11 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		policy = e.gate.NotificationPolicy()
 	}
 	if !policy.Allowed {
-		e.logger.Debug().Str("action_id", action.ID).Msg("notify: suppressed by notification settings")
+		e.logger.Debug().Ctx(ctx).Str("action_id", action.ID).Msg("notify: suppressed by notification settings")
 		return ExecutionResult{}, nil
 	}
 	if cfg.Cooldown > 0 && e.withinCooldown(action.ID, cmd.ExternalID, now) {
-		e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed within cooldown")
+		e.logger.Debug().Ctx(ctx).Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed within cooldown")
 		return ExecutionResult{}, nil
 	}
 	// Templates render over the item exactly as an action's do, so
@@ -188,7 +191,7 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 	}
 	body = boundRendered(strings.TrimSpace(body), notifyRenderedBodyMax)
 
-	if err := e.notifier.Notify(ctx, SystemNotification{
+	if err := e.deliver(ctx, SystemNotification{
 		Title:    title,
 		Body:     body,
 		Severity: cfg.Severity,
@@ -204,8 +207,20 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 	if cfg.Cooldown > 0 {
 		e.recordFired(action.ID, cmd.ExternalID, cfg.Cooldown, now)
 	}
-	e.logger.Info().Str("action_id", action.ID).Msg("notify: notification delivered")
+	e.logger.Info().Ctx(ctx).Str("action_id", action.ID).Msg("notify: notification delivered")
 	return ExecutionResult{Attempted: true}, nil
+}
+
+// The wait is the OS's, and an in-app delivery is a different one: a banner
+// goes to the notification centre while the app renders its own.
+func (e *NotifyExecutor) deliver(ctx context.Context, n SystemNotification) (err error) {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "dispatch.notify", trace.WithAttributes(
+		attribute.String(attrSeverity, n.Severity),
+		attribute.Bool(attrInApp, n.InApp),
+	))
+	defer observe.End(span, &err)
+
+	return e.notifier.Notify(ctx, n)
 }
 
 // clickData resolves what a click on the delivered banner should reveal. An
@@ -218,7 +233,7 @@ func (e *NotifyExecutor) clickData(ctx context.Context, cmd models.NotifyCommand
 	}
 	itemID, err := e.items.IDByExternalID(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID)
 	if err != nil {
-		e.logger.Warn().Err(err).Str("profile_id", cmd.ProfileID).Msg("notify: resolving notification item failed")
+		e.logger.Warn().Ctx(ctx).Err(err).Str("profile_id", cmd.ProfileID).Msg("notify: resolving notification item failed")
 		return data
 	}
 	if itemID != 0 {

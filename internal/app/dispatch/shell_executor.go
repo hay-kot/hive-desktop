@@ -10,6 +10,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/rs/zerolog"
 )
 
@@ -61,17 +62,17 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	if command == "" {
 		return ExecutionResult{}, fmt.Errorf("shell: command_template rendered blank")
 	}
-	log, err := runShell(ctx, e.env, shellCommand{
+	log, err := runShell(ctx, e.env, "dispatch.shell", shellCommand{
 		Command: command,
 		Dir:     shellWorkingDir(cfg, data),
 		Env:     cfg.Env,
 		Timeout: cfg.Timeout.Duration(),
 	})
 	if err != nil {
-		e.logger.Warn().Err(err).Str("action_id", action.ID).Msg("shell action: command failed")
+		e.logger.Warn().Ctx(ctx).Err(err).Str("action_id", action.ID).Msg("shell action: command failed")
 		return ExecutionResult{Attempted: true, Log: log}, fmt.Errorf("shell: command failed: %w", err)
 	}
-	e.logger.Info().Str("action_id", action.ID).Msg("shell action: command executed")
+	e.logger.Info().Ctx(ctx).Str("action_id", action.ID).Msg("shell action: command executed")
 	return ExecutionResult{Attempted: true, Log: log}, nil
 }
 
@@ -82,7 +83,12 @@ type shellCommand struct {
 	Timeout time.Duration
 }
 
-func runShell(ctx context.Context, env ExecEnvironment, cmd shellCommand) (ExecutionLog, error) {
+// spanName names the wait, and every call site passes a literal so the name
+// stays a bounded search key.
+func runShell(ctx context.Context, env ExecEnvironment, spanName string, cmd shellCommand) (log ExecutionLog, err error) {
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, spanName)
+	defer observe.End(span, &err)
+
 	runCtx := ctx
 	if cmd.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -99,7 +105,7 @@ func runShell(ctx context.Context, env ExecEnvironment, cmd shellCommand) (Execu
 	proc.Env = environ
 	stdout, stderr := &boundedExecutionWriter{}, &boundedExecutionWriter{}
 	proc.Stdout, proc.Stderr = stdout, stderr
-	err := proc.Run()
+	err = proc.Run()
 	return ExecutionLog{Stdout: stdout.String(), Stderr: stderr.String()}, err
 }
 
