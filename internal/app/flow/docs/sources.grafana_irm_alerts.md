@@ -17,10 +17,13 @@ Each alert group becomes **one message keyed by its IRM id**. The payload carrie
 - `title` — the group's title
 - `state` — `firing`, `acknowledged`, `silenced` or `resolved`
 - `url` — the group's Slack permalink, falling back to its IRM web page
-- `severity` — the group's `severity` label, when it has one
 - `integration`, `team` — the group's scoping ids
-- `labels` — the group's IRM labels as a flat map, for a `function` node to route on
+- `labels` — sorted `key=value` tags from the source alert and the group's IRM labels
+- `alertLabels` and `annotations` — the source alert's common maps, merged with the IRM labels, for a `function` node to route on
+- `cluster`, `namespace`, `severity` — commonly acted-on labels lifted to top level
 - `alertsCount`, `createdAt`, `acknowledgedAt`, `silencedAt`
+
+The detail body starts with the source alert's description and labels, then shows the IRM group's count and triage timestamps. The connector reads this context from `last_alert.payload`, which the public alert-groups listing embeds, so it does not add one request per group.
 
 `acknowledged` is genuine triage state: someone has picked the alert up. A move between two active states — firing to acknowledged, acknowledged to silenced — is reported as activity, so a feed can react to a colleague taking an alert. A group re-observed at an unchanged state produces no new event.
 
@@ -32,4 +35,4 @@ Absence is authoritative. The listing is the complete active set for the node's 
 
 Reach for this node when the feed should mirror what an on-call channel sees, and for `sources.grafana_alerts` when it should mirror what the stack is evaluating.
 
-The `labels` this node emits are the alert group's **IRM** labels, not the underlying alerts' Prometheus labels — those are not on the alert-groups response. A function node that needs `alertname` or a Mimir label should route off `sources.grafana_alerts` instead.
+For Alertmanager-shaped integrations, the source context comes from the latest notification's `commonLabels` and `commonAnnotations`. Labels that differ between alert instances are not presented as facts about the whole group. Other integration payloads may not expose common maps; in that case the node keeps the IRM labels and triage facts it can read safely.

@@ -30,11 +30,11 @@ Three things follow from choosing the documented surface:
 
 - Scoping is `integration` and `team`, the API's own filter parameters, so a
   feed pins to a squad without restating upstream routing locally.
-- The payload carries the group's **IRM** labels, not the underlying alerts'
-  Prometheus labels. `commonLabels` is absent from the list serializer; the only
-  way to recover it is to scrape a `render_for_web` HTML blob or issue a request
-  per group, and neither is worth its failure modes. `severity` is lifted out of
-  the IRM labels because that is where IRM keeps it.
+- The payload carries the group's **IRM** labels plus the common labels and
+  annotations from `last_alert.payload`. The public list serializer embeds that
+  latest source notification, so the connector can explain what is firing
+  without scraping `render_for_web` or issuing one request per group. Labels
+  that vary between alert instances are not presented as group facts.
 - Upstream's `new` is emitted as `firing`, so both Grafana source nodes share
   one `state` vocabulary and a `function` node can route on it without knowing
   which produced the item.
