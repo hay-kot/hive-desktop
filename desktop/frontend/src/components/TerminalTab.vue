@@ -146,9 +146,13 @@ function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
 </template>
 
 <style scoped>
+/* Neutral on purpose: the border sits beside the pane's own colours for the
+   life of the split, and the accent — yellow in the default dark theme — reads
+   as a highlight that never goes away. One step up the border scale marks the
+   active pane; the drag target brightens a step further under the pointer. */
 .terminal-divider { touch-action: none; }
 .terminal-divider-line { background: var(--color-border); }
-.terminal-divider-active .terminal-divider-line { background: color-mix(in srgb, var(--color-accent) 70%, transparent); }
+.terminal-divider-active .terminal-divider-line { background: var(--color-strong); }
 .terminal-divider:hover .terminal-divider-line,
-.terminal-divider:active .terminal-divider-line { background: color-mix(in srgb, var(--color-accent) 90%, transparent); }
+.terminal-divider:active .terminal-divider-line { background: var(--color-text-4); }
 </style>
