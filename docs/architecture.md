@@ -136,6 +136,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | --- | --- | --- |
 | **Ports & Adapters** / Hexagonal | the `app` ↔ `adapter` boundary | Driven ports (core → outside) get an interface defined in `app`. Driving ports (outside → core) get **no interface** — adapters depend on concrete types. See [the Go amendment](#the-go-amendment-to-hexagonal). |
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
+| **Configuration Reconciler** | `app.App` over `configwatch` and configuration domains | App serializes configuration evaluation and app-authored writes, evaluates settings → actions → flows → agent workspaces through direct calls, then publishes Observer events. `configwatch` owns detection status; domains own domain status. It is not a command bus (ADR live-configuration-uses-an-app-owned-configuration-reconciler). |
 | **Store** (Repository, PoEAA) | `app/data/stores`, one type per persisted **aggregate root** | One aggregate's persistence behind hand-written domain types; it publishes nothing and knows nothing about `app.Error`. The placement rules and the transaction contract are in [Stores and services](#stores-and-services). |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
 | **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR http-handler-conventions. |
@@ -187,6 +188,7 @@ column is the section that specifies it.
 | A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR terminal-transport |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
+| A **configuration source or live setting** | Configuration Reconciler, Observer, App-owned lifecycle | [Live configuration reconciliation](#live-configuration-reconciliation), ADR live-configuration-uses-an-app-owned-configuration-reconciler |
 | A new **metric, span, or log field** | Package-level instrument via `app/observe` against the global provider; bounded attributes only; a span is a trigger or a wait; the SDK stays in `app/telemetry` | [Telemetry](#telemetry), ADR a-span-is-a-trigger-or-a-wait-and-its-count-per-trigger-is-bounded-by-configuration |
 | A new **scheduled/recurring launch** | Registry-free, One instance per process, App-owned lifecycle, Consumer-defined interfaces, Store | [Scheduled chats](#scheduled-chats), ADR scheduled-chats-are-declared-in-the-workspace-manifest-and-their-run-state-lives-in-sqlite |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
@@ -377,6 +379,10 @@ internal/
                                   #   calls: scope naming, Must, RecordError,
                                   #   StartConditionalSpan. No SDK, no
                                   #   abstraction (ADR a-package-declares-its-own-opentelemetry-instruments-against-the-global-provider)
+    configstate/                  # configuration status vocabulary, revisions,
+                                  #   and content-free diagnostics — a leaf
+    configwatch/                  # shared filesystem detection manager; no
+                                  #   parsing, writes, or domain application
     settings/                     # settings.yaml, paths, bootstrap pointer file
     data/                         # persistence boundary; no adapter import
       models/                     # hand-written domain types; no database import
@@ -803,6 +809,39 @@ production is unchanged). Development sets `HIVE_DESKTOP_HIVE_DATA_DIR` to the
 installed hive data dir, so `hive.db` is shared in dev too while the desktop's
 own state stays worktree-isolated. ADR desktop-configuration records the configuration decision.
 
+### Live configuration reconciliation
+
+`App` owns one **Configuration Reconciler**. `configwatch` observes filesystem
+hints and owns detection status; it does not parse configuration or call domain
+services. The reconciler serializes app-authored writes and reconciliation
+passes, evaluates settings → actions → flows → agent workspaces through direct calls,
+and only then publishes typed Observer events. Domains retain their own status;
+the reconciler joins domain and detection snapshots for callers. This is not a
+command bus (ADR live-configuration-uses-an-app-owned-configuration-reconciler).
+
+Each source has a defined acceptance scope. Actions swap only a whole validated
+catalog and acknowledge `catalog`. Flows accept valid definitions per file, then
+report loaded definitions and independently installed runners as `flow_runtime`.
+Workspaces acknowledge `none`: scheduler reload and generation-on-open are not
+runtime acknowledgements. Settings acknowledge direct core effects as
+`core_settings`; Wails and updater refreshes are eventual adapter projections.
+Restart-required fields retain their startup-active value.
+
+`configstate` revisions hash sorted, length-framed logical keys, presence/state
+markers, and bytes or dependent revisions with SHA-256. They never include an
+absolute path or an error string. Public diagnostics use fixed stage/reason
+messages with optional line and column numbers, never parser input or error
+text.
+
+Settings policy is declared beside the settings schema and reflection-tested
+against every YAML leaf. `version` is startup-only migration metadata. Live
+fields apply to later work: polling interval; updater enablement; notification
+eligibility, routing, and sound; all appearance fields; profile order;
+keybindings; editor command; and agent-workspace session-end delay. Updater
+channel, tmux path, workspace root, HTTP listener fields, telemetry fields, and
+every development field require restart. Environment overrides and bootstrap
+remain startup authority even when their persisted field is live.
+
 ### Settings panes
 
 Application settings are sectioned by **the surface a value changes**, not by
@@ -836,7 +875,7 @@ updating the strings that point at it.
 ### Background lifecycle
 
 Long-running subsystems — producer, output worker, retention, watchers, the
-event bus, the webhook listener, the future HTTP and MCP servers — are meant
+event bus, the webhook listener, the Configuration Reconciler, and the future HTTP and MCP servers — are meant
 to register with a single `appkit/plugs` manager rather than each hand-rolling
 `Start`/`Stop`, a `stopOnce`, and a teardown branch in `main`: uniform panic
 capture, retry with backoff, and one graceful shutdown path.
@@ -851,7 +890,9 @@ Until appkit offers signal opt-out and ordered start, the standing pattern
 is **App-owned lifecycle**: every subsystem exposes an idempotent,
 context-taking `Stop` behind a `stopOnce` (the webhook listener is the
 template — ADR webhook-listener-placement), `App.Start` starts them in dependency order, and
-`App.Close` unwinds them in reverse. `main` holds none of it.
+`App.Close` unwinds them in reverse. The Configuration Reconciler starts after
+configuration migration and source registration, before normal producer and
+webhook work; it stops intake before appenders, scheduler, and engine unwind. `main` holds none of it.
 
 `development.pprof` is typed and defaulted off. The endpoint has no lifecycle
 of its own: when enabled, `httpapi.PprofHandler()` mounts on the shared
