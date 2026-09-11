@@ -69,56 +69,56 @@ func (d *Duration) UnmarshalText(text []byte) error {
 func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
 
 type PollingSettings struct {
-	Interval Duration `yaml:"interval" env:"HIVE_DESKTOP_POLLING_INTERVAL"`
+	Interval Duration `yaml:"interval" env:"HIVE_DESKTOP_POLLING_INTERVAL" policy:"live"`
 }
 
 type UpdateSettings struct {
-	Enabled bool   `yaml:"enabled"           env:"HIVE_DESKTOP_UPDATES_ENABLED"`
-	Channel string `yaml:"channel,omitempty" env:"HIVE_DESKTOP_UPDATES_CHANNEL"`
+	Enabled bool   `yaml:"enabled"           env:"HIVE_DESKTOP_UPDATES_ENABLED" policy:"live"`
+	Channel string `yaml:"channel,omitempty" env:"HIVE_DESKTOP_UPDATES_CHANNEL" policy:"restart"`
 }
 
 type NotificationSettings struct {
-	Enabled  bool   `yaml:"enabled"  env:"HIVE_DESKTOP_NOTIFICATIONS_ENABLED"`
-	Delivery string `yaml:"delivery" env:"HIVE_DESKTOP_NOTIFICATIONS_DELIVERY"`
-	Sound    bool   `yaml:"sound"    env:"HIVE_DESKTOP_NOTIFICATIONS_SOUND"`
+	Enabled  bool   `yaml:"enabled"  env:"HIVE_DESKTOP_NOTIFICATIONS_ENABLED"  policy:"live"`
+	Delivery string `yaml:"delivery" env:"HIVE_DESKTOP_NOTIFICATIONS_DELIVERY" policy:"live"`
+	Sound    bool   `yaml:"sound"    env:"HIVE_DESKTOP_NOTIFICATIONS_SOUND"    policy:"live"`
 }
 
 type Appearance struct {
-	Theme string `yaml:"theme,omitempty" env:"HIVE_DESKTOP_APPEARANCE_THEME"`
+	Theme string `yaml:"theme,omitempty" env:"HIVE_DESKTOP_APPEARANCE_THEME" policy:"live"`
 	// FontFamily names the family the app's chrome draws with and
 	// MonoFontFamily the one its monospace text draws with, neither of which
 	// touches a terminal — that has its own family below. Empty is the bundled
 	// face; a CSS generic keyword (system-ui, ui-monospace) is the platform
 	// stack.
-	FontFamily       string `yaml:"font_family,omitempty"        env:"HIVE_DESKTOP_APPEARANCE_FONT_FAMILY"`
-	MonoFontFamily   string `yaml:"mono_font_family,omitempty"   env:"HIVE_DESKTOP_APPEARANCE_MONO_FONT_FAMILY"`
-	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE"`
+	FontFamily       string `yaml:"font_family,omitempty"        env:"HIVE_DESKTOP_APPEARANCE_FONT_FAMILY"        policy:"live"`
+	MonoFontFamily   string `yaml:"mono_font_family,omitempty"   env:"HIVE_DESKTOP_APPEARANCE_MONO_FONT_FAMILY"   policy:"live"`
+	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE" policy:"live"`
 	// TerminalFontFamily names an installed monospace family for the terminal
 	// only, leaving the rest of the UI alone. Empty is the bundled face.
-	TerminalFontFamily string `yaml:"terminal_font_family,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY"`
+	TerminalFontFamily string `yaml:"terminal_font_family,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY" policy:"live"`
 	// TerminalFontWeight is the CSS weight normal cells draw at, and
 	// TerminalFontWeightBold the weight a bold cell draws at. Zero means
 	// nothing persisted; the frontend owns the defaults and the valid set.
-	TerminalFontWeight     int `yaml:"terminal_font_weight,omitempty"      env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT"`
-	TerminalFontWeightBold int `yaml:"terminal_font_weight_bold,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD"`
+	TerminalFontWeight     int `yaml:"terminal_font_weight,omitempty"      env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT"      policy:"live"`
+	TerminalFontWeightBold int `yaml:"terminal_font_weight_bold,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD" policy:"live"`
 	// TerminalLineHeight multiplies the cell height and TerminalLetterSpacing
 	// widens the cell by whole device pixels. Zero means nothing persisted, so
 	// the letter-spacing default has to stay zero — moving it would make "no
 	// extra tracking" unselectable.
-	TerminalLineHeight    float64 `yaml:"terminal_line_height,omitempty"    env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_LINE_HEIGHT"`
-	TerminalLetterSpacing int     `yaml:"terminal_letter_spacing,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_LETTER_SPACING"`
+	TerminalLineHeight    float64 `yaml:"terminal_line_height,omitempty"    env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_LINE_HEIGHT"    policy:"live"`
+	TerminalLetterSpacing int     `yaml:"terminal_letter_spacing,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_LETTER_SPACING" policy:"live"`
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. On by default.
-	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
+	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS" policy:"live"`
 	// TerminalShowStatusBar gives the attached session the same status bar a
 	// chat has, plus git and pull-request state. Off by default: it costs a
 	// strip of vertical space above every terminal.
-	TerminalShowStatusBar bool `yaml:"terminal_show_status_bar" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_STATUS_BAR"`
+	TerminalShowStatusBar bool `yaml:"terminal_show_status_bar" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_STATUS_BAR" policy:"live"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached at
 	// once for instant switching (ADR terminal-attach-pool). Like the other appearance values it
 	// is carried verbatim and healed by the frontend: anything outside 1-6 reads
 	// as the default, 3.
-	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`
+	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE" policy:"live"`
 }
 
 // ProfileSettings configures the profile rail. Order names flow ids in the
@@ -127,26 +127,26 @@ type Appearance struct {
 // lands at the end rather than somewhere unspecified. An id naming no flow is
 // ignored, so deleting a profile does not invalidate the setting.
 type ProfileSettings struct {
-	Order []string `yaml:"order,omitempty"`
+	Order []string `yaml:"order,omitempty" policy:"live"`
 }
 
 // AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to
 // <ConfigDir>/workspaces; a leading `~` is expanded at read time. It is
 // configurable because iCloud Drive is an expected destination (spec §4.4).
 type AgentWorkspacesSettings struct {
-	Dir string `yaml:"dir,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_DIR"`
+	Dir string `yaml:"dir,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_DIR" policy:"restart"`
 	// SessionEndDelay is the grace between a chat asking to end its own
 	// session and the session being ended: the request arrives from inside the
 	// agent's own tool call, and the delay lets that call return first. Zero
 	// takes the shipped value.
-	SessionEndDelay Duration `yaml:"session_end_delay,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_SESSION_END_DELAY"`
+	SessionEndDelay Duration `yaml:"session_end_delay,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_SESSION_END_DELAY" policy:"live"`
 }
 
 // PathsSettings locates the external binaries the app execs. Each is the escape
 // hatch for an install discovery does not know about (ADR tmux-discovery): empty — the
 // shipped value — searches PATH and the usual package-manager prefixes.
 type PathsSettings struct {
-	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX"`
+	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX" policy:"restart"`
 }
 
 // EditorSettings names the editor "Open in editor" actions launch on a
@@ -155,7 +155,7 @@ type PathsSettings struct {
 // (ADR a-workspace-declares-its-own-authority), so a flag cannot ride in through a settings string. Empty means
 // none configured.
 type EditorSettings struct {
-	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
+	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND" policy:"live"`
 }
 
 // TelemetrySettings configures OTLP export of the app's own signals. It is
@@ -176,64 +176,64 @@ type EditorSettings struct {
 // only when it is written out. The resolved value is checked either way, by
 // the telemetry package.
 type TelemetrySettings struct {
-	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
-	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
-	InstanceID string `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID"`
-	Token      string `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"`
+	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"     policy:"restart"`
+	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"    policy:"restart"`
+	InstanceID string `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID" policy:"restart"`
+	Token      string `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"       policy:"restart"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
 // webhook listener and the agent API. On by default: it is loopback-only, so it
 // is reachable only from this machine.
 type HTTPSettings struct {
-	Enabled bool   `yaml:"enabled" env:"HIVE_DESKTOP_HTTP_ENABLED"`
-	Host    string `yaml:"host"    env:"HIVE_DESKTOP_HTTP_HOST"`
-	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_HTTP_PORT"`
+	Enabled bool   `yaml:"enabled" env:"HIVE_DESKTOP_HTTP_ENABLED" policy:"restart"`
+	Host    string `yaml:"host"    env:"HIVE_DESKTOP_HTTP_HOST"    policy:"restart"`
+	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_HTTP_PORT"    policy:"restart"`
 }
 
 type MockSettings struct {
-	Mode string `yaml:"mode" env:"HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE"`
+	Mode string `yaml:"mode" env:"HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE" policy:"restart"`
 }
 
 type InstanceSettings struct {
-	ID string `yaml:"id,omitempty" env:"HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID"`
+	ID string `yaml:"id,omitempty" env:"HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID" policy:"restart"`
 }
 
 type ServerSettings struct {
-	Host string `yaml:"host" env:"HOST"`
-	Port int    `yaml:"port" env:"PORT"`
+	Host string `yaml:"host" env:"HOST" policy:"restart"`
+	Port int    `yaml:"port" env:"PORT" policy:"restart"`
 }
 
 // PprofSettings gates the pprof endpoint; when enabled it mounts on the shared
 // HTTP server (ADR pprof-debug-endpoint), so it has no host/port of its own.
 type PprofSettings struct {
-	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED" policy:"restart"`
 }
 
 // PerfSettings gates the UI performance recorder, which appends spans the
 // frontend emits to perf.jsonl under the state directory (ADR ui-performance-spans-are-recorded-to-jsonl). Off in a
 // shipped build; the dev task turns it on through launch.env.
 type PerfSettings struct {
-	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED" policy:"restart"`
 }
 
 // MetricsSettings gates the local Prometheus scrape endpoint, mounted on the
 // shared HTTP server the way pprof is (ADR pprof-debug-endpoint). Independent of telemetry.enabled:
 // the same instruments feed both readers.
 type MetricsSettings struct {
-	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_METRICS_ENABLED"`
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_METRICS_ENABLED" policy:"restart"`
 }
 
 // DevToolsSettings makes the in-app developer tools reachable in a build that
 // was not served by Vite (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting). Off in a shipped build; the dev task
 // turns it on through launch.env.
 type DevToolsSettings struct {
-	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED"`
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED" policy:"restart"`
 }
 
 type DebugSettings struct {
-	PauseIngest Duration `yaml:"pause_ingest" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST"`
-	PauseCommit Duration `yaml:"pause_commit" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT"`
+	PauseIngest Duration `yaml:"pause_ingest" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST" policy:"restart"`
+	PauseCommit Duration `yaml:"pause_commit" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT" policy:"restart"`
 }
 
 // EnvGitHubAPIBase is the environment name behind development.github.api_base.
@@ -249,7 +249,7 @@ const EnvGitHubAPIBase = "HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE"
 // token exchange has no business passing through dev tooling, and it draws no
 // rate-limit budget, so redirecting it would be all risk and no benefit.
 type GitHubDevSettings struct {
-	APIBase string `yaml:"api_base,omitempty" env:"HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE"`
+	APIBase string `yaml:"api_base,omitempty" env:"HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE" policy:"restart"`
 }
 
 type DevelopmentSettings struct {
@@ -268,7 +268,7 @@ type DevelopmentSettings struct {
 // Settings is the typed settings.yaml schema. Environment override provenance
 // is process-local and is never serialized.
 type Settings struct {
-	Version       int                  `yaml:"version"`
+	Version       int                  `yaml:"version"       policy:"restart"`
 	Polling       PollingSettings      `yaml:"polling"`
 	Updates       UpdateSettings       `yaml:"updates"`
 	Notifications NotificationSettings `yaml:"notifications"`
@@ -278,7 +278,7 @@ type Settings struct {
 	Profiles        ProfileSettings         `yaml:"profiles,omitempty"`
 	HTTP            HTTPSettings            `yaml:"http"`
 	Telemetry       TelemetrySettings       `yaml:"telemetry"`
-	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
+	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"      policy:"live"`
 	Paths           PathsSettings           `yaml:"paths,omitempty"`
 	Editor          EditorSettings          `yaml:"editor,omitempty"`
 	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`

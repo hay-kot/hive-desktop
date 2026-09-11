@@ -1,70 +1,92 @@
 package settings
 
+import (
+	"fmt"
+	"reflect"
+	"strings"
+)
+
+const fieldPolicyTag = "policy"
+
 // FieldPolicy describes when an accepted setting takes effect.
 type FieldPolicy string
 
 const (
-	FieldPolicyLive        FieldPolicy = "live"
-	FieldPolicyRestart     FieldPolicy = "restart"
-	FieldPolicyStartupOnly FieldPolicy = "startup_only"
+	FieldPolicyLive    FieldPolicy = "live"
+	FieldPolicyRestart FieldPolicy = "restart"
 )
 
-// FieldClassification assigns one reconciliation policy and apply target to a settings.yaml leaf.
+// FieldClassification assigns one reconciliation policy to a settings.yaml leaf.
 type FieldClassification struct {
-	Path        string
-	Policy      FieldPolicy
-	ApplyTarget string
-}
-
-var fieldClassifications = []FieldClassification{
-	{"version", FieldPolicyStartupOnly, "YAML migration metadata"},
-	{"polling.interval", FieldPolicyLive, "Producer interval and all GitHub search TTLs, subsequent ticks"},
-	{"updates.enabled", FieldPolicyLive, "Adapter updater ticker; no cancellation of an install in progress"},
-	{"updates.channel", FieldPolicyRestart, "Existing updater provider/channel"},
-	{"notifications.enabled", FieldPolicyLive, "Next notification eligibility"},
-	{"notifications.delivery", FieldPolicyLive, "Next notification routing"},
-	{"notifications.sound", FieldPolicyLive, "Next notification sound"},
-	{"appearance.theme", FieldPolicyLive, "Mounted theme and first-paint cache"},
-	{"appearance.font_family", FieldPolicyLive, "Mounted UI typography"},
-	{"appearance.mono_font_family", FieldPolicyLive, "Mounted monospace UI typography"},
-	{"appearance.terminal_font_size", FieldPolicyLive, "Mounted terminal options/refit"},
-	{"appearance.terminal_font_family", FieldPolicyLive, "Mounted terminal options/refit"},
-	{"appearance.terminal_font_weight", FieldPolicyLive, "Mounted terminal normal weight"},
-	{"appearance.terminal_font_weight_bold", FieldPolicyLive, "Mounted terminal bold weight"},
-	{"appearance.terminal_line_height", FieldPolicyLive, "Existing frontend normalization/renderer policy"},
-	{"appearance.terminal_letter_spacing", FieldPolicyLive, "Existing frontend normalization/renderer policy"},
-	{"appearance.terminal_show_windows", FieldPolicyLive, "Code sidebar tree"},
-	{"appearance.terminal_show_status_bar", FieldPolicyLive, "Terminal status bar"},
-	{"appearance.terminal_pool_size", FieldPolicyLive, "Existing bounded attach-pool policy"},
-	{"profiles.order", FieldPolicyLive, "FlowStore order and views, no runner replay"},
-	{"keybindings", FieldPolicyLive, "Mounted keymap including pane dispatch"},
-	{"paths.tmux", FieldPolicyRestart, "Current resolver and sessions unchanged"},
-	{"editor.command", FieldPolicyLive, "Subsequent open-in-editor operation"},
-	{"agent_workspaces.dir", FieldPolicyRestart, "Immutable resolved root and current watch set"},
-	{"agent_workspaces.session_end_delay", FieldPolicyLive, "New end requests only"},
-	{"http.enabled", FieldPolicyRestart, "Existing shared listener"},
-	{"http.host", FieldPolicyRestart, "Existing bind"},
-	{"http.port", FieldPolicyRestart, "Existing bind, with startup auto-port adoption"},
-	{"telemetry.enabled", FieldPolicyRestart, "Existing providers/exporters/log arms"},
-	{"telemetry.endpoint", FieldPolicyRestart, "No live secret-reference resolution"},
-	{"telemetry.instance_id", FieldPolicyRestart, "Existing exporter destination identity"},
-	{"telemetry.token", FieldPolicyRestart, "No live secret-reference resolution"},
-	{"development.mocks.mode", FieldPolicyRestart, "Existing composition"},
-	{"development.instance.id", FieldPolicyRestart, "Existing process identity"},
-	{"development.github.api_base", FieldPolicyRestart, "Existing clients/caches"},
-	{"development.vite.host", FieldPolicyRestart, "Existing dev server composition"},
-	{"development.vite.port", FieldPolicyRestart, "Existing dev server composition"},
-	{"development.wails.host", FieldPolicyRestart, "Existing dev server composition"},
-	{"development.wails.port", FieldPolicyRestart, "Existing dev server composition"},
-	{"development.pprof.enabled", FieldPolicyRestart, "Existing mounted route"},
-	{"development.perf.enabled", FieldPolicyRestart, "Existing recorder"},
-	{"development.metrics.enabled", FieldPolicyRestart, "Existing scrape route"},
-	{"development.devtools.enabled", FieldPolicyRestart, "Existing service"},
-	{"development.debug.pause_ingest", FieldPolicyRestart, "Existing producer wiring"},
-	{"development.debug.pause_commit", FieldPolicyRestart, "Existing DB wrapper"},
+	Path   string
+	Policy FieldPolicy
 }
 
 // FieldClassifications returns the policy for every settings.yaml leaf.
 func FieldClassifications() []FieldClassification {
-	return append([]FieldClassification(nil), fieldClassifications...)
+	classifications, err := collectFieldClassifications(reflect.TypeFor[Settings]())
+	if err != nil {
+		panic(err)
+	}
+	return append([]FieldClassification(nil), classifications...)
+}
+
+func collectFieldClassifications(typ reflect.Type) ([]FieldClassification, error) {
+	var classifications []FieldClassification
+	seen := make(map[string]struct{})
+	var issues []string
+	appendFieldClassifications(typ, "", seen, &classifications, &issues)
+	if len(issues) > 0 {
+		return nil, fmt.Errorf("settings policy schema is invalid: %s", strings.Join(issues, "; "))
+	}
+	return classifications, nil
+}
+
+func appendFieldClassifications(typ reflect.Type, prefix string, seen map[string]struct{}, classifications *[]FieldClassification, issues *[]string) {
+	for field := range typ.Fields() {
+		if !field.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+
+		path := name
+		if prefix != "" {
+			path = prefix + "." + name
+		}
+		policy := FieldPolicy(field.Tag.Get(fieldPolicyTag))
+		if field.Type.Kind() == reflect.Struct {
+			if policy != "" {
+				*issues = append(*issues, fmt.Sprintf("container %q has policy %q", path, policy))
+			}
+			appendFieldClassifications(field.Type, path, seen, classifications, issues)
+			continue
+		}
+
+		if policy == "" {
+			*issues = append(*issues, fmt.Sprintf("leaf %q has no policy", path))
+			continue
+		}
+		if !validFieldPolicy(policy) {
+			*issues = append(*issues, fmt.Sprintf("leaf %q has unknown policy %q", path, policy))
+			continue
+		}
+		if _, exists := seen[path]; exists {
+			*issues = append(*issues, fmt.Sprintf("leaf %q has duplicate policy", path))
+			continue
+		}
+		seen[path] = struct{}{}
+		*classifications = append(*classifications, FieldClassification{Path: path, Policy: policy})
+	}
+}
+
+func validFieldPolicy(policy FieldPolicy) bool {
+	switch policy {
+	case FieldPolicyLive, FieldPolicyRestart:
+		return true
+	default:
+		return false
+	}
 }

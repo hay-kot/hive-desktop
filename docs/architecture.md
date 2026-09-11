@@ -833,14 +833,16 @@ absolute path or an error string. Public diagnostics use fixed stage/reason
 messages with optional line and column numbers, never parser input or error
 text.
 
-Settings policy is declared beside the settings schema and reflection-tested
-against every YAML leaf. `version` is startup-only migration metadata. Live
-fields apply to later work: polling interval; updater enablement; notification
-eligibility, routing, and sound; all appearance fields; profile order;
-keybindings; editor command; and agent-workspace session-end delay. Updater
+Settings policy has two values, declared beside the settings schema and
+reflection-tested against every YAML leaf: `live` and full app `restart`.
+`version` is restart-required schema metadata; supported old versions migrate at
+startup before runtime owns settings. Live fields apply to later work: polling
+interval; updater enablement; notification eligibility, routing, and sound; all
+appearance fields; profile order; keybindings; editor command; and
+agent-workspace session-end delay. Restart-required fields are version, updater
 channel, tmux path, workspace root, HTTP listener fields, telemetry fields, and
-every development field require restart. Environment overrides and bootstrap
-remain startup authority even when their persisted field is live.
+every development field. Environment overrides and bootstrap remain startup
+authority even when their persisted field is live.
 
 ### Settings panes
 
