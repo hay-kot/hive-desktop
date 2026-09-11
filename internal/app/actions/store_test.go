@@ -84,6 +84,25 @@ func TestActionStore_Reload_RetainsLastGoodOnVersionReject(t *testing.T) {
 	assert.Len(t, store.List(), 3)
 }
 
+func TestActionStore_MutationRefusesMalformedDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "actions.yml")
+	require.NoError(t, os.WriteFile(path, []byte(multiActionYAML), 0o644))
+
+	store := NewActionStore(path)
+	require.Len(t, store.List(), 3)
+
+	malformed := []byte("version: nope\n")
+	require.NoError(t, os.WriteFile(path, malformed, 0o644))
+	_, err := store.Create(EditableAction{
+		ID: "new-action", Label: "New action", Type: "launch-session",
+		Launch: &EditableLaunchConfig{PromptTemplate: "Review"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, malformed, mustRead(t, path), "an unrelated mutation must not repair or overwrite malformed disk content")
+	assert.Len(t, store.List(), 3, "the loaded catalog remains available after the refused mutation")
+}
+
 func TestActionStore_Reload_PicksUpValidEdit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "actions.yml")

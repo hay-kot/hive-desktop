@@ -134,19 +134,6 @@ func main() {
 	settingsStore = settings.NewStore(paths.SettingsPath)
 	backupDir = filepath.Join(paths.StateDir, "migration-backups")
 
-	// Migrate flows/*.yaml and actions.yml in place before app.New constructs the
-	// stores and starts the watchers. Non-fatal: mirror each type's last-good
-	// semantics rather than failing startup.
-	if err := flow.MigrateDir(paths.FlowsDir, backupDir, &logger); err != nil {
-		logger.Warn().Err(err).Msg("flow migration sweep failed")
-	}
-	if _, _, err := configmigrate.MigrateFile(configmigrate.ActionsSet, paths.ActionsPath, backupDir, &logger); err != nil {
-		logger.Warn().Err(err).Msg("actions.yml migration failed; using last-good")
-	}
-	if err := agentws.MigrateRoot(paths.AgentWorkspacesDir, backupDir, &logger); err != nil {
-		logger.Warn().Err(err).Msg("agent workspace migration sweep failed; using last-good")
-	}
-
 	// A redirected API base means every item this run shows may be stale or
 	// deliberately rewritten by cmd/devserver. That is invisible in the UI, so
 	// it is worth a line in the log before anything fetches.
@@ -169,16 +156,23 @@ func main() {
 	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
 	_, coreSpan := tracer.Start(startupCtx, "app.core.new")
-	core, err := app.New(ctx, app.Config{
-		Settings:       cfg,
-		SettingsStore:  settingsStore,
-		Paths:          paths,
-		MockMode:       cfg.MockMode(),
-		Logger:         logger,
-		Notifier:       ui.Notifier(),
-		Gate:           ui.Gate(),
-		Build:          report.Build{Version: version, Commit: commit, Date: date},
-		ReportUploader: ui.ReportUploader(),
+	var core *app.App
+	err = migrateBeforeLoad(func() {
+		migrateConfiguration(paths, backupDir, &logger)
+	}, func() error {
+		var newErr error
+		core, newErr = app.New(ctx, app.Config{
+			Settings:       cfg,
+			SettingsStore:  settingsStore,
+			Paths:          paths,
+			MockMode:       cfg.MockMode(),
+			Logger:         logger,
+			Notifier:       ui.Notifier(),
+			Gate:           ui.Gate(),
+			Build:          report.Build{Version: version, Commit: commit, Date: date},
+			ReportUploader: ui.ReportUploader(),
+		})
+		return newErr
 	})
 	coreSpan.End()
 	if err != nil {
@@ -309,6 +303,25 @@ func main() {
 		log.Fatal(err)
 	}
 	shutdown()
+}
+
+// migrateBeforeLoad preserves desktop composition order: migrations complete
+// before App constructs stores and filesystem registrations.
+func migrateBeforeLoad(migrate func(), load func() error) error {
+	migrate()
+	return load()
+}
+
+func migrateConfiguration(paths settings.Paths, backupDir string, logger *zerolog.Logger) {
+	if err := flow.MigrateDir(paths.FlowsDir, backupDir, logger); err != nil {
+		logger.Warn().Err(err).Msg("flow migration sweep failed")
+	}
+	if _, _, err := configmigrate.MigrateFile(configmigrate.ActionsSet, paths.ActionsPath, backupDir, logger); err != nil {
+		logger.Warn().Err(err).Msg("actions.yml migration failed; using last-good")
+	}
+	if err := agentws.MigrateRoot(paths.AgentWorkspacesDir, backupDir, logger); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace migration sweep failed; using last-good")
+	}
 }
 
 // tracer emits the startup trace. It resolves against the global provider, so

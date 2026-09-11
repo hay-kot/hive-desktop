@@ -132,12 +132,34 @@ func TestLoadFlows_SkipsUIYAMLSiblings(t *testing.T) {
 	// as a flow definition — its content isn't the flow schema at all.
 	writeFlow(t, dir, "triage.ui.yaml", "nodes:\n  src: { x: 10, y: 20 }\n")
 	writeFlow(t, dir, "triage.ui.yml", "nodes: {}\n")
+	writeFlow(t, dir, "triage.sidebar.yaml", "folders: {}\n")
+	writeFlow(t, dir, "triage.sidebar.yml", "folders: {}\n")
+	writeFlow(t, dir, ".triage.yaml.swp", "not a flow\n")
 
 	flows, perFileErrors, _ := LoadFlows(dir, minimalRefs())
 
 	require.Len(t, flows, 1)
 	assert.Equal(t, "triage", flows[0].ID)
 	assert.Empty(t, perFileErrors)
+}
+
+func TestLoadFlow_ValidatesActionReferences(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "triage.yaml", `version: 1
+nodes:
+  - { id: source, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
+  - { id: action, type: action, action: review-pr }
+wires:
+  - { from: source, to: action }
+`)
+
+	_, _, err := LoadFlow(path, testRefs{})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "review-pr")
+
+	loaded, _, err := LoadFlow(path, testRefs{actions: map[string]bool{"review-pr": true}})
+	require.NoError(t, err)
+	assert.Equal(t, "triage", loaded.ID)
 }
 
 func TestLoadFlows_MissingDir(t *testing.T) {

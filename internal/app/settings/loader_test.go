@@ -35,6 +35,34 @@ func TestLoadSettingsMigratesUnversionedFileAndRoundTrips(t *testing.T) {
 	assert.Equal(t, current, reloaded.Version)
 }
 
+func TestStoreUpdateRefusesMalformedDiskWithoutOverwritingIt(t *testing.T) {
+	path := isolateSettings(t)
+	malformed := []byte("version: [\n")
+	require.NoError(t, os.WriteFile(path, malformed, 0o600))
+
+	_, err := NewStore(path).Update(func(cfg *Settings) error {
+		cfg.Appearance.Theme = "dark"
+		return nil
+	})
+	require.Error(t, err)
+	actual, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, malformed, actual, "an unrelated settings mutation must not replace malformed disk content")
+}
+
+func TestLoadSettingsRuntimeMigrationLeavesDiskBytesUntouched(t *testing.T) {
+	path := isolateSettings(t)
+	old := []byte("version: 1\nexperimental:\n  terminal: true\nskills:\n  auto_update: true\n")
+	require.NoError(t, os.WriteFile(path, old, 0o600))
+
+	cfg, err := NewStore(path).Effective()
+	require.NoError(t, err)
+	assert.Equal(t, configmigrate.SettingsSet.Current, cfg.Version)
+	actual, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, old, actual, "runtime migration must not rewrite the observed file")
+}
+
 func TestLoadSettingsRejectsNewerVersionAndLeavesFileUntouched(t *testing.T) {
 	path := isolateSettings(t)
 	contents := fmt.Sprintf("version: %d\npolling:\n  interval: 2m\n", configmigrate.SettingsSet.Current+1)

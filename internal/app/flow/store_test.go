@@ -191,6 +191,44 @@ func TestFlowStore_Save_RejectsInvalidID(t *testing.T) {
 	require.Error(t, err)
 }
 
+// This preserves the current Phase 1 behavior: a malformed existing file is
+// dropped from the loaded set. Per-flow last-good retention is a Phase 3
+// contract and must not be introduced by this characterization test.
+func TestFlowStore_ReloadKeepsIndependentNeighborsAndDropsMalformedFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFlow(t, dir, "good.yaml", minimalValidFlowYAML())
+	badPath := writeFlow(t, dir, "bad.yaml", minimalValidFlowYAML())
+	store := NewFlowStore(dir, minimalRefs())
+	require.Len(t, store.List(), 2)
+
+	goodPath := filepath.Join(dir, "good.yaml")
+	require.NoError(t, os.WriteFile(goodPath, []byte(`version: 1
+name: Updated
+nodes:
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
+  - { id: sink, type: feed }
+wires:
+  - { from: src, to: sink }
+`), 0o644))
+	require.NoError(t, os.WriteFile(badPath, []byte("version: 1\nnodes: [\n"), 0o644))
+	require.NoError(t, store.Reload())
+
+	good, ok := store.Get("good")
+	require.True(t, ok)
+	assert.Equal(t, "Updated", good.Name)
+	_, ok = store.Get("bad")
+	assert.False(t, ok, "the current store drops malformed existing definitions")
+
+	statuses := store.Statuses()
+	require.Len(t, statuses, 2)
+	assert.False(t, statuses[0].Valid)
+	assert.Equal(t, "bad", statuses[0].ID)
+
+	require.NoError(t, store.Delete("bad"))
+	assert.False(t, store.Exists("bad"), "explicit deletion removes a malformed definition")
+	assert.Equal(t, []string{"good"}, listIDs(store))
+}
+
 func TestFlowStore_Reload_PicksUpExternalChange(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())

@@ -3,7 +3,9 @@ package runtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -197,6 +199,37 @@ func (r *fakeFlowRecorder) sources() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.flows...)
+}
+
+type replayFailingCommitStore struct {
+	inner interface {
+		Commit(context.Context, models.CommitBatch) error
+		ActivateReplay(context.Context, string, int64, []models.FeedClaim, []string, []string, []string) error
+	}
+	fail              atomic.Bool
+	replayFailure     chan struct{}
+	replayFailureOnce sync.Once
+}
+
+func (s *replayFailingCommitStore) Commit(ctx context.Context, batch models.CommitBatch) error {
+	return s.inner.Commit(ctx, batch)
+}
+
+func (s *replayFailingCommitStore) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []models.FeedClaim, feedIDs, sourceIDs, kvNodeIDs []string) error {
+	if s.fail.Load() {
+		s.replayFailureOnce.Do(func() { close(s.replayFailure) })
+		return errors.New("replay activation failed")
+	}
+	return s.inner.ActivateReplay(ctx, profileID, tail, claims, feedIDs, sourceIDs, kvNodeIDs)
+}
+
+func (s *replayFailingCommitStore) waitForReplayFailure(ctx context.Context) error {
+	select {
+	case <-s.replayFailure:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func startEngine(t *testing.T, db *queries.DB, flows *flowSet, onCommit func()) *runtime.Engine {
@@ -394,6 +427,52 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 		return err == nil && len(items) == 2
 	}, 5*time.Second, 20*time.Millisecond, "the previous runner must keep routing")
 	require.Contains(t, rec.sources(), "triage", "and the failure must be reported, or the app silently runs an older graph")
+}
+
+// A valid replacement can still fail during replay. The previously installed
+// runner must stay in service because replay state and runner replacement share
+// one installation boundary.
+func TestEngineKeepsTheLastGoodRunnerWhenReplayFails(t *testing.T) {
+	t.Parallel()
+
+	db := openTestStore(t)
+	flows := &flowSet{}
+	flows.set(triageFlow("triage", true))
+	st := testStores(db)
+	commits := &replayFailingCommitStore{
+		inner:         st.EventLog,
+		replayFailure: make(chan struct{}),
+	}
+	engine := runtime.NewEngine(runtime.EngineOptions{
+		Log: st.EventLog, Items: st.InboxItems, Commits: commits, KV: st.NodeKV,
+		Flows: flows, Scripts: testScripts(), Logger: zerolog.Nop(),
+	})
+	require.NoError(t, engine.Start(t.Context()))
+	t.Cleanup(engine.Stop)
+
+	ingest(t, db, "triage", observation{"pr-1", "First"})
+	engine.Wake()
+	require.Eventually(t, func() bool {
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
+		return err == nil && len(items) == 1
+	}, 5*time.Second, 20*time.Millisecond)
+
+	replacement := triageFlow("triage", true)
+	replacement.Nodes[1].ID = "replacement"
+	replacement.Wires[0].To = "replacement"
+	flows.set(replacement)
+	commits.fail.Store(true)
+	engine.Reload()
+	replayCtx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	t.Cleanup(cancel)
+	require.NoError(t, commits.waitForReplayFailure(replayCtx))
+
+	ingest(t, db, "triage", observation{"pr-2", "Second"})
+	engine.Wake()
+	require.Eventually(t, func() bool {
+		items, err := testStores(db).InboxItems.ListByFeed(t.Context(), "triage", "triage/inbox", 10)
+		return err == nil && len(items) == 2
+	}, 5*time.Second, 20*time.Millisecond, "a failed replay must retain the prior runner")
 }
 
 // A function node splitting one source message into per-entity feed items is

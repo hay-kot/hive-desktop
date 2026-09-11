@@ -80,6 +80,21 @@ func TestMigrateFile_BelowCurrentRewritesAndBackups(t *testing.T) {
 	assert.Equal(t, "old_name: hello\n", string(backupBytes), "backup must hold the pre-migration bytes verbatim")
 }
 
+func TestApplyRuntimeMigrationLeavesFixtureBytesUnchanged(t *testing.T) {
+	srcDir, _ := tempDirs(t)
+	original := []byte("version: 1\nexperimental:\n  terminal: true\n")
+	path := writeFixture(t, srcDir, "settings.yaml", string(original))
+
+	migrated, changed, err := SettingsSet.Apply(original)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.NotEqual(t, original, migrated)
+
+	onDisk, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, onDisk, "runtime Apply must not rewrite its fixture")
+}
+
 func TestMigrateFile_CurrentFixtureIsNoOp(t *testing.T) {
 	srcDir, backupDir := tempDirs(t)
 	original := "version: 2\nnew_name: foo\n"

@@ -82,6 +82,47 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 	})
 }
 
+func TestStoreRetainsLibrariesIndependentlyAndAcceptsDeletion(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	manifestPath := writeWorkspace(t, root, "workspace", "Workspace")
+	mcpPath := filepath.Join(root, libraryFileName)
+	skillsPath := filepath.Join(root, skillLibraryFileName)
+	require.NoError(t, os.WriteFile(mcpPath, []byte("version: 1\nservers:\n  local: {command: npx}\n"), 0o600))
+	require.NoError(t, os.WriteFile(skillsPath, []byte("version: 1\npackages:\n  hive: {include: [\"hive-*\"]}\n"), 0o600))
+
+	store := NewStore(root)
+	require.NoError(t, store.Reload())
+	require.True(t, store.Library().Valid)
+	require.True(t, store.SkillLibrary().Valid)
+
+	require.NoError(t, os.WriteFile(manifestPath, []byte("version: 1\nunknown: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(mcpPath, []byte("version: 1\nservers:\n  broken: {}\n"), 0o600))
+	require.NoError(t, os.WriteFile(skillsPath, []byte("version: 1\npackages:\n  broken: {}\n"), 0o600))
+	require.NoError(t, store.Reload())
+
+	workspace, ok := store.Status("workspace")
+	require.True(t, ok)
+	assert.False(t, workspace.Valid)
+	assert.Equal(t, "Workspace", workspace.Workspace.Name, "a broken manifest retains its own last-good workspace")
+	assert.False(t, store.Library().Valid)
+	assert.Contains(t, store.Library().Library.Servers, "local", "a broken MCP library retains its own last-good library")
+	assert.False(t, store.SkillLibrary().Valid)
+	assert.Contains(t, store.SkillLibrary().Library.Packages, "hive", "a broken skills library retains its own last-good library")
+
+	require.NoError(t, os.Remove(manifestPath))
+	require.NoError(t, os.Remove(mcpPath))
+	require.NoError(t, os.Remove(skillsPath))
+	require.NoError(t, store.Reload())
+	_, ok = store.Status("workspace")
+	assert.False(t, ok, "a deleted manifest is an explicit deletion")
+	assert.True(t, store.Library().Valid)
+	assert.Empty(t, store.Library().Library.Servers)
+	assert.True(t, store.SkillLibrary().Valid)
+	assert.Empty(t, store.SkillLibrary().Library.Packages)
+}
+
 func TestStoreIgnoresDirectoriesWithoutAManifest(t *testing.T) {
 	t.Parallel()
 
