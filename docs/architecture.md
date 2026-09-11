@@ -1808,28 +1808,30 @@ with the adapter's constants.
 
 An **html block** is the one place agent-authored markup reaches the webview
 (ADR canvas-html-blocks-are-sanitized-in-go-and-styled-by-an-app-owned-class-vocabulary).
-`internal/app/canvas/html.go` declares the element allowlist and the `hv-`
-class vocabulary once; `canvas.SanitizeHTML` builds a deny-by-default
-bluemonday policy from them, `canvas.RejectedHTML` refuses a write that would
-be stripped rather than letting the agent read its source back intact over a
-broken layout, and `styles/canvas-html.css` maps the vocabulary onto the theme
-tokens. The store keeps the agent's source; `GetForWorkspace` and
+`internal/app/canvas/html.go` declares the element and attribute allowlists
+once; `canvas.SanitizeHTML` builds a deny-by-default bluemonday policy from
+them, `canvas.RejectedHTML` refuses a write that would be stripped rather than
+letting the agent read its source back intact over a broken layout, and
+`styles/canvas-html.css` styles the `hv-` vocabulary from the theme tokens.
+The store keeps the agent's source; `GetForWorkspace` and
 `canvas.Markdown` are the only two seams that sanitize, so no consumer holds a
 policy of its own. `renderGithubMarkdown` is untouched — it is shared with
 untrusted GitHub bodies and stays as strict as they require, which is why an
 html block renders under its own `.hv-html` scope instead.
 
-An html block may also **draw**: eleven svg elements and their geometry
-attributes are in the allowlist, and five role classes colour what they draw
-(ADR canvas-diagrams-are-a-narrow-svg-subset-the-class-vocabulary-colours).
-The split is the vocabulary's, one level down — the agent owns the geometry
-inside a `viewBox`, the app owns the size and every colour. `htmlAttrs` is
-the single declaration behind it: each attribute names the elements it may
-appear on and the values it may carry, and the bluemonday policy and
-`RejectedHTML` are both built from it, so a value the render would strip is a
-value the write refuses. The integration points where a browser parses HTML
-again inside an svg — `foreignObject`, `desc`, `title` — have their content
-dropped alongside `math` and `template`.
+**The allowlists bound what a block can reach, and nothing else**
+(ADR a-canvas-html-block-is-restricted-by-what-it-can-reach-not-by-how-it-looks).
+A name is refused when it executes, navigates, loads a document, or parses
+differently the second time — `script`, `style` the element, `iframe`,
+`object`, `embed`, `form`, every `on*` handler, `id`, and the svg integration
+points `foreignObject`, `desc` and `title`, whose content drops with `math`
+and `template`. Everything else is the agent's: any class, any `style`, any
+value, eleven svg elements to draw with, and `img`. The `hv-` vocabulary is
+what the stylesheet defines and the doc page teaches, held together by
+`TestHTMLVocabularyIsStyledAndDocumented`, but it gates nothing. What keeps
+that safe is one line of CSS: `contain: layout` on `.hv-html` makes the block
+the containing block for fixed and absolute descendants, so a block that
+positions itself cannot paint outside the pane.
 
 `agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
 or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is

@@ -32,12 +32,21 @@ anchor places or moves a block ahead of an existing one.
 
 ## Writing an html block
 
-You write the structure; Hive owns every colour, size and space. Pick class
-names from the vocabulary below and the block inherits the app's theme, in
-light and dark, now and after a restyle. **Never write a `style` attribute, a
-colour, a pixel value, or a class from outside the vocabulary** — the write is
-refused, naming what it did not recognise, rather than quietly rendering
-something that looks broken to the user.
+How a block looks is yours. Any class, any `style` attribute, any colour or
+size — nothing in the allowlist is second-guessed, and a block renders inside
+the pane it was written for, so it cannot paint over the rest of the app.
+
+What a block may **reach** is not yours: no script, no event handler, no
+embedded document, and links only to `http`, `https` or `mailto`. A write that
+uses one of those fails and names it, rather than rendering something you
+believe is intact.
+
+Reach for the `hv-` classes below before you invent styling. They are what
+Hive styles for you: pick one and the block follows the user's theme, in light
+and dark, now and after a restyle, and two canvases written months apart still
+look like the same product. Write your own colours when the block needs
+something the vocabulary has no name for, and remember the user may be in
+either theme.
 
 ### Tags
 
@@ -50,12 +59,17 @@ Sectioning and text (`div`, `section`, `article`, `header`, `footer`, `aside`,
 (`details`, `summary`), `a` with an `http`, `https` or `mailto` href, and the
 drawing tags in [Diagrams](#diagrams).
 
-Everything else is refused: no `script`, `style`, `iframe`, `object`, `embed`,
-`form` or form controls, no event handlers, no `style` attribute — and **no
-`img`**, because a remote image URL in the app's window is a request to
-whoever you named. Attributes are `class`, `href` on `a`, `colspan`/`rowspan`
-and `scope` on cells, `open` on `details`, and the geometry attributes in
-[Diagrams](#diagrams).
+Also `img`, with an `http`, `https` or base64 `data:` image source. Note that
+the app fetches whatever host you name, from the user's machine, every time
+the canvas is opened.
+
+Refused: `script`, `style` (the element — the `style` attribute is fine),
+`iframe`, `object`, `embed`, `form` and form controls, every `on*` handler,
+and `id`, which can shadow a global in the app's own page.
+
+Attributes are `class`, `style`, `title`, `lang`, `dir`, `href` on `a`, `src`
+and `alt` on `img`, `colspan`/`rowspan` and `scope` on cells, `open` on
+`details`, and the drawing attributes in [Diagrams](#diagrams).
 
 ### Classes
 
@@ -85,26 +99,26 @@ Prose and boxes cannot say which node feeds which, or which path is a return
 path. Draw that as an `svg`: you place the geometry, Hive picks the size and
 every colour, exactly as it does for the classes above.
 
-Rules that make a diagram survive the write:
+Give the `svg` a `viewBox` and it scales to whatever width the user dragged
+the pane to, which is usually what you want. State a `width` and `height`
+instead and it keeps that size, up to the width of the pane.
 
-- **A `viewBox` is required, and `width`/`height` on the `svg` are refused.**
-  Draw in whatever coordinate system suits the picture; the pane scales it to
-  whatever width the user dragged the pane to.
-- **Never write a colour.** No `fill`, `stroke`, `stroke-width` or
-  `font-size` attributes — pick a role class and a tone instead.
-- Coordinates are plain numbers in `viewBox` units. No percentages, no `px`.
+The role classes below are defaults, not rules. An unclassed shape still
+follows the theme; a `fill` or `stroke` attribute, or a `style`, overrides
+whatever the app would have picked.
 
 **Tags** — `svg`, `g` (a group, to move or tone several shapes at once),
 `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `text`
 and `tspan`. There is no `defs`, `marker` or `use`: draw an arrowhead as a
 `polygon`.
 
-**Attributes** — `viewBox` on `svg`; `transform` on anything inside it
-(`translate`, `scale`, `rotate`, `matrix`, `skewX`, `skewY`); `d` on `path`;
-`points` on `polyline`/`polygon`; `x`/`y`/`width`/`height`/`rx`/`ry` on
-`rect`; `cx`/`cy`/`r` on `circle`; `cx`/`cy`/`rx`/`ry` on `ellipse`;
-`x1`/`y1`/`x2`/`y2` on `line`; `x`/`y`/`dx`/`dy`/`text-anchor` on
-`text`/`tspan`.
+**Attributes** — the geometry (`viewBox`, `transform`, `d`, `points`, `x`,
+`y`, `dx`, `dy`, `width`, `height`, `rx`, `ry`, `cx`, `cy`, `r`, `x1`, `y1`,
+`x2`, `y2`, `preserveAspectRatio`) and the paint (`fill`, `stroke`,
+`stroke-width`, `stroke-dasharray`, `stroke-linecap`, `stroke-linejoin`,
+`opacity`, `fill-opacity`, `stroke-opacity`, `fill-rule`, `paint-order`,
+`vector-effect`, `font-size`, `font-family`, `font-weight`, `font-style`,
+`letter-spacing`, `text-anchor`, `dominant-baseline`).
 
 **Roles** — `hv-node` (a filled, bordered shape: one box in the diagram),
 `hv-edge` (a stroked connector), `hv-arrow` (a filled arrowhead or any other

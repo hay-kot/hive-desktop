@@ -12,6 +12,15 @@
 .hv-html {
   container-type: inline-size;
   overflow-wrap: break-word;
+
+  /* A block may write any class, so it may reach the global utilities and
+     position itself. contain: layout makes this element the containing block
+     for fixed and absolute descendants, which keeps a block inside the pane
+     it was written for. Measured: without it, `class="fixed inset-0"` covers
+     the whole window; with it, the sidebar still paints on top
+     (ADR a-canvas-html-block-is-restricted-by-what-it-can-reach-not-by-how-it-looks).
+     container-type alone does not do this. */
+  contain: layout;
 }
 
 /* Base elements, so an agent that names no class at all still gets a
@@ -68,6 +77,7 @@
 }
 .hv-html summary { cursor: pointer; color: var(--color-text); font-weight: 650; }
 .hv-html details[open] summary { margin-bottom: 8px; }
+.hv-html img { max-width: 100%; height: auto; border-radius: 6px; }
 .hv-html figure { margin: 10px 0; }
 .hv-html figcaption { margin-top: 4px; color: var(--color-text-4); font-size: 0.86em; }
 
@@ -134,16 +144,16 @@
 .hv-muted { color: var(--color-text-4); }
 .hv-mono { font-family: var(--font-mono); font-size: 0.9em; font-variant-numeric: tabular-nums; }
 
-/* Diagrams. The agent draws inside a viewBox — where the boxes sit, which
-   edge joins which — and the app owns the size, every colour and every
-   weight, the same split the classes above make for layout
-   (ADR canvas-diagrams-are-a-narrow-svg-subset-the-class-vocabulary-colours).
-   The size comes from width/height here rather than from the markup, which
-   is why the sanitizer refuses both attributes on <svg> and requires the
-   viewBox that gives this an aspect ratio to scale by. */
+/* Diagrams. These are defaults an agent gets for free, not rules: a drawing
+   with no class on it still follows the theme, and anything it sets for
+   itself wins.
+
+   A viewBox is what makes a drawing scalable, so that is what the width rule
+   selects on. A drawing that states its own width and height keeps it, and
+   max-width stops either kind from overflowing the pane. */
 .hv-html svg {
   display: block;
-  width: 100%;
+  max-width: 100%;
   height: auto;
   margin: 10px 0;
   color: var(--color-text-3);
@@ -154,6 +164,8 @@
   stroke-linejoin: round;
   font-size: 12px;
 }
+
+.hv-html svg[viewBox] { width: 100%; }
 
 /* No font rule here: it lives on the svg above so that hv-mono and hv-muted
    win on a <text> exactly as they do on a <span>. */

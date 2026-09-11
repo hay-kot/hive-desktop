@@ -28,9 +28,9 @@ func TestSanitizeHTMLDropsHostileInput(t *testing.T) {
 		{"data uri href", `<a href="data:text/html,<script>alert(1)</script>">x</a>`, `x`},
 		{"relative href", `<a href="/settings">x</a>`, `x`},
 		{"image with an error handler", `<img src=x onerror=alert(1)>`, ``},
-		{"remote image", `<img src="https://tracker.example/beacon.png">`, ``},
+		{"javascript image source", `<img src="javascript:alert(1)">`, ``},
+		{"data uri that is not an image", `<img src="data:text/html;base64,PHN2Zz4=">`, ``},
 		{"iframe srcdoc", `<iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>`, ``},
-		{"style attribute", `<div style="position:fixed;inset:0;background:red">x</div>`, `<div>x</div>`},
 		{"style element", `<style>body{display:none}</style>`, ``},
 		{"stylesheet link", `<link rel="stylesheet" href="https://x.example/e.css">`, ``},
 		{"form and its controls", `<form action="https://x.example"><input name="password"><button>go</button></form>`, ``},
@@ -42,15 +42,13 @@ func TestSanitizeHTMLDropsHostileInput(t *testing.T) {
 		{"mutation via svg cdata", `<svg viewBox="0 0 10 10"><![CDATA[</svg><img src=x onerror=alert(1)>]]></svg>`, `<svg viewBox="0 0 10 10">]]&gt;</svg>`},
 		{"svg style element", `<svg viewBox="0 0 10 10"><style>body{display:none}</style><circle r="2"/></svg>`, `<svg viewBox="0 0 10 10"><circle r="2"/></svg>`},
 		{"svg reaching out for a document", `<svg viewBox="0 0 10 10"><use href="#x"/><image href="https://x.example/a.png"/></svg>`, `<svg viewBox="0 0 10 10"></svg>`},
-		{"agent-picked colours", `<svg viewBox="0 0 10 10"><path d="M0 0 L9 9" fill="red" stroke="#f00"/></svg>`, `<svg viewBox="0 0 10 10"><path d="M0 0 L9 9"/></svg>`},
 		{"template smuggling an image", `<template><img src=x onerror=alert(1)></template>`, ``},
 		{"mutation via math foreign content", `<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(1)>`, ``},
 		{"mutation via noscript title", `<noscript><p title="</noscript><img src=x onerror=alert(1)>">`, `&#34;&gt;`},
 		{"split script tag", `<scr<script>ipt>alert(1)</script>`, `ipt&gt;alert(1)`},
 		{"object and embed", `<object data="x"></object><embed src="x">`, ``},
 		{"comment", `<p>a</p><!-- <script>alert(1)</script> -->`, `<p>a</p>`},
-		{"unknown class", `<div class="hv-card grid-cols-2">x</div>`, `<div>x</div>`},
-		{"tailwind reach", `<div class="fixed inset-0 bg-red-500">x</div>`, `<div>x</div>`},
+		{"id, which can clobber a global", `<div id="wails">x</div>`, `<div>x</div>`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,59 +96,44 @@ func TestSanitizeHTMLKeepsStructureAndVocabulary(t *testing.T) {
 	}
 }
 
-// htmlAttrs is the one declaration the policy and RejectedHTML are both
-// built from, so what is left to hold is that every rule in it reaches a
-// real sanitize: a rule the policy loop passes over allows nothing and
-// strips everything, and the write-time check would never see it.
+// Every name in htmlAttrs must survive a real sanitize, whatever value it
+// carries: the list is the whole attribute contract now, and a name the
+// policy never granted would be refused on write and stripped on render for
+// no stated reason.
 func TestHTMLPolicyKeepsEveryDeclaredAttribute(t *testing.T) {
-	sample := map[string]string{
-		"class": "hv-card", "href": "https://example.com/", "colspan": "2",
-		"rowspan": "2", "scope": "col", "open": "",
-		"viewbox": "0 0 100 40", "transform": "translate(4 4)",
-		"d": "M0 0 L9 9", "points": "0,0 9,9",
-		"x": "1", "y": "1", "dx": "1", "dy": "1", "width": "10", "height": "10",
-		"rx": "2", "ry": "2", "cx": "5", "cy": "5", "r": "4",
-		"x1": "0", "y1": "0", "x2": "9", "y2": "9", "text-anchor": "middle",
-	}
-	for attr, rule := range htmlAttrs {
-		value, ok := sample[attr]
-		require.True(t, ok, "no sample value for the %s rule", attr)
-		elements := rule.on
-		if len(elements) == 0 {
-			elements = []string{"div"}
-		}
-		for _, el := range elements {
-			src := `<` + el + ` ` + attr + `="` + value + `">x</` + el + `>`
-			// Lowercased because svgCasing spells viewBox the way SVG needs
-			// it, and htmlAttrs is keyed by the name the tokenizer folds to.
-			assert.Contains(t, strings.ToLower(SanitizeHTML(src)), attr+`="`, "policy drops %s on <%s>, which htmlAttrs allows", attr, el)
-			assert.Empty(t, RejectedHTML(src), "the write check refuses %s on <%s>, which htmlAttrs allows", attr, el)
-		}
+	for _, attr := range htmlAttrs {
+		src := `<div ` + attr + `="anything at all">x</div>`
+		// Lowercased because svgCasing spells viewBox the way SVG needs it,
+		// and htmlAttrs is keyed by the name the tokenizer folds to.
+		assert.Contains(t, strings.ToLower(SanitizeHTML(src)), attr+`="`, "policy drops %s, which htmlAttrs allows", attr)
+		assert.Empty(t, RejectedHTML(src), "the write check refuses %s, which htmlAttrs allows", attr)
 	}
 
-	for _, attr := range []string{"style", "id", "onclick", "onerror", "src", "target", "srcdoc", "data-x", "hidden"} {
+	for _, attr := range []string{"id", "onclick", "onerror", "srcdoc", "target", "formaction", "xlink:href"} {
 		assert.NotContains(t, SanitizeHTML(`<div `+attr+`="v">x</div>`), attr, "%s must not survive", attr)
+		assert.NotEmpty(t, RejectedHTML(`<div `+attr+`="v">x</div>`), "%s must be refused on write", attr)
 	}
 }
 
-// A value the policy would strip is as invisible to the agent as an element
-// it would drop, so the shape rules are part of the write-time contract too.
-func TestSanitizeHTMLDropsValuesOutsideTheShapeRules(t *testing.T) {
+// The agent owns how a block looks, so a value inside the allowlist is never
+// second-guessed. These are the ones an earlier policy rewrote or dropped.
+func TestSanitizeHTMLKeepsTheAgentsOwnStyling(t *testing.T) {
 	cases := []struct {
 		name string
 		src  string
-		want string
 	}{
-		{"a percentage width", `<rect width="50%" height="4"/>`, `<rect height="4"/>`},
-		{"a unit on a coordinate", `<circle cx="4px" cy="4" r="2"/>`, `<circle cy="4" r="2"/>`},
-		{"a url in a transform", `<g transform="url(#x)"><circle r="2"/></g>`, `<g><circle r="2"/></g>`},
-		{"a script call in path data", `<path d="alert(1)"/>`, `<path/>`},
-		{"a colspan that is not a number", `<td colspan="one">x</td>`, `<td>x</td>`},
+		{"a class outside the vocabulary", `<div class="fixed inset-0 bg-red-500">x</div>`},
+		{"a style attribute", `<div style="color:#ff0000;padding:8px">x</div>`},
+		{"an agent-picked svg colour", `<circle r="2" fill="red" stroke="#f00" stroke-width="4"/>`},
+		{"a percentage coordinate", `<rect width="50%" height="4"/>`},
+		{"an svg with no viewBox", `<svg width="200" height="80"><circle r="2"/></svg>`},
+		{"a remote image", `<img src="https://example.com/chart.png" alt="chart">`},
+		{"a data uri image", `<img src="data:image/png;base64,iVBORw0KGgo=">`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, SanitizeHTML(tc.src))
-			assert.NotEmpty(t, RejectedHTML(tc.src), "the write check must refuse what the policy strips")
+			assert.Equal(t, tc.src, SanitizeHTML(tc.src))
+			assert.Empty(t, RejectedHTML(tc.src))
 		})
 	}
 }
@@ -165,25 +148,19 @@ func TestRejectedHTMLNamesTheFirstOffender(t *testing.T) {
 		{"clean without any class", `<section><h3>Results</h3><ul><li>a</li></ul></section>`, ""},
 		{"plain text", `no markup at all`, ""},
 		{"script", `<p>a</p><script>alert(1)</script>`, "the <script> element"},
-		{"image", `<img src="https://x.example/a.png">`, "the <img> element"},
 		{"button", `<button>go</button>`, "the <button> element"},
-		{"unknown class", `<div class="hv-card grid-cols-2">x</div>`, `the class "grid-cols-2"`},
-		{"tailwind reach", `<div class="fixed inset-0">x</div>`, `the class "fixed"`},
-		{"style attribute", `<div style="color:red">x</div>`, "the style attribute on <div>"},
+		{"id", `<div id="wails">x</div>`, "the id attribute on <div>"},
 		{"event handler", `<div class="hv-card" onclick="x()">x</div>`, "the onclick attribute on <div>"},
 		{"href off an anchor", `<div href="https://x.example">x</div>`, "the href attribute on <div>"},
 		{"good href", `<a href="https://x.example/pr/1">x</a>`, ""},
 		{"mailto href", `<a href="mailto:a@example.com">x</a>`, ""},
 		{"javascript href", `<a href="javascript:alert(1)">x</a>`, `the link "javascript:alert(1)"`},
 		{"relative href", `<a href="/settings">x</a>`, `the link "/settings"`},
-		{"element beats class", `<script class="nope">x</script>`, "the <script> element"},
+		{"element beats attribute", `<script class="nope">x</script>`, "the <script> element"},
 		{"a clean diagram", `<svg viewBox="0 0 40 20"><rect class="hv-node" width="10" height="10"/></svg>`, ""},
-		{"svg without a viewBox", `<svg><circle r="2"/></svg>`, "an <svg> with no viewBox"},
-		{"svg sizing itself", `<svg viewBox="0 0 40 20" width="400" height="200"></svg>`, "the width attribute on <svg>"},
-		{"an agent-picked colour", `<path d="M0 0" fill="red"/>`, "the fill attribute on <path>"},
-		{"a stroke weight", `<line x1="0" y1="0" x2="9" y2="9" stroke-width="4"/>`, "the stroke-width attribute on <line>"},
-		{"a percentage coordinate", `<rect width="50%" height="4"/>`, `the width value "50%" on <rect>`},
-		{"a url in a transform", `<g transform="url(#x)"></g>`, `the transform value "url(#x)" on <g>`},
+		{"a remote image", `<img src="https://example.com/a.png" alt="chart">`, ""},
+		{"a javascript image source", `<img src="javascript:alert(1)">`, `the image source "javascript:alert(1)"`},
+		{"a relative image source", `<img src="/tmp/shot.png">`, `the image source "/tmp/shot.png"`},
 		{"defs for a marker", `<svg viewBox="0 0 40 20"><defs></defs></svg>`, "the <defs> element"},
 	}
 	for _, tc := range cases {
