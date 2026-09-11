@@ -1301,7 +1301,12 @@ lists on every `list-windows` row into a `Layout` tree, keeps it on `Window`
 beside `Zoomed`, and forwards output from every pane a tracked window owns; the
 window event carries `activePane`, `zoomed` and `layout`, and `layout-changed`
 is the kind a resize, a split, a closed pane and a zoom all arrive as, since
-the window's size is its layout's root box. The frontend measures one cell off
+the window's size is its layout's root box. Every window event is a consistent
+snapshot: tmux announces a split and a kill in two notifications, and between
+them the active pane is not one of the layout's leaves, so `tmuxcc` withholds
+the window until the next notification completes it and publishes one
+`layout-changed`; a consumer reads name, size, layout and active pane off every
+kind. The frontend measures one cell off
 the first pane it opens and places each pane's host in the window's box at the
 layout's cells; the size vote is the window box's, computed with the fit
 addon's arithmetic rather than the addon, which can only measure its own

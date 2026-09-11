@@ -40,6 +40,11 @@ var errLayout = errors.New("tmuxcc: malformed layout")
 // rather than followed.
 const maxLayoutDepth = 32
 
+// maxNumberDigits bounds a dimension, an offset or a pane id to what fits an
+// int32: nothing tmux emits comes close, and a longer run of digits is a
+// hostile string rather than a layout.
+const maxNumberDigits = 9
+
 // ParseLayout reads tmux's layout string: `<checksum>,<cell>`, where a cell is
 // `WxH,X,Y` followed by `,<pane>` for a leaf, `{<cells>}` for a left-right
 // split or `[<cells>]` for a top-bottom one. Pane ids in it are bare numbers;
@@ -140,7 +145,7 @@ func (p *layoutParser) number() (int, error) {
 	start := p.pos
 	n := 0
 	for p.pos < len(p.src) && p.src[p.pos] >= '0' && p.src[p.pos] <= '9' {
-		if p.pos-start >= 9 {
+		if p.pos-start >= maxNumberDigits {
 			return 0, fmt.Errorf("%w: number too long at %d in %q", errLayout, start, p.src)
 		}
 		n = n*10 + int(p.src[p.pos]-'0')
@@ -236,10 +241,4 @@ func (l Layout) writeCells(b *strings.Builder, open, closer byte) {
 		cell.write(b)
 	}
 	b.WriteByte(closer)
-}
-
-// singlePaneLayout is the layout of a window holding one pane over its whole
-// box — what a window that has never been split reports.
-func singlePaneLayout(pane string, width, height int) Layout {
-	return Layout{Pane: pane, Width: width, Height: height}
 }

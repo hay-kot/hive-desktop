@@ -41,8 +41,7 @@ const (
 
 const (
 	// terminalWireVersion is carried as ?v= and checked before the upgrade, so a
-	// stale webview fails the handshake instead of misparsing frames. 2 is
-	// where client frames started naming a pane instead of a window.
+	// stale webview fails the handshake instead of misparsing frames.
 	terminalWireVersion = "2"
 	// maxInputFrameBytes caps one client->server frame whole, id included.
 	maxInputFrameBytes = 4 << 10

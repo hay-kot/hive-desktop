@@ -1,6 +1,9 @@
 package tmuxcc
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // Window is the app-side model of one tmux window.
 type Window struct {
@@ -34,6 +37,13 @@ func (w Window) Panes() []string {
 	return nil
 }
 
+// consistent reports whether the active pane is one of the layout's leaves. A
+// window whose layout has not been read yet is consistent by definition.
+func (w Window) consistent() bool {
+	panes := w.Layout.Panes()
+	return len(panes) == 0 || slices.Contains(panes, w.ActivePane)
+}
+
 // controller holds the window set of one attached session and derives events
 // from notifications. Every pane of every window is rendered, so the pane
 // index covers each window's whole layout.
@@ -42,6 +52,12 @@ type controller struct {
 	order   []string
 	windows map[string]Window
 	panes   map[string]string // pane id -> window id
+	// held names windows whose stored state has not been published. tmux
+	// announces a split or a closed pane as a %layout-change and a
+	// %window-pane-changed, in either order, and between the two the window's
+	// active pane is outside its layout. A consumer reads every window event
+	// as a whole snapshot, so the window goes out once both have landed.
+	held map[string]bool
 	// generation increments on every add the reader folds in. addedAt records
 	// the generation a window entered the set under, so a merge can tell a
 	// window its snapshot could not have seen from one the snapshot dropped.
@@ -50,7 +66,12 @@ type controller struct {
 }
 
 func newController() *controller {
-	return &controller{windows: map[string]Window{}, panes: map[string]string{}, addedAt: map[string]uint64{}}
+	return &controller{
+		windows: map[string]Window{},
+		panes:   map[string]string{},
+		held:    map[string]bool{},
+		addedAt: map[string]uint64{},
+	}
 }
 
 // mark reports the generation a caller is about to take a snapshot at. A
@@ -97,8 +118,7 @@ func (c *controller) apply(n Notification) []Event {
 			return nil
 		}
 		w.Name = v.Name
-		c.windows[v.Window] = w
-		return []Event{WindowChanged{Kind: WindowRenamed, Window: w}}
+		return c.settleLocked(w, WindowRenamed)
 
 	case WindowPaneChanged:
 		w, ok := c.windows[v.Window]
@@ -106,9 +126,8 @@ func (c *controller) apply(n Notification) []Event {
 			return nil
 		}
 		w.ActivePane = v.Pane
-		c.windows[v.Window] = w
 		c.panes[v.Pane] = v.Window
-		return []Event{WindowChanged{Kind: WindowActiveChanged, Window: w}}
+		return c.settleLocked(w, WindowActiveChanged)
 
 	case SessionWindowChanged:
 		if _, ok := c.windows[v.Window]; !ok {
@@ -127,8 +146,7 @@ func (c *controller) apply(n Notification) []Event {
 		}
 		w.Layout, w.Zoomed = v.Layout, v.Zoomed
 		w.Width, w.Height = v.Layout.Width, v.Layout.Height
-		c.storeLocked(w)
-		return []Event{WindowChanged{Kind: WindowLayoutChanged, Window: w}}
+		return c.settleLocked(w, WindowLayoutChanged)
 
 	case PauseNotification:
 		return []Event{LifecycleChanged{Kind: LifecyclePaused, WindowID: c.panes[v.Pane]}}
@@ -139,6 +157,22 @@ func (c *controller) apply(n Notification) []Event {
 	default:
 		return nil
 	}
+}
+
+// settleLocked stores w and answers the event to publish for it: nothing while
+// its active pane is outside its layout, and WindowLayoutChanged for the whole
+// window once a hold lifts, whatever the notification that completed it.
+func (c *controller) settleLocked(w Window, kind WindowEventKind) []Event {
+	c.storeLocked(w)
+	if !w.consistent() {
+		c.held[w.ID] = true
+		return nil
+	}
+	if c.held[w.ID] {
+		delete(c.held, w.ID)
+		kind = WindowLayoutChanged
+	}
+	return []Event{WindowChanged{Kind: kind, Window: w}}
 }
 
 // reconcile merges an authoritative list-windows snapshot taken at generation
@@ -162,6 +196,9 @@ func (c *controller) reconcile(next []Window, since uint64) []Event {
 		// The snapshot has now seen this window, so it is ordinary again and a
 		// later snapshot may legitimately report it closed.
 		delete(c.addedAt, w.ID)
+		// A snapshot row is consistent by construction, so it lifts a hold.
+		held := c.held[w.ID]
+		delete(c.held, w.ID)
 		switch {
 		case !existed:
 			events = append(events, WindowChanged{Kind: WindowAdded, Window: w})
@@ -169,7 +206,7 @@ func (c *controller) reconcile(next []Window, since uint64) []Event {
 			events = append(events, WindowChanged{Kind: WindowRenamed, Window: w})
 		case prev.Active != w.Active || prev.ActivePane != w.ActivePane:
 			events = append(events, WindowChanged{Kind: WindowActiveChanged, Window: w})
-		case prev.Width != w.Width || prev.Height != w.Height || prev.Zoomed != w.Zoomed || !prev.Layout.Equal(w.Layout):
+		case held || prev.Width != w.Width || prev.Height != w.Height || prev.Zoomed != w.Zoomed || !prev.Layout.Equal(w.Layout):
 			events = append(events, WindowChanged{Kind: WindowLayoutChanged, Window: w})
 		}
 	}
@@ -214,6 +251,7 @@ func (c *controller) set(next []Window) {
 	for _, w := range next {
 		c.storeLocked(w)
 		delete(c.addedAt, w.ID)
+		delete(c.held, w.ID)
 	}
 }
 
@@ -244,8 +282,8 @@ func (c *controller) byID(id string) (Window, bool) {
 }
 
 // storeLocked keeps the pane index additive: a pane that leaves the layout
-// still resolves to its window, so output it produces on its way out is
-// drained rather than dropped as unroutable. tmux never reuses a pane id.
+// still resolves to its window, so its last bytes are streamed and counted
+// rather than dropped as unroutable. tmux never reuses a pane id.
 func (c *controller) storeLocked(w Window) {
 	if _, existed := c.windows[w.ID]; !existed {
 		c.order = append(c.order, w.ID)
@@ -264,6 +302,7 @@ func (c *controller) removeLocked(id string) {
 	}
 	delete(c.windows, id)
 	delete(c.addedAt, id)
+	delete(c.held, id)
 	for i, existing := range c.order {
 		if existing == id {
 			c.order = append(c.order[:i], c.order[i+1:]...)

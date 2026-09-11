@@ -285,3 +285,27 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 	assert.Nil(t, unread.Layout)
 	assert.NotContains(t, string(frame), `"layout"`, "an unread layout is absent, not empty")
 }
+
+// A 0x0 cell never comes from a real tmux, but the converter must not be what
+// panics the write pump on one.
+func TestWindowEventEncodesAZeroSizedCell(t *testing.T) {
+	frame, ok := encodeEvent(tmuxcc.WindowChanged{
+		Kind: tmuxcc.WindowLayoutChanged,
+		Window: tmuxcc.Window{ID: "@1", Width: 80, Height: 24, Layout: tmuxcc.Layout{
+			Split: tmuxcc.SplitLeftRight, Width: 80, Height: 24,
+			Cells: []tmuxcc.Layout{
+				{Pane: "%1", Width: 80, Height: 24},
+				{Split: tmuxcc.SplitTopBottom, X: 80, Cells: []tmuxcc.Layout{{Pane: "%2", X: 80}}},
+			},
+		}},
+	})
+	require.True(t, ok)
+
+	var window windowEventPayload
+	require.NoError(t, json.Unmarshal(frame[1:], &window))
+	require.NotNil(t, window.Layout)
+	require.Len(t, window.Layout.Cells, 2)
+	assert.Equal(t,
+		terminalLayout{Split: "topbottom", X: 80, Cells: []terminalLayout{{PaneID: "%2", X: 80}}},
+		window.Layout.Cells[1])
+}

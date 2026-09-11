@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1105,7 +1106,8 @@ func (c *Client) worker(ctx context.Context) {
 // discovered. A window created after attach reaches us as %window-add, which
 // carries no pane, and a split reaches us as %layout-change naming a pane
 // nothing has captured: either way the snapshot is the only thing that puts
-// the new pane's prompt on screen.
+// the new pane's prompt on screen. The reader may already hold a pane it saw
+// arrive; hold answers true for those too, so this pass paints them.
 func (c *Client) runReconcile(ctx context.Context) {
 	since := c.ctrl.mark()
 	windows, err := c.listWindows(ctx)
@@ -1197,12 +1199,38 @@ func (c *Client) onNotification(n Notification) {
 		// tmux closes the stream right after %exit; the kill is insurance
 		// against a child that does not.
 		go c.terminate()
-	case WindowAddNotification, LayoutChanged:
+	case WindowAddNotification:
+		c.requestReconcile()
+	case WindowPaneChanged:
+		if c.holdNewPanes(v.Window, v.Pane) {
+			c.requestReconcile()
+		}
+	case LayoutChanged:
+		c.holdNewPanes(v.Window, v.Layout.Panes()...)
 		c.requestReconcile()
 	}
 	for _, ev := range c.ctrl.apply(n) {
 		c.publish(ev)
 	}
+}
+
+// holdNewPanes puts the panes a notification introduces into the paint gate
+// before the controller indexes them. Indexed, their %output routes at once,
+// while the snapshot that has to precede it is a reconcile away, and a prompt
+// published in between is drawn twice. It reports whether it held any: a pane
+// only a snapshot can put on screen.
+func (c *Client) holdNewPanes(windowID string, panes ...string) bool {
+	if _, ok := c.ctrl.byID(windowID); !ok {
+		return false
+	}
+	held := false
+	for _, pane := range panes {
+		if _, known := c.ctrl.windowForPane(pane); !known {
+			c.paint.hold(pane)
+			held = true
+		}
+	}
+	return held
 }
 
 // emitOutput resolves a pane to its window and forwards the bytes. Only a pane
@@ -1307,13 +1335,16 @@ func (c *Client) exitReasonOr(fallback string) string {
 }
 
 // pane is the gate every pane argument passes: a pane id reaches a tmux
-// command line only if it is %<digits> and one a tracked window owns.
+// command line only if it is %<digits> and a leaf of a tracked window's
+// layout. The pane index behind windowForPane is additive so a departed pane's
+// last output still routes; a verb on one would only earn tmux's "can't find
+// pane".
 func (c *Client) pane(paneID string) (Window, error) {
 	if !validPaneID(paneID) {
 		return Window{}, fmt.Errorf("%w: %q", ErrUnknownPane, paneID)
 	}
 	w, ok := c.ctrl.windowForPane(paneID)
-	if !ok {
+	if !ok || !slices.Contains(w.Panes(), paneID) {
 		return Window{}, fmt.Errorf("%w: %s", ErrUnknownPane, paneID)
 	}
 	return w, nil

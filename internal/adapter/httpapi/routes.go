@@ -206,7 +206,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resize", Summary: "Vote a size for a session's attached control client, the same renegotiation the terminal pane casts on a host resize; tmux answers on the stream with a window resized event, which is what sets the grid.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resize", Summary: "Vote a size for a session's attached control client, the same renegotiation the terminal pane casts on a host resize; tmux answers on the stream with a layout-changed window event, which is what sets the grid.",
 			Request: agentSessionResizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionResize,
 			Errors: agentErrors("no such session, or it has no attached terminal"),
 		},

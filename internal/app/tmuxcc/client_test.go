@@ -443,6 +443,7 @@ func TestWindowClosedDuringItsFirstPaint(t *testing.T) {
 	defer client.paint.mu.Unlock()
 	require.NotContains(t, client.paint.buf, "%2", "the gate still holds bytes for a dead pane")
 	require.NotContains(t, client.paint.held, "%2", "the gate is still holding a dead pane")
+	require.NotContains(t, client.paint.pending, "%2")
 	require.NotContains(t, client.paint.live, "%2")
 }
 
@@ -520,7 +521,7 @@ func TestSessionWindowChangedEmitsActiveChanged(t *testing.T) {
 // tmux sizes a window to the smallest attached client, so a second client
 // attaching elsewhere resizes it under us. %layout-change is how that reaches
 // the renderer in time to draw the repaint that follows at the right width.
-func TestLayoutChangeEmitsResizedWithTheWindowSize(t *testing.T) {
+func TestLayoutChangeCarriesTheWindowSize(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
@@ -535,11 +536,11 @@ func TestLayoutChangeEmitsResizedWithTheWindowSize(t *testing.T) {
 	})
 	defer unsubscribe()
 
-	resized, ok := events[len(events)-1].(WindowChanged)
+	changed, ok := events[len(events)-1].(WindowChanged)
 	require.True(t, ok)
-	require.Equal(t, "@1", resized.Window.ID)
-	require.Equal(t, 80, resized.Window.Width)
-	require.Equal(t, 24, resized.Window.Height)
+	require.Equal(t, "@1", changed.Window.ID)
+	require.Equal(t, 80, changed.Window.Width)
+	require.Equal(t, 24, changed.Window.Height)
 }
 
 func TestExtendedOutputIsRoutedLikeOutput(t *testing.T) {
@@ -641,6 +642,55 @@ func TestSplitPaintsTheNewPaneAtItsOwnHeight(t *testing.T) {
 	require.Equal(t, 19, strings.Count(string(painted), "\r\n")+1, "the screen is written at the pane's 19 rows, not the window's 40")
 }
 
+// The controller indexes a new pane the moment its notification is applied, and
+// %output for it routes from then on, while the snapshot that has to precede
+// that output is a list-windows round trip away. tmux sends the notification
+// and the pane's first %output back to back, in both orders a split produces;
+// those bytes are already on the pane's screen, so the snapshot carries them
+// and replaying them as well would draw the prompt twice.
+func TestSplitOutputWaitsForTheNewPanesSnapshot(t *testing.T) {
+	t.Parallel()
+
+	const layoutChange = "%layout-change @1 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] *"
+	cases := map[string][]string{
+		"layout first":      {layoutChange, `%output %2 EARLY`},
+		"pane change first": {"%window-pane-changed @1 %2", `%output %2 EARLY`, layoutChange},
+	}
+	for name, lines := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFakeTmux(t, "hive-demo")
+			f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
+			f.setCapture("%1", "claude> ready")
+			client := attachFake(t, f, Options{Cols: 120, Rows: 40})
+			events, unsubscribe := client.Subscribe()
+			t.Cleanup(unsubscribe)
+
+			f.setWindows("@1 1 %2 120 40 0 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] claude")
+			f.setCapture("%2", "SNAPSHOT")
+			f.write(lines...)
+			f.awaitCommands(t, "capture-pane -pe -S 0 -t %2", 1)
+			f.emit(`%output %2 LATE`)
+
+			var chunks []string
+			collect(t, events, func(ev Event) bool {
+				out, ok := ev.(Output)
+				if !ok || out.PaneID != "%2" {
+					return false
+				}
+				chunks = append(chunks, string(out.Data))
+				return strings.Contains(string(out.Data), "LATE")
+			})
+
+			require.True(t, strings.HasPrefix(chunks[0], "SNAPSHOT"), "the snapshot is the pane's first chunk: %q", chunks)
+			streamed := strings.Join(chunks, "")
+			require.NotContains(t, streamed, "EARLY", "bytes the snapshot already holds are not replayed")
+			require.True(t, strings.HasSuffix(streamed, "LATE"), "bytes after the snapshot follow it: %q", chunks)
+		})
+	}
+}
+
 // A zoomed pane is drawn over the whole window, so its snapshot is written at
 // the window's height, and the panes zoom is hiding are painted afterwards at
 // their own.
@@ -731,6 +781,50 @@ func TestPaneCommands(t *testing.T) {
 	for _, cmd := range f.sentCommands() {
 		require.NotContains(t, cmd, "kill-server")
 	}
+}
+
+// A pane that left the layout still resolves to its window, so its last bytes
+// land in a tab. A verb on it must not: tmux would answer "can't find pane",
+// which reaches the caller as an internal error rather than the not-found the
+// routes promise.
+func TestVerbsOnADepartedPaneAreRefused(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %2 120 40 0 f91d,120x40,0,0{60x40,0,0,1,59x40,61,0,2} claude")
+	client := attachFake(t, f, Options{})
+	ctx := t.Context()
+
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
+	f.emit("%layout-change @1 b25f,120x40,0,0,1 b25f,120x40,0,0,1 *")
+	f.emit("%window-pane-changed @1 %1")
+	f.emit(`%output %2 last words`)
+
+	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@1", "last words"))
+	defer unsubscribe()
+	var departed bool
+	for _, ev := range events {
+		if wc, ok := ev.(WindowChanged); ok && wc.Window.ID == "@1" && len(wc.Window.Layout.Panes()) == 1 {
+			departed = true
+		}
+	}
+	require.True(t, departed, "the one-pane layout reached the subscriber")
+
+	before := len(f.sentCommands())
+	require.ErrorIs(t, client.KillPane(ctx, "%2"), ErrUnknownPane)
+	require.ErrorIs(t, client.SelectPane(ctx, "%2", PaneSelf), ErrUnknownPane)
+	_, err := client.SplitPane(ctx, "%2", SplitHorizontal)
+	require.ErrorIs(t, err, ErrUnknownPane)
+	require.ErrorIs(t, client.ResizePane(ctx, "%2", 10, 0), ErrUnknownPane)
+	require.ErrorIs(t, client.ZoomPane(ctx, "%2"), ErrUnknownPane)
+	require.ErrorIs(t, client.Write(ctx, "%2", []byte("x")), ErrUnknownPane)
+	_, err = client.PaneWindow("%2")
+	require.ErrorIs(t, err, ErrUnknownPane)
+	require.Len(t, f.sentCommands(), before, "nothing reached tmux")
+
+	w, err := client.PaneWindow("%1")
+	require.NoError(t, err)
+	require.Equal(t, "@1", w.ID)
 }
 
 func TestWriteSendsHexChunks(t *testing.T) {
@@ -1099,7 +1193,7 @@ func TestProtocolDesyncTearsDownTheClient(t *testing.T) {
 	require.True(t, sawError, "the desync is reported before the exit")
 }
 
-// Not parallel, and neither is TestDrainedPaneOutputIsStillCounted: the
+// Not parallel, and neither is TestOutputFromAnInactivePaneIsCounted: the
 // instruments carry no session attribute, so every client in the process writes
 // to the same series and a concurrent test would land in this delta. Go defers
 // parallel tests to the end of the package, which leaves these two alone.
@@ -1125,14 +1219,13 @@ func TestStreamInstrumentsRecord(t *testing.T) {
 	require.Greater(t, after.depth, before.depth, "a publish records the backlog depth")
 }
 
-func TestDrainedPaneOutputIsStillCounted(t *testing.T) {
+func TestOutputFromAnInactivePaneIsCounted(t *testing.T) {
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude")
+	f.setWindows("@1 1 %2 120 1 0 f91d,120x1,0,0{60x1,0,0,1,59x1,61,0,2} claude")
 
 	before := readStreamCounts(t)
 	client := attachFake(t, f, Options{})
 
-	f.emit("%window-pane-changed @1 %2")
 	f.emit(`%output %1 background\015\012`)
 	f.emit(`%output %2 foreground\015\012`)
 

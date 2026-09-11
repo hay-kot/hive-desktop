@@ -71,11 +71,8 @@ type terminalLayout struct {
 	Cells  []terminalLayout `json:"cells,omitempty"`
 }
 
-func toTerminalLayout(layout tmuxcc.Layout) *terminalLayout {
-	if layout.Width == 0 && layout.Height == 0 {
-		return nil
-	}
-	out := &terminalLayout{
+func toTerminalLayout(layout tmuxcc.Layout) terminalLayout {
+	out := terminalLayout{
 		PaneID: layout.Pane,
 		Split:  string(layout.Split),
 		X:      layout.X,
@@ -84,7 +81,7 @@ func toTerminalLayout(layout tmuxcc.Layout) *terminalLayout {
 		Height: layout.Height,
 	}
 	for _, cell := range layout.Cells {
-		out.Cells = append(out.Cells, *toTerminalLayout(cell))
+		out.Cells = append(out.Cells, toTerminalLayout(cell))
 	}
 	return out
 }
@@ -221,7 +218,9 @@ func (b terminalSelectPaneRequest) Validate() error {
 }
 
 // terminalResizePaneRequest sets a pane's width and/or height in cells. A 0
-// leaves that axis alone; both 0 is refused by the core.
+// leaves that axis alone. The sizes are not validated here: the core owns the
+// 1..1000 bound and refuses both 0, and its ErrInvalidSize is the 400 the
+// route documents.
 type terminalResizePaneRequest struct {
 	Slug   string `json:"slug"`
 	PaneID string `json:"paneId"`
@@ -233,8 +232,6 @@ func (b terminalResizePaneRequest) Validate() error {
 	return criterio.ValidateStruct(
 		criterio.Run("slug", b.Slug, criterio.Required),
 		criterio.Run("paneId", b.PaneID, criterio.Required),
-		criterio.Run("width", b.Width, criterio.Min(0)),
-		criterio.Run("height", b.Height, criterio.Min(0)),
 	)
 }
 
@@ -273,7 +270,7 @@ type terminalNewWindowResponse struct {
 }
 
 func toTerminalWindow(win tmuxcc.Window) terminalWindow {
-	return terminalWindow{
+	out := terminalWindow{
 		WindowID:   win.ID,
 		Name:       win.Name,
 		Active:     win.Active,
@@ -281,8 +278,14 @@ func toTerminalWindow(win tmuxcc.Window) terminalWindow {
 		Width:      win.Width,
 		Height:     win.Height,
 		Zoomed:     win.Zoomed,
-		Layout:     toTerminalLayout(win.Layout),
 	}
+	// A zero-sized root is a layout tmux has not reported yet, sent as absent
+	// rather than as an empty tree.
+	if win.Layout.Width != 0 || win.Layout.Height != 0 {
+		layout := toTerminalLayout(win.Layout)
+		out.Layout = &layout
+	}
+	return out
 }
 
 func toTerminalWindows(windows []tmuxcc.Window) []terminalWindow {

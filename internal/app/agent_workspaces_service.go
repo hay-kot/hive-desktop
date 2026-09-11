@@ -1375,8 +1375,8 @@ func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (Wor
 
 // ResizeSession votes a size for a session's attached control client — the
 // same refresh-client vote the Code view's panes cast. tmux answers over the
-// stream with a window 'resized' event, which is what actually sets the
-// pane's grid; see AgentsMode's resize wiring.
+// stream with a window 'layout-changed' event, which is what actually sets
+// the pane's grid; see AgentsMode's resize wiring.
 func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, cols, rows int) error {
 	rec, err := s.getSession(ctx, id)
 	if err != nil {

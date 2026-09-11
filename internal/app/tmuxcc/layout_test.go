@@ -1,10 +1,17 @@
 package tmuxcc
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// singlePaneLayout is the layout of a window holding one pane over its whole
+// box, what a window that has never been split reports.
+func singlePaneLayout(pane string, width, height int) Layout {
+	return Layout{Pane: pane, Width: width, Height: height}
+}
 
 func TestParseLayout(t *testing.T) {
 	t.Parallel()
@@ -95,6 +102,18 @@ func TestParseLayoutRefusesWhatItCannotPlace(t *testing.T) {
 			require.ErrorIs(t, err, errLayout)
 		})
 	}
+}
+
+func TestParseLayoutBoundsItsDepth(t *testing.T) {
+	t.Parallel()
+
+	nested := func(levels int) string {
+		return "b25f," + strings.Repeat("120x40,0,0{", levels) + "120x40,0,0,1" + strings.Repeat("}", levels)
+	}
+	_, err := ParseLayout(nested(maxLayoutDepth))
+	require.NoError(t, err)
+	_, err = ParseLayout(nested(maxLayoutDepth + 1))
+	require.ErrorIs(t, err, errLayout)
 }
 
 func TestLayoutLeavesAndPanes(t *testing.T) {

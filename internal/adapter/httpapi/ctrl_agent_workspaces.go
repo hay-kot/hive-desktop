@@ -730,8 +730,8 @@ func (ctrl *Controller) AgentSessionActivity(w http.ResponseWriter, r *http.Requ
 
 // agentSessionResizeRequest votes a size for a session's attached control
 // client. Like start/resume's cols/rows this is a vote, not an applied size:
-// tmux answers over the stream with a window 'resized' event, and that event
-// is what sets the pane's grid.
+// tmux answers over the stream with a window 'layout-changed' event, and that
+// event is what sets the pane's grid.
 type agentSessionResizeRequest struct {
 	ID   int64 `json:"id"`
 	Cols int   `json:"cols"`

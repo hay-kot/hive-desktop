@@ -28,7 +28,11 @@ verbs, and `%window-pane-changed` says which pane the keyboard belongs to.
    The wire's window event carries `activePane`, `zoomed` and `layout`; the
    frontend multiplies the layout's cells by the cell it measured off the
    first pane it opened and positions each pane's host absolutely inside the
-   window's box. The window's size vote is unchanged — the box is measured and
+   window's box. tmux announces a split and a kill in two notifications, and
+   between them the active pane is not one of the layout's leaves; the
+   controller withholds such a window and publishes one `layout-changed` when
+   the next notification completes it, so every event is a snapshot the
+   renderer applies whole. The window's size vote is unchanged — the box is measured and
    tmux answers with a grid — but the arithmetic is done over the window's box
    with the fit addon's formula rather than by the fit addon, which can only
    measure its own terminal's host, now one pane's.

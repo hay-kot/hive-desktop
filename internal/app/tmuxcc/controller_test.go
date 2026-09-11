@@ -50,22 +50,22 @@ func TestControllerNotifications(t *testing.T) {
 		}}, events)
 	})
 
-	t.Run("pane change re-points the rendered pane", func(t *testing.T) {
+	t.Run("pane change inside the layout is an active change", func(t *testing.T) {
 		t.Parallel()
 		c := seededController()
+		split, err := ParseLayout("f91d,120x40,0,0{60x40,0,0,2,59x40,61,0,7}")
+		require.NoError(t, err)
+		require.Len(t, c.apply(LayoutChanged{Window: "@2", Layout: split}), 1)
+
 		events := c.apply(WindowPaneChanged{Window: "@2", Pane: "%7"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowActiveChanged,
-			Window: Window{ID: "@2", Name: "shell", ActivePane: "%7", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
+			Window: Window{ID: "@2", Name: "shell", ActivePane: "%7", Width: 120, Height: 40, Layout: split},
 		}}, events)
 
 		w, ok := c.windowForPane("%7")
 		require.True(t, ok)
 		require.Equal(t, "@2", w.ID)
-
-		previous, ok := c.windowForPane("%2")
-		require.True(t, ok, "the previous pane still routes so its output is drained")
-		require.NotEqual(t, "%2", previous.ActivePane, "…but it is no longer the rendered pane")
 	})
 
 	t.Run("session window change moves the active flag", func(t *testing.T) {
@@ -124,6 +124,20 @@ func TestControllerNotifications(t *testing.T) {
 		}}, c.apply(LayoutChanged{Window: "@1", Layout: split, Zoomed: true}), "a zoom is a layout change too")
 	})
 
+	t.Run("a pane that left the layout still routes", func(t *testing.T) {
+		t.Parallel()
+		c := seededController()
+		split, err := ParseLayout("f91d,120x40,0,0{60x40,0,0,1,59x40,61,0,9}")
+		require.NoError(t, err)
+		require.Len(t, c.apply(LayoutChanged{Window: "@1", Layout: split}), 1)
+		require.Len(t, c.apply(LayoutChanged{Window: "@1", Layout: singlePaneLayout("%1", 120, 40)}), 1)
+
+		w, ok := c.windowForPane("%9")
+		require.True(t, ok, "the index is additive: the pane's last bytes still have a window to land in")
+		require.Equal(t, "@1", w.ID)
+		require.NotContains(t, w.Panes(), "%9", "but it is not one of the window's panes any more")
+	})
+
 	t.Run("notifications for unknown windows are inert", func(t *testing.T) {
 		t.Parallel()
 		c := seededController()
@@ -132,6 +146,93 @@ func TestControllerNotifications(t *testing.T) {
 		require.Nil(t, c.apply(SessionWindowChanged{Session: "$1", Window: "@99"}))
 		require.Nil(t, c.apply(LayoutChanged{Window: "@99", Layout: singlePaneLayout("%99", 80, 24)}))
 		require.Len(t, c.Windows(), 2)
+	})
+}
+
+// tmux announces a split or a closed pane as two notifications, and after the
+// first the window's active pane is outside its layout. A consumer reads every
+// event as a whole snapshot, so nothing is published until the second lands.
+func TestControllerHoldsAWindowWhoseActivePaneIsOutsideItsLayout(t *testing.T) {
+	t.Parallel()
+
+	split, err := ParseLayout("f91d,120x40,0,0{60x40,0,0,1,59x40,61,0,9}")
+	require.NoError(t, err)
+	single := singlePaneLayout("%1", 120, 40)
+
+	splitController := func() *controller {
+		c := newController()
+		c.set([]Window{{ID: "@1", Name: "claude", Active: true, ActivePane: "%9", Width: 120, Height: 40, Layout: split}})
+		return c
+	}
+
+	t.Run("a closed pane: the layout lands first, the pane second", func(t *testing.T) {
+		t.Parallel()
+		c := splitController()
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Layout: single}), "the active pane is gone from the layout")
+		require.Equal(t, []Event{WindowChanged{
+			Kind:   WindowLayoutChanged,
+			Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: single},
+		}}, c.apply(WindowPaneChanged{Window: "@1", Pane: "%1"}))
+	})
+
+	t.Run("a split: the pane lands first, the layout second", func(t *testing.T) {
+		t.Parallel()
+		c := seededController()
+		require.Nil(t, c.apply(WindowPaneChanged{Window: "@1", Pane: "%9"}), "the active pane is not in the layout yet")
+		require.Equal(t, []Event{WindowChanged{
+			Kind:   WindowLayoutChanged,
+			Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%9", Width: 120, Height: 40, Layout: split},
+		}}, c.apply(LayoutChanged{Window: "@1", Layout: split}))
+	})
+
+	t.Run("a rename while held rides the release", func(t *testing.T) {
+		t.Parallel()
+		c := splitController()
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Layout: single}))
+		require.Nil(t, c.apply(WindowRenamedNotification{Window: "@1", Name: "logs"}))
+		require.Equal(t, []Event{WindowChanged{
+			Kind:   WindowLayoutChanged,
+			Window: Window{ID: "@1", Name: "logs", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: single},
+		}}, c.apply(WindowPaneChanged{Window: "@1", Pane: "%1"}))
+	})
+
+	t.Run("a close drops the hold", func(t *testing.T) {
+		t.Parallel()
+		c := splitController()
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Layout: single}))
+		events := c.apply(WindowCloseNotification{Window: "@1"})
+		require.Len(t, events, 1)
+		closed, ok := events[0].(WindowChanged)
+		require.True(t, ok)
+		require.Equal(t, WindowClosed, closed.Kind)
+		require.Nil(t, c.apply(WindowPaneChanged{Window: "@1", Pane: "%1"}))
+		require.Empty(t, c.Windows())
+		require.Empty(t, c.held)
+	})
+
+	t.Run("a reconcile lifts the hold", func(t *testing.T) {
+		t.Parallel()
+		c := splitController()
+		since := c.mark()
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Layout: single}))
+		events := c.reconcile([]Window{
+			{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: single},
+		}, since)
+		require.Len(t, events, 1)
+		changed, ok := events[0].(WindowChanged)
+		require.True(t, ok)
+		require.Equal(t, "%1", changed.Window.ActivePane)
+		require.Empty(t, c.held)
+	})
+
+	t.Run("a placeholder is consistent with any pane", func(t *testing.T) {
+		t.Parallel()
+		c := seededController()
+		c.apply(WindowAddNotification{Window: "@3"})
+		require.Equal(t, []Event{WindowChanged{
+			Kind:   WindowActiveChanged,
+			Window: Window{ID: "@3", ActivePane: "%3"},
+		}}, c.apply(WindowPaneChanged{Window: "@3", Pane: "%3"}))
 	})
 }
 
@@ -205,6 +306,10 @@ func TestParseWindowLine(t *testing.T) {
 	w, ok = parseWindowLine("@276 0 %513 80 24 0 b25f,80x24,0,0,513")
 	require.True(t, ok)
 	require.Equal(t, Window{ID: "@276", ActivePane: "%513", Width: 80, Height: 24, Layout: singlePaneLayout("%513", 80, 24)}, w)
+
+	w, ok = parseWindowLine("@278 0 %515 80 24 0 garbage my logs")
+	require.True(t, ok, "an unreadable layout does not fail the row")
+	require.Equal(t, Window{ID: "@278", Name: "my logs", ActivePane: "%515", Width: 80, Height: 24}, w)
 
 	_, ok = parseWindowLine("nonsense")
 	require.False(t, ok)

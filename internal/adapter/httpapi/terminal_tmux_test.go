@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
 
@@ -638,11 +640,13 @@ func TestTmuxResizeAndDetachLeaveTheSessionRunning(t *testing.T) {
 
 	// The vote is not the answer: tmux decides the window size and says so with
 	// %layout-change, and that is what the renderer follows.
-	frame := readUntil(t, conn, "a resized window event", func(f []byte) bool { return isWindowEvent(f, "resized", "") })
-	var resized windowEventPayload
-	require.NoError(t, json.Unmarshal(frame[1:], &resized))
-	assert.Equal(t, 100, resized.Width, "tmux honoured the only attached client's size")
-	assert.Positive(t, resized.Height)
+	frame := readUntil(t, conn, "a layout-changed window event", func(f []byte) bool {
+		return isWindowEvent(f, string(tmuxcc.WindowLayoutChanged), "")
+	})
+	var changed windowEventPayload
+	require.NoError(t, json.Unmarshal(frame[1:], &changed))
+	assert.Equal(t, 100, changed.Width, "tmux honoured the only attached client's size")
+	assert.Positive(t, changed.Height)
 
 	detach := h.post(t, "/api/terminal/detach", testToken, map[string]any{"slug": tmux.slug})
 	_ = detach.Body.Close()
@@ -773,9 +777,12 @@ func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
 	resp = h.post(t, "/api/terminal/panes/close", testToken, map[string]any{"slug": tmux.slug, "paneId": split.PaneID})
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	_ = resp.Body.Close()
-	frame = readUntil(t, conn, "a one-pane layout event", func(f []byte) bool {
+	// tmux sends the one-pane layout before it moves the active pane, so the
+	// event to wait for is the first whose active pane is one of its leaves.
+	frame = readUntil(t, conn, "a one-pane layout whose active pane is in it", func(f []byte) bool {
 		ev, ok := windowEventOf(f)
-		return ok && ev.WindowID == window.WindowID && len(leafPanes(ev.Layout)) == 1
+		leaves := leafPanes(ev.Layout)
+		return ok && ev.WindowID == window.WindowID && len(leaves) == 1 && slices.Contains(leaves, ev.ActivePane)
 	})
 	ev, _ = windowEventOf(frame)
 	assert.Equal(t, []string{original}, leafPanes(ev.Layout))
@@ -827,6 +834,9 @@ func TestTmuxPaneResizeZoomAndSelect(t *testing.T) {
 
 	resp = h.post(t, "/api/terminal/panes/resize", testToken, map[string]any{"slug": tmux.slug, "paneId": top})
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a resize has to name a dimension")
+	_ = resp.Body.Close()
+	resp = h.post(t, "/api/terminal/panes/resize", testToken, map[string]any{"slug": tmux.slug, "paneId": top, "width": -1})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a size outside 1..1000 is the core's refusal, not a validation failure")
 	_ = resp.Body.Close()
 
 	resp = h.post(t, "/api/terminal/panes/zoom", testToken, map[string]any{"slug": tmux.slug, "paneId": top})
