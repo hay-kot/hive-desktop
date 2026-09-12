@@ -203,12 +203,13 @@ A pipeline with a return path:
 </svg>
 ```
 
-An html block is exported as its markup, so a canvas saved to a file keeps
-the structure and loses the styling — the `hv-` names mean nothing outside
-Hive. **A diagram does not survive that at all**: svg with no stylesheet
-behind it draws black boxes and no edges, so if the canvas is meant to be
-exported, say the same thing in prose in a block beside it. Reach for
-`markdown` for prose and `html` only when the layout is the point.
+An html block is exported as its markup, so a canvas saved to a file keeps the
+structure and loses the styling — the `hv-` names mean nothing outside Hive,
+and a drawing that leans on them falls back to svg's own defaults, which are
+black boxes and no edges. What you write inline survives: a `style`, a `fill`,
+a `stroke`. Style a diagram yourself when the canvas is meant to leave the
+app. Reach for `markdown` for prose and `html` only when the layout is the
+point.
 
 ## Tools
 
