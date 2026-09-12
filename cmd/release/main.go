@@ -155,12 +155,30 @@ func newReleaseCommand() *cli.Command {
 							if err != nil {
 								return err
 							}
-							path, err := promoteDraft(version)
+							path, err := promoteDraft(ctx, version)
 							if err != nil {
 								return err
 							}
-							fmt.Printf("wrote %s — consolidate it and write its summary, then commit it with the release\n", path)
+							fmt.Printf("wrote %s\n", path)
+							fmt.Println("consolidate the bullets and write its summary, then run `mise run changelog:pr`")
 							return nil
+						}),
+					},
+					{
+						Name:  "pr",
+						Usage: "open the pull request that lands the promoted release notes",
+						Description: "Commits the entry that `changelog promote` wrote, plus the fragments it deleted, on a branch of its own, " +
+							"and opens its pull request. It refuses a worktree that holds anything else, and an entry whose summary is " +
+							"still empty. Run it after you edit the entry. The release itself cannot write the entry, because a release " +
+							"requires a clean tree identical to origin/main.",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "dry-run",
+								Usage: "print the branch, commit and pull request instead of creating them",
+							},
+						},
+						Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
+							return openReleaseNotesPR(ctx, cmd.Bool("dry-run"))
 						}),
 					},
 					{

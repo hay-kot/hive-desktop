@@ -23,6 +23,14 @@ overrides.env
 .hive-desktop.lock/
 .hive-desktop.lock.stale.*/
 
+# Binaries `go build ./cmd/<name>` drops in the repo root. Keep this above the
+# negation below, which has to stay last.
+/adr
+/devserver
+/devtools
+/release
+/vendorhive
+
 # Vendored embed assets (internal/hivecore/hive/scripts/bin) must stay tracked:
 # go:embed needs them in every fresh checkout, including the e2e Docker build
 # and release builds that never run vendorhive. Directory-only negation so junk

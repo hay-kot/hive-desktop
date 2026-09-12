@@ -54,6 +54,15 @@ downstream of them are unchanged.
 **`release changelog new` writes the file** so the name is never typed, the
 way `adr new` does. `mise run changelog:new -- --kind added "..."`.
 
+**The release-notes pull request is a command, not a procedure.** `changelog
+promote` requires a clean `main` so that everything the worktree holds
+afterwards is the promotion, and `changelog pr` then reads the worktree,
+refuses anything that is not the promotion, and creates the branch, the commit
+and the pull request itself. Nothing about the shape of that commit is left to
+whoever runs the release. `changelog pr` is also where an entry whose `summary`
+is still empty is caught; `notesFor` repeats the check, for an entry that
+reached `main` some other way.
+
 **Promotion is the curation point.** A release assembled verbatim from
 fragments reads as the sum of pull requests, because a branch cannot consolidate
 against a bullet it never sees — the cost every fragment system pays, and the

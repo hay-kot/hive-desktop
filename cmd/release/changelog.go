@@ -38,6 +38,10 @@ func notesFor(version releaseVersion) (releasenotes.Entry, error) {
 		return releasenotes.Entry{}, fmt.Errorf("read changelog: %w", err)
 	}
 	if entry, ok := entries.Find(version.String()); ok {
+		if version.channel() == "stable" && entry.Summary == "" {
+			return releasenotes.Entry{}, fmt.Errorf(
+				"changelog entry for %s has no summary: it is what the What's New toast and the channel manifest show", version)
+		}
 		return entry, nil
 	}
 	if version.channel() == "stable" {
@@ -106,7 +110,10 @@ func promoteTargetVersion(ctx context.Context, arg string) (releaseVersion, erro
 // last release, and a changelog reads as what the app now does. Consolidating
 // near-duplicate bullets and writing the release's one-line summary are this
 // step's job (ADR release-notes-accumulate-as-fragments).
-func promoteDraft(version releaseVersion) (string, error) {
+func promoteDraft(ctx context.Context, version releaseVersion) (string, error) {
+	if err := validatePromoteSource(ctx); err != nil {
+		return "", err
+	}
 	entries, err := releasenotes.Load()
 	if err != nil {
 		return "", fmt.Errorf("read changelog: %w", err)
