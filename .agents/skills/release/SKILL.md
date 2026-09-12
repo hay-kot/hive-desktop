@@ -95,6 +95,12 @@ Reject missing or unknown channels instead of guessing.
    commit and pull request it would create. Restart this procedure from step 2
    once the pull request is merged.
 
+   `changelog:pr` commits and pushes before it calls `gh`. If only the `gh` step
+   fails, the notes are already on the branch: run the `gh pr create` command the
+   error prints, and do not promote again. Re-running `changelog:pr` cannot
+   finish the job, because the promotion it looks for is on the branch it
+   already made.
+
    Dev and beta releases never reach this step: they are not gated, and they
    publish the draft as it stands.
 

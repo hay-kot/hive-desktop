@@ -362,6 +362,14 @@ internal/
                                   #   this process defines none (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path)
     jobs/  activity/              # domain types, enums, and consumer-defined
                                   #   Recorder ports; persistence lives in data/stores
+    releasenotes/                 # the changelog that ships in the binary
+      changelog/                  #   <version>.md per stable release, embedded
+        unreleased/               #   the draft: one file per change, rendered at
+                                  #   load, so two branches writing release notes
+                                  #   never conflict. `mise run changelog:new`
+                                  #   writes one; promotion collapses them
+                                  #   (ADRs release-notes-ship-inside-the-binary,
+                                  #   release-notes-accumulate-as-fragments)
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
                                   #   and no dependencies (ADR ui-performance-spans-are-recorded-to-jsonl)

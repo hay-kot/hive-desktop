@@ -151,6 +151,15 @@ type frontmatter struct {
 // version in the header so a copy-pasted entry cannot silently describe the
 // wrong release.
 func parseEntry(filename string, raw []byte) (Entry, error) {
+	// next.md was the draft until it became a directory. A branch that
+	// predates the change still edits it, and its merge is clean, so say what
+	// happened rather than failing as a malformed version.
+	if filename == "next.md" {
+		return Entry{}, fmt.Errorf(
+			"changelog next.md: the draft is now one file per change in %s/; move each bullet with `mise run changelog:new` and delete this file (ADR release-notes-accumulate-as-fragments)",
+			UnreleasedDir)
+	}
+
 	header, body, err := splitFrontmatter(raw)
 	if err != nil {
 		return Entry{}, fmt.Errorf("changelog %s: %w", filename, err)

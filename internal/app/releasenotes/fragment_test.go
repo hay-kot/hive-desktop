@@ -106,3 +106,12 @@ func TestCommittedFragmentsParse(t *testing.T) {
 		assert.Contains(t, Kinds, fragment.Kind, "%s has an unknown kind", fragment.Name)
 	}
 }
+
+// Every branch open when the draft became a directory still edits next.md, and
+// git merges that cleanly. The parse is the only thing that can say so.
+func TestParseEntryExplainsAResurrectedNextMd(t *testing.T) {
+	_, err := parseEntry("next.md", []byte("---\nsummary: \"\"\n---\n\n## Added\n\n- a thing\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), UnreleasedDir)
+	assert.Contains(t, err.Error(), "changelog:new")
+}

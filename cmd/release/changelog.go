@@ -161,6 +161,11 @@ func newFragment(kind releasenotes.Kind, body string) (string, error) {
 
 	name := releasenotes.FragmentName(time.Now().UTC().Format(releasenotes.FragmentStampFormat), slug)
 	path := filepath.Join(unreleasedDir(), name)
+	// go:embed drops a directory holding only .gitkeep, so a checkout that
+	// lost that file has no unreleased/ for the write to land in.
+	if err := os.MkdirAll(unreleasedDir(), 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", unreleasedDir(), err)
+	}
 	contents := fmt.Sprintf("---\nkind: %s\n---\n\n%s\n", kind, body)
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		return "", fmt.Errorf("write changelog fragment: %w", err)
