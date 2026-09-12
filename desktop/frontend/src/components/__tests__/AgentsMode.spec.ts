@@ -34,12 +34,15 @@ const xterm = vi.hoisted(() => {
       registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
     }
 
+    dataHandler: ((data: string) => void) | null = null
+
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
       FakeTerminal.instances.push(this)
     }
 
-    onData(_handler: (data: string) => void) {
+    onData(handler: (data: string) => void) {
+      this.dataHandler = handler
       return { dispose: vi.fn() }
     }
   }
@@ -104,8 +107,31 @@ class FakeSocket {
   onmessage: ((event: { data: ArrayBuffer }) => void) | null = null
   onclose: (() => void) | null = null
   onerror: (() => void) | null = null
-  send(): void {}
+  sent: Uint8Array[] = []
+  send(frame: Uint8Array): void { this.sent.push(frame) }
   close(): void {}
+}
+
+// Mirrors the window-event frame in internal/adapter/httpapi/terminal_stream.go.
+function windowFrame(state: Record<string, unknown>): ArrayBuffer {
+  const body = new TextEncoder().encode(JSON.stringify(state))
+  const bytes = new Uint8Array(1 + body.length)
+  bytes[0] = 0x01
+  bytes.set(body, 1)
+  return bytes.buffer
+}
+
+function openedSocket(client: ReturnType<typeof fakeClient>): FakeSocket {
+  return client.openStream.mock.results.at(-1)!.value as FakeSocket
+}
+
+function typeInPane(data: string): void {
+  xterm.FakeTerminal.instances.at(-1)!.dataHandler?.(data)
+}
+
+function inputFrame(paneId: string, data: string): number[] {
+  const id = Array.from(new TextEncoder().encode(paneId))
+  return [0x10, id.length, ...id, ...Array.from(new TextEncoder().encode(data))]
 }
 
 class FakeResizeObserver {
@@ -129,7 +155,7 @@ const workspaceRows = [
 // the listing's tmux probe found the session alive.
 const chatRow = {
   id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-  terminalId: 'agentws-7', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: '',
+  terminalId: 'agentws-7', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: false, notice: '',
   scheduleId: '',
 }
 
@@ -147,7 +173,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     activity: vi.fn().mockResolvedValue([]),
     startSession: vi.fn().mockResolvedValue({
       id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-      terminalId: 't1', windowId: 'w1', cols: 80, rows: 24, resumeAttempted: false, notice: '',
+      terminalId: 't1', windowId: 'w1', paneId: '%1', cols: 80, rows: 24, resumeAttempted: false, notice: '',
     }),
     resumeSession: vi.fn().mockResolvedValue({ ...chatRow, windowId: 'w1', cols: 80, rows: 24, resumeAttempted: true }),
     closeSession: vi.fn().mockResolvedValue({ closed: true }),
@@ -448,6 +474,42 @@ describe('AgentsMode', () => {
     expect(created.focus).toHaveBeenCalled()
   })
 
+  it('frames keystrokes for the pane the launch named', async () => {
+    const { client } = await mountWithOpenChat()
+    const socket = openedSocket(client)
+
+    typeInPane('x')
+
+    expect(socket.sent.map((frame) => Array.from(frame))).toEqual([[0x10, 2, 0x25, 0x31, 0x78]])
+  })
+
+  // Stream window events override a stale active pane from the launch response.
+  it('re-points input at the active pane a window event names', async () => {
+    const { client } = await mountWithOpenChat()
+    const socket = openedSocket(client)
+
+    socket.onmessage?.({ data: windowFrame({ kind: 'active-changed', windowId: 'w1', activePane: '%5', width: 80, height: 24 }) })
+    typeInPane('x')
+
+    expect(Array.from(socket.sent.at(-1)!)).toEqual(inputFrame('%5', 'x'))
+  })
+
+  // Resume returns no pane ID, so input waits for the stream to name one.
+  it('drops input on a resumed chat until a window event names its pane', async () => {
+    const client = fakeClient()
+    client.allSessions.mockResolvedValue([chatRow])
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    await mountAgentsMode('/workspaces/web-app?chat=7')
+    const socket = openedSocket(client)
+
+    typeInPane('x')
+    expect(socket.sent).toEqual([])
+
+    socket.onmessage?.({ data: windowFrame({ kind: 'layout-changed', windowId: 'w1', activePane: '%3', width: 80, height: 24 }) })
+    typeInPane('x')
+    expect(socket.sent.map((frame) => Array.from(frame))).toEqual([inputFrame('%3', 'x')])
+  })
+
   // A failed attach sets openSessionId optimistically but leaves paneStatus
   // 'idle', so the guard must key on the pair — openSessionId alone would
   // make a retry click on the same row a no-op too.
@@ -455,7 +517,7 @@ describe('AgentsMode', () => {
     const client = fakeClient()
     client.startSession.mockResolvedValue({
       id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: false, notice: 'boom',
+      terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: false, notice: 'boom',
     })
     mocks.createAgentWorkspacesClient.mockReturnValue(client)
     const { wrapper } = await mountAgentsMode('/workspaces/web-app')
@@ -497,7 +559,7 @@ describe('AgentsMode', () => {
     const client = fakeClient()
     client.startSession.mockResolvedValue({
       id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
-      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true,
+      terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: true,
       notice: 'the session exited immediately; check that the agent CLI is installed and on PATH',
     })
     mocks.createAgentWorkspacesClient.mockReturnValue(client)

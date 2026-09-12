@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +36,7 @@ const (
 	sendKeysChunk = 64
 
 	// The window name goes last: it is the only field that can contain spaces.
-	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_width} #{window_height} #{window_name}"
+	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_width} #{window_height} #{window_zoomed_flag} #{window_layout} #{window_name}"
 	// The same row prefixed with the session it belongs to, for the one call
 	// that lists the whole server. The name goes first because window_name is
 	// last and may contain spaces, so only the first field can be split off.
@@ -76,6 +77,11 @@ var (
 	ErrNotAttached = errors.New("tmuxcc: no client attached")
 	// ErrUnknownWindow is returned for a window id absent from the window set.
 	ErrUnknownWindow = errors.New("tmuxcc: unknown window")
+	// ErrUnknownPane is returned for a pane id no tracked window owns.
+	ErrUnknownPane = errors.New("tmuxcc: unknown pane")
+	// ErrInvalidDirection is returned for a split or pane-selection direction
+	// outside the vocabulary.
+	ErrInvalidDirection = errors.New("tmuxcc: invalid direction")
 	// ErrInvalidName is returned for a window name tmux could not carry.
 	ErrInvalidName = errors.New("tmuxcc: invalid window name")
 	// ErrInvalidPosition is returned for a move to a position outside the
@@ -262,12 +268,13 @@ func (c *Client) Windows() []Window { return c.ctrl.Windows() }
 // There is one active subscriber: a second call closes the first channel.
 func (c *Client) Subscribe() (<-chan Event, func()) { return c.events.subscribe() }
 
-// Write sends bytes to a window's active pane. Every byte goes as hex
-// (send-keys -H), which sidesteps tmux's key-name and literal parsing
-// entirely.
-func (c *Client) Write(ctx context.Context, windowID string, p []byte) error {
-	pane, err := c.activePane(windowID)
-	if err != nil {
+// Write sends bytes to a pane. Every byte goes as hex (send-keys -H), which
+// sidesteps tmux's key-name and literal parsing entirely. The pane is named
+// rather than resolved from its window's active pane: a click that moves focus
+// has its select-pane in flight while the first keystrokes follow it, and they
+// must land where the user is typing.
+func (c *Client) Write(ctx context.Context, pane string, p []byte) error {
+	if _, err := c.pane(pane); err != nil {
 		return err
 	}
 	for len(p) > 0 {
@@ -286,8 +293,8 @@ func (c *Client) Write(ctx context.Context, windowID string, p []byte) error {
 	return nil
 }
 
-// Paste inserts text into a window's active pane as a paste rather than as
-// keystrokes. tmux applies the brackets because tmux is the only side that
+// Paste inserts text into a pane as a paste rather than as keystrokes. tmux
+// applies the brackets because tmux is the only side that
 // knows whether the pane's program asked for them: a first paint carries cells
 // and SGR but no DEC private mode, and tmux never re-sends one to a control
 // client, so the emulator on the other end of this stream cannot learn the
@@ -296,9 +303,8 @@ func (c *Client) Write(ctx context.Context, windowID string, p []byte) error {
 // The text rides tmux's stdin rather than an argument so it stays out of the
 // process table, and the buffer is named so it stays out of the numbered stack
 // holding the user's own copies.
-func (c *Client) Paste(ctx context.Context, windowID string, p []byte) error {
-	pane, err := c.activePane(windowID)
-	if err != nil {
+func (c *Client) Paste(ctx context.Context, pane string, p []byte) error {
+	if _, err := c.pane(pane); err != nil {
 		return err
 	}
 	if len(p) == 0 {
@@ -311,7 +317,7 @@ func (c *Client) Paste(ctx context.Context, windowID string, p []byte) error {
 	if err := c.loadBuffer(ctx, buffer, bytes.NewReader(p)); err != nil {
 		return err
 	}
-	_, err = c.gw.Send(ctx, "paste-buffer -d -p -b "+buffer+" -t "+pane)
+	_, err := c.gw.Send(ctx, "paste-buffer -d -p -b "+buffer+" -t "+pane)
 	return err
 }
 
@@ -382,6 +388,126 @@ func (c *Client) CloseWindow(ctx context.Context, windowID string) error {
 		return err
 	}
 	_, err := c.gw.Send(ctx, "kill-window -t "+windowID)
+	return err
+}
+
+// SplitDirection is which way a split lays the new pane, in tmux's words: a
+// horizontal split puts it to the right, a vertical one below.
+type SplitDirection string
+
+const (
+	SplitHorizontal SplitDirection = "horizontal"
+	SplitVertical   SplitDirection = "vertical"
+)
+
+// PaneDirection names a neighbour of a pane; the empty value names the pane
+// itself.
+type PaneDirection string
+
+const (
+	PaneSelf  PaneDirection = ""
+	PaneLeft  PaneDirection = "left"
+	PaneRight PaneDirection = "right"
+	PaneUp    PaneDirection = "up"
+	PaneDown  PaneDirection = "down"
+)
+
+// SplitPane splits a pane and returns the new pane's id. The layout itself
+// arrives on %layout-change, and the new pane's first paint follows from the
+// reconcile that triggers. It opens where the split pane is, the same way a
+// new window does (ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
+func (c *Client) SplitPane(ctx context.Context, pane string, direction SplitDirection) (string, error) {
+	if _, err := c.pane(pane); err != nil {
+		return "", err
+	}
+	var flag string
+	switch direction {
+	case SplitHorizontal:
+		flag = "-h"
+	case SplitVertical:
+		flag = "-v"
+	default:
+		return "", fmt.Errorf("%w: split %q", ErrInvalidDirection, direction)
+	}
+	lines, err := c.gw.Send(ctx, `split-window `+flag+` -t `+pane+` -c "`+currentPathFormat+`" -P -F "#{pane_id}"`)
+	if err != nil {
+		return "", err
+	}
+	if len(lines) == 0 || !validPaneID(lines[0]) {
+		return "", fmt.Errorf("tmuxcc: split-window returned no pane id")
+	}
+	return lines[0], nil
+}
+
+// SelectPane makes a pane its window's active pane — the pane itself, or the
+// neighbour direction names, which tmux picks the way its own select-pane
+// bindings do. %window-pane-changed carries the answer.
+func (c *Client) SelectPane(ctx context.Context, pane string, direction PaneDirection) error {
+	if _, err := c.pane(pane); err != nil {
+		return err
+	}
+	var flag string
+	switch direction {
+	case PaneSelf:
+	case PaneLeft:
+		flag = "-L "
+	case PaneRight:
+		flag = "-R "
+	case PaneUp:
+		flag = "-U "
+	case PaneDown:
+		flag = "-D "
+	default:
+		return fmt.Errorf("%w: select %q", ErrInvalidDirection, direction)
+	}
+	_, err := c.gw.Send(ctx, "select-pane "+flag+"-t "+pane)
+	return err
+}
+
+// KillPane kills one pane. tmux closes the window with its last pane, and
+// announces that as %window-close like any other close.
+func (c *Client) KillPane(ctx context.Context, pane string) error {
+	if _, err := c.pane(pane); err != nil {
+		return err
+	}
+	_, err := c.gw.Send(ctx, "kill-pane -t "+pane)
+	return err
+}
+
+// ResizePane sets width and/or height in cells. Zero leaves that axis
+// unchanged; nonzero values must be in 1..1000. tmux adjusts the divider
+// after the pane, or before it when the pane is last.
+func (c *Client) ResizePane(ctx context.Context, pane string, width, height int) error {
+	if _, err := c.pane(pane); err != nil {
+		return err
+	}
+	if width == 0 && height == 0 {
+		return fmt.Errorf("%w: nothing to resize", ErrInvalidSize)
+	}
+	cmd := "resize-pane -t " + pane
+	if width != 0 {
+		if width < minDimension || width > maxDimension {
+			return fmt.Errorf("%w: width %d", ErrInvalidSize, width)
+		}
+		cmd += fmt.Sprintf(" -x %d", width)
+	}
+	if height != 0 {
+		if height < minDimension || height > maxDimension {
+			return fmt.Errorf("%w: height %d", ErrInvalidSize, height)
+		}
+		cmd += fmt.Sprintf(" -y %d", height)
+	}
+	_, err := c.gw.Send(ctx, cmd)
+	return err
+}
+
+// ZoomPane toggles a pane between filling its window and its place in the
+// layout. tmux makes the pane active on the way in.
+func (c *Client) ZoomPane(ctx context.Context, pane string) error {
+	if _, err := c.pane(pane); err != nil {
+		return err
+	}
+	_, err := c.gw.Send(ctx, "resize-pane -Z -t "+pane)
 	return err
 }
 
@@ -595,23 +721,33 @@ func (c *Client) negotiate(ctx context.Context, opts Options) (err error) {
 	}
 	c.ctrl.set(windows)
 
-	// Only the window the user is about to look at is painted before Attach
+	// Only the panes the user is about to look at are painted before Attach
 	// answers. A first paint is dominated by `capture-pane -e`, which costs
 	// roughly 3.5us per scrollback line inside tmux, so painting every window
 	// here made attach latency scale with a session's window count while the
 	// renderer could only show one of them. The rest are painted immediately
 	// afterwards, on the client's own lifetime, and reach the same stream in
-	// the same order — see paintBackground.
-	deferred := c.holdBackground(windows)
+	// the same order — see startBackgroundPaint.
+	shown, deferred := c.holdPanes(windows)
 	span.SetAttributes(attribute.Int(attrDeferred, len(deferred)))
-	if active, ok := activeWindow(windows); ok {
-		if err := c.firstPaint(ctx, active.ActivePane, active.Height); err != nil {
+	if err := c.paintShown(ctx, shown, deferred); err != nil {
+		return err
+	}
+	c.paint.openAll()
+	c.startBackgroundPaint(deferred) //nolint:contextcheck // deliberately the client's lifetime, not this request's
+	return nil
+}
+
+// On failure, paintShown releases every unpainted target; otherwise its output
+// remains buffered for the client's lifetime.
+func (c *Client) paintShown(ctx context.Context, shown, deferred []paintTarget) error {
+	for i, target := range shown {
+		if err := c.firstPaint(ctx, target.pane, target.rows); err != nil {
+			c.releaseRemaining(shown[i+1:])
 			c.releaseRemaining(deferred)
 			return err
 		}
 	}
-	c.paint.openAll()
-	c.startBackgroundPaint(deferred) //nolint:contextcheck // deliberately the client's lifetime, not this request's
 	return nil
 }
 
@@ -635,46 +771,82 @@ func activeWindow(windows []Window) (Window, bool) {
 	return fallback, found
 }
 
-// holdBackground puts every window that will not be painted synchronously into
-// the paint gate before the synchronous paint starts, so output produced from
-// this moment on is buffered rather than emitted ahead of the snapshot that has
-// to precede it. It returns the windows still owing a paint.
-func (c *Client) holdBackground(windows []Window) []Window {
-	active, hasActive := activeWindow(windows)
-	deferred := make([]Window, 0, len(windows))
-	for _, w := range windows {
-		if w.ActivePane == "" || (hasActive && w.ID == active.ID) {
-			continue
-		}
-		c.paint.rehold(w.ActivePane)
-		deferred = append(deferred, w)
-	}
-	return deferred
+// paintTarget is one pane and the row count its snapshot is written at: the
+// pane's own height, or the window's for a zoomed pane, which tmux draws over
+// the whole window while the layout still records where it goes back to.
+type paintTarget struct {
+	pane string
+	rows int
 }
 
-// startBackgroundPaint paints the windows a fresh attach deferred. It runs on
+// A missing layout is a %window-add placeholder; paint its active pane at
+// window height until reconciliation supplies the tree.
+func paintTargets(w Window) (shown, hidden []paintTarget) {
+	leaves := w.Layout.Leaves()
+	if len(leaves) == 0 {
+		if w.ActivePane != "" {
+			shown = append(shown, paintTarget{pane: w.ActivePane, rows: w.Height})
+		}
+		return shown, hidden
+	}
+	for _, leaf := range leaves {
+		switch {
+		case !w.Zoomed:
+			shown = append(shown, paintTarget{pane: leaf.Pane, rows: leaf.Height})
+		case leaf.Pane == w.ActivePane:
+			shown = append(shown, paintTarget{pane: leaf.Pane, rows: w.Height})
+		default:
+			hidden = append(hidden, paintTarget{pane: leaf.Pane, rows: leaf.Height})
+		}
+	}
+	return shown, hidden
+}
+
+// holdPanes holds every pane before painting so live output cannot overtake
+// its snapshot. It defers panes not visible during Attach.
+func (c *Client) holdPanes(windows []Window) (shown, deferred []paintTarget) {
+	active, hasActive := activeWindow(windows)
+	for _, w := range windows {
+		visible, hidden := paintTargets(w)
+		if hasActive && w.ID == active.ID {
+			shown = visible
+		} else {
+			deferred = append(deferred, visible...)
+		}
+		deferred = append(deferred, hidden...)
+	}
+	for _, target := range shown {
+		c.paint.rehold(target.pane)
+	}
+	for _, target := range deferred {
+		c.paint.rehold(target.pane)
+	}
+	return shown, deferred
+}
+
+// startBackgroundPaint paints the panes a fresh attach deferred. It runs on
 // the client's lifetime rather than the attach request's, because the request's
 // context is cancelled the moment Attach answers — which is the whole point of
 // deferring. teardown joins it, so a client cannot outlive the goroutine.
 //
 // Every pane is released on every path: a pane left held buffers its output for
 // the life of the client and renders nothing.
-func (c *Client) startBackgroundPaint(windows []Window) {
-	if len(windows) == 0 {
+func (c *Client) startBackgroundPaint(targets []paintTarget) {
+	if len(targets) == 0 {
 		return
 	}
 	c.bgPaint.Go(func() { //nolint:contextcheck // the client's lifetime, not the request's — see lifeCtx
 		ctx, cancel := context.WithTimeout(c.lifeCtx, attachTimeout)
 		defer cancel()
-		for _, w := range windows {
-			if err := c.firstPaint(ctx, w.ActivePane, w.Height); err != nil {
+		for i, target := range targets {
+			if err := c.firstPaint(ctx, target.pane, target.rows); err != nil {
 				// A failure here is not fatal to the attach that already
 				// answered: the pane is released unpainted, so it renders from
 				// the live stream rather than staying blank forever, and the
 				// window can still be repainted on demand.
-				c.log.Debug().Err(err).Str("pane", w.ActivePane).Msg("deferred first paint failed")
+				c.log.Debug().Err(err).Str("pane", target.pane).Msg("deferred first paint failed")
 				if ctx.Err() != nil {
-					c.releaseRemaining(windows)
+					c.releaseRemaining(targets[i+1:])
 					return
 				}
 			}
@@ -682,11 +854,9 @@ func (c *Client) startBackgroundPaint(windows []Window) {
 	})
 }
 
-// releaseRemaining unblocks every pane still held, for the case the deferred
-// pass gave up partway.
-func (c *Client) releaseRemaining(windows []Window) {
-	for _, w := range windows {
-		c.paint.release(w.ActivePane, nil)
+func (c *Client) releaseRemaining(targets []paintTarget) {
+	for _, target := range targets {
+		c.paint.release(target.pane, nil)
 	}
 }
 
@@ -789,18 +959,15 @@ func (c *Client) paintEveryWindow(ctx context.Context) error {
 	defer cancel()
 
 	windows := c.Windows()
-	deferred := c.holdBackground(windows)
+	shown, deferred := c.holdPanes(windows)
 	// Onto the repaint span when a re-attach opened one, onto nothing when the
 	// overflow resync is what got here.
 	trace.SpanFromContext(paintCtx).SetAttributes(
 		attribute.Int(attrWindows, len(windows)),
 		attribute.Int(attrDeferred, len(deferred)),
 	)
-	if active, ok := activeWindow(windows); ok {
-		if err := c.firstPaint(paintCtx, active.ActivePane, active.Height); err != nil {
-			c.releaseRemaining(deferred)
-			return err
-		}
+	if err := c.paintShown(paintCtx, shown, deferred); err != nil {
+		return err
 	}
 	c.startBackgroundPaint(deferred) //nolint:contextcheck // deliberately the client's lifetime, not this request's
 	return nil
@@ -924,10 +1091,8 @@ func (c *Client) worker(ctx context.Context) {
 	}
 }
 
-// runReconcile refreshes the window set and first-paints whatever it just
-// discovered. A window created after attach reaches us as %window-add, which
-// carries no pane: its output is unroutable until this runs, so the snapshot is
-// the only thing that puts the new tab's prompt on screen.
+// %window-add carries no pane ID, while %layout-change can name an uncaptured
+// pane. Reconciliation snapshots either case before live output is released.
 func (c *Client) runReconcile(ctx context.Context) {
 	since := c.ctrl.mark()
 	windows, err := c.listWindows(ctx)
@@ -938,24 +1103,27 @@ func (c *Client) runReconcile(ctx context.Context) {
 		return
 	}
 
-	var unpainted []Window
+	var unpainted []paintTarget
 	for _, w := range windows {
-		if w.ActivePane != "" && c.paint.hold(w.ActivePane) {
-			unpainted = append(unpainted, w)
+		shown, hidden := paintTargets(w)
+		for _, target := range append(shown, hidden...) {
+			if c.paint.hold(target.pane) {
+				unpainted = append(unpainted, target)
+			}
 		}
 	}
 	for _, ev := range c.ctrl.reconcile(windows, since) {
 		c.publish(ev)
 	}
-	for i, w := range unpainted {
-		if err := c.firstPaint(ctx, w.ActivePane, w.Height); err != nil {
+	for i, target := range unpainted {
+		if err := c.firstPaint(ctx, target.pane, target.rows); err != nil {
 			if ctx.Err() == nil {
-				c.log.Warn().Err(err).Str("pane", w.ActivePane).Msg("first paint failed")
+				c.log.Warn().Err(err).Str("pane", target.pane).Msg("first paint failed")
 			}
 			// hold took the gate for the whole batch; a pane this loop never
 			// reaches would buffer its output for the life of the client.
 			for _, unreached := range unpainted[i+1:] {
-				c.paint.discard(unreached.ActivePane)
+				c.paint.discard(unreached.pane)
 			}
 			return
 		}
@@ -1005,16 +1173,25 @@ func (c *Client) onNotification(n Notification) {
 			return
 		}
 		// Ahead of the controller forgetting the window, which is what still
-		// resolves the pane here.
-		if w, ok := c.ctrl.byID(v.Window); ok && w.ActivePane != "" {
-			c.paint.discard(w.ActivePane)
+		// resolves its panes here.
+		if w, ok := c.ctrl.byID(v.Window); ok {
+			for _, pane := range w.Panes() {
+				c.paint.discard(pane)
+			}
 		}
 	case ExitNotification:
 		c.noteExit(v.Reason)
 		// tmux closes the stream right after %exit; the kill is insurance
 		// against a child that does not.
 		go c.terminate()
-	case WindowAddNotification, LayoutChanged:
+	case WindowAddNotification:
+		c.requestReconcile()
+	case WindowPaneChanged:
+		if c.holdNewPanes(v.Window, v.Pane) {
+			c.requestReconcile()
+		}
+	case LayoutChanged:
+		c.holdNewPanes(v.Window, v.Layout.Panes()...)
 		c.requestReconcile()
 	}
 	for _, ev := range c.ctrl.apply(n) {
@@ -1022,10 +1199,24 @@ func (c *Client) onNotification(n Notification) {
 	}
 }
 
-// emitOutput resolves a pane to its window and forwards the bytes. Output from
-// a non-active pane is counted and dropped rather than buffered: it is never
-// rendered, so letting it consume the broker's byte budget would let a
-// background pane tear the session down.
+// holdNewPanes holds unknown panes before the controller indexes them, so live
+// output cannot overtake and duplicate their first-paint snapshot.
+func (c *Client) holdNewPanes(windowID string, panes ...string) bool {
+	if _, ok := c.ctrl.byID(windowID); !ok {
+		return false
+	}
+	held := false
+	for _, pane := range panes {
+		if _, known := c.ctrl.windowForPane(pane); !known {
+			c.paint.hold(pane)
+			held = true
+		}
+	}
+	return held
+}
+
+// Every tracked pane streams, including panes hidden by zoom, so each emulator
+// remains current.
 //
 // The measurements take c.lifeCtx because that is what they measure: this
 // client's stream, for as long as it is attached.
@@ -1038,9 +1229,6 @@ func (c *Client) emitOutput(pane string, data []byte, at time.Time) {
 	streamedBytes.Add(c.lifeCtx, int64(len(data)))
 	if c.onEmit != nil {
 		c.onEmit()
-	}
-	if w.ActivePane != pane {
-		return
 	}
 	c.events.publish(Output{At: at, WindowID: w.ID, PaneID: pane, Data: data})
 	bufferDepth.Record(c.lifeCtx, int64(c.events.depth()))
@@ -1127,16 +1315,24 @@ func (c *Client) exitReasonOr(fallback string) string {
 	return c.exitReason
 }
 
-func (c *Client) activePane(windowID string) (string, error) {
-	w, err := c.window(windowID)
-	if err != nil {
-		return "", err
+// pane is the gate every pane argument passes: a pane id reaches a tmux
+// command line only if it is %<digits> and a leaf of a tracked window's
+// layout. The pane index behind windowForPane is additive so a departed pane's
+// last output still routes; a verb on one would only earn tmux's "can't find
+// pane".
+func (c *Client) pane(paneID string) (Window, error) {
+	if !validPaneID(paneID) {
+		return Window{}, fmt.Errorf("%w: %q", ErrUnknownPane, paneID)
 	}
-	if w.ActivePane == "" {
-		return "", fmt.Errorf("%w: %s has no pane", ErrUnknownWindow, windowID)
+	w, ok := c.ctrl.windowForPane(paneID)
+	if !ok || !slices.Contains(w.Panes(), paneID) {
+		return Window{}, fmt.Errorf("%w: %s", ErrUnknownPane, paneID)
 	}
-	return w.ActivePane, nil
+	return w, nil
 }
+
+// PaneWindow resolves a pane to the window that owns it.
+func (c *Client) PaneWindow(paneID string) (Window, error) { return c.pane(paneID) }
 
 // window is the gate every command argument passes: a window id reaches a
 // tmux command line only if it is @<digits> and one this client tracks.
@@ -1176,9 +1372,11 @@ func platformSupported() bool {
 	return buildSupportsTerminal && (runtime.GOOS == "darwin" || runtime.GOOS == "linux")
 }
 
+// parseWindowLine tolerates a malformed layout because the size and active
+// pane still provide a paintable window.
 func parseWindowLine(line string) (Window, bool) {
-	fields := strings.SplitN(line, " ", 6)
-	if len(fields) < 5 || !validWindowID(fields[0]) {
+	fields := strings.SplitN(line, " ", 8)
+	if len(fields) < 7 || !validWindowID(fields[0]) {
 		return Window{}, false
 	}
 	w := Window{
@@ -1187,9 +1385,13 @@ func parseWindowLine(line string) (Window, bool) {
 		ActivePane: fields[2],
 		Width:      atoi([]byte(fields[3])),
 		Height:     atoi([]byte(fields[4])),
+		Zoomed:     fields[5] == "1",
 	}
-	if len(fields) == 6 {
-		w.Name = fields[5]
+	if layout, err := ParseLayout(fields[6]); err == nil {
+		w.Layout = layout
+	}
+	if len(fields) == 8 {
+		w.Name = fields[7]
 	}
 	return w, true
 }

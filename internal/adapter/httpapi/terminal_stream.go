@@ -18,16 +18,18 @@ import (
 
 // The data-plane wire. Output and Input carry raw bytes behind length-prefixed
 // ids so xterm.js writes them without a decode step; control frames carry small
-// JSON whose kinds are the stable strings tmuxcc already emits.
+// JSON whose kinds are the stable strings tmuxcc already emits. Client frames
+// name a pane, never a window: the keystrokes that follow a click into a pane
+// go out while the select-pane it caused is still in flight.
 //
 //	server -> client
 //	  0x00 Output      [0x00][winLen u8][windowId][paneLen u8][paneId][raw bytes]
-//	  0x01 WindowEvent [0x01][JSON {kind, windowId, name, active, width, height}]
+//	  0x01 WindowEvent [0x01][JSON {kind, windowId, name, active, activePane, width, height, zoomed, layout}]
 //	  0x02 Lifecycle   [0x02][JSON {kind, windowId, message}]
 //	client -> server
-//	  0x10 Input       [0x10][winLen u8][windowId][raw bytes]
-//	  0x11 PasteChunk  [0x11][winLen u8][windowId][raw bytes]
-//	  0x12 PasteCommit [0x12][winLen u8][windowId]
+//	  0x10 Input       [0x10][paneLen u8][paneId][raw bytes]
+//	  0x11 PasteChunk  [0x11][paneLen u8][paneId][raw bytes]
+//	  0x12 PasteCommit [0x12][paneLen u8][paneId]
 const (
 	frameOutput      byte = 0x00
 	frameWindowEvent byte = 0x01
@@ -40,7 +42,7 @@ const (
 const (
 	// terminalWireVersion is carried as ?v= and checked before the upgrade, so a
 	// stale webview fails the handshake instead of misparsing frames.
-	terminalWireVersion = "1"
+	terminalWireVersion = "2"
 	// maxInputFrameBytes caps one client->server frame whole, id included.
 	maxInputFrameBytes = 4 << 10
 	// maxPasteBytes caps a paste reassembled from its chunk frames. It is far
@@ -153,7 +155,7 @@ func (h *terminalStream) writePump(ctx context.Context, conn *websocket.Conn, sl
 }
 
 // readPump turns input frames into pane writes and paste frames into pane
-// pastes. A rejected keystroke — an unknown window, a tmux command failure — is
+// pastes. A rejected keystroke — an unknown pane, a tmux command failure — is
 // logged and the stream lives on; only a broken frame or a non-binary message
 // closes it.
 //
@@ -177,24 +179,24 @@ func (h *terminalStream) readPump(ctx context.Context, conn *websocket.Conn, slu
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed input frame")
 			return
 		}
-		window := frame.windowID
+		pane := frame.paneID
 		switch frame.kind {
 		case frameInput:
-			if err := h.core.Terminals.Write(ctx, slug, window, frame.data); err != nil {
-				h.log.Debug().Err(err).Str("session", slug).Str("window", window).Msg("terminal input rejected")
+			if err := h.core.Terminals.Write(ctx, slug, pane, frame.data); err != nil {
+				h.log.Debug().Err(err).Str("session", slug).Str("pane", pane).Msg("terminal input rejected")
 			}
 		case framePasteChunk:
-			if len(pending[window])+len(frame.data) > maxPasteBytes {
-				delete(pending, window)
-				h.log.Debug().Str("session", slug).Str("window", window).Msg("terminal paste dropped: over the size cap")
+			if len(pending[pane])+len(frame.data) > maxPasteBytes {
+				delete(pending, pane)
+				h.log.Debug().Str("session", slug).Str("pane", pane).Msg("terminal paste dropped: over the size cap")
 				continue
 			}
-			pending[window] = append(pending[window], frame.data...)
+			pending[pane] = append(pending[pane], frame.data...)
 		case framePasteCommit:
-			text := pending[window]
-			delete(pending, window)
-			if err := h.core.Terminals.Paste(ctx, slug, window, text); err != nil {
-				h.log.Debug().Err(err).Str("session", slug).Str("window", window).Msg("terminal paste rejected")
+			text := pending[pane]
+			delete(pending, pane)
+			if err := h.core.Terminals.Paste(ctx, slug, pane, text); err != nil {
+				h.log.Debug().Err(err).Str("session", slug).Str("pane", pane).Msg("terminal paste rejected")
 			}
 		}
 	}
@@ -217,16 +219,11 @@ func streamToken(r *http.Request) (token string, fromSubprotocol bool) {
 	return "", false
 }
 
-// windowEventPayload carries tmux's own window size on every kind, not just
-// "resized": the renderer must draw at that size or cursor-addressed output
-// lands wrong, and 0 means tmux has not told us yet.
+// windowEventPayload carries a full snapshot so one reconcile event can update
+// layout, dimensions, and metadata atomically.
 type windowEventPayload struct {
-	Kind     string `json:"kind"`
-	WindowID string `json:"windowId"`
-	Name     string `json:"name"`
-	Active   bool   `json:"active"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	Kind string `json:"kind"`
+	terminalWindow
 }
 
 type lifecyclePayload struct {
@@ -240,14 +237,7 @@ func encodeEvent(ev tmuxcc.Event) ([]byte, bool) {
 	case tmuxcc.Output:
 		return encodeOutputFrame(v.WindowID, v.PaneID, v.Data), true
 	case tmuxcc.WindowChanged:
-		return encodeJSONFrame(frameWindowEvent, windowEventPayload{
-			Kind:     string(v.Kind),
-			WindowID: v.Window.ID,
-			Name:     v.Window.Name,
-			Active:   v.Window.Active,
-			Width:    v.Window.Width,
-			Height:   v.Window.Height,
-		})
+		return encodeJSONFrame(frameWindowEvent, windowEventPayload{Kind: string(v.Kind), terminalWindow: toTerminalWindow(v.Window)})
 	case tmuxcc.LifecycleChanged:
 		return encodeJSONFrame(frameLifecycle, lifecyclePayload{
 			Kind:     string(v.Kind),
@@ -267,10 +257,10 @@ func encodeOutputFrame(windowID, paneID string, data []byte) []byte {
 	return append(frame, data...)
 }
 
-func encodeInputFrame(windowID string, data []byte) []byte {
-	frame := make([]byte, 0, 2+len(windowID)+len(data))
+func encodeInputFrame(paneID string, data []byte) []byte {
+	frame := make([]byte, 0, 2+len(paneID)+len(data))
 	frame = append(frame, frameInput)
-	frame = appendID(frame, windowID)
+	frame = appendID(frame, paneID)
 	return append(frame, data...)
 }
 
@@ -306,12 +296,10 @@ func decodeOutputFrame(frame []byte) (windowID, paneID string, data []byte, err 
 	return windowID, paneID, data, nil
 }
 
-// clientFrame is one decoded client -> server frame. Every kind carries the
-// same window-id header, so they differ only in what the payload means.
 type clientFrame struct {
-	kind     byte
-	windowID string
-	data     []byte
+	kind   byte
+	paneID string
+	data   []byte
 }
 
 // decodeClientFrame reads one client -> server frame. An unknown kind is
@@ -326,14 +314,14 @@ func decodeClientFrame(frame []byte) (clientFrame, error) {
 	default:
 		return clientFrame{}, fmt.Errorf("unknown client frame kind 0x%02x", frame[0])
 	}
-	windowID, data, err := readID(frame[1:])
+	paneID, data, err := readID(frame[1:])
 	if err != nil {
 		return clientFrame{}, err
 	}
-	if windowID == "" {
-		return clientFrame{}, errors.New("client frame carries no window id")
+	if paneID == "" {
+		return clientFrame{}, errors.New("client frame carries no pane id")
 	}
-	return clientFrame{kind: frame[0], windowID: windowID, data: data}, nil
+	return clientFrame{kind: frame[0], paneID: paneID, data: data}, nil
 }
 
 func readID(src []byte) (id string, rest []byte, err error) {

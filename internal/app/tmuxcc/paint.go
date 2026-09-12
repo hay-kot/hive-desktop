@@ -13,22 +13,26 @@ import (
 // pane being snapshotted is, which is how a window created later gets a first
 // paint without stalling the rest of the session.
 type paintGate struct {
-	mu    sync.Mutex
-	emit  func(pane string, data []byte, at time.Time)
-	open  bool
-	live  map[string]bool
-	held  map[string]bool
-	buf   map[string][]byte
-	marks map[string]int
+	mu   sync.Mutex
+	emit func(pane string, data []byte, at time.Time)
+	open bool
+	live map[string]bool
+	held map[string]bool
+	// pending distinguishes panes still owed a first paint from panes temporarily
+	// reheld for repaint.
+	pending map[string]bool
+	buf     map[string][]byte
+	marks   map[string]int
 }
 
 func newPaintGate(emit func(pane string, data []byte, at time.Time)) *paintGate {
 	return &paintGate{
-		emit:  emit,
-		live:  map[string]bool{},
-		held:  map[string]bool{},
-		buf:   map[string][]byte{},
-		marks: map[string]int{},
+		emit:    emit,
+		live:    map[string]bool{},
+		held:    map[string]bool{},
+		pending: map[string]bool{},
+		buf:     map[string][]byte{},
+		marks:   map[string]int{},
 	}
 }
 
@@ -42,16 +46,19 @@ func (g *paintGate) route(pane string, data []byte, at time.Time) {
 	g.emit(pane, data, at)
 }
 
-// hold starts buffering a pane that has never been painted and reports whether
-// it took the gate. Everything from here to mark is discarded as already inside
-// the snapshot the caller is about to request.
+// hold reports whether a pane is still owed its first paint, including when
+// the reader already took the gate. Bytes before mark belong to the snapshot.
 func (g *paintGate) hold(pane string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.live[pane] || g.held[pane] {
+	if g.live[pane] {
 		return false
 	}
+	if g.held[pane] {
+		return g.pending[pane]
+	}
 	g.held[pane] = true
+	g.pending[pane] = true
 	return true
 }
 
@@ -72,6 +79,7 @@ func (g *paintGate) mark(pane string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.held[pane] = true
+	delete(g.pending, pane)
 	g.marks[pane] = len(g.buf[pane])
 }
 
@@ -93,6 +101,7 @@ func (g *paintGate) release(pane string, painted []byte) {
 	delete(g.buf, pane)
 	delete(g.marks, pane)
 	delete(g.held, pane)
+	delete(g.pending, pane)
 	g.live[pane] = true
 }
 
@@ -105,6 +114,7 @@ func (g *paintGate) discard(pane string) {
 	delete(g.buf, pane)
 	delete(g.marks, pane)
 	delete(g.held, pane)
+	delete(g.pending, pane)
 	delete(g.live, pane)
 }
 

@@ -14,7 +14,9 @@ const (
 	WindowClosed        WindowEventKind = "closed"
 	WindowRenamed       WindowEventKind = "renamed"
 	WindowActiveChanged WindowEventKind = "active-changed"
-	WindowResized       WindowEventKind = "resized"
+	// WindowLayoutChanged covers a resize as well as a split, a closed pane or
+	// a zoom: the window's size is its layout's root box.
+	WindowLayoutChanged WindowEventKind = "layout-changed"
 )
 
 // LifecycleKind is the connection-state vocabulary, wire strings likewise.
@@ -38,10 +40,9 @@ type WindowChanged struct {
 	Window Window
 }
 
-// Output is one window's decoded bytes, always from the window's active pane —
-// non-active-pane output is drained and dropped before it reaches the stream.
-// PaneID rides along so the deferred panes phase is additive. At is the decode
-// timestamp the WebSocket adapter measures send latency against.
+// Output is one pane's decoded bytes. Every pane in a window's layout streams;
+// only a pane no tracked window owns is dropped. At is the decode timestamp
+// the WebSocket adapter measures send latency against.
 type Output struct {
 	At       time.Time
 	WindowID string

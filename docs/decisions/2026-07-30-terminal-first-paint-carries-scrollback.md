@@ -93,4 +93,6 @@ need exactly them.
   configurable is a settings-surface decision nobody has asked for yet.
 - Still deferred: pane splits. A split window's `pane_height` is smaller than
   the grid the emulator renders, so the alignment above holds for the unsplit
-  windows v1 renders and no further.
+  windows v1 renders and no further. **Built by ADR pane-splits-render-one-emulator-per-tmux-pane-over-the-window-s-layout:**
+  every pane has an emulator of its own, painted at the pane's height, so the
+  alignment holds per pane.

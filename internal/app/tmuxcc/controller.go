@@ -1,6 +1,9 @@
 package tmuxcc
 
-import "sync"
+import (
+	"slices"
+	"sync"
+)
 
 // Window is the app-side model of one tmux window.
 type Window struct {
@@ -14,16 +17,43 @@ type Window struct {
 	// 0 means not known yet.
 	Width  int
 	Height int
+	// Layout is the pane tree, at the window's unzoomed geometry; the zero
+	// value means tmux has not reported one yet. Zoomed says the active pane is
+	// drawn over the whole window while Layout still records where it goes
+	// back to.
+	Layout Layout
+	Zoomed bool
 }
 
-// controller holds the window set of one attached session and derives events
-// from notifications. Only the active pane of a window is rendered; other
-// panes' output is still consumed so tmux never stalls on us.
+// Panes lists the window's pane ids in layout order. A window whose layout
+// has not been read yet offers only its active pane.
+func (w Window) Panes() []string {
+	if panes := w.Layout.Panes(); len(panes) > 0 {
+		return panes
+	}
+	if w.ActivePane != "" {
+		return []string{w.ActivePane}
+	}
+	return nil
+}
+
+// A missing layout is consistent until reconciliation supplies its tree.
+func (w Window) consistent() bool {
+	panes := w.Layout.Panes()
+	return len(panes) == 0 || slices.Contains(panes, w.ActivePane)
+}
+
 type controller struct {
 	mu      sync.Mutex
 	order   []string
 	windows map[string]Window
 	panes   map[string]string // pane id -> window id
+	// held names windows whose stored state has not been published. tmux
+	// announces a split or a closed pane as a %layout-change and a
+	// %window-pane-changed, in either order, and between the two the window's
+	// active pane is outside its layout. A consumer reads every window event
+	// as a whole snapshot, so the window goes out once both have landed.
+	held map[string]bool
 	// generation increments on every add the reader folds in. addedAt records
 	// the generation a window entered the set under, so a merge can tell a
 	// window its snapshot could not have seen from one the snapshot dropped.
@@ -32,7 +62,12 @@ type controller struct {
 }
 
 func newController() *controller {
-	return &controller{windows: map[string]Window{}, panes: map[string]string{}, addedAt: map[string]uint64{}}
+	return &controller{
+		windows: map[string]Window{},
+		panes:   map[string]string{},
+		held:    map[string]bool{},
+		addedAt: map[string]uint64{},
+	}
 }
 
 // mark reports the generation a caller is about to take a snapshot at. A
@@ -79,8 +114,7 @@ func (c *controller) apply(n Notification) []Event {
 			return nil
 		}
 		w.Name = v.Name
-		c.windows[v.Window] = w
-		return []Event{WindowChanged{Kind: WindowRenamed, Window: w}}
+		return c.settleLocked(w, WindowRenamed)
 
 	case WindowPaneChanged:
 		w, ok := c.windows[v.Window]
@@ -88,9 +122,8 @@ func (c *controller) apply(n Notification) []Event {
 			return nil
 		}
 		w.ActivePane = v.Pane
-		c.windows[v.Window] = w
 		c.panes[v.Pane] = v.Window
-		return []Event{WindowChanged{Kind: WindowActiveChanged, Window: w}}
+		return c.settleLocked(w, WindowActiveChanged)
 
 	case SessionWindowChanged:
 		if _, ok := c.windows[v.Window]; !ok {
@@ -101,12 +134,15 @@ func (c *controller) apply(n Notification) []Event {
 
 	case LayoutChanged:
 		w, ok := c.windows[v.Window]
-		if !ok || v.Width == 0 || v.Height == 0 || (w.Width == v.Width && w.Height == v.Height) {
+		if !ok || v.Layout.Width == 0 || v.Layout.Height == 0 {
 			return nil
 		}
-		w.Width, w.Height = v.Width, v.Height
-		c.windows[v.Window] = w
-		return []Event{WindowChanged{Kind: WindowResized, Window: w}}
+		if w.Layout.Equal(v.Layout) && w.Zoomed == v.Zoomed {
+			return nil
+		}
+		w.Layout, w.Zoomed = v.Layout, v.Zoomed
+		w.Width, w.Height = v.Layout.Width, v.Layout.Height
+		return c.settleLocked(w, WindowLayoutChanged)
 
 	case PauseNotification:
 		return []Event{LifecycleChanged{Kind: LifecyclePaused, WindowID: c.panes[v.Pane]}}
@@ -119,10 +155,23 @@ func (c *controller) apply(n Notification) []Event {
 	}
 }
 
+func (c *controller) settleLocked(w Window, kind WindowEventKind) []Event {
+	c.storeLocked(w)
+	if !w.consistent() {
+		c.held[w.ID] = true
+		return nil
+	}
+	if c.held[w.ID] {
+		delete(c.held, w.ID)
+		kind = WindowLayoutChanged
+	}
+	return []Event{WindowChanged{Kind: kind, Window: w}}
+}
+
 // reconcile merges an authoritative list-windows snapshot taken at generation
 // since and reports what changed. One window yields at most one event: every
-// window event carries the whole window, so a consumer reads the current size
-// off whichever kind it gets.
+// window event carries the whole window, so a consumer reads the current
+// layout off whichever kind it gets.
 //
 // since is the value mark returned right before the snapshot's round trip
 // started. A window added afterward cannot be in the snapshot, so its absence
@@ -140,6 +189,9 @@ func (c *controller) reconcile(next []Window, since uint64) []Event {
 		// The snapshot has now seen this window, so it is ordinary again and a
 		// later snapshot may legitimately report it closed.
 		delete(c.addedAt, w.ID)
+		// A snapshot row is consistent by construction, so it lifts a hold.
+		held := c.held[w.ID]
+		delete(c.held, w.ID)
 		switch {
 		case !existed:
 			events = append(events, WindowChanged{Kind: WindowAdded, Window: w})
@@ -147,8 +199,8 @@ func (c *controller) reconcile(next []Window, since uint64) []Event {
 			events = append(events, WindowChanged{Kind: WindowRenamed, Window: w})
 		case prev.Active != w.Active || prev.ActivePane != w.ActivePane:
 			events = append(events, WindowChanged{Kind: WindowActiveChanged, Window: w})
-		case prev.Width != w.Width || prev.Height != w.Height:
-			events = append(events, WindowChanged{Kind: WindowResized, Window: w})
+		case held || prev.Width != w.Width || prev.Height != w.Height || prev.Zoomed != w.Zoomed || !prev.Layout.Equal(w.Layout):
+			events = append(events, WindowChanged{Kind: WindowLayoutChanged, Window: w})
 		}
 	}
 
@@ -192,6 +244,7 @@ func (c *controller) set(next []Window) {
 	for _, w := range next {
 		c.storeLocked(w)
 		delete(c.addedAt, w.ID)
+		delete(c.held, w.ID)
 	}
 }
 
@@ -206,8 +259,6 @@ func (c *controller) Windows() []Window {
 	return out
 }
 
-// windowForPane resolves a pane to the window that owns it. Compare the
-// result's ActivePane to decide whether that pane is the one being rendered.
 func (c *controller) windowForPane(pane string) (Window, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -222,24 +273,28 @@ func (c *controller) byID(id string) (Window, bool) {
 	return w, ok
 }
 
-// storeLocked keeps the pane index additive: a pane that stops being the one
-// rendered still resolves to its window, so its output is drained rather than
-// dropped as unroutable. tmux never reuses a pane id.
+// storeLocked keeps the pane index additive: a pane that leaves the layout
+// still resolves to its window, so its last bytes are streamed and counted
+// rather than dropped as unroutable. tmux never reuses a pane id.
 func (c *controller) storeLocked(w Window) {
 	if _, existed := c.windows[w.ID]; !existed {
 		c.order = append(c.order, w.ID)
 	}
 	c.windows[w.ID] = w
-	if w.ActivePane != "" {
-		c.panes[w.ActivePane] = w.ID
+	for _, pane := range w.Panes() {
+		c.panes[pane] = w.ID
 	}
 }
 
 func (c *controller) removeLocked(id string) {
-	w := c.windows[id]
-	delete(c.panes, w.ActivePane)
+	for pane, owner := range c.panes {
+		if owner == id {
+			delete(c.panes, pane)
+		}
+	}
 	delete(c.windows, id)
 	delete(c.addedAt, id)
+	delete(c.held, id)
 	for i, existing := range c.order {
 		if existing == id {
 			c.order = append(c.order[:i], c.order[i+1:]...)

@@ -16,7 +16,7 @@ import {
   terminalFontSizePx,
 } from '../useTerminalFont'
 import { SYMBOL_FONT, TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
-import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
+import { TerminalRequestError, type PaneLayout, type TerminalClient } from '../../lib/terminalClient'
 import { paneMayAutoFocus } from '../../lib/terminalTree'
 import { useKeybindings } from '../useKeybindings'
 
@@ -32,7 +32,8 @@ const xterm = vi.hoisted(() => {
     options: Record<string, unknown> = {}
     write = vi.fn()
     focus = vi.fn()
-    open = vi.fn()
+    element?: HTMLElement
+    open = vi.fn((host: HTMLElement) => { this.element = host })
     loadAddon = vi.fn((addon: { activate?: (term: FakeTerminal) => void }) => addon.activate?.(this))
     dispose = vi.fn()
     resizeEffect?: (term: FakeTerminal) => void
@@ -42,6 +43,9 @@ const xterm = vi.hoisted(() => {
       this.resizeEffect?.(this)
     })
     onDataDisposed = false
+    _core: { _renderService?: { dimensions: { css: { cell: { width: number; height: number } } } } } = {
+      _renderService: { dimensions: { css: { cell: { width: 10, height: 25 } } } },
+    }
     parser = {
       registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
       registerDcsHandler: vi.fn(() => ({ dispose: vi.fn() })),
@@ -135,14 +139,6 @@ const xterm = vi.hoisted(() => {
     static instances: FakeTerminal[] = []
   }
 
-  class FakeFitAddon {
-    proposed: { cols: number; rows: number } | undefined = { cols: 80, rows: 24 }
-    proposeDimensions = vi.fn(() => this.proposed)
-    dispose = vi.fn()
-    constructor() { FakeFitAddon.instances.push(this) }
-    static instances: FakeFitAddon[] = []
-  }
-
   // Both renderer addons throw out of their constructor when the context they
   // need is missing, which is the fallback trigger the composable catches.
   class FakeWebglAddon {
@@ -224,13 +220,12 @@ const xterm = vi.hoisted(() => {
     }
   }
 
-  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon, FakeSearchAddon, FakeWebLinksAddon }
+  return { FakeTerminal, FakeWebglAddon, FakeCanvasAddon, FakeSearchAddon, FakeWebLinksAddon }
 })
 
 const wails = vi.hoisted(() => ({ OpenURL: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }))
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeFitAddon }))
 vi.mock('@xterm/addon-search', () => ({ SearchAddon: xterm.FakeSearchAddon }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }))
 vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeCanvasAddon }))
@@ -269,14 +264,18 @@ class FakeResizeObserver {
 let sockets: FakeSocket[] = []
 let loadedFaces: string[] = []
 
+function leaf(paneId: string, width: number, height: number, x = 0, y = 0): PaneLayout {
+  return { paneId, x, y, width, height }
+}
+
 type MockedClient = { [K in keyof TerminalClient]: ReturnType<typeof vi.fn> }
 
 function fakeClient(): MockedClient {
   return {
     attach: vi.fn().mockResolvedValue({
       windows: [
-        { windowId: '@1', name: 'agent', active: true, width: 213, height: 55 },
-        { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 },
+        { windowId: '@1', name: 'agent', active: true, activePane: '%1', width: 213, height: 55, zoomed: false, layout: leaf('%1', 213, 55) },
+        { windowId: '@2', name: 'shell', active: false, activePane: '%2', width: 213, height: 55, zoomed: false, layout: leaf('%2', 213, 55) },
       ],
     }),
     start: vi.fn().mockResolvedValue({ started: true }),
@@ -289,6 +288,12 @@ function fakeClient(): MockedClient {
     renameWindow: vi.fn().mockResolvedValue(undefined),
     moveWindow: vi.fn().mockResolvedValue({ windows: [] }),
     selectWindow: vi.fn().mockResolvedValue(undefined),
+    splitPane: vi.fn().mockResolvedValue({ paneId: '%9' }),
+    selectPane: vi.fn().mockResolvedValue(undefined),
+    closePane: vi.fn().mockResolvedValue(undefined),
+    paneForeground: vi.fn().mockResolvedValue({ running: false, command: '' }),
+    resizePane: vi.fn().mockResolvedValue(undefined),
+    zoomPane: vi.fn().mockResolvedValue(undefined),
     detach: vi.fn().mockResolvedValue(undefined),
     openStream: vi.fn(() => {
       const socket = new FakeSocket()
@@ -313,10 +318,30 @@ function paneHost(): HTMLElement {
   const viewport = document.createElement('div')
   viewport.className = 'xterm-viewport'
   host.appendChild(viewport)
+  resizeHost(host, 80, 24)
+  return host
+}
+
+// The fake terminal's cell is 10×25, so a box is stated in the cells it fits.
+function paneHostOf(cols: number, rows: number): HTMLElement {
+  const host = paneHost()
+  resizeHost(host, cols, rows)
+  return host
+}
+
+function resizeHost(host: HTMLElement, cols: number, rows: number): void {
   Object.defineProperties(host, {
-    clientWidth: { value: 800 },
-    clientHeight: { value: 600 },
+    clientWidth: { value: cols * 10, configurable: true },
+    clientHeight: { value: rows * 25, configurable: true },
   })
+}
+
+// The fake terminal creates no pane DOM, so one host stands in for both the
+// window box and each pane host.
+function mountWindow(session: ReturnType<typeof open>, windowId: string, host: HTMLElement = paneHost()): HTMLElement {
+  session.attachTab(windowId, host)
+  const tab = session.tabs.value.find((candidate) => candidate.windowId === windowId)
+  for (const pane of tab?.panes ?? []) session.attachPane(pane.paneId, host)
   return host
 }
 
@@ -347,15 +372,21 @@ function jsonFrame(kind: number, payload: unknown): ArrayBuffer {
 function windowFrame(
   kind: string,
   windowId: string,
-  window: { name?: string; active?: boolean; width?: number; height?: number } = {},
+  window: { name?: string; active?: boolean; activePane?: string; width?: number; height?: number; zoomed?: boolean; layout?: PaneLayout | null } = {},
 ): ArrayBuffer {
+  const width = window.width ?? 213
+  const height = window.height ?? 55
+  const activePane = window.activePane ?? `%${windowId.slice(1)}`
   return jsonFrame(0x01, {
     kind,
     windowId,
     name: window.name ?? '',
     active: window.active ?? false,
-    width: window.width ?? 213,
-    height: window.height ?? 55,
+    activePane,
+    width,
+    height,
+    zoomed: window.zoomed ?? false,
+    layout: window.layout === undefined ? leaf(activePane, width, height) : window.layout,
   })
 }
 
@@ -377,7 +408,6 @@ describe('useTerminalWindows', () => {
     useKeybindings().clearAll()
     resetTerminalFacesForTests()
     xterm.FakeTerminal.instances = []
-    xterm.FakeFitAddon.instances = []
     xterm.FakeWebglAddon.instances = []
     xterm.FakeCanvasAddon.instances = []
     xterm.FakeSearchAddon.instances = []
@@ -418,16 +448,16 @@ describe('useTerminalWindows', () => {
   it('writes an output frame to the terminal of its window', async () => {
     const { session, socket } = await attached()
 
-    socket.onmessage?.({ data: outputFrame('@2', '%9', 'from the shell') })
+    socket.onmessage?.({ data: outputFrame('@2', '%2', 'from the shell') })
 
-    expect(session.tabs.value[0].term.write).not.toHaveBeenCalled()
-    const written = (session.tabs.value[1].term.write as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    expect(session.tabs.value[0].panes[0].term.write).not.toHaveBeenCalled()
+    const written = (session.tabs.value[1].panes[0].term.write as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(new TextDecoder().decode(written)).toBe('from the shell')
   })
 
   it('coalesces a synchronized redraw split across tmux output frames', async () => {
     const { client, session, socket } = await attached()
-    const term = session.tabs.value[0].term
+    const term = session.tabs.value[0].panes[0].term
     const write = term.write as ReturnType<typeof vi.fn>
     const resizeCalls = (term.resize as ReturnType<typeof vi.fn>).mock.calls.length
 
@@ -450,7 +480,7 @@ describe('useTerminalWindows', () => {
     expect(session.painted.value).toBe(false)
 
     socket.onmessage?.({ data: outputFrame('@1', '%1', 'hello') })
-    const write = session.tabs.value[0].term.write as ReturnType<typeof vi.fn>
+    const write = session.tabs.value[0].panes[0].term.write as ReturnType<typeof vi.fn>
     expect(session.painted.value).toBe(false)
     write.mock.calls[0][1]() // xterm reports the chunk processed
     expect(session.painted.value).toBe(true)
@@ -498,7 +528,7 @@ describe('useTerminalWindows', () => {
   it('opens both hyperlink kinds through the system browser', async () => {
     const { session } = await attached()
 
-    const handler = session.tabs.value[0].term.options.linkHandler as { activate: (event: MouseEvent, uri: string) => void }
+    const handler = session.tabs.value[0].panes[0].term.options.linkHandler as { activate: (event: MouseEvent, uri: string) => void }
     handler.activate(new MouseEvent('click'), 'https://example.test/osc8')
     expect(wails.OpenURL).toHaveBeenCalledWith('https://example.test/osc8')
 
@@ -512,25 +542,25 @@ describe('useTerminalWindows', () => {
     const { session, socket } = await attached()
 
     for (const tab of session.tabs.value) {
-      expect(tab.term.resize).toHaveBeenCalledWith(213, 55)
-      expect(tab.term.cols).toBe(213)
-      expect(tab.term.rows).toBe(55)
+      expect(tab.panes[0].term.resize).toHaveBeenCalledWith(213, 55)
+      expect(tab.panes[0].term.cols).toBe(213)
+      expect(tab.panes[0].term.rows).toBe(55)
     }
 
     // A resize re-wraps the buffer, so one after the first paint would mangle
     // the snapshot tmux just drew.
     const term = xterm.FakeTerminal.instances[1]
-    socket.onmessage?.({ data: outputFrame('@2', '%9', 'from the shell') })
+    socket.onmessage?.({ data: outputFrame('@2', '%2', 'from the shell') })
     expect(term.resize.mock.invocationCallOrder[0]).toBeLessThan(term.write.mock.invocationCallOrder[0])
   })
 
-  it('follows tmux on a resized event', async () => {
+  it('follows tmux on a layout-changed event', async () => {
     const { session, socket } = await attached()
 
-    socket.onmessage?.({ data: windowFrame('resized', '@2', { name: 'shell', width: 80, height: 24 }) })
+    socket.onmessage?.({ data: windowFrame('layout-changed', '@2', { name: 'shell', width: 80, height: 24 }) })
 
-    expect(session.tabs.value[1].term.resize).toHaveBeenLastCalledWith(80, 24)
-    expect(session.tabs.value[0].term.resize).toHaveBeenLastCalledWith(213, 55)
+    expect(session.tabs.value[1].panes[0].term.resize).toHaveBeenLastCalledWith(80, 24)
+    expect(session.tabs.value[0].panes[0].term.resize).toHaveBeenLastCalledWith(213, 55)
   })
 
   it('keeps a viewport following the live tail pinned through reflow', async () => {
@@ -544,13 +574,13 @@ describe('useTerminalWindows', () => {
     }
     term.scrollToBottom.mockClear()
 
-    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+    socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
 
     expect(term.scrollToBottom).toHaveBeenCalledTimes(1)
     expect(term.resize.mock.invocationCallOrder.at(-1))
       .toBeLessThan(term.scrollToBottom.mock.invocationCallOrder[0])
     expect(term.buffer.active.viewportY).toBe(180)
-    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(false)
   })
 
   it('keeps a logical-line anchor through reflow and refreshes the tail fallback', async () => {
@@ -573,13 +603,13 @@ describe('useTerminalWindows', () => {
     }
     term.scrollToBottom.mockClear()
 
-    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+    socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
 
     expect(term.registerMarker).toHaveBeenCalledWith(-84)
     expect(term.scrollToLine).toHaveBeenCalledWith(52)
     expect(term.scrollToBottom).not.toHaveBeenCalled()
     expect(term.markers[0].dispose).toHaveBeenCalledTimes(1)
-    expect(session.tabs.value[0].scrolledUp).toBe(true)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(true)
   })
 
   it('falls back to the oldest surviving row when the anchored line is fully trimmed', async () => {
@@ -599,17 +629,17 @@ describe('useTerminalWindows', () => {
       term.markers[1].line = 0
     }
 
-    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+    socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
 
     expect(term.scrollToLine).toHaveBeenCalledWith(0)
-    expect(session.tabs.value[0].scrolledUp).toBe(true)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(true)
   })
 
-  it('takes the size off any window event, not just the resized one', async () => {
+  it('takes the size off any window event, not just layout-changed', async () => {
     const { session, socket } = await attached()
 
     socket.onmessage?.({ data: windowFrame('renamed', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
-    expect(session.tabs.value[0].term.resize).toHaveBeenLastCalledWith(100, 30)
+    expect(session.tabs.value[0].panes[0].term.resize).toHaveBeenLastCalledWith(100, 30)
 
     // A %window-add placeholder has no size yet; the reconcile behind it does.
     socket.onmessage?.({ data: windowFrame('added', '@3', { name: '', width: 0, height: 0 }) })
@@ -618,20 +648,18 @@ describe('useTerminalWindows', () => {
     expect(xterm.FakeTerminal.instances[2].resize).toHaveBeenLastCalledWith(213, 55)
   })
 
-  it('disposes exactly the closed tab: its terminal, addon and resize observer', async () => {
+  it('disposes exactly the closed tab: its terminal and resize observer', async () => {
     const { session, socket } = await attached()
-    session.attachTab('@1', paneHost())
-    session.attachTab('@2', paneHost())
+    mountWindow(session, '@1')
+    mountWindow(session, '@2')
 
     socket.onmessage?.({ data: windowFrame('closed', '@2', { name: 'shell' }) })
 
     expect(xterm.FakeTerminal.instances[1].dispose).toHaveBeenCalledTimes(1)
-    expect(xterm.FakeFitAddon.instances[1].dispose).toHaveBeenCalledTimes(1)
     expect(FakeResizeObserver.instances[1].disconnected).toBe(true)
     expect(xterm.FakeTerminal.instances[1].onDataDisposed).toBe(true)
 
     expect(xterm.FakeTerminal.instances[0].dispose).not.toHaveBeenCalled()
-    expect(xterm.FakeFitAddon.instances[0].dispose).not.toHaveBeenCalled()
     expect(FakeResizeObserver.instances[0].disconnected).toBe(false)
   })
 
@@ -640,7 +668,7 @@ describe('useTerminalWindows', () => {
   it('loads the WebGL renderer, and only once the pane is open', async () => {
     const { session } = await attached()
 
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
 
     const term = xterm.FakeTerminal.instances[0]
     expect(xterm.FakeWebglAddon.instances).toHaveLength(1)
@@ -655,7 +683,7 @@ describe('useTerminalWindows', () => {
     xterm.FakeWebglAddon.unavailable = true
     const { session } = await attached()
 
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
 
     expect(xterm.FakeCanvasAddon.instances).toHaveLength(1)
     warn.mockRestore()
@@ -669,7 +697,7 @@ describe('useTerminalWindows', () => {
     xterm.FakeCanvasAddon.unavailable = true
     const { session } = await attached()
 
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
 
     expect(xterm.FakeTerminal.instances[0].open).toHaveBeenCalledTimes(1)
     expect(session.status.value).toBe('live')
@@ -678,7 +706,7 @@ describe('useTerminalWindows', () => {
 
   it('claims the canvas renderer when a WebGL context is lost for good', async () => {
     const { session } = await attached()
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
 
     xterm.FakeWebglAddon.instances[0].loseContext()
 
@@ -692,8 +720,8 @@ describe('useTerminalWindows', () => {
   it('claims a renderer for the window on screen, and for the rest on activation', async () => {
     const { session } = await attached()
 
-    session.attachTab('@1', paneHost())
-    session.attachTab('@2', paneHost())
+    mountWindow(session, '@1')
+    mountWindow(session, '@2')
 
     expect(xterm.FakeWebglAddon.instances).toHaveLength(1)
 
@@ -707,8 +735,8 @@ describe('useTerminalWindows', () => {
   it('retries the renderer on the next activation when the canvas claim failed', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { session } = await attached()
-    session.attachTab('@1', paneHost())
-    session.attachTab('@2', paneHost())
+    mountWindow(session, '@1')
+    mountWindow(session, '@2')
 
     xterm.FakeCanvasAddon.unavailable = true
     xterm.FakeWebglAddon.instances[0].loseContext()
@@ -726,7 +754,7 @@ describe('useTerminalWindows', () => {
   // renderer as it goes, so it has to be disposed while the core is still up.
   it('disposes the renderer addon ahead of the terminal it renders', async () => {
     const { session } = await attached()
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
 
     session.dispose()
 
@@ -783,13 +811,13 @@ describe('useTerminalWindows', () => {
     }
   })
 
-  it('sends typed input as an input frame for the typing window', async () => {
+  it('sends typed input as an input frame for the typing pane', async () => {
     const { session, socket } = await attached()
 
     xterm.FakeTerminal.instances[1].type('ls\r')
 
     expect(socket.sent).toHaveLength(1)
-    expect(Array.from(socket.sent[0])).toEqual([0x10, 2, 0x40, 0x32, 0x6c, 0x73, 0x0d])
+    expect(Array.from(socket.sent[0])).toEqual([0x10, 2, 0x25, 0x32, 0x6c, 0x73, 0x0d])
     expect(session.status.value).toBe('live')
   })
 
@@ -813,16 +841,59 @@ describe('useTerminalWindows', () => {
     await session.start()
     await flushPromises()
 
-    session.attachTab('@1', paneHost())
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
+    const host = mountWindow(session, '@1')
+    resizeHost(host, 120, 40)
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
 
-    expect(xterm.FakeFitAddon.instances[0].proposeDimensions).toHaveBeenCalled()
     expect(client.resize).toHaveBeenCalledWith('hive-abc', 120, 40)
     for (const term of xterm.FakeTerminal.instances) {
       expect(term.resize).toHaveBeenLastCalledWith(213, 55)
     }
+  })
+
+  it('votes from the window box, not a pane box', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+
+    session.attachTab('@1', paneHostOf(120, 40))
+    session.attachPane('%1', paneHostOf(60, 20))
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(client.resize).toHaveBeenCalledWith('hive-abc', 120, 40)
+    expect(client.resize).not.toHaveBeenCalledWith('hive-abc', 60, 20)
+  })
+
+  // Only the shown window's panes claim an atlas renderer; the DOM renderer
+  // behind a hidden one keeps the device width unfloored, so its cell differs.
+  // tmux order puts the hidden window first, and it opens first.
+  it('measures the cell and votes off the shown window, not the first window opened', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    client.attach.mockResolvedValue({
+      windows: [
+        { windowId: '@1', name: 'agent', active: false, activePane: '%1', width: 213, height: 55, zoomed: false, layout: leaf('%1', 213, 55) },
+        { windowId: '@2', name: 'shell', active: true, activePane: '%2', width: 213, height: 55, zoomed: false, layout: leaf('%2', 213, 55) },
+      ],
+    })
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    xterm.FakeTerminal.instances[0]._core._renderService!.dimensions.css.cell = { width: 7.8, height: 25 }
+
+    mountWindow(session, '@1', paneHostOf(120, 40))
+    mountWindow(session, '@2', paneHostOf(120, 40))
+    FakeResizeObserver.instances[1].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(session.activeWindowId.value).toBe('@2')
+    expect(session.cell.value).toEqual({ width: 10, height: 25 })
+    expect(client.resize).toHaveBeenCalledWith('hive-abc', 120, 40)
+    expect(client.resize).not.toHaveBeenCalledWith('hive-abc', 153, 40)
   })
 
   // A size preset changes cell metrics, not the host box, so the observer never
@@ -833,10 +904,10 @@ describe('useTerminalWindows', () => {
     const session = open(client)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', paneHost())
+    const host = mountWindow(session, '@1')
     await vi.advanceTimersByTimeAsync(100)
     client.resize.mockClear()
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 100, rows: 30 }
+    resizeHost(host, 100, 30)
 
     setTerminalFontSize('xl')
     await flushPromises()
@@ -875,11 +946,11 @@ describe('useTerminalWindows', () => {
     const session = open(client)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', paneHost())
+    const host = mountWindow(session, '@1')
     await vi.advanceTimersByTimeAsync(100)
     client.resize.mockClear()
     loadedFaces.length = 0
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 100, rows: 30 }
+    resizeHost(host, 100, 30)
 
     setTerminalFontWeight(700)
     await flushPromises()
@@ -904,7 +975,7 @@ describe('useTerminalWindows', () => {
     const session = open(client)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
     await vi.advanceTimersByTimeAsync(100)
 
     setTerminalFontFamily('Menlo')
@@ -940,8 +1011,7 @@ describe('useTerminalWindows', () => {
 
     expect(client.attach).toHaveBeenCalledWith('hive-abc', 120, 40)
 
-    session.attachTab('@1', paneHost())
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
+    mountWindow(session, '@1', paneHostOf(120, 40))
     await vi.advanceTimersByTimeAsync(100)
 
     expect(client.resize).not.toHaveBeenCalled()
@@ -953,8 +1023,7 @@ describe('useTerminalWindows', () => {
     const session = open(first)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', paneHost())
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 213, rows: 55 }
+    mountWindow(session, '@1', paneHostOf(213, 55))
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
 
@@ -972,9 +1041,8 @@ describe('useTerminalWindows', () => {
     const session = open(client)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1', paneHostOf(300, 80))
 
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
     expect(session.sizeConstraint.value).toBeNull()
@@ -998,13 +1066,12 @@ describe('useTerminalWindows', () => {
     await session.start()
     await flushPromises()
     sockets[0].onopen?.()
-    session.attachTab('@1', paneHost())
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
+    mountWindow(session, '@1', paneHostOf(300, 80))
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(1100)
     expect(session.sizeConstraint.value).not.toBeNull()
 
-    sockets[0].onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 300, height: 80 }) })
+    sockets[0].onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, width: 300, height: 80 }) })
     await vi.advanceTimersByTimeAsync(1000)
 
     expect(session.sizeConstraint.value).toBeNull()
@@ -1012,23 +1079,60 @@ describe('useTerminalWindows', () => {
 
   it('votes nothing when the pane cannot be measured', async () => {
     vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const client = fakeClient()
     const session = open(client)
     await session.start()
     await flushPromises()
 
-    session.attachTab('@1', paneHost())
-    xterm.FakeFitAddon.instances[0].proposed = undefined
+    mountWindow(session, '@1')
+    // The fake uses xterm's pre-measurement 0×0 cell dimensions.
+    xterm.FakeTerminal.instances[0]._core._renderService!.dimensions.css.cell = { width: 0, height: 0 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
 
     expect(client.resize).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
-  // A pooled session's panes sit behind display:none while another session is
-  // shown, and a hidden box still yields a small "valid" proposal — WebKit
-  // answers the specified '100%' for it, which FitAddon parses as 100px. A
-  // vote from there squeezes the session's windows to ~8×4 for every client.
+  // The fake mirrors a private xterm cell field; this warning catches upstream
+  // changes that would otherwise silently stop size votes.
+  it('warns once when an opened, visible pane reports no cell', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    for (const term of xterm.FakeTerminal.instances) term._core = {}
+
+    mountWindow(session, '@1')
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(client.resize).not.toHaveBeenCalled()
+    const warnings = warn.mock.calls.filter((call) => String(call[0]).includes('terminalGrid.ts'))
+    expect(warnings).toHaveLength(1)
+    warn.mockRestore()
+  })
+
+  // Pooled sessions legitimately expose 0×0 pane boxes under display:none.
+  it('does not warn about a pane with no rendered box', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { session } = await attached()
+    for (const term of xterm.FakeTerminal.instances) term._core = {}
+
+    mountWindow(session, '@1', document.createElement('div'))
+
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  // A pooled session's windows sit behind display:none while another session
+  // is shown, and a hidden host has no client box. Proposing a grid from one
+  // would squeeze the session's windows for every client attached to them.
   it('never votes from a pane with no rendered box', async () => {
     vi.useFakeTimers()
     const client = fakeClient()
@@ -1036,8 +1140,7 @@ describe('useTerminalWindows', () => {
     await session.start()
     await flushPromises()
 
-    session.attachTab('@1', document.createElement('div'))
-    xterm.FakeFitAddon.instances[0].proposed = { cols: 8, rows: 4 }
+    mountWindow(session, '@1', document.createElement('div'))
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
 
@@ -1076,7 +1179,7 @@ describe('useTerminalWindows', () => {
     for (const term of xterm.FakeTerminal.instances) expect(term.reset).toHaveBeenCalled()
 
     socket.onmessage?.({ data: outputFrame('@1', '%1', 'REPAINTED') })
-    const write = session.tabs.value[0].term.write as ReturnType<typeof vi.fn>
+    const write = session.tabs.value[0].panes[0].term.write as ReturnType<typeof vi.fn>
     const written = write.mock.calls[write.mock.calls.length - 1][0] as Uint8Array
     expect(new TextDecoder().decode(written)).toBe('REPAINTED')
   })
@@ -1172,7 +1275,7 @@ describe('useTerminalWindows', () => {
   it('reconnect re-attaches with fresh terminals', async () => {
     const { client, session, socket } = await attached()
     socket.onerror?.()
-    const before = session.tabs.value.map((tab) => tab.term)
+    const before = session.tabs.value.map((tab) => tab.panes[0].term)
 
     await session.reconnect()
     await flushPromises()
@@ -1182,12 +1285,12 @@ describe('useTerminalWindows', () => {
     expect(session.status.value).toBe('live')
     expect(xterm.FakeTerminal.instances).toHaveLength(4)
     for (const term of before) expect(term.dispose).toHaveBeenCalled()
-    expect(session.tabs.value.every((tab) => !before.includes(tab.term))).toBe(true)
+    expect(session.tabs.value.every((tab) => !before.includes(tab.panes[0].term))).toBe(true)
   })
 
   it('detaches and tears everything down on dispose', async () => {
     const { client, session, socket } = await attached()
-    session.attachTab('@1', paneHost())
+    mountWindow(session, '@1')
 
     session.dispose()
 
@@ -1224,6 +1327,25 @@ describe('useTerminalWindows', () => {
     expect(xterm.FakeTerminal.instances.at(-1)?.focus).toHaveBeenCalled()
   })
 
+  // tmux announces the window before it has a layout, and the line has to be
+  // addressed to a pane, so it waits for the event that names one.
+  it('types the command for a new window into the pane tmux announces for it', async () => {
+    const { socket, session } = await attached()
+
+    await session.newWindow('make')
+    socket.onmessage?.({ data: windowFrame('added', '@3', { name: '', activePane: '', width: 0, height: 0, layout: null }) })
+    expect(socket.sent).toHaveLength(0)
+
+    socket.onmessage?.({ data: windowFrame('layout-changed', '@3', { name: 'make', activePane: '%7' }) })
+
+    expect(socket.sent).toHaveLength(1)
+    expect(Array.from(socket.sent[0])).toEqual([0x10, 2, 0x25, 0x37, 0x6d, 0x61, 0x6b, 0x65, 0x0d])
+
+    // Reconciliation reports the window again; it must not replay the command.
+    socket.onmessage?.({ data: windowFrame('renamed', '@3', { name: 'make', activePane: '%7' }) })
+    expect(socket.sent).toHaveLength(1)
+  })
+
   // Another client's window must not pull the keyboard out of the pane in front
   // of the user, so it becomes active without taking focus.
   it('leaves focus alone for a window another client opened', async () => {
@@ -1251,9 +1373,9 @@ describe('useTerminalWindows', () => {
     const { session } = await attached()
     const term = xterm.FakeTerminal.instances[0]
 
-    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(false)
     term.scrollTo(5, 12)
-    expect(session.tabs.value[0].scrolledUp).toBe(true)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(true)
 
     // Entering the alternate screen (a full-screen TUI) has no scrollback and
     // fires no scroll event, so the buffer switch is what clears the flag.
@@ -1266,7 +1388,7 @@ describe('useTerminalWindows', () => {
       getLine: () => undefined,
     }
     term.switchBuffer()
-    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(false)
   })
 
   // A wheel notch is about three rows. Offering the way back the moment the
@@ -1277,10 +1399,10 @@ describe('useTerminalWindows', () => {
     const term = xterm.FakeTerminal.instances[0]
 
     term.scrollTo(96, 100)
-    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(false)
 
     term.scrollTo(94, 100)
-    expect(session.tabs.value[0].scrolledUp).toBe(true)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(true)
   })
 
   it('scrolls the active window back to the tail and refocuses it', async () => {
@@ -1293,7 +1415,7 @@ describe('useTerminalWindows', () => {
 
     expect(term.scrollToBottom).toHaveBeenCalled()
     expect(term.focus).toHaveBeenCalled()
-    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(false)
   })
 
   describe('reordering windows', () => {
@@ -1318,12 +1440,12 @@ describe('useTerminalWindows', () => {
     it('keeps the terminals and the selection across a move', async () => {
       const { client, session } = await attached()
       client.moveWindow.mockResolvedValue({ windows: [{ windowId: '@2' }, { windowId: '@1' }] })
-      const terminals = session.tabs.value.map((tab) => tab.term)
+      const terminals = session.tabs.value.map((tab) => tab.panes[0].term)
 
       await session.moveWindow('@1', 1)
 
       expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@2', '@1'])
-      expect(session.tabs.value.map((tab) => tab.term)).toEqual([terminals[1], terminals[0]])
+      expect(session.tabs.value.map((tab) => tab.panes[0].term)).toEqual([terminals[1], terminals[0]])
       expect(session.activeWindowId.value).toBe('@1')
       expect(terminals[0].dispose).not.toHaveBeenCalled()
     })
@@ -1383,18 +1505,18 @@ describe('useTerminalWindows', () => {
   it('offers the way back to the tail when the user scrolls, which xterm does not announce', async () => {
     const { session } = await attached()
     const host = paneHost()
-    session.attachTab('@1', host)
+    mountWindow(session, '@1', host)
     const term = xterm.FakeTerminal.instances[0]
     const viewport = host.querySelector('.xterm-viewport')!
 
     term.buffer.active.viewportY = 40
     term.buffer.active.baseY = 120
     viewport.dispatchEvent(new Event('scroll'))
-    expect(session.tabs.value[0].scrolledUp).toBe(true)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(true)
 
     term.buffer.active.viewportY = 120
     viewport.dispatchEvent(new Event('scroll'))
-    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    expect(session.tabs.value[0].panes[0].scrolledUp).toBe(false)
   })
 
   it('searches the active window and reports the hit it is on', async () => {
@@ -1526,5 +1648,209 @@ describe('useTerminalWindows', () => {
     expect(session.search.value).toEqual({ open: false, query: '', matches: 0, index: 0 })
     expect(xterm.FakeSearchAddon.instances[0].clearDecorations).toHaveBeenCalled()
     expect(xterm.FakeTerminal.instances[0].focus).toHaveBeenCalled()
+  })
+
+  describe('panes', () => {
+    const split = (): PaneLayout => ({
+      split: 'leftright', x: 0, y: 0, width: 213, height: 55,
+      cells: [leaf('%1', 106, 55), leaf('%9', 106, 55, 107)],
+    })
+
+    it('opens a terminal per pane at the pane\'s own grid when a window is split', async () => {
+      const { session, socket } = await attached()
+      mountWindow(session, '@1')
+
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', layout: split() }) })
+      await flushPromises()
+
+      const tab = session.tabs.value[0]
+      expect(tab.panes.map((pane) => pane.paneId)).toEqual(['%1', '%9'])
+      expect(tab.activePane).toBe('%9')
+      const [left, right] = tab.panes
+      expect(left.term.resize).toHaveBeenLastCalledWith(106, 55)
+      expect(right.term.resize).toHaveBeenCalledWith(106, 55)
+
+      socket.onmessage?.({ data: outputFrame('@1', '%1', 'left says') })
+      socket.onmessage?.({ data: outputFrame('@1', '%9', 'right says') })
+      const lastWrite = (term: { write: unknown }): string =>
+        new TextDecoder().decode((term.write as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0])
+      expect(lastWrite(left.term)).toBe('left says')
+      expect(lastWrite(right.term)).toBe('right says')
+    })
+
+    it('drops the pane a layout no longer holds and lands the keyboard on the new active pane', async () => {
+      const { session, socket } = await attached()
+      const host = mountWindow(session, '@1')
+      // Focus starts inside the window to model the focus that pane removal displaces.
+      const focused = document.createElement('input')
+      host.append(focused)
+      document.body.append(host)
+      focused.focus()
+
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', layout: split() }) })
+      await flushPromises()
+      const [left, , right] = xterm.FakeTerminal.instances
+      // Opening the pane focused it; only the move counts from here.
+      left.focus.mockClear()
+
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%1', layout: leaf('%1', 213, 55) }) })
+      await flushPromises()
+
+      expect(right.dispose).toHaveBeenCalledTimes(1)
+      expect(session.tabs.value[0].panes.map((pane) => pane.paneId)).toEqual(['%1'])
+      expect(left.resize).toHaveBeenLastCalledWith(213, 55)
+      expect(left.focus).toHaveBeenCalledTimes(1)
+      host.remove()
+    })
+
+    it('leaves the keyboard alone when the active pane moves under a keyboard elsewhere', async () => {
+      const { session, socket } = await attached()
+      const host = mountWindow(session, '@1')
+      document.body.append(host)
+      const elsewhere = document.createElement('button')
+      document.body.append(elsewhere)
+      elsewhere.focus()
+
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', layout: split() }) })
+      await flushPromises()
+      const newPaneHost = paneHost()
+      host.append(newPaneHost)
+      session.attachPane('%9', newPaneHost)
+      await flushPromises()
+
+      expect(session.tabs.value[0].activePane).toBe('%9')
+      expect(xterm.FakeTerminal.instances[2].focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(elsewhere)
+      host.remove()
+      elsewhere.remove()
+    })
+
+    it('draws a zoomed pane over the whole window and keeps the hidden one at its own size', async () => {
+      const { session, socket } = await attached()
+      mountWindow(session, '@1')
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', layout: split() }) })
+      await flushPromises()
+
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', zoomed: true, layout: split() }) })
+
+      const [left, right] = session.tabs.value[0].panes
+      expect(session.tabs.value[0].zoomed).toBe(true)
+      expect(right.term.resize).toHaveBeenLastCalledWith(213, 55)
+      expect(left.term.resize).toHaveBeenLastCalledWith(106, 55)
+      expect(left.term.dispose).not.toHaveBeenCalled()
+    })
+
+    it('selects a clicked pane at once and tells tmux', async () => {
+      const { client, session, socket } = await attached()
+      mountWindow(session, '@1')
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', layout: split() }) })
+      await flushPromises()
+      // Opening the pane focused it; only the click counts from here.
+      xterm.FakeTerminal.instances[0].focus.mockClear()
+
+      await session.selectPane('%1')
+
+      const tab = session.tabs.value[0]
+      expect(tab.activePane).toBe('%1')
+      expect(xterm.FakeTerminal.instances[0].focus).toHaveBeenCalledTimes(1)
+      expect(client.selectPane).toHaveBeenCalledWith('hive-abc', '%1')
+      // Typing lands in the clicked pane before tmux has answered.
+      xterm.FakeTerminal.instances[0].type('x')
+      expect(Array.from(socket.sent.at(-1)!)).toEqual([0x10, 2, 0x25, 0x31, 0x78])
+
+      client.selectPane.mockClear()
+      await session.selectPane('%1')
+      expect(client.selectPane).not.toHaveBeenCalled()
+    })
+
+    it('drives the pane verbs through the control plane against the active pane', async () => {
+      const { client, session } = await attached()
+
+      await session.splitPane('horizontal')
+      expect(client.splitPane).toHaveBeenCalledWith('hive-abc', '%1', 'horizontal')
+      await session.splitPane('vertical')
+      expect(client.splitPane).toHaveBeenCalledWith('hive-abc', '%1', 'vertical')
+      await session.zoomPane()
+      expect(client.zoomPane).toHaveBeenCalledWith('hive-abc', '%1')
+      await session.focusPane('down')
+      expect(client.selectPane).toHaveBeenCalledWith('hive-abc', '%1', 'down')
+      await session.closePane()
+      expect(client.closePane).toHaveBeenCalledWith('hive-abc', '%1')
+      await session.closePane('%2')
+      expect(client.closePane).toHaveBeenCalledWith('hive-abc', '%2')
+    })
+
+    it('sends only the latest size of a divider drag while one is in flight', async () => {
+      const { client, session } = await attached()
+      let release: (() => void) | undefined
+      client.resizePane.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve }))
+
+      const first = session.resizePane('%1', { width: 50 })
+      void session.resizePane('%1', { width: 51 })
+      void session.resizePane('%1', { width: 52 })
+      expect(client.resizePane).toHaveBeenCalledTimes(1)
+
+      release?.()
+      await first
+      await flushPromises()
+      expect(client.resizePane).toHaveBeenCalledTimes(2)
+      expect(client.resizePane).toHaveBeenLastCalledWith('hive-abc', '%1', { width: 52 })
+    })
+
+    it('measures the cell off the first pane it opens', async () => {
+      const { session } = await attached()
+      expect(session.cell.value).toBeNull()
+      mountWindow(session, '@1')
+      expect(session.cell.value).toEqual({ width: 10, height: 25 })
+    })
+
+    // A hit count is only true of the buffer it was counted in, so the bar
+    // follows the active pane the way it follows the active window.
+    it('re-runs the search against the pane tmux makes active', async () => {
+      const { session, socket } = await attached()
+      mountWindow(session, '@1')
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%1', layout: split() }) })
+      await flushPromises()
+      session.openSearch()
+      session.setSearchQuery('panic')
+      const [left, , right] = xterm.FakeSearchAddon.instances
+      left.clearDecorations.mockClear()
+      expect(right.calls).toEqual([])
+
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%9', layout: split() }) })
+
+      expect(left.clearDecorations).toHaveBeenCalled()
+      expect(right.calls.at(-1)).toMatchObject({ mode: 'next', term: 'panic' })
+    })
+
+    it('re-runs the search against a clicked pane', async () => {
+      const { session, socket } = await attached()
+      mountWindow(session, '@1')
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%1', layout: split() }) })
+      await flushPromises()
+      session.openSearch()
+      session.setSearchQuery('panic')
+      const [left, , right] = xterm.FakeSearchAddon.instances
+      left.clearDecorations.mockClear()
+
+      await session.selectPane('%9')
+
+      expect(left.clearDecorations).toHaveBeenCalled()
+      expect(right.calls.at(-1)).toMatchObject({ mode: 'next', term: 'panic' })
+    })
+
+    it('leaves a closed find bar alone when the active pane changes', async () => {
+      const { session, socket } = await attached()
+      mountWindow(session, '@1')
+      socket.onmessage?.({ data: windowFrame('layout-changed', '@1', { name: 'agent', active: true, activePane: '%1', layout: split() }) })
+      await flushPromises()
+      const [left, , right] = xterm.FakeSearchAddon.instances
+      left.clearDecorations.mockClear()
+
+      await session.selectPane('%9')
+
+      expect(left.clearDecorations).not.toHaveBeenCalled()
+      expect(right.calls).toEqual([])
+    })
   })
 })

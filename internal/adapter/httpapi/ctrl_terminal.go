@@ -42,13 +42,46 @@ func MintTerminalToken() (string, error) {
 }
 
 // terminalWindow carries tmux's size for the window, which is the size the
-// frontend must render it at — the cols/rows it asked for are only a vote.
+// frontend must render it at — the cols/rows it asked for are only a vote —
+// and its pane layout, which is where each pane's emulator goes inside it.
 type terminalWindow struct {
-	WindowID string `json:"windowId"`
-	Name     string `json:"name"`
-	Active   bool   `json:"active"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	WindowID   string `json:"windowId"`
+	Name       string `json:"name"`
+	Active     bool   `json:"active"`
+	ActivePane string `json:"activePane"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	// Zoomed says the active pane is drawn over the whole window; Layout still
+	// records where it goes back to.
+	Zoomed bool            `json:"zoomed"`
+	Layout *terminalLayout `json:"layout,omitempty"`
+}
+
+type terminalLayout struct {
+	PaneID string `json:"paneId,omitempty"`
+	// Split is "leftright" for cells side by side (tmux's split-window -h) or
+	// "topbottom" for stacked cells (-v); absent on a leaf.
+	Split  string           `json:"split,omitempty"`
+	X      int              `json:"x"`
+	Y      int              `json:"y"`
+	Width  int              `json:"width"`
+	Height int              `json:"height"`
+	Cells  []terminalLayout `json:"cells,omitempty"`
+}
+
+func toTerminalLayout(layout tmuxcc.Layout) terminalLayout {
+	out := terminalLayout{
+		PaneID: layout.Pane,
+		Split:  string(layout.Split),
+		X:      layout.X,
+		Y:      layout.Y,
+		Width:  layout.Width,
+		Height: layout.Height,
+	}
+	for _, cell := range layout.Cells {
+		out.Cells = append(out.Cells, toTerminalLayout(cell))
+	}
+	return out
 }
 
 type terminalSlugRequest struct {
@@ -136,6 +169,71 @@ func (b terminalRenameRequest) Validate() error {
 	)
 }
 
+type terminalPaneRequest struct {
+	Slug   string `json:"slug"`
+	PaneID string `json:"paneId"`
+}
+
+func (b terminalPaneRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("slug", b.Slug, criterio.Required),
+		criterio.Run("paneId", b.PaneID, criterio.Required),
+	)
+}
+
+// terminalSplitRequest is a pane and which way to split it, in tmux's words:
+// horizontal puts the new pane to the right, vertical below.
+type terminalSplitRequest struct {
+	Slug      string `json:"slug"`
+	PaneID    string `json:"paneId"`
+	Direction string `json:"direction"`
+}
+
+func (b terminalSplitRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("slug", b.Slug, criterio.Required),
+		criterio.Run("paneId", b.PaneID, criterio.Required),
+		criterio.Run("direction", b.Direction, criterio.Required, criterio.OneOf(string(tmuxcc.SplitHorizontal), string(tmuxcc.SplitVertical))),
+	)
+}
+
+// terminalSelectPaneRequest is a pane and, optionally, a direction: with one,
+// the pane's neighbour that way is selected rather than the pane itself.
+type terminalSelectPaneRequest struct {
+	Slug      string `json:"slug"`
+	PaneID    string `json:"paneId"`
+	Direction string `json:"direction"`
+}
+
+func (b terminalSelectPaneRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("slug", b.Slug, criterio.Required),
+		criterio.Run("paneId", b.PaneID, criterio.Required),
+		criterio.Run("direction", b.Direction, criterio.OneOf(
+			string(tmuxcc.PaneSelf), string(tmuxcc.PaneLeft), string(tmuxcc.PaneRight), string(tmuxcc.PaneUp), string(tmuxcc.PaneDown))),
+	)
+}
+
+// Width and Height are validated by tmuxcc, which permits one zero axis,
+// rejects both zero, and enforces the 1..1000 bound.
+type terminalResizePaneRequest struct {
+	Slug   string `json:"slug"`
+	PaneID string `json:"paneId"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+}
+
+func (b terminalResizePaneRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("slug", b.Slug, criterio.Required),
+		criterio.Run("paneId", b.PaneID, criterio.Required),
+	)
+}
+
+type terminalSplitResponse struct {
+	PaneID string `json:"paneId"`
+}
+
 type terminalAttachResponse struct {
 	Windows []terminalWindow `json:"windows"`
 }
@@ -166,16 +264,29 @@ type terminalNewWindowResponse struct {
 	WindowID string `json:"windowId"`
 }
 
+func toTerminalWindow(win tmuxcc.Window) terminalWindow {
+	out := terminalWindow{
+		WindowID:   win.ID,
+		Name:       win.Name,
+		Active:     win.Active,
+		ActivePane: win.ActivePane,
+		Width:      win.Width,
+		Height:     win.Height,
+		Zoomed:     win.Zoomed,
+	}
+	// A zero-sized root is a layout tmux has not reported yet, sent as absent
+	// rather than as an empty tree.
+	if win.Layout.Width != 0 || win.Layout.Height != 0 {
+		layout := toTerminalLayout(win.Layout)
+		out.Layout = &layout
+	}
+	return out
+}
+
 func toTerminalWindows(windows []tmuxcc.Window) []terminalWindow {
 	out := make([]terminalWindow, 0, len(windows))
 	for _, win := range windows {
-		out = append(out, terminalWindow{
-			WindowID: win.ID,
-			Name:     win.Name,
-			Active:   win.Active,
-			Width:    win.Width,
-			Height:   win.Height,
-		})
+		out = append(out, toTerminalWindow(win))
 	}
 	return out
 }
@@ -336,6 +447,87 @@ func (ctrl *Controller) TerminalSelectWindow(w http.ResponseWriter, r *http.Requ
 		return err
 	}
 	if err := ctrl.core.Terminals.SelectWindow(r.Context(), body.Slug, body.WindowID); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// TerminalSplitPane splits one pane of an attached session and returns the
+// new pane's id.
+func (ctrl *Controller) TerminalSplitPane(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalSplitRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	id, err := ctrl.core.Terminals.SplitPane(r.Context(), body.Slug, body.PaneID, tmuxcc.SplitDirection(body.Direction))
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalSplitResponse{PaneID: id})
+}
+
+// TerminalSelectPane makes one pane, or its neighbour in a direction, the
+// window's active pane.
+func (ctrl *Controller) TerminalSelectPane(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalSelectPaneRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.Terminals.SelectPane(r.Context(), body.Slug, body.PaneID, tmuxcc.PaneDirection(body.Direction)); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// TerminalClosePane kills one pane of an attached session.
+func (ctrl *Controller) TerminalClosePane(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalPaneRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.Terminals.ClosePane(r.Context(), body.Slug, body.PaneID); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// TerminalPaneForeground reports whether closing a pane would kill work.
+func (ctrl *Controller) TerminalPaneForeground(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalPaneRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	foreground, err := ctrl.core.Terminals.PaneForeground(r.Context(), body.Slug, body.PaneID)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalForegroundResponse{Running: foreground.Running, Command: foreground.Command})
+}
+
+// TerminalResizePane sets a pane's size in cells.
+func (ctrl *Controller) TerminalResizePane(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalResizePaneRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.Terminals.ResizePane(r.Context(), body.Slug, body.PaneID, body.Width, body.Height); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// TerminalZoomPane toggles a pane between filling its window and its place in
+// the layout.
+func (ctrl *Controller) TerminalZoomPane(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalPaneRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.Terminals.ZoomPane(r.Context(), body.Slug, body.PaneID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

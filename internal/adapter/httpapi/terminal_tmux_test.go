@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
 
@@ -76,11 +78,14 @@ func (f *tmuxFixture) awaitPane(target, want string) {
 }
 
 type terminalWindowResult struct {
-	WindowID string `json:"windowId"`
-	Name     string `json:"name"`
-	Active   bool   `json:"active"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	WindowID   string          `json:"windowId"`
+	Name       string          `json:"name"`
+	Active     bool            `json:"active"`
+	ActivePane string          `json:"activePane"`
+	Width      int             `json:"width"`
+	Height     int             `json:"height"`
+	Zoomed     bool            `json:"zoomed"`
+	Layout     *terminalLayout `json:"layout"`
 }
 
 type attachResult struct {
@@ -145,14 +150,33 @@ func isLifecycle(frame []byte, kind string) bool {
 }
 
 func isWindowEvent(frame []byte, kind, windowID string) bool {
+	payload, ok := windowEventOf(frame)
+	return ok && payload.Kind == kind && (windowID == "" || payload.WindowID == windowID)
+}
+
+func windowEventOf(frame []byte) (windowEventPayload, bool) {
 	if len(frame) == 0 || frame[0] != frameWindowEvent {
-		return false
+		return windowEventPayload{}, false
 	}
 	var payload windowEventPayload
 	if json.Unmarshal(frame[1:], &payload) != nil {
-		return false
+		return windowEventPayload{}, false
 	}
-	return payload.Kind == kind && (windowID == "" || payload.WindowID == windowID)
+	return payload, true
+}
+
+func leafPanes(layout *terminalLayout) []string {
+	if layout == nil {
+		return nil
+	}
+	if layout.PaneID != "" {
+		return []string{layout.PaneID}
+	}
+	var panes []string
+	for i := range layout.Cells {
+		panes = append(panes, leafPanes(&layout.Cells[i])...)
+	}
+	return panes
 }
 
 func outputContains(t *testing.T, frame []byte, want string) bool {
@@ -514,7 +538,7 @@ func TestTmuxInputFrameReachesThePane(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	frame := encodeInputFrame(attached.Windows[0].WindowID, []byte("echo HELLO_FROM_WS\r"))
+	frame := encodeInputFrame(attached.Windows[0].ActivePane, []byte("echo HELLO_FROM_WS\r"))
 	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, frame))
 
 	tmux.awaitPane(tmux.slug, "HELLO_FROM_WS")
@@ -541,7 +565,7 @@ func TestTmuxPasteIsBracketedOnlyWhenThePaneAsksForIt(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	for _, name := range []string{"bracketed", "plain"} {
-		for _, frame := range pasteFrames(windowIDNamed(t, attached, name), "line one\nline two") {
+		for _, frame := range pasteFrames(paneIDNamed(t, attached, name), "line one\nline two") {
 			require.NoError(t, conn.Write(ctx, websocket.MessageBinary, frame))
 		}
 	}
@@ -557,18 +581,18 @@ func TestTmuxPasteIsBracketedOnlyWhenThePaneAsksForIt(t *testing.T) {
 
 // pasteFrames is what the frontend sends for one paste: its bytes, then the
 // commit the server pastes on.
-func pasteFrames(windowID, text string) [][]byte {
+func pasteFrames(paneID, text string) [][]byte {
 	return [][]byte{
-		append(appendID([]byte{framePasteChunk}, windowID), text...),
-		appendID([]byte{framePasteCommit}, windowID),
+		append(appendID([]byte{framePasteChunk}, paneID), text...),
+		appendID([]byte{framePasteCommit}, paneID),
 	}
 }
 
-func windowIDNamed(t *testing.T, attached attachResult, name string) string {
+func paneIDNamed(t *testing.T, attached attachResult, name string) string {
 	t.Helper()
 	for _, w := range attached.Windows {
 		if w.Name == name {
-			return w.WindowID
+			return w.ActivePane
 		}
 	}
 	t.Fatalf("no window named %q in %#v", name, attached.Windows)
@@ -614,11 +638,13 @@ func TestTmuxResizeAndDetachLeaveTheSessionRunning(t *testing.T) {
 
 	// The vote is not the answer: tmux decides the window size and says so with
 	// %layout-change, and that is what the renderer follows.
-	frame := readUntil(t, conn, "a resized window event", func(f []byte) bool { return isWindowEvent(f, "resized", "") })
-	var resized windowEventPayload
-	require.NoError(t, json.Unmarshal(frame[1:], &resized))
-	assert.Equal(t, 100, resized.Width, "tmux honoured the only attached client's size")
-	assert.Positive(t, resized.Height)
+	frame := readUntil(t, conn, "a layout-changed window event", func(f []byte) bool {
+		return isWindowEvent(f, string(tmuxcc.WindowLayoutChanged), "")
+	})
+	var changed windowEventPayload
+	require.NoError(t, json.Unmarshal(frame[1:], &changed))
+	assert.Equal(t, 100, changed.Width, "tmux honoured the only attached client's size")
+	assert.Positive(t, changed.Height)
 
 	detach := h.post(t, "/api/terminal/detach", testToken, map[string]any{"slug": tmux.slug})
 	_ = detach.Body.Close()
@@ -670,40 +696,200 @@ func TestTmuxAttachIsScopedToItsSession(t *testing.T) {
 	}
 }
 
-// v1 renders one pane per window; a background pane is drained so tmux never
-// stalls on us, but its bytes are neither forwarded nor charged to the buffer.
-func TestTmuxInactivePaneIsDrainedNotForwarded(t *testing.T) {
-	tmux := startTmux(t, "hive-panes")
+// The stream must publish the split layout before the new pane's first paint.
+func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
+	tmux := startTmux(t, "hive-split")
 	h := newTerminalHarness(t)
+	attached := h.attach(t, tmux.slug)
+	window := attached.Windows[0]
+	require.Equal(t, []string{window.ActivePane}, leafPanes(window.Layout), "an unsplit window is one leaf")
+	original := window.ActivePane
 
-	active := strings.TrimSpace(tmux.tmux("display-message", "-p", "-t", tmux.slug, "#{pane_id}"))
-	tmux.tmux("split-window", "-t", tmux.slug, "sh")
-	inactive := strings.TrimSpace(tmux.tmux("display-message", "-p", "-t", tmux.slug, "#{pane_id}"))
-	require.NotEqual(t, active, inactive)
-	tmux.tmux("select-pane", "-t", active)
-
-	h.attach(t, tmux.slug)
 	conn := h.dial(t, tmux.slug)
 	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
 
-	tmux.tmux("send-keys", "-t", inactive, "yes background-flood | head -n 20000", "Enter")
-	tmux.tmux("send-keys", "-t", active, "echo ACTIVE_PANE_MARK", "Enter")
-
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
-	defer cancel()
-	for {
-		_, frame, err := conn.Read(ctx)
-		require.NoError(t, err, "the stream stays alive through the flood")
-		if frame[0] == frameOutput {
-			_, paneID, data, decodeErr := decodeOutputFrame(frame)
-			require.NoError(t, decodeErr)
-			assert.Equal(t, active, paneID, "only the active pane is forwarded")
-			require.NotContains(t, string(data), "background-flood")
-			if strings.Contains(string(data), "ACTIVE_PANE_MARK") {
-				return
-			}
-		}
+	resp := h.post(t, "/api/terminal/panes/split", testToken,
+		map[string]any{"slug": tmux.slug, "paneId": original, "direction": "horizontal"})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var split struct {
+		PaneID string `json:"paneId"`
 	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&split))
+	_ = resp.Body.Close()
+	require.True(t, strings.HasPrefix(split.PaneID, "%"))
+	require.NotEqual(t, original, split.PaneID)
+
+	frame := readUntil(t, conn, "a two-pane layout event", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.WindowID == window.WindowID && len(leafPanes(ev.Layout)) == 2
+	})
+	ev, _ := windowEventOf(frame)
+	assert.Equal(t, []string{original, split.PaneID}, leafPanes(ev.Layout), "the new pane sits to the right")
+	assert.Equal(t, "leftright", ev.Layout.Split)
+	assert.Equal(t, split.PaneID, ev.ActivePane, "tmux makes the new pane active")
+	assert.Equal(t, 120, ev.Layout.Width)
+	assert.Equal(t, 120, ev.Layout.Cells[0].Width+1+ev.Layout.Cells[1].Width, "one cell of border between the two")
+
+	// The first paint may be blank or contain a prompt, depending on whether the
+	// shell started before capture.
+	readUntil(t, conn, "the new pane's first paint", func(f []byte) bool {
+		if len(f) == 0 || f[0] != frameOutput {
+			return false
+		}
+		_, paneID, _, err := decodeOutputFrame(f)
+		require.NoError(t, err)
+		return paneID == split.PaneID
+	})
+	tmux.tmux("send-keys", "-t", split.PaneID, "echo NEW_PANE_MARK", "Enter")
+	readUntil(t, conn, "output from the new pane", func(f []byte) bool {
+		if len(f) == 0 || f[0] != frameOutput {
+			return false
+		}
+		_, paneID, data, err := decodeOutputFrame(f)
+		require.NoError(t, err)
+		return paneID == split.PaneID && strings.Contains(string(data), "NEW_PANE_MARK")
+	})
+
+	tmux.tmux("send-keys", "-t", original, "echo BACKGROUND_PANE_MARK", "Enter")
+	readUntil(t, conn, "output from the inactive pane", func(f []byte) bool {
+		if len(f) == 0 || f[0] != frameOutput {
+			return false
+		}
+		_, paneID, data, err := decodeOutputFrame(f)
+		require.NoError(t, err)
+		return paneID == original && strings.Contains(string(data), "BACKGROUND_PANE_MARK")
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, encodeInputFrame(original, []byte("echo TYPED_INTO_INACTIVE\r"))))
+	tmux.awaitPane(original, "TYPED_INTO_INACTIVE")
+
+	h.awaitPaneForeground(t, tmux.slug, split.PaneID, foregroundResult{})
+	resp = h.post(t, "/api/terminal/panes/close", testToken, map[string]any{"slug": tmux.slug, "paneId": split.PaneID})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	_ = resp.Body.Close()
+	// tmux sends the one-pane layout before it moves the active pane, so the
+	// event to wait for is the first whose active pane is one of its leaves.
+	frame = readUntil(t, conn, "a one-pane layout whose active pane is in it", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		leaves := leafPanes(ev.Layout)
+		return ok && ev.WindowID == window.WindowID && len(leaves) == 1 && slices.Contains(leaves, ev.ActivePane)
+	})
+	ev, _ = windowEventOf(frame)
+	assert.Equal(t, []string{original}, leafPanes(ev.Layout))
+	assert.Equal(t, original, ev.ActivePane)
+
+	resp = h.post(t, "/api/terminal/panes/close", testToken, map[string]any{"slug": tmux.slug, "paneId": split.PaneID})
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "a pane that is gone is not one this client tracks")
+	_ = resp.Body.Close()
+}
+
+func TestTmuxPaneResizeZoomAndSelect(t *testing.T) {
+	tmux := startTmux(t, "hive-panes")
+	h := newTerminalHarness(t)
+	attached := h.attach(t, tmux.slug)
+	window := attached.Windows[0]
+	top := window.ActivePane
+
+	conn := h.dial(t, tmux.slug)
+	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
+
+	resp := h.post(t, "/api/terminal/panes/split", testToken,
+		map[string]any{"slug": tmux.slug, "paneId": top, "direction": "vertical"})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var split struct {
+		PaneID string `json:"paneId"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&split))
+	_ = resp.Body.Close()
+	bottom := split.PaneID
+	readUntil(t, conn, "a stacked layout", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.Layout != nil && ev.Layout.Split == "topbottom"
+	})
+
+	// The divider is dragged by naming the cell before it: the top pane's
+	// height is what moves.
+	resp = h.post(t, "/api/terminal/panes/resize", testToken,
+		map[string]any{"slug": tmux.slug, "paneId": top, "height": 10})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	_ = resp.Body.Close()
+	frame := readUntil(t, conn, "the resized layout", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.Layout != nil && len(ev.Layout.Cells) == 2 && ev.Layout.Cells[0].Height == 10
+	})
+	ev, _ := windowEventOf(frame)
+	assert.Equal(t, 40-10-1, ev.Layout.Cells[1].Height, "the bottom pane takes what the top gave up, minus the border")
+
+	resp = h.post(t, "/api/terminal/panes/resize", testToken, map[string]any{"slug": tmux.slug, "paneId": top})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a resize has to name a dimension")
+	_ = resp.Body.Close()
+	resp = h.post(t, "/api/terminal/panes/resize", testToken, map[string]any{"slug": tmux.slug, "paneId": top, "width": -1})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "a size outside 1..1000 is the core's refusal, not a validation failure")
+	_ = resp.Body.Close()
+
+	resp = h.post(t, "/api/terminal/panes/zoom", testToken, map[string]any{"slug": tmux.slug, "paneId": top})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	_ = resp.Body.Close()
+	frame = readUntil(t, conn, "the zoomed window", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.Zoomed
+	})
+	ev, _ = windowEventOf(frame)
+	assert.Equal(t, top, ev.ActivePane, "zooming a pane makes it active")
+	assert.Len(t, leafPanes(ev.Layout), 2, "the layout still says where the zoomed pane goes back to")
+
+	resp = h.post(t, "/api/terminal/panes/zoom", testToken, map[string]any{"slug": tmux.slug, "paneId": top})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	_ = resp.Body.Close()
+	readUntil(t, conn, "the unzoomed window", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.WindowID == window.WindowID && !ev.Zoomed && ev.Layout != nil && len(ev.Layout.Cells) == 2
+	})
+
+	resp = h.post(t, "/api/terminal/panes/select", testToken,
+		map[string]any{"slug": tmux.slug, "paneId": top, "direction": "down"})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	_ = resp.Body.Close()
+	readUntil(t, conn, "the bottom pane becoming active", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.Kind == "active-changed" && ev.ActivePane == bottom
+	})
+
+	resp = h.post(t, "/api/terminal/panes/select", testToken, map[string]any{"slug": tmux.slug, "paneId": top})
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	_ = resp.Body.Close()
+	readUntil(t, conn, "the top pane becoming active", func(f []byte) bool {
+		ev, ok := windowEventOf(f)
+		return ok && ev.Kind == "active-changed" && ev.ActivePane == top
+	})
+
+	resp = h.post(t, "/api/terminal/panes/select", testToken,
+		map[string]any{"slug": tmux.slug, "paneId": top, "direction": "sideways"})
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, "a direction outside the vocabulary fails validation")
+	_ = resp.Body.Close()
+	resp = h.post(t, "/api/terminal/panes/split", testToken,
+		map[string]any{"slug": tmux.slug, "paneId": "%4040", "direction": "horizontal"})
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	_ = resp.Body.Close()
+}
+
+func (h *terminalHarness) awaitPaneForeground(t *testing.T, slug, paneID string, want foregroundResult) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last foregroundResult
+	for time.Now().Before(deadline) {
+		resp := h.post(t, "/api/terminal/panes/foreground", testToken, map[string]any{"slug": slug, "paneId": paneID})
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&last))
+		_ = resp.Body.Close()
+		if last == want {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("pane %s never answered %+v; its last answer was %+v", paneID, want, last)
 }
 
 // Overflow resyncs first and only ends the stream when that does not hold, and
@@ -837,7 +1023,7 @@ func TestTmuxStreamRejectsOversizedInputFrames(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	oversized := encodeInputFrame(attached.Windows[0].WindowID, []byte(strings.Repeat("x", maxInputFrameBytes+1)))
+	oversized := encodeInputFrame(attached.Windows[0].ActivePane, []byte(strings.Repeat("x", maxInputFrameBytes+1)))
 	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, oversized))
 
 	for {

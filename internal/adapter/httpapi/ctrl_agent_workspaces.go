@@ -63,6 +63,8 @@ type agentSessionView struct {
 	// output on the windowed tmux wire. Set only by Start/Resume, which
 	// attach; a listing read leaves it empty even for a live session.
 	WindowID string `json:"windowId"`
+	// PaneID is WindowID's active pane at attach and frames client input.
+	PaneID string `json:"paneId"`
 	// Cols and Rows are tmux's own size for that window at attach — the grid
 	// the pane must open at, which may differ from the cols/rows voted. 0
 	// means tmux has not reported one. Set only by Start/Resume, like
@@ -115,7 +117,7 @@ func toAgentWorkspaceViews(in []app.WorkspaceView) []agentWorkspaceView {
 func toAgentSessionView(s app.SessionView) agentSessionView {
 	return agentSessionView{
 		ID: s.ID, Workspace: s.Workspace, Name: s.Name, Agent: s.Agent, LastOpenedAt: s.LastOpenedAt,
-		Slug: s.Slug, TerminalID: s.TerminalID, WindowID: s.WindowID, Cols: s.Cols, Rows: s.Rows,
+		Slug: s.Slug, TerminalID: s.TerminalID, WindowID: s.WindowID, PaneID: s.PaneID, Cols: s.Cols, Rows: s.Rows,
 		ResumeAttempted: s.ResumeAttempted, Notice: s.Notice, ScheduleID: s.ScheduleID,
 	}
 }
@@ -727,8 +729,8 @@ func (ctrl *Controller) AgentSessionActivity(w http.ResponseWriter, r *http.Requ
 
 // agentSessionResizeRequest votes a size for a session's attached control
 // client. Like start/resume's cols/rows this is a vote, not an applied size:
-// tmux answers over the stream with a window 'resized' event, and that event
-// is what sets the pane's grid.
+// tmux answers over the stream with a window 'layout-changed' event, and that
+// event is what sets the pane's grid.
 type agentSessionResizeRequest struct {
 	ID   int64 `json:"id"`
 	Cols int   `json:"cols"`

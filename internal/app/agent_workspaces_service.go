@@ -264,6 +264,8 @@ type SessionView struct {
 	// (Sessions, Open) leaves it empty even for a live session, since nothing
 	// there attaches.
 	WindowID string `json:"windowId"`
+	// PaneID is WindowID's active pane at attach and frames client input.
+	PaneID string `json:"paneId"`
 	// Cols and Rows are tmux's own size for that window at attach — whichever
 	// attached client tmux's window-size option picked, not necessarily the
 	// caller's cols/rows vote. The pane must open its grid at this size or the
@@ -657,7 +659,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		}
 		return SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID,
+			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID, PaneID: window.ActivePane,
 			Cols: window.Width, Rows: window.Height,
 			ResumeAttempted: true,
 		}, nil
@@ -1372,8 +1374,8 @@ func (s *AgentWorkspacesService) savedView(ctx context.Context, dir string) (Wor
 
 // ResizeSession votes a size for a session's attached control client — the
 // same refresh-client vote the Code view's panes cast. tmux answers over the
-// stream with a window 'resized' event, which is what actually sets the
-// pane's grid; see AgentsMode's resize wiring.
+// stream with a window 'layout-changed' event, which is what actually sets
+// the pane's grid; see AgentsMode's resize wiring.
 func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, cols, rows int) error {
 	rec, err := s.getSession(ctx, id)
 	if err != nil {
@@ -1456,6 +1458,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.
 		}
 		view.TerminalID = name
 		view.WindowID = window.ID
+		view.PaneID = window.ActivePane
 		view.Cols, view.Rows = window.Width, window.Height
 	}
 

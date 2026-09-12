@@ -162,6 +162,8 @@ export interface AgentSession {
    * a plain sessions() listing leaves it empty even for a live session.
    */
   windowId: string
+  /** Active tmux pane used to frame input; set with windowId by start/resume. */
+  paneId: string
   /**
    * tmux's own size for that window at attach — the grid the pane must open
    * at, which may differ from the cols/rows voted (tmux's window-size option
@@ -341,7 +343,7 @@ export interface AgentWorkspacesClient {
   sessions(workspace: string): Promise<AgentSession[]>
   /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
-  /** Votes a size for a live session's pane; tmux answers with a window 'resized' frame on the stream. */
+  /** Votes a size for a live session's pane; tmux answers with a window 'layout-changed' frame on the stream. */
   resizeSession(id: number, cols: number, rows: number): Promise<void>
   /** Sets a session's display name; the live terminal, if any, is untouched. */
   renameSession(id: number, name: string): Promise<void>

@@ -206,7 +206,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resize", Summary: "Vote a size for a session's attached control client, the same renegotiation the terminal pane casts on a host resize; tmux answers on the stream with a window resized event, which is what sets the grid.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resize", Summary: "Vote a size for a session's attached control client, the same renegotiation the terminal pane casts on a host resize; tmux answers on the stream with a layout-changed window event, which is what sets the grid.",
 			Request: agentSessionResizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionResize,
 			Errors: agentErrors("no such session, or it has no attached terminal"),
 		},
@@ -348,6 +348,39 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Method: "POST", Path: "/api/terminal/windows/select", Summary: "Make one window the attached session's active window.",
 			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalSelectWindow,
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/panes/split", Summary: "Split one pane of the attached session and return the new pane's id. direction is tmux's: horizontal puts the new pane to the right, vertical below. The new pane opens where the split pane is, and the window's new layout — with the new pane's first paint behind it — arrives on the stream as a layout-changed window event.",
+			Request: terminalSplitRequest{}, Response: terminalSplitResponse{}, Handler: ctrl.TerminalSplitPane,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such pane",
+				ErrResp{Status: 422, When: "the direction is not horizontal or vertical"}),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/panes/select", Summary: "Make one pane its window's active pane — the pane itself, or with direction left/right/up/down, the neighbour tmux's own select-pane would pick from it. The active pane is tmux window state: it is where the next split opens and what every other attached client sees selected, and the stream announces the result as an active-changed window event carrying activePane.",
+			Request: terminalSelectPaneRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalSelectPane,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such pane",
+				ErrResp{Status: 422, When: "the direction is not one of left, right, up, down"}),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/panes/close", Summary: "Kill one pane of the attached session. The last pane of a window takes the window with it, announced as a closed window event like any other close.",
+			Request: terminalPaneRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalClosePane,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such pane"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/panes/foreground", Summary: "Report whether a pane is running anything a close would kill — the same question POST /api/terminal/windows/foreground answers for a whole window, asked of one pane. running is false only when the pane is a shell waiting at its prompt; a pane whose state cannot be read answers true.",
+			Request: terminalPaneRequest{}, Response: terminalForegroundResponse{}, Handler: ctrl.TerminalPaneForeground,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such pane"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/panes/resize", Summary: "Set a pane's width and/or height in cells; 0 leaves that axis alone. tmux moves the divider on the far side of the pane's cell in its parent split — the near side for the last cell — and the neighbours give or take the difference, so a caller dragging a divider names the pane before it. The layout tmux settled on arrives on the stream.",
+			Request: terminalResizePaneRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalResizePane,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such pane",
+				ErrResp{Status: 400, When: "neither dimension is set, or one is outside 1..1000"}),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/panes/zoom", Summary: "Toggle a pane between filling its window and its place in the layout. tmux makes the pane active on the way in. The window event that follows carries zoomed and the unchanged layout the pane goes back to.",
+			Request: terminalPaneRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalZoomPane,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such pane"),
 		},
 		{
 			Method: "POST", Path: "/api/terminal/windows/list", Summary: "List several sessions' windows without attaching, keyed by slug. The whole set is answered from one tmux call. An attached slug answers from its live client; a slug with no tmux session behind it is absent from the answer rather than an error.",

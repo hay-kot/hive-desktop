@@ -113,3 +113,5 @@ deliberately unauthenticated: the loopback bind is the boundary.
   active pane, and the output frame already carries the pane id) and any
   pause-mode based partial resync. Full history, alternate-screen handling and
   cursor restore on attach were the other three, and ADR terminal-first-paint-carries-scrollback built them.
+  ADR pane-splits-render-one-emulator-per-tmux-pane-over-the-window-s-layout built the splits, and moved the wire to v2:
+  client frames name a pane rather than a window.

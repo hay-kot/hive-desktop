@@ -15,6 +15,7 @@ import IconInbox from '~icons/lucide/inbox'
 import IconKeyboard from '~icons/lucide/keyboard'
 import IconListTodo from '~icons/lucide/list-todo'
 import IconMailCheck from '~icons/lucide/mail-check'
+import IconMaximize2 from '~icons/lucide/maximize-2'
 import IconMinus from '~icons/lucide/minus'
 import IconPanelLeft from '~icons/lucide/panel-left'
 import IconPanelRight from '~icons/lucide/panel-right'
@@ -23,6 +24,8 @@ import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
 import IconSettings from '~icons/lucide/settings'
 import IconSquarePlus from '~icons/lucide/square-plus'
+import IconSquareSplitHorizontal from '~icons/lucide/square-split-horizontal'
+import IconSquareSplitVertical from '~icons/lucide/square-split-vertical'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
 import type { CommandScope } from '../palette/scopes'
@@ -73,6 +76,11 @@ export interface BindableCommand {
   icon?: Component
   /** Canonical default combos; `[]` = bindable but unbound. */
   defaultCombos: string[]
+  /**
+   * Non-macOS defaults for shifted escaping chords that Ctrl+Shift
+   * normalization cannot resolve. Read through defaultCombosFor.
+   */
+  ctrlDefaultCombos?: string[]
   context: CommandContext
   /** Palette scope for the seeded row. Default 'actions'. */
   scope?: CommandScope
@@ -354,6 +362,94 @@ export const commandCatalog: BindableCommand[] = [
   // A position in the window strip, not a tmux window index: the strip is what
   // is on screen, and tmux's indices have gaps as soon as a window is closed.
   ...windowJumpCommands,
+  // Match iTerm2 on macOS. Ctrl platforms need unshifted alternatives because
+  // Ctrl+Shift normalizes to mod. Avoid Ctrl+X/Z because these commands can
+  // fire in editable fields.
+  {
+    id: 'terminal.split-right',
+    title: 'Split pane right',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'split', 'horizontal', 'right', 'tmux'],
+    icon: IconSquareSplitHorizontal,
+    defaultCombos: ['mod+d'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.split-down',
+    title: 'Split pane down',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'split', 'vertical', 'down', 'below', 'tmux'],
+    icon: IconSquareSplitVertical,
+    defaultCombos: ['mod+shift+d'],
+    ctrlDefaultCombos: ['mod+o'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.close-pane',
+    title: 'Close pane',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'close', 'kill', 'tmux'],
+    icon: IconX,
+    defaultCombos: ['mod+shift+w'],
+    ctrlDefaultCombos: ['mod+q'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.zoom-pane',
+    title: 'Zoom pane',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'zoom', 'maximize', 'fullscreen', 'toggle', 'tmux'],
+    icon: IconMaximize2,
+    defaultCombos: ['mod+shift+enter'],
+    ctrlDefaultCombos: ['mod+m'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  // Alt-arrow cannot use terminal escape normalization, so these bindings pierce
+  // the pane. On Ctrl platforms readline leaves Ctrl+Alt+Arrow unbound by default.
+  {
+    id: 'terminal.focus-pane-left',
+    title: 'Focus pane left',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'left', 'tmux'],
+    icon: IconArrowLeft,
+    defaultCombos: ['mod+alt+arrowleft'],
+    context: 'terminal',
+    piercesPane: true,
+  },
+  {
+    id: 'terminal.focus-pane-right',
+    title: 'Focus pane right',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'right', 'tmux'],
+    icon: IconArrowRight,
+    defaultCombos: ['mod+alt+arrowright'],
+    context: 'terminal',
+    piercesPane: true,
+  },
+  {
+    id: 'terminal.focus-pane-up',
+    title: 'Focus pane up',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'up', 'above', 'tmux'],
+    icon: IconArrowUp,
+    defaultCombos: ['mod+alt+arrowup'],
+    context: 'terminal',
+    piercesPane: true,
+  },
+  {
+    id: 'terminal.focus-pane-down',
+    title: 'Focus pane down',
+    group: 'Code',
+    keywords: ['terminal', 'pane', 'focus', 'select', 'down', 'below', 'tmux'],
+    icon: IconArrowDown,
+    defaultCombos: ['mod+alt+arrowdown'],
+    context: 'terminal',
+    piercesPane: true,
+  },
   // The Chats area is a plain two-level list beside a pane, not a tree, so it
   // needs only the pair terminal mode's focus chords have — no filter, no
   // window jumps. Combos are new ones, not terminal.*'s: a combo resolves to
@@ -499,6 +595,10 @@ export function commandEscapesPane(commandID: string): boolean {
 /** Whether the command fires over a focused terminal pane on the binding alone. */
 export function commandPiercesPane(commandID: string): boolean {
   return panePierces.has(commandID)
+}
+
+export function defaultCombosFor(command: BindableCommand, mac: boolean): string[] {
+  return mac ? command.defaultCombos : (command.ctrlDefaultCombos ?? command.defaultCombos)
 }
 
 // The namespace a launcher's bindable command id lives in — `launcher.lazygit`

@@ -105,7 +105,7 @@ func TestManagerRunsTheLocatedBinary(t *testing.T) {
 
 	const located = "/opt/homebrew/bin/tmux"
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	spawn := f.factory()
 
 	var probed string
@@ -135,7 +135,7 @@ func TestManagerAttachRunsWithTheResolvedEnvironment(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	spawn := f.factory()
 
 	var attached []string
@@ -177,7 +177,7 @@ func TestManagerAttachIsOneClientPerSlug(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	m := newTestManager(t, f, ManagerOptions{})
 
 	first, err := m.Attach(t.Context(), "hive-demo", 80, 24)
@@ -202,7 +202,7 @@ func TestManagerAttachRepaintsALiveClient(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude")
 	f.setCapture("%1", "AGENT RUNNING")
 	m := newTestManager(t, f, ManagerOptions{})
 
@@ -221,7 +221,7 @@ func TestManagerAttachRepaintsALiveClient(t *testing.T) {
 	// caller's size before repainting, rather than keeping the stale vote,
 	// and reports the size tmux settled on rather than its stale window set.
 	// Height stays 1 so the repaint's snapshot stays a single line.
-	f.setWindows("@1 1 %1 200 1 claude")
+	f.setWindows("@1 1 %1 200 1 0 b25f,200x1,0,0,1 claude")
 	windows, err := m.Attach(t.Context(), "hive-demo", 200, 55)
 	require.NoError(t, err)
 	require.Len(t, windows, 1)
@@ -267,7 +267,7 @@ func TestManagerBrokerOverflowResyncsInsteadOfEndingTheStream(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude")
 	f.setCapture("%1", "ATTACHED")
 	m := newTestManager(t, f, ManagerOptions{BufferBytes: 4 << 10})
 
@@ -299,7 +299,7 @@ func TestManagerBrokerOverflowEndsTheStreamWhenTheResyncDoesNotHold(t *testing.T
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude")
 	f.setCapture("%1", "ATTACHED")
 	m := newTestManager(t, f, ManagerOptions{BufferBytes: 4 << 10})
 
@@ -343,7 +343,7 @@ func TestManagerDropsAClientThatDiedDuringAttach(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	f.setCapture("%1", "ready")
 
 	gate := &firstPaintGate{blocked: make(chan struct{}), release: make(chan struct{})}
@@ -401,7 +401,7 @@ func TestManagerStopReleasesAStalledSubscriber(t *testing.T) {
 
 	synctest.Test(t, func(t *testing.T) {
 		f := newFakeTmux(t, "hive-demo")
-		f.setWindows("@1 1 %1 120 40 claude")
+		f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 		m := newTestManager(t, f, ManagerOptions{})
 
 		_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
@@ -492,7 +492,7 @@ func TestManagerStopHonorsItsDeadline(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	// An %error keeps the fake from closing the stream the way a real detach
 	// would, which is what leaves this client with no way to finish closing.
 	f.failures["detach"] = "no current client"
@@ -624,9 +624,9 @@ func TestManagerListAllWindowsAsksTmuxOnceForEverySlug(t *testing.T) {
 	t.Parallel()
 
 	cmds := &fakeTmuxCommands{windows: []string{
-		"hive-demo @1 1 %1 120 40 claude",
-		"hive-demo @2 0 %2 120 40 shell",
-		"hive-other @5 1 %5 80 24 my window",
+		"hive-demo @1 1 %1 120 40 0 b25f,120x40,0,0,1 claude",
+		"hive-demo @2 0 %2 120 40 0 b25f,120x40,0,0,2 shell",
+		"hive-other @5 1 %5 80 24 0 b25f,80x24,0,0,5 my window",
 	}}
 	m := newTestManager(t, nil, ManagerOptions{
 		Binary:  func() (string, error) { return "/opt/homebrew/bin/tmux", nil },
@@ -637,11 +637,11 @@ func TestManagerListAllWindowsAsksTmuxOnceForEverySlug(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string][]Window{
 		"hive-demo": {
-			{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"},
-			{ID: "@2", Active: false, ActivePane: "%2", Width: 120, Height: 40, Name: "shell"},
+			{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40), Name: "claude"},
+			{ID: "@2", Active: false, ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40), Name: "shell"},
 		},
 		// A window name may contain spaces, which is why the session goes first.
-		"hive-other": {{ID: "@5", Active: true, ActivePane: "%5", Width: 80, Height: 24, Name: "my window"}},
+		"hive-other": {{ID: "@5", Active: true, ActivePane: "%5", Width: 80, Height: 24, Layout: singlePaneLayout("%5", 80, 24), Name: "my window"}},
 	}, windows)
 	// One spawn for the whole server, and no has-session probes: the sweep this
 	// serves used to cost two of each per session.
@@ -655,15 +655,15 @@ func TestManagerListAllWindowsIgnoresSessionsNobodyAskedFor(t *testing.T) {
 	t.Parallel()
 
 	cmds := &fakeTmuxCommands{windows: []string{
-		"hive-demo @1 1 %1 120 40 claude",
-		"someone-elses-session @9 1 %9 80 24 vim",
+		"hive-demo @1 1 %1 120 40 0 b25f,120x40,0,0,1 claude",
+		"someone-elses-session @9 1 %9 80 24 0 b25f,80x24,0,0,9 vim",
 	}}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
 	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
 	require.NoError(t, err)
 	require.Equal(t, map[string][]Window{
-		"hive-demo": {{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"}},
+		"hive-demo": {{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40), Name: "claude"}},
 	}, windows)
 }
 
@@ -671,10 +671,10 @@ func TestManagerListAllWindowsAnswersFromTheAttachedClient(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	// The server-wide listing is stale for an attached slug — the live client is
 	// what carries the sizes tmux settled on for it.
-	cmds := &fakeTmuxCommands{windows: []string{"hive-demo @1 1 %1 80 24 claude"}}
+	cmds := &fakeTmuxCommands{windows: []string{"hive-demo @1 1 %1 80 24 0 b25f,80x24,0,0,1 claude"}}
 	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
 
 	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
@@ -683,7 +683,7 @@ func TestManagerListAllWindowsAnswersFromTheAttachedClient(t *testing.T) {
 	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
 	require.NoError(t, err)
 	require.Equal(t, map[string][]Window{
-		"hive-demo": {{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"}},
+		"hive-demo": {{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40), Name: "claude"}},
 	}, windows)
 }
 
@@ -792,7 +792,7 @@ func TestManagerHasSessionAnswersFromTheAttachedClient(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	cmds := &fakeTmuxCommands{absent: true}
 	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
 
@@ -809,7 +809,7 @@ func TestManagerKillSessionDropsTheClientWithTheSession(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	cmds := &fakeTmuxCommands{}
 	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
 
@@ -875,7 +875,7 @@ func TestManagerRenameSessionDropsTheClientOnTheOldSlug(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	cmds := &fakeTmuxCommands{}
 	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
 

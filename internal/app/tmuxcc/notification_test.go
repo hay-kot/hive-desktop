@@ -51,8 +51,20 @@ func TestParseNotification(t *testing.T) {
 		{"%window-pane-changed @3 %9", WindowPaneChanged{Window: "@3", Pane: "%9"}},
 		{"%session-changed $1 hive-demo", SessionChanged{Session: "$1", Name: "hive-demo"}},
 		{"%session-window-changed $1 @2", SessionWindowChanged{Session: "$1", Window: "@2"}},
-		{"%layout-change @2 b25d,80x24,0,0,1 b25d,80x24,0,0,1 *", LayoutChanged{Window: "@2", Width: 80, Height: 24}},
-		{"%layout-change @2 f9e1,213x55,0,0{106x55,0,0,3,106x55,107,0,4}", LayoutChanged{Window: "@2", Width: 213, Height: 55}},
+		{"%layout-change @2 b25d,80x24,0,0,1 b25d,80x24,0,0,1 *", LayoutChanged{Window: "@2", Layout: singlePaneLayout("%1", 80, 24)}},
+		// The flags say whether the active pane is zoomed; the first layout is
+		// still the unzoomed tree, which is what the renderer lays out from.
+		{"%layout-change @2 f9e1,213x55,0,0{106x55,0,0,3,106x55,107,0,4} aafe,213x55,0,0,4 *Z", LayoutChanged{
+			Window: "@2",
+			Zoomed: true,
+			Layout: Layout{
+				Split: SplitLeftRight, Width: 213, Height: 55,
+				Cells: []Layout{
+					{Pane: "%3", Width: 106, Height: 55},
+					{Pane: "%4", Width: 106, Height: 55, X: 107},
+				},
+			},
+		}},
 		{"%layout-change @2", LayoutChanged{Window: "@2"}},
 		{"%layout-change @2 garbage", LayoutChanged{Window: "@2"}},
 		{"%pause %4", PauseNotification{Pane: "%4"}},

@@ -1138,22 +1138,22 @@ them is the constraint (ADR terminal-transport):
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
-**A first paint is a pane's scrollback, its screen at exactly the window's
+**A first paint is a pane's scrollback, its screen at exactly the pane's
 height, and its cursor** (ADR terminal-first-paint-carries-scrollback) — three tmux commands per pane, replayed
-as one byte stream into a fresh emulator. **An attach paints the active window
-and answers; the rest are painted straight after on the client's own lifetime**
-(ADR attach-paints-the-active-window-first). `capture-pane -e` is what a first paint costs — 7.5x the same
+as one byte stream into a fresh emulator. **An attach paints the active
+window's panes and answers; the rest are painted straight after on the
+client's own lifetime** (ADR attach-paints-the-active-window-first). `capture-pane -e` is what a first paint costs — 7.5x the same
 capture without escape reconstruction, linear in scrollback depth — so painting
 every window before answering made attach latency scale with a session's window
 count for panes the renderer could not show. A deferred pane is held from
 before the synchronous paint begins, `openAll` leaves a held pane's buffer
 alone, and a repaint waits for an in-flight deferred pass rather than
 interleaving with it. Two invariants hold it together and
-both are easy to break by accident. The screen must be written at the full
-window height, because an emulator pins its viewport to the last rows it was
-written and a short screen seats the pane's row 0 partway down it — every
-cursor-addressed redraw an alternate-screen program makes then lands that many
-rows off. And the cursor must be read *after* the paint gate's mark, because
+both are easy to break by accident. The screen must be written at the pane's
+full height — the window's for a zoomed pane — because an emulator pins its
+viewport to the last rows it was written and a short screen seats the pane's
+row 0 partway down it — every cursor-addressed redraw an alternate-screen
+program makes then lands that many rows off. And the cursor must be read *after* the paint gate's mark, because
 output produced between the read and the captures is corrected by the replay
 that follows, while output produced before the mark is discarded and never is.
 History is bounded at tmux's own default `history-limit` so an unconfigured
@@ -1294,6 +1294,49 @@ clamps — a session's windows are a ring in every terminal emulator, and there 
 nowhere else for "next" to go from the last one. A window this view created
 takes focus when tmux announces it; one another client opened does not, because
 it must not pull the keyboard out of the pane in front of the user.
+
+**A window is its panes, laid out by tmux, one emulator each** (ADR pane-splits-render-one-emulator-per-tmux-pane-over-the-window-s-layout).
+`tmuxcc` parses the layout string tmux sends on every `%layout-change` and
+lists on every `list-windows` row into a `Layout` tree, keeps it on `Window`
+beside `Zoomed`, and forwards output from every pane a tracked window owns; the
+window event carries `activePane`, `zoomed` and `layout`, and `layout-changed`
+is the kind a resize, a split, a closed pane and a zoom all arrive as, since
+the window's size is its layout's root box. Every window event is a consistent
+snapshot: tmux announces a split and a kill in two notifications, and between
+them the active pane is not one of the layout's leaves, so `tmuxcc` withholds
+the window until the next notification completes it and publishes one
+`layout-changed`; a consumer reads name, size, layout and active pane off every
+kind. The frontend measures one cell off
+the first pane it opens and places each pane's host in the window's box at the
+layout's cells; the size vote is the window box's, computed with the fit
+addon's arithmetic rather than the addon, which can only measure its own
+terminal's host. Five rules are load-bearing:
+
+- **Client frames name a pane, never a window — wire v2.** The keystrokes
+  that follow a click into a pane go out while the `select-pane` the click
+  caused is still in flight, so resolving them to the window's active pane on
+  the server would land them in the pane the user just left.
+- **The keyboard is tmux's active pane.** A click moves the tab's active pane
+  at once and tells tmux; tmux's announcement — from that click, another
+  client, a split or a kill — moves DOM focus onto the new active pane when
+  the keyboard was already in that window, and leaves it alone otherwise.
+- **A divider drag is `resize-pane -x/-y` on the cell before it.** tmux moves
+  the divider on the far side of the cell it resizes, so the frontend names a
+  pane inside the cell ahead of the border and the absolute size it should
+  end up at, clamped so the cell after it keeps a column; tmux's answer is
+  what redraws the panes, and nothing moves a pane locally. Requests coalesce
+  to one in flight with the latest waiting.
+- **A zoomed pane draws over the whole window and its siblings keep their
+  emulators** at their layout size, current and hidden, so unzooming is a
+  reposition rather than a repaint.
+- **The pane verbs are `POST /api/terminal/panes/{split,select,close,foreground,resize,zoom}`
+  and six bindable commands**: `terminal.split-right`, `-split-down`,
+  `-close-pane` and `-zoom-pane` escape a focused pane like the window
+  lifecycle; `terminal.focus-pane-{left,right,up,down}` pierce, because the
+  escape form cannot carry their alt chord. `select` takes tmux's own
+  `-L/-R/-U/-D` as a direction. Closing a pane is gated by the same
+  process-state check as closing a tab, asked of the one pane
+  (`requestClosePane` beside `requestCloseWindow`).
 
 **A close asks what the tab is running, and asks the processes rather than the
 screen** (ADR closing-a-terminal-tab-is-guarded-by-process-state-not-by-pane-output). `TerminalsService.WindowForeground` answers `running` false only
@@ -1487,12 +1530,12 @@ drawing and underlines to the cell's device-pixel bounds; xterm's DOM renderer
 cannot join either across cells at any size or device pixel ratio. Four rules
 follow and are the ones to keep (ADRs terminal-atlas-renderer, terminal-renderer-claimed-on-activation): the renderer is claimed after
 `term.open()` and never before, and **when the window is first shown rather than
-when its pane mounts** — the pool mounts a pane per window of every attached
-session, and claiming at mount spends a GL context per background tab and walks
-the page past WebKit's per-page limit, where the context it costs is another
-session's pane; a pane that ends up on the DOM renderer is a logged degradation
-path, not a supported one, and a failed canvas claim is recorded so the next
-activation retries rather than stranding the pane there; **do not set
+when a pane mounts** — the pool mounts a host per pane of every window of every
+attached session, and claiming at mount spends a GL context per background pane
+and walks the page past WebKit's per-page limit, where the context it costs is
+another session's pane; a pane that ends up on the DOM renderer is a logged
+degradation path, not a supported one, and a failed canvas claim is recorded so
+the next activation retries rather than stranding the pane there; **do not set
 `lineHeight` or `letterSpacing`** — every renderer quantises both to whole
 device pixels, so neither can tune a cell onto a cleaner boundary and a
 `lineHeight` above 1 pads the glyph off the edge box drawing has to reach; and
@@ -1602,7 +1645,10 @@ Three rules govern it, and each is a consequence of that:
   the window lifecycle — `terminal.new-window`, `-close-window`, `-next-window`,
   `-prev-window`. That is what leaves a bare Ctrl+K as readline's
   kill-to-end-of-line and Ctrl+T as its transpose-chars while ⌘K and ⌘T are the
-  app's. Prefer escaping: piercing is for a chord the escape form cannot carry.
+  app's. A shifted binding therefore cannot escape where `mod` is Ctrl, so an
+  escaping command whose macOS chord is shifted carries `ctrlDefaultCombos`, an
+  unshifted default for that platform (`terminal.split-down`: ⌘⇧D, Ctrl+Shift+O).
+  Prefer escaping: piercing is for a chord the escape form cannot carry.
   An alt chord is the case that forces it — `terminalEscapeCombo` qualifies only
   Command and Ctrl+Shift, so a user who binds `alt+t` to a command that merely
   escapes gets nothing. Widening the escape chord to accept alt was rejected:

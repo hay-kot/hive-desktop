@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
 // The durable overrides live in settings.yaml, read and written through
@@ -166,6 +166,68 @@ describe('terminalEscapeCombo', () => {
   it('does not claim alt chords', async () => {
     const { terminalEscapeCombo } = await import('../useKeybindings')
     expect(terminalEscapeCombo(ev({ key: '©', code: 'KeyG', altKey: true, metaKey: true }))).toBeNull()
+  })
+})
+
+// terminalEscapeCombo drops Ctrl+Shift's stand-in Shift on Ctrl platforms, so
+// pane-escaping commands need unshifted defaults. happy-dom's Darwin user agent
+// lacks "Mac", so tests default to Ctrl unless overridden.
+describe('pane chords per platform', () => {
+  function fakePlatform(mac: boolean): void {
+    Object.defineProperty(navigator, 'userAgent', {
+      value: mac ? 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' : 'Mozilla/5.0 (X11; Linux x86_64)',
+      configurable: true,
+    })
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'userAgent')
+  })
+
+  it('answers each Ctrl+Shift chord from a pane with one command where mod is Ctrl', async () => {
+    fakePlatform(false)
+    const { terminalEscapeCombo, useKeybindings } = await import('../useKeybindings')
+    const kb = useKeybindings()
+    const fromPane = (key: string) => kb.resolve(terminalEscapeCombo(ev({ key, ctrlKey: true, shiftKey: true })) ?? '')
+
+    expect(fromPane('D')).toBe('terminal.split-right')
+    expect(fromPane('W')).toBe('terminal.close-window')
+    expect(fromPane('O')).toBe('terminal.split-down')
+    expect(fromPane('Q')).toBe('terminal.close-pane')
+    expect(fromPane('M')).toBe('terminal.zoom-pane')
+    // Outside a pane the full combo resolves, so the macOS spellings must not
+    // also be bound or one physical chord would do two things by focus.
+    expect(kb.resolve('mod+shift+d')).toBeNull()
+    expect(kb.resolve('mod+shift+w')).toBeNull()
+    expect(kb.resolve('mod+shift+enter')).toBeNull()
+  })
+
+  it('keeps the Command chords on macOS', async () => {
+    fakePlatform(true)
+    const { terminalEscapeCombo, useKeybindings } = await import('../useKeybindings')
+    const kb = useKeybindings()
+    const fromPane = (init: Partial<KeyboardEvent>) => kb.resolve(terminalEscapeCombo(ev({ metaKey: true, ...init })) ?? '')
+
+    expect(fromPane({ key: 'd' })).toBe('terminal.split-right')
+    expect(fromPane({ key: 'D', shiftKey: true })).toBe('terminal.split-down')
+    expect(fromPane({ key: 'w' })).toBe('terminal.close-window')
+    expect(fromPane({ key: 'W', shiftKey: true })).toBe('terminal.close-pane')
+    expect(fromPane({ key: 'Enter', shiftKey: true })).toBe('terminal.zoom-pane')
+    expect(kb.resolve('mod+o')).toBeNull()
+    expect(kb.resolve('mod+q')).toBeNull()
+    expect(kb.resolve('mod+m')).toBeNull()
+  })
+
+  it('seeds, lists and restores the platform default', async () => {
+    fakePlatform(false)
+    const { useKeybindings } = await import('../useKeybindings')
+    const kb = useKeybindings()
+    expect(kb.bindings.value['terminal.close-pane']).toEqual(['mod+q'])
+
+    kb.addBinding('terminal.close-pane', 'mod+shift+w')
+    kb.resetToDefault('terminal.close-pane')
+    expect(kb.bindings.value['terminal.close-pane']).toEqual(['mod+q'])
+    expect(kb.isOverridden('terminal.close-pane')).toBe(false)
   })
 })
 

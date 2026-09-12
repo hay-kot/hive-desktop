@@ -182,16 +182,18 @@ func TestTerminalStreamRejectsBadHandshakes(t *testing.T) {
 		return resp.StatusCode
 	}
 
-	assert.Equal(t, http.StatusBadRequest, dial(t, h.streamURL("any", testToken, "2"), nil),
+	assert.Equal(t, http.StatusBadRequest, dial(t, h.streamURL("any", testToken, "1"), nil),
+		"a wire version whose client frames named windows is refused")
+	assert.Equal(t, http.StatusBadRequest, dial(t, h.streamURL("any", testToken, "9"), nil),
 		"an unknown wire version is refused")
-	assert.Equal(t, http.StatusUnauthorized, dial(t, h.streamURL("any", "wrong-token", "1"), nil),
+	assert.Equal(t, http.StatusUnauthorized, dial(t, h.streamURL("any", "wrong-token", terminalWireVersion), nil),
 		"a wrong token is refused")
-	assert.Equal(t, http.StatusUnauthorized, dial(t, h.streamURL("any", "", "1"), nil),
+	assert.Equal(t, http.StatusUnauthorized, dial(t, h.streamURL("any", "", terminalWireVersion), nil),
 		"a missing token is refused")
 	assert.Equal(t, http.StatusForbidden,
-		dial(t, h.streamURL("any", testToken, "1"), http.Header{"Origin": []string{"https://evil.example"}}),
+		dial(t, h.streamURL("any", testToken, terminalWireVersion), http.Header{"Origin": []string{"https://evil.example"}}),
 		"an origin outside the allowlist is refused")
-	assert.Equal(t, http.StatusNotFound, dial(t, h.streamURL("not-attached", testToken, "1"), nil),
+	assert.Equal(t, http.StatusNotFound, dial(t, h.streamURL("not-attached", testToken, terminalWireVersion), nil),
 		"a slug with no attached client is a 404, not an upgrade")
 }
 
@@ -206,25 +208,25 @@ func TestTerminalFramesRoundTrip(t *testing.T) {
 	assert.Equal(t, "%34", paneID)
 	assert.Equal(t, raw, data)
 
-	input, err := decodeClientFrame(encodeInputFrame("@12", raw))
+	input, err := decodeClientFrame(encodeInputFrame("%34", raw))
 	require.NoError(t, err)
-	assert.Equal(t, clientFrame{kind: frameInput, windowID: "@12", data: raw}, input)
+	assert.Equal(t, clientFrame{kind: frameInput, paneID: "%34", data: raw}, input)
 
-	chunk, err := decodeClientFrame(append([]byte{framePasteChunk, 0x03, '@', '1', '2'}, raw...))
+	chunk, err := decodeClientFrame(append([]byte{framePasteChunk, 0x03, '%', '3', '4'}, raw...))
 	require.NoError(t, err)
-	assert.Equal(t, clientFrame{kind: framePasteChunk, windowID: "@12", data: raw}, chunk)
+	assert.Equal(t, clientFrame{kind: framePasteChunk, paneID: "%34", data: raw}, chunk)
 
-	commit, err := decodeClientFrame([]byte{framePasteCommit, 0x03, '@', '1', '2'})
+	commit, err := decodeClientFrame([]byte{framePasteCommit, 0x03, '%', '3', '4'})
 	require.NoError(t, err)
 	assert.Equal(t, framePasteCommit, commit.kind)
 	assert.Empty(t, commit.data, "a commit carries no payload")
 
 	_, err = decodeClientFrame([]byte{frameOutput, 0x00})
 	require.Error(t, err, "a server frame kind is not one a client may send")
-	_, err = decodeClientFrame([]byte{frameInput, 0x04, '@', '1'})
+	_, err = decodeClientFrame([]byte{frameInput, 0x04, '%', '1'})
 	require.Error(t, err, "a truncated id is refused")
 	_, err = decodeClientFrame([]byte{frameInput, 0x00})
-	require.Error(t, err, "an empty window id is refused")
+	require.Error(t, err, "an empty pane id is refused")
 }
 
 // The wire kinds are tmuxcc's own strings; a rename here would silently break
@@ -241,9 +243,11 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 	assert.Equal(t, "exited", lifecycle.Kind)
 	assert.Equal(t, "overflow", lifecycle.Message)
 
+	split, err := tmuxcc.ParseLayout("f91d,213x55,0,0{106x55,0,0,3,106x55,107,0,4}")
+	require.NoError(t, err)
 	frame, ok = encodeEvent(tmuxcc.WindowChanged{
 		Kind:   tmuxcc.WindowRenamed,
-		Window: tmuxcc.Window{ID: "@3", Name: "shell", Active: true, Width: 213, Height: 55},
+		Window: tmuxcc.Window{ID: "@3", Name: "shell", Active: true, ActivePane: "%4", Width: 213, Height: 55, Layout: split},
 	})
 	require.True(t, ok)
 	require.Equal(t, frameWindowEvent, frame[0])
@@ -251,19 +255,56 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 	var window windowEventPayload
 	require.NoError(t, json.Unmarshal(frame[1:], &window))
 	assert.Equal(t,
-		windowEventPayload{Kind: "renamed", WindowID: "@3", Name: "shell", Active: true, Width: 213, Height: 55},
+		windowEventPayload{Kind: "renamed", terminalWindow: terminalWindow{
+			WindowID: "@3", Name: "shell", Active: true, ActivePane: "%4", Width: 213, Height: 55,
+			Layout: &terminalLayout{
+				Split: "leftright", Width: 213, Height: 55,
+				Cells: []terminalLayout{
+					{PaneID: "%3", Width: 106, Height: 55},
+					{PaneID: "%4", Width: 106, Height: 55, X: 107},
+				},
+			},
+		}},
 		window,
-		"every window event carries tmux's size, not only the resized one")
+		"every window event carries tmux's size and layout, not only the layout-changed one")
 
 	// The size the renderer must draw at is tmux's, so it rides the frame the
 	// frontend already resizes on.
 	frame, ok = encodeEvent(tmuxcc.WindowChanged{
-		Kind:   tmuxcc.WindowResized,
-		Window: tmuxcc.Window{ID: "@3", Name: "shell", Width: 80, Height: 24},
+		Kind:   tmuxcc.WindowLayoutChanged,
+		Window: tmuxcc.Window{ID: "@3", Name: "shell", Width: 80, Height: 24, Zoomed: true},
 	})
 	require.True(t, ok)
+	var unread windowEventPayload
+	require.NoError(t, json.Unmarshal(frame[1:], &unread))
+	assert.Equal(t, "layout-changed", unread.Kind)
+	assert.Equal(t, 80, unread.Width)
+	assert.Equal(t, 24, unread.Height)
+	assert.True(t, unread.Zoomed)
+	assert.Nil(t, unread.Layout)
+	assert.NotContains(t, string(frame), `"layout"`, "an unread layout is absent, not empty")
+}
+
+// A 0x0 cell never comes from a real tmux, but the converter must not be what
+// panics the write pump on one.
+func TestWindowEventEncodesAZeroSizedCell(t *testing.T) {
+	frame, ok := encodeEvent(tmuxcc.WindowChanged{
+		Kind: tmuxcc.WindowLayoutChanged,
+		Window: tmuxcc.Window{ID: "@1", Width: 80, Height: 24, Layout: tmuxcc.Layout{
+			Split: tmuxcc.SplitLeftRight, Width: 80, Height: 24,
+			Cells: []tmuxcc.Layout{
+				{Pane: "%1", Width: 80, Height: 24},
+				{Split: tmuxcc.SplitTopBottom, X: 80, Cells: []tmuxcc.Layout{{Pane: "%2", X: 80}}},
+			},
+		}},
+	})
+	require.True(t, ok)
+
+	var window windowEventPayload
 	require.NoError(t, json.Unmarshal(frame[1:], &window))
-	assert.Equal(t, "resized", window.Kind)
-	assert.Equal(t, 80, window.Width)
-	assert.Equal(t, 24, window.Height)
+	require.NotNil(t, window.Layout)
+	require.Len(t, window.Layout.Cells, 2)
+	assert.Equal(t,
+		terminalLayout{Split: "topbottom", X: 80, Cells: []terminalLayout{{PaneID: "%2", X: 80}}},
+		window.Layout.Cells[1])
 }

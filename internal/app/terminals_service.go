@@ -203,23 +203,77 @@ func (s *TerminalsService) Subscribe(_ context.Context, slug string) (<-chan tmu
 	return events, unsubscribe, nil
 }
 
-// Write sends bytes to a window's active pane.
-func (s *TerminalsService) Write(ctx context.Context, slug, windowID string, p []byte) error {
+// Write sends bytes to a pane. The pane is named rather than resolved from a
+// window's active pane, because the keystrokes that follow a click into a
+// pane are sent while the select-pane it caused is still in flight.
+func (s *TerminalsService) Write(ctx context.Context, slug, paneID string, p []byte) error {
 	client, err := s.client(slug)
 	if err != nil {
 		return err
 	}
-	return terminalError(client.Write(ctx, windowID, p), "writing to window %q", windowID)
+	return terminalError(client.Write(ctx, paneID, p), "writing to pane %q", paneID)
 }
 
-// Paste inserts text into a window's active pane as a paste rather than as
-// keystrokes, so the pane's program decides how to read it.
-func (s *TerminalsService) Paste(ctx context.Context, slug, windowID string, p []byte) error {
+// Paste inserts text into a pane as a paste rather than as keystrokes, so the
+// pane's program decides how to read it.
+func (s *TerminalsService) Paste(ctx context.Context, slug, paneID string, p []byte) error {
 	client, err := s.client(slug)
 	if err != nil {
 		return err
 	}
-	return terminalError(client.Paste(ctx, windowID, p), "pasting into window %q", windowID)
+	return terminalError(client.Paste(ctx, paneID, p), "pasting into pane %q", paneID)
+}
+
+// SplitPane splits a pane of an attached session and returns the new pane's
+// id. The new layout, and the new pane's first paint, follow on the stream.
+func (s *TerminalsService) SplitPane(ctx context.Context, slug, paneID string, direction tmuxcc.SplitDirection) (string, error) {
+	client, err := s.client(slug)
+	if err != nil {
+		return "", err
+	}
+	id, err := client.SplitPane(ctx, paneID, direction)
+	if err != nil {
+		return "", terminalError(err, "splitting pane %q", paneID)
+	}
+	return id, nil
+}
+
+// SelectPane selects paneID when direction is empty; otherwise it selects the
+// neighbor in that direction.
+func (s *TerminalsService) SelectPane(ctx context.Context, slug, paneID string, direction tmuxcc.PaneDirection) error {
+	client, err := s.client(slug)
+	if err != nil {
+		return err
+	}
+	return terminalError(client.SelectPane(ctx, paneID, direction), "selecting pane %q", paneID)
+}
+
+// ClosePane kills one pane; the last pane of a window takes the window with it.
+func (s *TerminalsService) ClosePane(ctx context.Context, slug, paneID string) error {
+	client, err := s.client(slug)
+	if err != nil {
+		return err
+	}
+	return terminalError(client.KillPane(ctx, paneID), "closing pane %q", paneID)
+}
+
+// ResizePane sets width and/or height in cells; zero leaves that axis unchanged.
+func (s *TerminalsService) ResizePane(ctx context.Context, slug, paneID string, width, height int) error {
+	client, err := s.client(slug)
+	if err != nil {
+		return err
+	}
+	return terminalError(client.ResizePane(ctx, paneID, width, height), "resizing pane %q", paneID)
+}
+
+// ZoomPane toggles a pane between filling its window and its place in the
+// layout.
+func (s *TerminalsService) ZoomPane(ctx context.Context, slug, paneID string) error {
+	client, err := s.client(slug)
+	if err != nil {
+		return err
+	}
+	return terminalError(client.ZoomPane(ctx, paneID), "zooming pane %q", paneID)
 }
 
 // Resize renegotiates the control client's size. Every client attached to a
@@ -324,6 +378,29 @@ func (s *TerminalsService) WindowForeground(ctx context.Context, slug, windowID 
 		return WindowForeground{}, terminalError(err, "reading what window %q is running", windowID)
 	}
 	return s.foregroundOf(ctx, panes), nil
+}
+
+// PaneForeground reports whether closing paneID would kill work.
+func (s *TerminalsService) PaneForeground(ctx context.Context, slug, paneID string) (WindowForeground, error) {
+	client, err := s.client(slug)
+	if err != nil {
+		return WindowForeground{}, err
+	}
+	window, err := client.PaneWindow(paneID)
+	if err != nil {
+		return WindowForeground{}, terminalError(err, "reading what pane %q is running", paneID)
+	}
+	panes, err := client.ListPanes(ctx, window.ID)
+	if err != nil {
+		return WindowForeground{}, terminalError(err, "reading what pane %q is running", paneID)
+	}
+	for _, pane := range panes {
+		if pane.ID == paneID {
+			return s.foregroundOf(ctx, []tmuxcc.Pane{pane}), nil
+		}
+	}
+	// A pane the listing no longer holds has nothing left to kill.
+	return WindowForeground{}, nil
 }
 
 // foregroundOf answers for the whole window, because closing one kills every
@@ -435,9 +512,10 @@ func terminalError(err error, format string, args ...any) error {
 		return nil
 	case errors.Is(err, tmuxcc.ErrUnavailable):
 		return Wrap(err, KindUnavailable, format, args...)
-	case errors.Is(err, tmuxcc.ErrInvalidSize), errors.Is(err, tmuxcc.ErrInvalidName), errors.Is(err, tmuxcc.ErrInvalidPosition):
+	case errors.Is(err, tmuxcc.ErrInvalidSize), errors.Is(err, tmuxcc.ErrInvalidName),
+		errors.Is(err, tmuxcc.ErrInvalidPosition), errors.Is(err, tmuxcc.ErrInvalidDirection):
 		return Wrap(err, KindInvalid, format, args...)
-	case errors.Is(err, tmuxcc.ErrNotAttached), errors.Is(err, tmuxcc.ErrUnknownWindow):
+	case errors.Is(err, tmuxcc.ErrNotAttached), errors.Is(err, tmuxcc.ErrUnknownWindow), errors.Is(err, tmuxcc.ErrUnknownPane):
 		return Wrap(err, KindNotFound, format, args...)
 	default:
 		return Wrap(err, KindInternal, format, args...)

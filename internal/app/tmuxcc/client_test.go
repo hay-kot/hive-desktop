@@ -44,15 +44,15 @@ func TestAttachRunsTheHandshakeSequence(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	f.setCapture("%1", "claude> ready")
 	f.setCapture("%2", "$ ")
 
 	client := attachFake(t, f, Options{Cols: 120, Rows: 40})
 
 	require.Equal(t, []Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
-		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 	}, client.Windows())
 
 	commands := f.sentCommands()
@@ -91,7 +91,7 @@ func TestDeferredFirstPaintPrecedesTheOutputItRaced(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	f.setCapture("%1", "claude> ready")
 	f.setHistory("%2", "old scrollback")
 	f.setCapture("%2", "$ ")
@@ -134,7 +134,7 @@ func TestUnsizedAttachSetsNoClientSizeUntilResized(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 
 	ctx := t.Context()
 	client, err := Attach(ctx, ctx, Options{Slug: f.slug, newProcess: f.factory()})
@@ -154,7 +154,7 @@ func TestAttachFirstPaintsEachWindow(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 3 claude", "@2 0 %2 120 3 shell")
+	f.setWindows("@1 1 %1 120 3 0 b25f,120x3,0,0,1 claude", "@2 0 %2 120 3 0 b25f,120x3,0,0,2 shell")
 	f.setCapture("%1", "claude> ready", "second row", "")
 	f.setCapture("%2", "$ ", "", "")
 
@@ -182,7 +182,7 @@ func TestFirstPaintReplaysHistoryAheadOfTheScreen(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 2 claude")
+	f.setWindows("@1 1 %1 120 2 0 b25f,120x2,0,0,1 claude")
 	f.setHistory("%1", "$ echo hi", "hi")
 	f.setCapture("%1", "$ ", "")
 	f.setCursor("%1", 0, 2)
@@ -203,7 +203,7 @@ func TestFirstPaintFillsTheWindowHeight(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 5 claude")
+	f.setWindows("@1 1 %1 120 5 0 b25f,120x5,0,0,1 claude")
 	f.setCapture("%1", "$ echo hi", "hi", "$ ")
 	f.setCursor("%1", 2, 2)
 
@@ -222,7 +222,7 @@ func TestFirstPaintWithoutACursorLeavesItAlone(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 2 claude")
+	f.setWindows("@1 1 %1 120 2 0 b25f,120x2,0,0,1 claude")
 	f.setCapture("%1", "$ ", "")
 
 	client := attachFake(t, f, Options{})
@@ -238,7 +238,7 @@ func TestAttachReplaysLiveOutputBehindSnapshot(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude")
 	f.setCapture("%1", "SNAPSHOT")
 
 	stop, writerDone := make(chan struct{}), make(chan struct{})
@@ -278,7 +278,7 @@ func TestRepaintSnapshotsEveryWindowForTheNextSubscriber(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude", "@2 0 %2 120 1 shell")
+	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude", "@2 0 %2 120 1 0 b25f,120x1,0,0,2 shell")
 	f.setCapture("%1", "FIRST")
 	f.setCapture("%2", "$ ")
 
@@ -305,10 +305,10 @@ func TestWindowAddTriggersReconcile(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	f.emit("%window-add @2")
 
 	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
@@ -320,8 +320,8 @@ func TestWindowAddTriggersReconcile(t *testing.T) {
 
 	f.awaitCommands(t, "list-windows", 2)
 	require.Equal(t, []Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
-		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40, Layout: singlePaneLayout("%1", 120, 40)},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)},
 	}, client.Windows())
 }
 
@@ -334,7 +334,7 @@ func TestReconcileKeepsAWindowItsSnapshotIsTooOldToHold(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
 	// The hook runs before the reply is composed, so @2 is announced while the
@@ -349,11 +349,11 @@ func TestReconcileKeepsAWindowItsSnapshotIsTooOldToHold(t *testing.T) {
 		}
 		calls++
 		if calls == 1 {
-			f.setWindows("@1 1 %1 120 40 renamed")
+			f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 renamed")
 			f.emit("%window-add @2")
 			return
 		}
-		f.setWindows("@1 1 %1 120 40 settled", "@2 0 %2 120 40 shell")
+		f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 settled", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	})
 	f.emit("%layout-change @1 b25d,120x40,0,0,1")
 
@@ -378,11 +378,11 @@ func TestReconcileFirstPaintsANewWindow(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
 	f.setCapture("%2", "$ echo hi", "hi")
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 2 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 2 0 b25f,120x2,0,0,2 shell")
 	f.emit(`%output %2 unroutable\015\012`)
 	f.emit("%window-add @2")
 
@@ -414,11 +414,11 @@ func TestWindowClosedDuringItsFirstPaint(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
 	f.setCapture("%2", "$ prompt")
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	f.setOnCommand(func(cmd string) {
 		if strings.HasPrefix(cmd, "capture-pane -pe -S 0 -t %2") {
 			f.emit(`%output %2 HELD`)
@@ -437,12 +437,13 @@ func TestWindowClosedDuringItsFirstPaint(t *testing.T) {
 		out, ok := ev.(Output)
 		require.False(t, ok && out.WindowID == "@2", "a closed window renders nothing: %#v", ev)
 	}
-	require.NotContains(t, client.Windows(), Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40})
+	require.NotContains(t, client.Windows(), Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40, Layout: singlePaneLayout("%2", 120, 40)})
 
 	client.paint.mu.Lock()
 	defer client.paint.mu.Unlock()
 	require.NotContains(t, client.paint.buf, "%2", "the gate still holds bytes for a dead pane")
 	require.NotContains(t, client.paint.held, "%2", "the gate is still holding a dead pane")
+	require.NotContains(t, client.paint.pending, "%2")
 	require.NotContains(t, client.paint.live, "%2")
 }
 
@@ -453,7 +454,7 @@ func TestTeardownWhileTheServerIsMidReply(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 	ch, unsubscribe := client.Subscribe()
 	defer unsubscribe()
@@ -478,10 +479,10 @@ func TestReconcileIsCoalesced(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	for range 5 {
 		f.emit("%window-add @2")
 		f.emit("%layout-change @2 b25d,80x24,0,0,1")
@@ -500,7 +501,7 @@ func TestSessionWindowChangedEmitsActiveChanged(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 shell")
 	client := attachFake(t, f, Options{})
 
 	f.emit("%session-window-changed $1 @2")
@@ -520,33 +521,33 @@ func TestSessionWindowChangedEmitsActiveChanged(t *testing.T) {
 // tmux sizes a window to the smallest attached client, so a second client
 // attaching elsewhere resizes it under us. %layout-change is how that reaches
 // the renderer in time to draw the repaint that follows at the right width.
-func TestLayoutChangeEmitsResizedWithTheWindowSize(t *testing.T) {
+func TestLayoutChangeCarriesTheWindowSize(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
 	f.emit("%layout-change @1 b25d,80x24,0,0,1 b25d,80x24,0,0,1 *")
 
 	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
 		wc, ok := ev.(WindowChanged)
-		return ok && wc.Kind == WindowResized
+		return ok && wc.Kind == WindowLayoutChanged
 	})
 	defer unsubscribe()
 
-	resized, ok := events[len(events)-1].(WindowChanged)
+	changed, ok := events[len(events)-1].(WindowChanged)
 	require.True(t, ok)
-	require.Equal(t, "@1", resized.Window.ID)
-	require.Equal(t, 80, resized.Window.Width)
-	require.Equal(t, 24, resized.Window.Height)
+	require.Equal(t, "@1", changed.Window.ID)
+	require.Equal(t, 80, changed.Window.Width)
+	require.Equal(t, 24, changed.Window.Height)
 }
 
 func TestExtendedOutputIsRoutedLikeOutput(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
 	f.emit(`%extended-output %1 4212 : caught\040up\015\012`)
@@ -560,7 +561,7 @@ func TestOversizedOutputReachesTheSubscriber(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	client := attachFake(t, f, Options{})
 
 	payload := strings.Repeat("z", 70_000)
@@ -571,24 +572,247 @@ func TestOversizedOutputReachesTheSubscriber(t *testing.T) {
 	require.Contains(t, outputData(events, "@1"), payload)
 }
 
-// v1 renders one pane per window. The others are consumed so tmux never
-// stalls on us, and measured, but never forwarded. That they are measured is
-// TestDrainedPaneOutputIsStillCounted's to assert.
-func TestOutputFromANonActivePaneIsDrainedNotForwarded(t *testing.T) {
+func TestOutputFromEveryPaneInTheLayoutIsForwarded(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %2 120 40 0 f91d,120x40,0,0{60x40,0,0,1,59x40,61,0,2} claude")
 	client := attachFake(t, f, Options{})
 
-	f.emit("%window-pane-changed @1 %2")
-	f.emit(`%output %1 background\015\012`)
-	f.emit(`%output %2 foreground\015\012`)
+	f.emit(`%output %1 left\015\012`)
+	f.emit(`%output %2 right\015\012`)
+	f.emit(`%output %9 stray\015\012`)
+	f.emit(`%output %1 done\015\012`)
 
-	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@1", "foreground"))
+	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@1", "done"))
 	defer unsubscribe()
 
-	require.NotContains(t, outputData(events, "@1"), "background")
+	// The first paints of both panes precede these on the stream; a blank
+	// screen trims to nothing and is skipped.
+	var panes []string
+	for _, ev := range events {
+		if out, ok := ev.(Output); ok && strings.TrimSpace(string(out.Data)) != "" {
+			panes = append(panes, out.PaneID+":"+strings.TrimSpace(string(out.Data)))
+		}
+	}
+	require.Equal(t, []string{"%1:left", "%2:right", "%1:done"}, panes)
+}
+
+func TestSplitPaintsTheNewPaneAtItsOwnHeight(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
+	f.setCapture("%1", "claude> ready")
+	client := attachFake(t, f, Options{Cols: 120, Rows: 40})
+	events, unsubscribe := client.Subscribe()
+	t.Cleanup(unsubscribe)
+
+	f.setWindows("@1 1 %2 120 40 0 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] claude")
+	f.setCapture("%2", "$ ")
+	f.emit("%window-pane-changed @1 %2")
+	f.emit("%layout-change @1 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] *")
+
+	f.awaitCommands(t, "capture-pane -pe -S 0 -t %2", 1)
+	require.Equal(t, []string{
+		`display-message -p -t %2 "` + cursorFormat + `"`,
+		"capture-pane -pe -J -S -2000 -E -1 -t %2",
+		"capture-pane -pe -S 0 -t %2",
+	}, f.commandsMatching("-t %2"), "the new pane is snapshotted once, cursor-first")
+
+	var painted []byte
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case ev := <-events:
+				if out, ok := ev.(Output); ok && out.PaneID == "%2" {
+					painted = append(painted, out.Data...)
+				}
+			default:
+				return bytes.Contains(painted, []byte("$ "))
+			}
+		}
+	}, 2*time.Second, time.Millisecond)
+	require.Equal(t, 19, strings.Count(string(painted), "\r\n")+1, "the screen is written at the pane's 19 rows, not the window's 40")
+}
+
+// tmux can send a split notification and the new pane's first output in either
+// order. Output waits for the snapshot so the prompt is not drawn twice.
+func TestSplitOutputWaitsForTheNewPanesSnapshot(t *testing.T) {
+	t.Parallel()
+
+	const layoutChange = "%layout-change @1 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] *"
+	cases := map[string][]string{
+		"layout first":      {layoutChange, `%output %2 EARLY`},
+		"pane change first": {"%window-pane-changed @1 %2", `%output %2 EARLY`, layoutChange},
+	}
+	for name, lines := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFakeTmux(t, "hive-demo")
+			f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
+			f.setCapture("%1", "claude> ready")
+			client := attachFake(t, f, Options{Cols: 120, Rows: 40})
+			events, unsubscribe := client.Subscribe()
+			t.Cleanup(unsubscribe)
+
+			f.setWindows("@1 1 %2 120 40 0 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] claude")
+			f.setCapture("%2", "SNAPSHOT")
+			f.write(lines...)
+			f.awaitCommands(t, "capture-pane -pe -S 0 -t %2", 1)
+			f.emit(`%output %2 LATE`)
+
+			var chunks []string
+			collect(t, events, func(ev Event) bool {
+				out, ok := ev.(Output)
+				if !ok || out.PaneID != "%2" {
+					return false
+				}
+				chunks = append(chunks, string(out.Data))
+				return strings.Contains(string(out.Data), "LATE")
+			})
+
+			require.True(t, strings.HasPrefix(chunks[0], "SNAPSHOT"), "the snapshot is the pane's first chunk: %q", chunks)
+			streamed := strings.Join(chunks, "")
+			require.NotContains(t, streamed, "EARLY", "bytes the snapshot already holds are not replayed")
+			require.True(t, strings.HasSuffix(streamed, "LATE"), "bytes after the snapshot follow it: %q", chunks)
+		})
+	}
+}
+
+// Paint the visible zoomed pane before deferred captures of hidden panes.
+func TestZoomedPanePaintsAtTheWindowHeight(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %2 120 40 1 95e4,120x40,0,0[120x20,0,0,1,120x19,0,21,2] claude")
+	f.setCapture("%1", "hidden")
+	f.setCapture("%2", "zoomed")
+	client := attachFake(t, f, Options{Cols: 120, Rows: 40})
+
+	require.True(t, client.Windows()[0].Zoomed)
+	commands := f.sentCommands()
+	require.Equal(t, `display-message -p -t %2 "`+cursorFormat+`"`, commands[2], "the zoomed pane paints before the attach answers")
+	f.awaitCommands(t, "capture-pane -pe -S 0 -t %1", 1)
+
+	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
+		out, ok := ev.(Output)
+		return ok && out.PaneID == "%1"
+	})
+	defer unsubscribe()
+	rows := func(pane string) int {
+		var data []byte
+		for _, ev := range events {
+			if out, ok := ev.(Output); ok && out.PaneID == pane {
+				data = append(data, out.Data...)
+			}
+		}
+		return strings.Count(string(data), "\r\n") + 1
+	}
+	require.Equal(t, 40, rows("%2"), "zoomed: the window's height")
+	require.Equal(t, 20, rows("%1"), "hidden: its own height")
+}
+
+func TestPaneCommands(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 0 f91d,120x40,0,0{60x40,0,0,1,59x40,61,0,2} claude")
+	client := attachFake(t, f, Options{})
+	ctx := t.Context()
+
+	f.setSplitPane("%3")
+	pane, err := client.SplitPane(ctx, "%1", SplitHorizontal)
+	require.NoError(t, err)
+	require.Equal(t, "%3", pane)
+	require.Contains(t, f.sentCommands(), `split-window -h -t %1 -c "`+currentPathFormat+`" -P -F "#{pane_id}"`)
+	_, err = client.SplitPane(ctx, "%2", SplitVertical)
+	require.NoError(t, err)
+	require.Contains(t, f.sentCommands(), `split-window -v -t %2 -c "`+currentPathFormat+`" -P -F "#{pane_id}"`)
+	_, err = client.SplitPane(ctx, "%1", SplitDirection("sideways"))
+	require.ErrorIs(t, err, ErrInvalidDirection)
+
+	require.NoError(t, client.SelectPane(ctx, "%2", PaneSelf))
+	require.Contains(t, f.sentCommands(), "select-pane -t %2")
+	require.NoError(t, client.SelectPane(ctx, "%2", PaneLeft))
+	require.Contains(t, f.sentCommands(), "select-pane -L -t %2")
+	require.NoError(t, client.SelectPane(ctx, "%2", PaneDown))
+	require.Contains(t, f.sentCommands(), "select-pane -D -t %2")
+	require.ErrorIs(t, client.SelectPane(ctx, "%2", PaneDirection("back")), ErrInvalidDirection)
+
+	require.NoError(t, client.KillPane(ctx, "%2"))
+	require.Contains(t, f.sentCommands(), "kill-pane -t %2")
+
+	require.NoError(t, client.ResizePane(ctx, "%1", 30, 0))
+	require.Contains(t, f.sentCommands(), "resize-pane -t %1 -x 30")
+	require.NoError(t, client.ResizePane(ctx, "%1", 0, 12))
+	require.Contains(t, f.sentCommands(), "resize-pane -t %1 -y 12")
+	require.NoError(t, client.ResizePane(ctx, "%1", 30, 12))
+	require.Contains(t, f.sentCommands(), "resize-pane -t %1 -x 30 -y 12")
+	require.ErrorIs(t, client.ResizePane(ctx, "%1", 0, 0), ErrInvalidSize)
+	require.ErrorIs(t, client.ResizePane(ctx, "%1", maxDimension+1, 0), ErrInvalidSize)
+
+	require.NoError(t, client.ZoomPane(ctx, "%2"))
+	require.Contains(t, f.sentCommands(), "resize-pane -Z -t %2")
+
+	// A pane id is a command argument, so anything but %<digits> a tracked
+	// window owns is refused before it reaches tmux.
+	for _, bad := range []string{"@1", "%99", "%1; kill-server", ""} {
+		require.ErrorIs(t, client.SelectPane(ctx, bad, PaneSelf), ErrUnknownPane, bad)
+		_, err := client.SplitPane(ctx, bad, SplitHorizontal)
+		require.ErrorIs(t, err, ErrUnknownPane, bad)
+		require.ErrorIs(t, client.KillPane(ctx, bad), ErrUnknownPane, bad)
+		require.ErrorIs(t, client.ResizePane(ctx, bad, 10, 0), ErrUnknownPane, bad)
+		require.ErrorIs(t, client.ZoomPane(ctx, bad), ErrUnknownPane, bad)
+	}
+	for _, cmd := range f.sentCommands() {
+		require.NotContains(t, cmd, "kill-server")
+	}
+}
+
+// A pane that left the layout still resolves to its window, so its last bytes
+// land in a tab. A verb on it must not: tmux would answer "can't find pane",
+// which reaches the caller as an internal error rather than the not-found the
+// routes promise.
+func TestVerbsOnADepartedPaneAreRefused(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %2 120 40 0 f91d,120x40,0,0{60x40,0,0,1,59x40,61,0,2} claude")
+	client := attachFake(t, f, Options{})
+	ctx := t.Context()
+
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
+	f.emit("%layout-change @1 b25f,120x40,0,0,1 b25f,120x40,0,0,1 *")
+	f.emit("%window-pane-changed @1 %1")
+	f.emit(`%output %2 last words`)
+
+	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@1", "last words"))
+	defer unsubscribe()
+	var departed bool
+	for _, ev := range events {
+		if wc, ok := ev.(WindowChanged); ok && wc.Window.ID == "@1" && len(wc.Window.Layout.Panes()) == 1 {
+			departed = true
+		}
+	}
+	require.True(t, departed, "the one-pane layout reached the subscriber")
+
+	before := len(f.sentCommands())
+	require.ErrorIs(t, client.KillPane(ctx, "%2"), ErrUnknownPane)
+	require.ErrorIs(t, client.SelectPane(ctx, "%2", PaneSelf), ErrUnknownPane)
+	_, err := client.SplitPane(ctx, "%2", SplitHorizontal)
+	require.ErrorIs(t, err, ErrUnknownPane)
+	require.ErrorIs(t, client.ResizePane(ctx, "%2", 10, 0), ErrUnknownPane)
+	require.ErrorIs(t, client.ZoomPane(ctx, "%2"), ErrUnknownPane)
+	require.ErrorIs(t, client.Write(ctx, "%2", []byte("x")), ErrUnknownPane)
+	_, err = client.PaneWindow("%2")
+	require.ErrorIs(t, err, ErrUnknownPane)
+	require.Len(t, f.sentCommands(), before, "nothing reached tmux")
+
+	w, err := client.PaneWindow("%1")
+	require.NoError(t, err)
+	require.Equal(t, "@1", w.ID)
 }
 
 func TestWriteSendsHexChunks(t *testing.T) {
@@ -597,10 +821,10 @@ func TestWriteSendsHexChunks(t *testing.T) {
 	f := newFakeTmux(t, "hive-demo")
 	client := attachFake(t, f, Options{})
 
-	require.NoError(t, client.Write(t.Context(), "@1", []byte("hi")))
+	require.NoError(t, client.Write(t.Context(), "%1", []byte("hi")))
 	require.Contains(t, f.sentCommands(), "send-keys -H -t %1 68 69")
 
-	require.NoError(t, client.Write(t.Context(), "@1", []byte(strings.Repeat("a", sendKeysChunk+4))))
+	require.NoError(t, client.Write(t.Context(), "%1", []byte(strings.Repeat("a", sendKeysChunk+4))))
 	sends := 0
 	for _, cmd := range f.sentCommands() {
 		if strings.HasPrefix(cmd, "send-keys") {
@@ -609,7 +833,8 @@ func TestWriteSendsHexChunks(t *testing.T) {
 	}
 	require.Equal(t, 3, sends, "payloads are chunked")
 
-	require.ErrorIs(t, client.Write(t.Context(), "@99", []byte("x")), ErrUnknownWindow)
+	require.ErrorIs(t, client.Write(t.Context(), "%99", []byte("x")), ErrUnknownPane)
+	require.ErrorIs(t, client.Write(t.Context(), "@1", []byte("x")), ErrUnknownPane, "input names a pane, never a window")
 }
 
 // A paste never goes over send-keys: tmux has to see it as a paste to decide
@@ -630,7 +855,7 @@ func TestPasteLoadsABufferAndPastesIt(t *testing.T) {
 		return nil
 	}})
 
-	require.NoError(t, client.Paste(t.Context(), "@1", []byte("first\nsecond")))
+	require.NoError(t, client.Paste(t.Context(), "%1", []byte("first\nsecond")))
 	require.Equal(t, 1, loaded.calls)
 	require.Equal(t, "hive-paste-1", loaded.name, "the buffer is named after the pane, off the numbered stack")
 	require.Equal(t, "first\nsecond", loaded.content)
@@ -640,10 +865,10 @@ func TestPasteLoadsABufferAndPastesIt(t *testing.T) {
 		require.NotContains(t, cmd, "send-keys", "a paste is never keystrokes")
 	}
 
-	require.NoError(t, client.Paste(t.Context(), "@1", nil), "an empty paste is a no-op")
+	require.NoError(t, client.Paste(t.Context(), "%1", nil), "an empty paste is a no-op")
 	require.Equal(t, 1, loaded.calls)
 
-	require.ErrorIs(t, client.Paste(t.Context(), "@99", []byte("x")), ErrUnknownWindow)
+	require.ErrorIs(t, client.Paste(t.Context(), "%99", []byte("x")), ErrUnknownPane)
 }
 
 func TestWindowCommands(t *testing.T) {
@@ -688,7 +913,7 @@ func TestListPanesReadsAWindowsPanes(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 claude")
 	f.setPanes("@1",
 		"%1 4812 1 0 claude",
 		"%2 4820 0 0 zsh",
@@ -734,9 +959,9 @@ func TestMoveWindowInsertsAtAPosition(t *testing.T) {
 	t.Parallel()
 
 	const (
-		alpha   = "@1 0 %1 120 40 alpha"
-		bravo   = "@2 0 %2 120 40 bravo"
-		charlie = "@3 1 %3 120 40 charlie"
+		alpha   = "@1 0 %1 120 40 0 b25f,120x40,0,0,1 alpha"
+		bravo   = "@2 0 %2 120 40 0 b25f,120x40,0,0,2 bravo"
+		charlie = "@3 1 %3 120 40 0 b25f,120x40,0,0,3 charlie"
 	)
 
 	cases := map[string]struct {
@@ -796,12 +1021,12 @@ func TestMoveWindowSurvivesTheRelinkClose(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 alpha", "@2 0 %2 120 40 bravo")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 alpha", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 bravo")
 	client := attachFake(t, f, Options{})
 
 	f.setOnCommand(func(cmd string) {
 		if strings.HasPrefix(cmd, "move-window -") && !strings.HasPrefix(cmd, "move-window -r") {
-			f.setWindows("@2 0 %2 120 40 bravo", "@1 1 %1 120 40 alpha")
+			f.setWindows("@2 0 %2 120 40 0 b25f,120x40,0,0,2 bravo", "@1 1 %1 120 40 0 b25f,120x40,0,0,1 alpha")
 			f.emit("%window-add @1")
 			f.emit("%window-close @1")
 		}
@@ -814,7 +1039,7 @@ func TestMoveWindowSurvivesTheRelinkClose(t *testing.T) {
 		"the moved window is still in the set the close claimed to remove")
 
 	// The guard lifts with the move: a real close still closes.
-	f.setWindows("@2 0 %2 120 40 bravo")
+	f.setWindows("@2 0 %2 120 40 0 b25f,120x40,0,0,2 bravo")
 	f.emit("%window-close @1")
 	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
 		wc, ok := ev.(WindowChanged)
@@ -828,7 +1053,7 @@ func TestMoveWindowRejectsWhatItCannotPlace(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 alpha", "@2 0 %2 120 40 bravo")
+	f.setWindows("@1 1 %1 120 40 0 b25f,120x40,0,0,1 alpha", "@2 0 %2 120 40 0 b25f,120x40,0,0,2 bravo")
 	client := attachFake(t, f, Options{})
 	ctx := t.Context()
 
@@ -956,13 +1181,13 @@ func TestProtocolDesyncTearsDownTheClient(t *testing.T) {
 	require.True(t, sawError, "the desync is reported before the exit")
 }
 
-// Not parallel, and neither is TestDrainedPaneOutputIsStillCounted: the
+// Not parallel, and neither is TestOutputFromAnInactivePaneIsCounted: the
 // instruments carry no session attribute, so every client in the process writes
 // to the same series and a concurrent test would land in this delta. Go defers
 // parallel tests to the end of the package, which leaves these two alone.
 func TestStreamInstrumentsRecord(t *testing.T) {
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %1 120 1 0 b25f,120x1,0,0,1 claude")
 	f.setCapture("%1", "ready")
 
 	before := readStreamCounts(t)
@@ -982,14 +1207,13 @@ func TestStreamInstrumentsRecord(t *testing.T) {
 	require.Greater(t, after.depth, before.depth, "a publish records the backlog depth")
 }
 
-func TestDrainedPaneOutputIsStillCounted(t *testing.T) {
+func TestOutputFromAnInactivePaneIsCounted(t *testing.T) {
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 1 claude")
+	f.setWindows("@1 1 %2 120 1 0 f91d,120x1,0,0{60x1,0,0,1,59x1,61,0,2} claude")
 
 	before := readStreamCounts(t)
 	client := attachFake(t, f, Options{})
 
-	f.emit("%window-pane-changed @1 %2")
 	f.emit(`%output %1 background\015\012`)
 	f.emit(`%output %2 foreground\015\012`)
 

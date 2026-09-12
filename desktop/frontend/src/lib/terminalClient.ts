@@ -4,12 +4,12 @@
 //
 //   server -> client
 //     0x00 Output      [0x00][winLen u8][windowId][paneLen u8][paneId][raw bytes]
-//     0x01 WindowEvent [0x01][JSON {kind, windowId, name, active, width, height}]
+//     0x01 WindowEvent [0x01][JSON {kind, windowId, name, active, activePane, width, height, zoomed, layout}]
 //     0x02 Lifecycle   [0x02][JSON {kind, windowId, message}]
 //   client -> server
-//     0x10 Input       [0x10][winLen u8][windowId][raw bytes]
-//     0x11 PasteChunk  [0x11][winLen u8][windowId][raw bytes]
-//     0x12 PasteCommit [0x12][winLen u8][windowId]
+//     0x10 Input       [0x10][paneLen u8][paneId][raw bytes]
+//     0x11 PasteChunk  [0x11][paneLen u8][paneId][raw bytes]
+//     0x12 PasteCommit [0x12][paneLen u8][paneId]
 
 import { Endpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { TerminalEndpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
@@ -17,7 +17,7 @@ import type { TerminalEndpoint } from '../../bindings/github.com/hay-kot/hive-de
 export type { TerminalEndpoint }
 
 /** Carried as ?v=; the server rejects anything else before the upgrade. */
-export const TERMINAL_WIRE_VERSION = '1'
+export const TERMINAL_WIRE_VERSION = '2'
 
 /** The server's whole-frame cap on one client -> server message. */
 export const MAX_INPUT_FRAME_BYTES = 4 << 10
@@ -29,7 +29,11 @@ const FRAME_INPUT = 0x10
 const FRAME_PASTE_CHUNK = 0x11
 const FRAME_PASTE_COMMIT = 0x12
 
-export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' | 'resized'
+/**
+ * `layout-changed` covers a resize as well as a split, a closed pane and a
+ * zoom: the window's size is its layout's root box.
+ */
+export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' | 'layout-changed'
 /**
  * Mirrors `tmuxcc.LifecycleKind`, which is where these strings are minted —
  * adding one is an edit on both sides. `degraded` is the odd one: the stream
@@ -39,18 +43,47 @@ export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' 
 export type LifecycleKind = 'attached' | 'paused' | 'resumed' | 'exited' | 'error' | 'degraded'
 
 /**
+ * One cell of a window's pane tree, in cells of the window's grid. A leaf
+ * names a pane; a node names a split and carries its cells, each with its own
+ * box, so a pane is placed without walking the tree. tmux never nests a node
+ * inside one of the same kind, so the one-cell border between two siblings
+ * always belongs to their parent.
+ */
+export interface PaneLayout {
+  paneId?: string
+  /** `leftright` is cells side by side (tmux's split-window -h); `topbottom` is stacked (-v). Absent on a leaf. */
+  split?: 'leftright' | 'topbottom'
+  x: number
+  y: number
+  width: number
+  height: number
+  cells?: PaneLayout[]
+}
+
+/**
  * One tmux window. `width`/`height` are tmux's own size for it — whichever
  * attached client tmux's window-size option picked, which may be another
  * terminal entirely — and 0 when tmux has not reported one. Rendering at any
- * other size mangles the pane's cursor-addressed output.
+ * other size mangles the pane's cursor-addressed output. `layout` is where
+ * each pane sits inside that grid, null until tmux has reported one; `zoomed`
+ * says the active pane is drawn over the whole window while the layout still
+ * records where it goes back to.
  */
 export interface WindowState {
   windowId: string
   name: string
   active: boolean
+  activePane: string
   width: number
   height: number
+  zoomed: boolean
+  layout: PaneLayout | null
 }
+
+/** Which way a split lays the new pane, in tmux's words: horizontal puts it to the right, vertical below. */
+export type SplitDirection = 'horizontal' | 'vertical'
+/** A neighbour of a pane, the way tmux's own select-pane -L/-R/-U/-D picks one. */
+export type PaneDirection = 'left' | 'right' | 'up' | 'down'
 
 export type TerminalFrame =
   | { type: 'output'; windowId: string; paneId: string; data: Uint8Array }
@@ -118,6 +151,28 @@ export interface TerminalClient {
    */
   moveWindow(slug: string, windowId: string, position: number): Promise<{ windows: WindowState[] }>
   selectWindow(slug: string, windowId: string): Promise<void>
+  /**
+   * Splits a pane and answers the new pane's id. The window's new layout, with
+   * the new pane's first paint behind it, follows on the stream.
+   */
+  splitPane(slug: string, paneId: string, direction: SplitDirection): Promise<{ paneId: string }>
+  /**
+   * Makes a pane its window's active pane — or, with a direction, the
+   * neighbour tmux picks from it. The stream announces the result.
+   */
+  selectPane(slug: string, paneId: string, direction?: PaneDirection): Promise<void>
+  /** Kills one pane; the last pane of a window takes the window with it. */
+  closePane(slug: string, paneId: string): Promise<void>
+  /** Reports whether this pane is running anything a close would kill. */
+  paneForeground(slug: string, paneId: string): Promise<WindowForeground>
+  /**
+   * Sets a pane's width and/or height in cells; 0 leaves that axis alone.
+   * tmux moves the divider on the far side of the pane's cell, so a dragged
+   * divider names the pane before it.
+   */
+  resizePane(slug: string, paneId: string, size: { width?: number; height?: number }): Promise<void>
+  /** Toggles a pane between filling its window and its place in the layout. */
+  zoomPane(slug: string, paneId: string): Promise<void>
   detach(slug: string): Promise<void>
   openStream(slug: string): WebSocket
 }
@@ -182,6 +237,22 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
       return { windows: (body?.windows ?? []).map(toWindowState) }
     },
     async selectWindow(slug, windowId) { await post('/api/terminal/windows/select', { slug, windowId }) },
+    async splitPane(slug, paneId, direction) {
+      const body = await post<{ paneId: string }>('/api/terminal/panes/split', { slug, paneId, direction })
+      return { paneId: body?.paneId ?? '' }
+    },
+    async selectPane(slug, paneId, direction) {
+      await post('/api/terminal/panes/select', { slug, paneId, direction: direction ?? '' })
+    },
+    async closePane(slug, paneId) { await post('/api/terminal/panes/close', { slug, paneId }) },
+    async paneForeground(slug, paneId) {
+      const body = await post<Partial<WindowForeground>>('/api/terminal/panes/foreground', { slug, paneId })
+      return { running: body?.running ?? true, command: body?.command ?? '' }
+    },
+    async resizePane(slug, paneId, size) {
+      await post('/api/terminal/panes/resize', { slug, paneId, width: size.width ?? 0, height: size.height ?? 0 })
+    },
+    async zoomPane(slug, paneId) { await post('/api/terminal/panes/zoom', { slug, paneId }) },
     async detach(slug) { await post('/api/terminal/detach', { slug }) },
     openStream(slug) {
       const socket = new WebSocket(streamURL(endpoint, slug))
@@ -206,10 +277,12 @@ function streamURL(endpoint: TerminalEndpoint, slug: string): string {
 /**
  * Splits keystrokes into input frames no larger than the server's cap. Bytes
  * are reassembled in order on the pane, so a split inside a multi-byte
- * sequence is harmless.
+ * sequence is harmless. The frame names the pane rather than its window: the
+ * keystrokes that follow a click into a pane go out while the select-pane it
+ * caused is still in flight, and they must land where the user is typing.
  */
-export function encodeInputFrames(windowId: string, data: string | Uint8Array): Uint8Array[] {
-  return chunkFrames(FRAME_INPUT, windowId, typeof data === 'string' ? encoder.encode(data) : data)
+export function encodeInputFrames(paneId: string, data: string | Uint8Array): Uint8Array[] {
+  return chunkFrames(FRAME_INPUT, paneId, typeof data === 'string' ? encoder.encode(data) : data)
 }
 
 /**
@@ -218,24 +291,24 @@ export function encodeInputFrames(windowId: string, data: string | Uint8Array): 
  * whether the pane's program asked for bracketed paste, so a multi-line paste
  * reaches an agent as one paste rather than one submission per line.
  */
-export function encodePasteFrames(windowId: string, text: string): Uint8Array[] {
+export function encodePasteFrames(paneId: string, text: string): Uint8Array[] {
   // tmux writes one \r per \n in the buffer, so a CRLF would arrive as two.
   const body = encoder.encode(text.replace(/\r\n?/g, '\n'))
   if (body.length === 0) return []
 
-  const id = encoder.encode(windowId)
+  const id = encoder.encode(paneId)
   const commit = new Uint8Array(2 + id.length)
   commit[0] = FRAME_PASTE_COMMIT
   commit[1] = id.length
   commit.set(id, 2)
-  return [...chunkFrames(FRAME_PASTE_CHUNK, windowId, body), commit]
+  return [...chunkFrames(FRAME_PASTE_CHUNK, paneId, body), commit]
 }
 
-function chunkFrames(kind: number, windowId: string, body: Uint8Array): Uint8Array[] {
-  const id = encoder.encode(windowId)
+function chunkFrames(kind: number, paneId: string, body: Uint8Array): Uint8Array[] {
+  const id = encoder.encode(paneId)
   const header = 2 + id.length
   const budget = MAX_INPUT_FRAME_BYTES - header
-  if (budget <= 0) throw new Error('terminal window id is too long to frame')
+  if (budget <= 0) throw new Error('terminal pane id is too long to frame')
 
   const frames: Uint8Array[] = []
   for (let offset = 0; offset < body.length; offset += budget) {
@@ -283,8 +356,11 @@ function toWindowState(window: Partial<WindowState>): WindowState {
     windowId: window.windowId ?? '',
     name: window.name ?? '',
     active: !!window.active,
+    activePane: window.activePane ?? '',
     width: window.width ?? 0,
     height: window.height ?? 0,
+    zoomed: !!window.zoomed,
+    layout: window.layout ?? null,
   }
 }
 
