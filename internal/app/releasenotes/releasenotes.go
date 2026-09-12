@@ -8,15 +8,18 @@
 // call can answer (ADR release-notes-ship-inside-the-binary).
 //
 // Only a stable release gets an entry of its own. Everything else accumulates
-// in next.md, the draft every prerelease build embeds as "what is in this
-// build that no stable release has" — which is why cutting a dev or beta
-// release needs no changelog work at all, and why the entry a stable release
-// needs is written by promoting a draft that already exists.
+// in changelog/unreleased/ as one file per change, which every prerelease
+// build embeds and renders as "what is in this build that no stable release
+// has" — which is why cutting a dev or beta release needs no changelog work at
+// all, and why the entry a stable release needs is written by promoting a
+// draft that already exists (ADR release-notes-accumulate-as-fragments).
 package releasenotes
 
 import (
 	"embed"
+	"errors"
 	"fmt"
+	"io/fs"
 	"path"
 	"slices"
 	"strings"
@@ -26,15 +29,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed changelog/*.md
+//go:embed changelog
 var changelogFS embed.FS
 
 const changelogDir = "changelog"
-
-// DraftFile is the accumulating entry for work that has not reached a stable
-// release. It carries no version because the release it describes has no
-// number until promotion assigns one.
-const DraftFile = "next.md"
 
 // Entry is one set of release notes.
 type Entry struct {
@@ -45,13 +43,14 @@ type Entry struct {
 	Date time.Time
 	// Summary is an optional one-line description — what the What's New toast
 	// shows, and what a channel manifest carries for a release the user has
-	// not installed yet, where a full body does not fit.
+	// not installed yet, where a full body does not fit. The draft has none:
+	// a summary describes a whole release, so it is written at promotion.
 	Summary string
 	// Body is the markdown detail, which may be empty for a release whose
 	// summary says everything.
 	Body string
 	// Draft marks the unreleased entry. At most one exists, it is dropped
-	// entirely when empty, and it sorts above every release.
+	// entirely when no fragment has landed, and it sorts above every release.
 	Draft bool
 }
 
@@ -59,42 +58,75 @@ type Entry struct {
 type Entries []Entry
 
 // Load parses the embedded changelog once per process. An error means a
-// malformed entry was committed, which TestChangelogParses and the release
-// gate both catch before it can ship.
+// malformed entry or fragment was committed, which TestChangelogParses and the
+// release gate both catch before it can ship.
 var Load = sync.OnceValues(func() (Entries, error) {
-	files, err := changelogFS.ReadDir(changelogDir)
+	files, err := fs.ReadDir(changelogFS, changelogDir)
 	if err != nil {
 		return nil, fmt.Errorf("read changelog: %w", err)
 	}
 	entries := make(Entries, 0, len(files))
 	for _, file := range files {
 		name := file.Name()
-		raw, err := changelogFS.ReadFile(path.Join(changelogDir, name))
+		if file.IsDir() || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		raw, err := fs.ReadFile(changelogFS, path.Join(changelogDir, name))
 		if err != nil {
 			return nil, fmt.Errorf("read changelog %s: %w", name, err)
 		}
-		entry, err := parseFile(name, raw)
+		entry, err := parseEntry(name, raw)
 		if err != nil {
 			return nil, err
 		}
-		// An empty draft is the state a promotion leaves behind, and it lasts
-		// until the next change lands. Dropping it here is what keeps every
-		// reader from having to ask whether the draft says anything.
-		if entry.Draft && entry.Summary == "" && entry.Body == "" {
-			continue
-		}
 		entries = append(entries, entry)
 	}
+
+	fragments, err := Fragments()
+	if err != nil {
+		return nil, err
+	}
+	// An empty draft is the state a promotion leaves behind, and it lasts
+	// until the next change lands. Dropping it here is what keeps every
+	// reader from having to ask whether the draft says anything.
+	if len(fragments) > 0 {
+		entries = append(entries, Entry{Draft: true, Body: renderDraft(fragments)})
+	}
+
 	slices.SortFunc(entries, func(a, b Entry) int { return -compareEntries(a, b) })
 	return entries, nil
 })
 
-func parseFile(filename string, raw []byte) (Entry, error) {
-	if filename == DraftFile {
-		return parseDraft(raw)
+// Fragments returns the unreleased changes this build embeds, unordered.
+var Fragments = sync.OnceValues(func() ([]Fragment, error) {
+	dir := path.Join(changelogDir, UnreleasedDir)
+	files, err := fs.ReadDir(changelogFS, dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		// go:embed drops a directory holding nothing but .gitkeep, which is
+		// what the tree looks like between a promotion and the next change.
+		return nil, nil
 	}
-	return parseEntry(filename, raw)
-}
+	if err != nil {
+		return nil, fmt.Errorf("read changelog %s: %w", UnreleasedDir, err)
+	}
+	fragments := make([]Fragment, 0, len(files))
+	for _, file := range files {
+		name := file.Name()
+		if file.IsDir() || !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		raw, err := fs.ReadFile(changelogFS, path.Join(dir, name))
+		if err != nil {
+			return nil, fmt.Errorf("read changelog %s/%s: %w", UnreleasedDir, name, err)
+		}
+		fragment, err := parseFragment(name, raw)
+		if err != nil {
+			return nil, err
+		}
+		fragments = append(fragments, fragment)
+	}
+	return fragments, nil
+})
 
 func compareEntries(a, b Entry) int {
 	if a.Draft != b.Draft {
@@ -108,8 +140,7 @@ func compareEntries(a, b Entry) int {
 	return compare(left, right)
 }
 
-// frontmatter is the YAML header a changelog entry carries. The draft uses
-// summary alone; version and date are assigned when it is promoted.
+// frontmatter is the YAML header a released changelog entry carries.
 type frontmatter struct {
 	Version string `yaml:"version"`
 	Date    string `yaml:"date"`
@@ -120,6 +151,15 @@ type frontmatter struct {
 // version in the header so a copy-pasted entry cannot silently describe the
 // wrong release.
 func parseEntry(filename string, raw []byte) (Entry, error) {
+	// next.md was the draft until it became a directory. A branch that
+	// predates the change still edits it, and its merge is clean, so say what
+	// happened rather than failing as a malformed version.
+	if filename == "next.md" {
+		return Entry{}, fmt.Errorf(
+			"changelog next.md: the draft is now one file per change in %s/; move each bullet with `mise run changelog:new` and delete this file (ADR release-notes-accumulate-as-fragments)",
+			UnreleasedDir)
+	}
+
 	header, body, err := splitFrontmatter(raw)
 	if err != nil {
 		return Entry{}, fmt.Errorf("changelog %s: %w", filename, err)
@@ -139,8 +179,8 @@ func parseEntry(filename string, raw []byte) (Entry, error) {
 	}
 	if parsed.prerelease != "" {
 		return Entry{}, fmt.Errorf(
-			"changelog %s: %q is a prerelease, and only a stable release gets an entry of its own; unreleased work belongs in %s",
-			filename, fm.Version, DraftFile)
+			"changelog %s: %q is a prerelease, and only a stable release gets an entry of its own; unreleased work belongs in %s/",
+			filename, fm.Version, UnreleasedDir)
 	}
 	date, err := time.Parse(time.DateOnly, fm.Date)
 	if err != nil {
@@ -150,29 +190,6 @@ func parseEntry(filename string, raw []byte) (Entry, error) {
 	return Entry{
 		Version: fm.Version,
 		Date:    date,
-		Summary: strings.TrimSpace(fm.Summary),
-		Body:    strings.TrimSpace(body),
-	}, nil
-}
-
-// parseDraft reads next.md. Its header is optional and only summary is read
-// from it, so landing a changelog line is appending a bullet to the file in
-// the pull request that earns it.
-func parseDraft(raw []byte) (Entry, error) {
-	body := strings.ReplaceAll(string(raw), "\r\n", "\n")
-	var fm frontmatter
-	if strings.HasPrefix(body, "---\n") {
-		header, rest, err := splitFrontmatter(raw)
-		if err != nil {
-			return Entry{}, fmt.Errorf("changelog %s: %w", DraftFile, err)
-		}
-		if err := yaml.Unmarshal([]byte(header), &fm); err != nil {
-			return Entry{}, fmt.Errorf("changelog %s: parse frontmatter: %w", DraftFile, err)
-		}
-		body = rest
-	}
-	return Entry{
-		Draft:   true,
 		Summary: strings.TrimSpace(fm.Summary),
 		Body:    strings.TrimSpace(body),
 	}, nil

@@ -25,8 +25,8 @@ whose GitHub step failed after the upload.
 binary, so an entry written after the build would describe a release that cannot
 display it (ADR release-notes-ship-inside-the-binary) — which is why `prepare`
 and `publish` refuse a stable version with none. A dev or beta release needs no
-changelog work at all: it publishes `internal/app/releasenotes/changelog/next.md`
-as it stands. Step 4 below covers what to do when `prepare` reports an entry
+changelog work at all: it publishes the fragments in
+`internal/app/releasenotes/changelog/unreleased/` as they stand. Step 4 below covers what to do when `prepare` reports an entry
 missing.
 
 ## Arguments
@@ -72,18 +72,34 @@ Reject missing or unknown channels instead of guessing.
    entry, naming the file it wants. **This is not recoverable inside the release
    run**: the entry has to be committed on `main` before publishing, and step 3
    requires a clean tree identical to `origin/main`, so it cannot be written
-   here. Promote the draft, stop, and tell the operator to land it first:
+   here. Land it first, with these two commands and **nothing else** — never
+   create the branch, write the commit, or open the pull request by hand:
 
    ```bash
-   mise run changelog:promote -- <stable|version>   # next.md -> <version>.md
+   mise run changelog:promote -- <stable|version>   # unreleased/ -> <version>.md
+   #   ... edit the entry ...
+   mise run changelog:pr                            # branch, commit, push, open the PR
    ```
 
-   Promotion moves the accumulated draft's bytes unchanged and stamps the
-   version and date, so what dev and beta users have been reading is what the
-   stable release says. Review the result before it lands — anything reverted
-   during the cycle has to be pruned, and the `summary` line is what the What's
-   New toast shows. It lands through a normal PR like any other change; restart
-   this procedure from step 2 once it is on `main`.
+   `promote` requires a clean `main`, collapses the accumulated fragments into
+   the entry, stamps the version and date, and deletes them. **The result is a
+   draft, not the final entry**: it is the sum of every PR since the last
+   release, so consolidate near-duplicate bullets into one note each, prune
+   anything reverted during the cycle, and write the `summary` line — promotion
+   leaves it empty, and it is what the What's New toast and the channel manifest
+   show (ADR release-notes-accumulate-as-fragments).
+
+   `changelog:pr` refuses an entry whose summary is still empty, and refuses a
+   worktree that holds anything besides the promotion, so the release-notes
+   commit is the same shape every release. Pass `--dry-run` to print the branch,
+   commit and pull request it would create. Restart this procedure from step 2
+   once the pull request is merged.
+
+   `changelog:pr` commits and pushes before it calls `gh`. If only the `gh` step
+   fails, the notes are already on the branch: run the `gh pr create` command the
+   error prints, and do not promote again. Re-running `changelog:pr` cannot
+   finish the job, because the promotion it looks for is on the branch it
+   already made.
 
    Dev and beta releases never reach this step: they are not gated, and they
    publish the draft as it stands.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/releasenotes"
@@ -15,7 +16,7 @@ import (
 // its own directory, the same arrangement flow/docs and actions/docs use.
 const changelogDir = "internal/app/releasenotes/changelog"
 
-func draftPath() string { return filepath.Join(changelogDir, releasenotes.DraftFile) }
+func unreleasedDir() string { return filepath.Join(changelogDir, releasenotes.UnreleasedDir) }
 
 func entryPath(version releaseVersion) string {
 	return filepath.Join(changelogDir, version.String()+".md")
@@ -37,6 +38,10 @@ func notesFor(version releaseVersion) (releasenotes.Entry, error) {
 		return releasenotes.Entry{}, fmt.Errorf("read changelog: %w", err)
 	}
 	if entry, ok := entries.Find(version.String()); ok {
+		if version.channel() == "stable" && entry.Summary == "" {
+			return releasenotes.Entry{}, fmt.Errorf(
+				"changelog entry for %s has no summary: it is what the What's New toast and the channel manifest show", version)
+		}
 		return entry, nil
 	}
 	if version.channel() == "stable" {
@@ -96,17 +101,30 @@ func promoteTargetVersion(ctx context.Context, arg string) (releaseVersion, erro
 	return parsePublishVersion(nextVersion("stable", versions))
 }
 
-// promoteDraft turns the accumulated draft into version's entry and leaves an
-// empty draft behind for the next cycle. The bytes are moved unchanged: what
-// prereleases have been showing all along is what the stable release ships.
-func promoteDraft(version releaseVersion) (string, error) {
+// promoteDraft collapses the accumulated fragments into version's entry and
+// deletes them, leaving an empty unreleased directory for the next cycle.
+//
+// The entry it writes is the draft prereleases have been showing, rendered the
+// same way. It is written with an empty summary and is meant to be edited
+// before it is committed: the draft is the sum of every pull request since the
+// last release, and a changelog reads as what the app now does. Consolidating
+// near-duplicate bullets and writing the release's one-line summary are this
+// step's job (ADR release-notes-accumulate-as-fragments).
+func promoteDraft(ctx context.Context, version releaseVersion) (string, error) {
+	if err := validatePromoteSource(ctx); err != nil {
+		return "", err
+	}
 	entries, err := releasenotes.Load()
 	if err != nil {
 		return "", fmt.Errorf("read changelog: %w", err)
 	}
 	draft, ok := entries.Draft()
 	if !ok {
-		return "", fmt.Errorf("%s is empty: there is nothing to release", draftPath())
+		return "", fmt.Errorf("%s/ is empty: there is nothing to release", unreleasedDir())
+	}
+	fragments, err := releasenotes.Fragments()
+	if err != nil {
+		return "", fmt.Errorf("read changelog: %w", err)
 	}
 
 	path := entryPath(version)
@@ -114,21 +132,72 @@ func promoteDraft(version releaseVersion) (string, error) {
 		return "", fmt.Errorf("%s already exists", path)
 	}
 
-	header := fmt.Sprintf("---\nversion: %s\ndate: %s\nsummary: %q\n---\n\n",
-		version, time.Now().Format(time.DateOnly), draft.Summary)
+	header := fmt.Sprintf("---\nversion: %s\ndate: %s\nsummary: \"\"\n---\n\n",
+		version, time.Now().Format(time.DateOnly))
 	if err := os.WriteFile(path, []byte(header+draft.Body+"\n"), 0o644); err != nil {
 		return "", fmt.Errorf("write changelog entry: %w", err)
 	}
-	if err := os.WriteFile(draftPath(), []byte(emptyDraft), 0o644); err != nil {
-		return "", fmt.Errorf("reset %s: %w", draftPath(), err)
+	for _, fragment := range fragments {
+		if err := os.Remove(filepath.Join(unreleasedDir(), fragment.Name)); err != nil {
+			return "", fmt.Errorf("remove promoted fragment: %w", err)
+		}
 	}
 	return path, nil
 }
 
-// emptyDraft is what next.md holds between a promotion and the next change to
-// land. The file has to exist even when it says nothing: go:embed fails to
-// compile on a pattern that matches no files.
-const emptyDraft = `---
-summary: ""
----
-`
+// newFragment writes one unreleased change. The name is built here, never
+// typed: a UTC timestamp and a slug of the note make it unique without
+// allocating anything, so two branches writing release notes at the same time
+// produce two files rather than one conflict.
+func newFragment(kind releasenotes.Kind, body string) (string, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", fmt.Errorf("a note is required")
+	}
+	slug := fragmentSlug(body)
+	if slug == "" {
+		return "", fmt.Errorf("note %q has no words to name the file after", body)
+	}
+
+	name := releasenotes.FragmentName(time.Now().UTC().Format(releasenotes.FragmentStampFormat), slug)
+	path := filepath.Join(unreleasedDir(), name)
+	// go:embed drops a directory holding only .gitkeep, so a checkout that
+	// lost that file has no unreleased/ for the write to land in.
+	if err := os.MkdirAll(unreleasedDir(), 0o755); err != nil {
+		return "", fmt.Errorf("create %s: %w", unreleasedDir(), err)
+	}
+	contents := fmt.Sprintf("---\nkind: %s\n---\n\n%s\n", kind, body)
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		return "", fmt.Errorf("write changelog fragment: %w", err)
+	}
+	return path, nil
+}
+
+// fragmentSlugWords bounds the slug: enough of the note to recognise it in a
+// file listing, short enough that the name stays readable.
+const fragmentSlugWords = 7
+
+// fragmentSlug names a fragment after the opening of its note, with the
+// markdown a note starts with — the bold lead-in, inline code — stripped.
+func fragmentSlug(body string) string {
+	var b strings.Builder
+	prevDash := true
+	for _, r := range strings.ToLower(body) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+
+	words := strings.Split(strings.Trim(b.String(), "-"), "-")
+	if len(words) > fragmentSlugWords {
+		words = words[:fragmentSlugWords]
+	}
+	return strings.Join(words, "-")
+}

@@ -907,8 +907,7 @@ func TestWindowCommands(t *testing.T) {
 }
 
 // A window id is the only thing a caller sends, so the panes behind it are read
-// live: the controller models one pane id per window and nothing announces what
-// a pane starts running.
+// live: nothing announces what a pane starts running.
 func TestListPanesReadsAWindowsPanes(t *testing.T) {
 	t.Parallel()
 

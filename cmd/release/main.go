@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/releasenotes"
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v3"
 )
@@ -141,9 +142,11 @@ func newReleaseCommand() *cli.Command {
 						Name:      "promote",
 						Usage:     "turn the accumulated draft into a stable release's changelog entry",
 						ArgsUsage: "<stable|version>",
-						Description: "Moves internal/app/releasenotes/changelog/next.md to <version>.md, stamping the version and date, and leaves an " +
-							"empty draft for the next cycle. Commit the result before releasing: the notes are embedded in the binary, and " +
-							"`release publish` refuses a stable version that has no entry. Prereleases need none — they publish the draft as it stands.",
+						Description: "Collapses internal/app/releasenotes/changelog/unreleased/ into <version>.md, stamping the version and date, and " +
+							"deletes the fragments. Edit the entry before committing it: it is the sum of every pull request since the last " +
+							"release, so consolidate near-duplicate bullets and write the summary. Commit the result before releasing: the notes " +
+							"are embedded in the binary, and `release publish` refuses a stable version that has no entry. Prereleases need none " +
+							"— they publish the draft as it stands.",
 						Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
 							if cmd.NArg() != 1 {
 								return cli.Exit("expected \"stable\" or an explicit stable version", 2)
@@ -152,11 +155,62 @@ func newReleaseCommand() *cli.Command {
 							if err != nil {
 								return err
 							}
-							path, err := promoteDraft(version)
+							path, err := promoteDraft(ctx, version)
 							if err != nil {
 								return err
 							}
-							fmt.Printf("wrote %s — review it, then commit it with the release\n", path)
+							fmt.Printf("wrote %s\n", path)
+							fmt.Println("consolidate the bullets and write its summary, then run `mise run changelog:pr`")
+							return nil
+						}),
+					},
+					{
+						Name:  "pr",
+						Usage: "open the pull request that lands the promoted release notes",
+						Description: "Commits the entry that `changelog promote` wrote, plus the fragments it deleted, on a branch of its own, " +
+							"and opens its pull request. It refuses a worktree that holds anything else, and an entry whose summary is " +
+							"still empty. Run it after you edit the entry. The release itself cannot write the entry, because a release " +
+							"requires a clean tree identical to origin/main.",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{
+								Name:  "dry-run",
+								Usage: "print the branch, commit and pull request instead of creating them",
+							},
+						},
+						Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
+							return openReleaseNotesPR(ctx, cmd.Bool("dry-run"))
+						}),
+					},
+					{
+						Name:      "new",
+						Usage:     "write one unreleased change to the changelog draft",
+						ArgsUsage: "<note>",
+						Description: "Adds a file to internal/app/releasenotes/changelog/unreleased/ holding one bullet of the release notes. " +
+							"The name is built from a UTC timestamp and the note, so concurrent branches each add a file instead of " +
+							"conflicting over one. The note is product copy a user reads inside the app — read the release-notes skill " +
+							"before writing one. Pass it as the argument, or on stdin for a note that spans lines.",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:     "kind",
+								Aliases:  []string{"k"},
+								Usage:    "the section it belongs under: added, changed, or fixed",
+								Required: true,
+							},
+						},
+						Action: withRepoRoot(func(_ context.Context, cmd *cli.Command) error {
+							kind, ok := releasenotes.ParseKind(cmd.String("kind"))
+							if !ok {
+								return cli.Exit(fmt.Sprintf("--kind must be one of %v", releasenotes.Kinds), 2)
+							}
+							note, err := fragmentNote(cmd)
+							if err != nil {
+								return err
+							}
+							path, err := newFragment(kind, note)
+							if err != nil {
+								return err
+							}
+							fmt.Println(path)
 							return nil
 						}),
 					},
@@ -328,4 +382,21 @@ func commandOutput(ctx context.Context, name string, args ...string) (string, er
 		return "", fmt.Errorf("%s: %w", name, err)
 	}
 	return string(output), nil
+}
+
+// fragmentNote reads the release note from the arguments, or from stdin when
+// none are given, so a note that spans lines does not have to survive shell
+// quoting.
+func fragmentNote(cmd *cli.Command) (string, error) {
+	if cmd.NArg() > 0 {
+		return strings.Join(cmd.Args().Slice(), " "), nil
+	}
+	raw, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", fmt.Errorf("read note from stdin: %w", err)
+	}
+	if strings.TrimSpace(string(raw)) == "" {
+		return "", cli.Exit("expected the note as an argument or on stdin", 2)
+	}
+	return string(raw), nil
 }

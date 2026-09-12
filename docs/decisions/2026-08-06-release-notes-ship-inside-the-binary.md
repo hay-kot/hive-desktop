@@ -33,10 +33,14 @@ Release notes are markdown committed under
 `internal/app/releasenotes/changelog/` and embedded with `go:embed`.
 
 **Only a stable release gets an entry of its own**, at `<version>.md`. Everything
-else accumulates in `next.md`, the draft, which every build embeds and which
-reads as "what this build has that no stable release does". A pull request lands
-its changelog line by appending to the draft, where the reasoning still exists;
-nothing is reconstructed from commit subjects at release time.
+else accumulates in ~~`next.md`, the draft~~ the draft, which every build embeds
+and which reads as "what this build has that no stable release does". A pull
+request lands its changelog line by appending to the draft, where the reasoning
+still exists; nothing is reconstructed from commit subjects at release time.
+
+The draft is no longer one file: it is `changelog/unreleased/`, one file per
+change, rendered at load (ADR release-notes-accumulate-as-fragments). Everything
+below holds; only where the draft's bytes live has changed.
 
 That makes a prerelease free to cut: `cmd/release` gates only stable on having
 an entry, and a dev or beta release publishes the draft as it stands. Promotion
@@ -85,9 +89,12 @@ a prerelease — which is what populates `UpdateInfo.Notes`.
 - The draft repeats. A user tracking dev or beta is shown the same accumulating
   list on every bump, plus whatever landed since. That is accepted as the cost
   of not authoring per-build entries, and is why those bumps are a toast.
-- A stable release ships the draft's bytes unchanged, so what prerelease users
-  were reading is what the release says. Work that was reverted before the
-  release has to be pruned from the draft at promotion.
+- ~~A stable release ships the draft's bytes unchanged, so what prerelease users
+  were reading is what the release says.~~ Work that was reverted before the
+  release has to be pruned from the draft at promotion, and since the draft
+  became a set of fragments, promotion also consolidates and writes the summary
+  (ADR release-notes-accumulate-as-fragments) — so a stable entry is edited from
+  what prerelease users read, not copied from it.
 - The GitHub release body is the same committed text, so the changelog and the
   release page cannot disagree.
 - A build can only ever describe releases up to its own version. That is exactly
