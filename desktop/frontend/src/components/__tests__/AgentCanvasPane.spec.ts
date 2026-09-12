@@ -85,6 +85,20 @@ describe('AgentCanvasPane', () => {
     expect(wrapper.get('[data-testid="agent-canvas-block-stats"] h2').text()).toBe('Run')
   })
 
+  // The body here is what canvas.SanitizeHTML emits, viewBox spelled as SVG
+  // needs it: the stylesheet scales a diagram by the aspect ratio that
+  // attribute gives it, and this DOM does not case-correct it on re-parse.
+  it('renders an html block\'s svg as real svg nodes', async () => {
+    const wrapper = await mountPane(fakeCanvasClient([
+      block({ id: 'flow', kind: 'html', body: '<svg viewBox="0 0 200 60"><rect class="hv-node" x="1" y="1" width="70" height="34"/></svg>' }),
+    ]))
+
+    const svg = wrapper.get('[data-testid="agent-canvas-block-flow"] .hv-html svg')
+    expect(svg.element.namespaceURI).toBe('http://www.w3.org/2000/svg')
+    expect(svg.element.getAttribute('viewBox')).toBe('0 0 200 60')
+    expect(svg.get('rect').attributes('class')).toBe('hv-node')
+  })
+
   it('intercepts links in an html block the same way as in markdown', async () => {
     const wrapper = await mountPane(fakeCanvasClient([
       block({ id: 'card', kind: 'html', body: '<p><a href="https://example.com/pr/1">the PR</a></p>' }),

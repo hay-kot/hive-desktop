@@ -1,6 +1,6 @@
 # Canvas html blocks are sanitized in Go and styled by an app-owned class vocabulary
 
-- **Status:** accepted
+- **Status:** accepted; the class vocabulary is a gate no longer, per [ADR a-canvas-html-block-is-restricted-by-what-it-can-reach-not-by-how-it-looks](2026-09-11-a-canvas-html-block-is-restricted-by-what-it-can-reach-not-by-how-it-looks.md)
 - **Date:** 2026-08-29
 
 ## Context

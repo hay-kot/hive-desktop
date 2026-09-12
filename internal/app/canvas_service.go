@@ -331,8 +331,8 @@ func validateBlock(b *canvas.Block) error {
 		// offender instead of rendering a layout it believes is intact.
 		if rejected := canvas.RejectedHTML(b.Body); rejected != "" {
 			return Errorf(KindInvalid,
-				"an html block cannot use %s; it accepts the tags in the hive-canvas docs, http, https or mailto links, and these classes: %s",
-				rejected, strings.Join(canvas.HTMLClasses(), ", "))
+				"an html block cannot use %s; see the hive-canvas docs for the tags and attributes it accepts, and link only to http, https or mailto",
+				rejected)
 		}
 	case canvas.KindLink:
 		if b.Title == "" {
