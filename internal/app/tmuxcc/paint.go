@@ -18,9 +18,8 @@ type paintGate struct {
 	open bool
 	live map[string]bool
 	held map[string]bool
-	// pending is the subset of held that hold took and nothing has marked yet:
-	// panes still owed a first paint by whoever runs the next one. rehold
-	// leaves it alone, because a repaint paints what it reholds itself.
+	// pending distinguishes panes still owed a first paint from panes temporarily
+	// reheld for repaint.
 	pending map[string]bool
 	buf     map[string][]byte
 	marks   map[string]int
@@ -47,11 +46,8 @@ func (g *paintGate) route(pane string, data []byte, at time.Time) {
 	g.emit(pane, data, at)
 }
 
-// hold starts buffering a pane that has never been painted and reports whether
-// the caller owes it a first paint: it took the gate, or the reader took it
-// when a notification introduced the pane and no snapshot has been requested
-// since. Everything from here to mark is discarded as already inside that
-// snapshot.
+// hold reports whether a pane is still owed its first paint, including when
+// the reader already took the gate. Bytes before mark belong to the snapshot.
 func (g *paintGate) hold(pane string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()

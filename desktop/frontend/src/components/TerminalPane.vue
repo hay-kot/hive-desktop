@@ -13,11 +13,8 @@ onMounted(() => {
 </script>
 
 <template>
-  <!-- Positioned by the window that holds it, in cells of tmux's grid. A
-       press anywhere in the pane's box is an intent to type in it: xterm only
-       takes focus from a press inside its own screen element, which is a
-       whole number of cells, and the part-cell remainder would otherwise
-       swallow it. -->
+  <!-- Select on the pane box, not xterm's whole-cell screen, so the fractional
+       remainder also accepts focus. -->
   <div
     class="terminal-pane absolute overflow-hidden"
     data-testid="terminal-pane-host"
@@ -30,11 +27,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* The pane's box is exactly its canvas, which xterm draws over the viewport,
-   so a scrollbar would sit under it and show nowhere while the size vote had
-   to keep a column free for it. Hidden, the wheel and the scrolled-up pill
-   are the way through scrollback; xterm's own wheel handling scrolls the
-   viewport element either way. */
+/* xterm's canvas covers its viewport scrollbar. Keep it hidden; wheel input
+   and the scrolled-up control still expose scrollback. */
 .terminal-pane :deep(.xterm-viewport) { scrollbar-width: none; }
 .terminal-pane :deep(.xterm-viewport::-webkit-scrollbar) { display: none; }
 </style>

@@ -1152,9 +1152,8 @@ describe('TerminalMode', () => {
     document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
   })
 
-  // Closing a pane kills the same kind of thing as closing a tab, so the chord
-  // takes the same guard: what the pane is running is read at the moment of the
-  // close, for the pane the close would kill, and the dialog names it.
+  // Pane close shares the window-close safety policy and checks the target at
+  // action time.
   it('confirms before the close-pane chord kills a running pane', async () => {
     const paneForeground = vi.fn().mockResolvedValue({ running: true, command: 'claude' })
     mocks.createTerminalClient.mockReturnValue({ paneForeground })

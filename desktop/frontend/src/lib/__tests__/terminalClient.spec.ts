@@ -259,9 +259,8 @@ describe('createTerminalClient', () => {
       .resolves.toEqual({ paneId: '' })
   })
 
-  // The server reads a missing direction as "this pane" and a zero axis as
-  // "leave it alone", and it reads both from the field, so the client always
-  // sends one.
+  // The server requires explicit fields: an empty direction means the target
+  // pane, and a zero resize axis means unchanged.
   it('spells an absent direction and axis out as empty and zero', async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
     const client = createTerminalClient(endpoint)
@@ -301,8 +300,8 @@ describe('createTerminalClient', () => {
     expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', paneId: '%1' })
   })
 
-  // The same rule as the window: a pane is killed on this answer, so no verdict
-  // is a running one.
+  // A missing verdict fails closed because callers use it to decide whether
+  // killing the pane is safe.
   it('reads a pane with no verdict as running rather than idle', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, {}))
 

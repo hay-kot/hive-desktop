@@ -34,7 +34,6 @@ const xterm = vi.hoisted(() => {
       registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
     }
 
-    // The keystroke path: what the pane registered is what a test types through.
     dataHandler: ((data: string) => void) | null = null
 
     constructor(options: Record<string, unknown> = {}) {
@@ -130,7 +129,6 @@ function typeInPane(data: string): void {
   xterm.FakeTerminal.instances.at(-1)!.dataHandler?.(data)
 }
 
-// [0x10][idLen][paneId][bytes]: one input frame naming the pane it lands in.
 function inputFrame(paneId: string, data: string): number[] {
   const id = Array.from(new TextEncoder().encode(paneId))
   return [0x10, id.length, ...id, ...Array.from(new TextEncoder().encode(data))]
@@ -476,8 +474,6 @@ describe('AgentsMode', () => {
     expect(created.focus).toHaveBeenCalled()
   })
 
-  // Input is framed by pane, not by window: a keystroke goes out as one input
-  // frame naming the pane the launch answered.
   it('frames keystrokes for the pane the launch named', async () => {
     const { client } = await mountWithOpenChat()
     const socket = openedSocket(client)
@@ -487,8 +483,7 @@ describe('AgentsMode', () => {
     expect(socket.sent.map((frame) => Array.from(frame))).toEqual([[0x10, 2, 0x25, 0x31, 0x78]])
   })
 
-  // A chat is one pane, so the pane tmux reports active for its window is the
-  // one to type into -- the stream's word overrides the launch's.
+  // Stream window events override a stale active pane from the launch response.
   it('re-points input at the active pane a window event names', async () => {
     const { client } = await mountWithOpenChat()
     const socket = openedSocket(client)
@@ -499,9 +494,7 @@ describe('AgentsMode', () => {
     expect(Array.from(socket.sent.at(-1)!)).toEqual(inputFrame('%5', 'x'))
   })
 
-  // A resume answers no pane id, so a resumed chat can only type once the
-  // stream has named its pane. Until then a keystroke is dropped rather than
-  // framed for a pane that does not exist.
+  // Resume returns no pane ID, so input waits for the stream to name one.
   it('drops input on a resumed chat until a window event names its pane', async () => {
     const client = fakeClient()
     client.allSessions.mockResolvedValue([chatRow])

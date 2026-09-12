@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// singlePaneLayout is the layout of a window holding one pane over its whole
-// box, what a window that has never been split reports.
 func singlePaneLayout(pane string, width, height int) Layout {
 	return Layout{Pane: pane, Width: width, Height: height}
 }
@@ -64,8 +62,6 @@ func TestParseLayout(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.want, got)
 			require.True(t, got.Equal(tc.want))
-			// The notation round-trips minus the checksum, which is how a fixture
-			// is written from a layout and a log line reads one.
 			_, body, _ := splitChecksum(tc.in)
 			require.Equal(t, body, got.String())
 		})

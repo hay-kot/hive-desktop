@@ -603,9 +603,8 @@ function attachStream(created: Terminal, terminalId: string, windowId: string, p
       if (frame.kind !== 'closed' && frame.state.windowId === paneWindowId && frame.state.width && frame.state.height) {
         created.resize(frame.state.width, frame.state.height)
       }
-      // A chat is one pane, so the window's active pane is the one this
-      // terminal types into — and the frame is what names it when the launch
-      // could not.
+      // Full window events supply the input target when attach returned no
+      // pane ID.
       if (frame.kind !== 'closed' && frame.state.windowId === paneWindowId && frame.state.activePane) {
         panePaneId = frame.state.activePane
       }

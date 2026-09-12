@@ -97,7 +97,6 @@ function paneHost(wrapper: VueWrapper, paneId: string): HTMLElement {
   return wrapper.get(`[data-testid="terminal-pane-host"][data-pane-id="${paneId}"]`).element as HTMLElement
 }
 
-// A pointer at column `col` of the grid, a few pixels past the cell's left edge.
 function columnX(col: number): number {
   return BOX.left + col * CELL.width + 5
 }

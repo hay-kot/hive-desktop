@@ -77,11 +77,8 @@ export interface BindableCommand {
   /** Canonical default combos; `[]` = bindable but unbound. */
   defaultCombos: string[]
   /**
-   * The defaults where `mod` is Ctrl, when the macOS ones cannot be used
-   * there. Ctrl+Shift is the pane escape itself and terminalEscapeCombo drops
-   * the Shift before resolving, so a shifted `escapesPane` default such as ⌘⇧W
-   * is unreachable from a pane on that platform and lands on `mod+w` instead.
-   * Read through defaultCombosFor; absent means the same defaults everywhere.
+   * Non-macOS defaults for shifted escaping chords that Ctrl+Shift
+   * normalization cannot resolve. Read through defaultCombosFor.
    */
   ctrlDefaultCombos?: string[]
   context: CommandContext
@@ -94,8 +91,7 @@ export interface BindableCommand {
    * than on the binding alone — Command on macOS, Ctrl+Shift where there is no
    * Command (useKeybindings.terminalEscapeCombo). Without it the pane keeps the
    * key, which is what leaves Ctrl+T as readline's transpose on a platform
-   * where `mod` is Ctrl. A shifted binding cannot escape there, since the
-   * Shift is the escape: see `ctrlDefaultCombos`.
+   * where `mod` is Ctrl.
    */
   escapesPane?: boolean
   /**
@@ -366,18 +362,9 @@ export const commandCatalog: BindableCommand[] = [
   // A position in the window strip, not a tmux window index: the strip is what
   // is on screen, and tmux's indices have gaps as soon as a window is closed.
   ...windowJumpCommands,
-  // The pane lifecycle, on the chords iTerm2 spells them with: ⌘D splits to
-  // the right, ⌘⇧D below, ⌘⇧W closes the pane (⌘W stays the window's), ⌘⇧↩
-  // zooms. They escape a focused pane like the window lifecycle does, so where
-  // `mod` is Ctrl the pane keeps Ctrl+D as end-of-input and the app answers
-  // Ctrl+Shift+D. The three shifted chords cannot cross to that platform,
-  // where Ctrl+Shift+W would collapse to `mod+w` and close the window, so
-  // they take unshifted stand-ins there: O, Q and M rather than Terminator's
-  // X and Z, because a `terminal` command still fires from the session filter
-  // and the rename box (App.vue lets a modifier chord through an editable
-  // target) and Ctrl+X and Ctrl+Z are cut and undo in those. "Right" and
-  // "down" name where the new pane lands; tmux calls the same two splits
-  // horizontal and vertical.
+  // Match iTerm2 on macOS. Ctrl platforms need unshifted alternatives because
+  // Ctrl+Shift normalizes to mod. Avoid Ctrl+X/Z because these commands can
+  // fire in editable fields.
   {
     id: 'terminal.split-right',
     title: 'Split pane right',
@@ -421,11 +408,8 @@ export const commandCatalog: BindableCommand[] = [
     context: 'terminal',
     escapesPane: true,
   },
-  // Moving between panes is an alt chord — ⌘⌥ and an arrow, iTerm2's again —
-  // which the escape form cannot carry (terminalEscapeCombo qualifies only
-  // Command and Ctrl+Shift), so these pierce: they are claimed on the binding
-  // alone. Where `mod` is Ctrl that takes Ctrl+Alt+Arrow away from the shell,
-  // which readline does not bind by default.
+  // Alt-arrow cannot use terminal escape normalization, so these bindings pierce
+  // the pane. On Ctrl platforms readline leaves Ctrl+Alt+Arrow unbound by default.
   {
     id: 'terminal.focus-pane-left',
     title: 'Focus pane left',
@@ -613,7 +597,6 @@ export function commandPiercesPane(commandID: string): boolean {
   return panePierces.has(commandID)
 }
 
-/** The defaults a platform seeds; `mac` is what useKeybindings' detectMac answers. */
 export function defaultCombosFor(command: BindableCommand, mac: boolean): string[] {
   return mac ? command.defaultCombos : (command.ctrlDefaultCombos ?? command.defaultCombos)
 }

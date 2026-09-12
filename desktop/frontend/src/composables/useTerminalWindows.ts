@@ -66,11 +66,11 @@ export interface TerminalSizeConstraint {
 
 /** One tmux pane: one emulator, placed by its window's layout. */
 export interface TerminalPane {
-  // Unique per Terminal instance, for the same reason a tab's is.
+  // Unique per Terminal instance so reconnect mounts a fresh host for the new
+  // emulator.
   uid: number
   paneId: string
   term: Terminal
-  // The viewport sits above the live tail, so new output lands below the fold.
   scrolledUp: boolean
 }
 
@@ -82,10 +82,9 @@ export interface TerminalWindowTab {
   windowId: string
   name: string
   active: boolean
-  // tmux's active pane, which is also where the keyboard is: a click into a
-  // pane selects it, and tmux's announcement moves focus the other way.
+  // Clicks update tmux's active pane optimistically; stream events retarget
+  // focus.
   activePane: string
-  // tmux's own size for the window — the grid its layout is laid out over.
   width: number
   height: number
   zoomed: boolean
@@ -148,9 +147,7 @@ export interface UseTerminalWindows {
   splitPane: (direction: SplitDirection) => Promise<void>
   /** Close a pane, the active window's active one by default; the last pane of a window closes the window. */
   closePane: (paneId?: string) => Promise<void>
-  /** Toggle the active window's active pane between filling the window and its place in the layout. */
   zoomPane: () => Promise<void>
-  /** Move to the neighbour of the active pane in a direction, as tmux's own select-pane picks one. */
   focusPane: (direction: PaneDirection) => Promise<void>
   /** Set a pane's size in cells; a divider drag names the pane before it. */
   resizePane: (paneId: string, size: { width?: number; height?: number }) => Promise<void>
@@ -287,7 +284,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // A window created from the toolbar is only knowable by id once tmux
   // announces it, so the intent to focus it is parked until then.
   let pendingActivate = ''
-  // Lines waiting for the window they were meant for to announce a pane.
+  // New-window commands deferred until tmux reports the target pane.
   const pendingCommands = new Map<string, () => boolean>()
 
   scope.run(() => {
@@ -335,7 +332,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     return undefined
   }
 
-  // The pane the keyboard goes to: the active window's active pane.
   function activePaneId(): string {
     const tab = findTab(activeWindowId.value)
     return tab ? activePaneOf(tab)?.paneId ?? '' : ''
@@ -393,8 +389,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       // Returning false only stops xterm from *also* sending the chord to the
       // pane — Ctrl+Shift+K would otherwise arrive as 0x0B.
       if (escapesPane(event)) return false
-      // Same deal for the chords that move between panes, which would otherwise
-      // reach this one as an arrow escape sequence or a control character.
+      // Prevent pane-navigation chords from also reaching tmux as arrow escapes
+      // or control characters.
       if (piercesPane(event)) return false
       return true
     })
@@ -449,10 +445,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (found) found.pane.scrolledUp = scrolledUp
   }
 
-  // applyPaneGrids holds every pane of a window to the grid tmux gives it: its
-  // cell in the layout, or the whole window while it is zoomed. A 0 means tmux
-  // has not reported one — a %window-add placeholder, say — and the reconcile
-  // behind it carries the real size a moment later.
+  // Keep xterm at tmux-reported pane grids. Ignore zero-size placeholders until
+  // reconciliation supplies a real layout.
   function applyPaneGrids(tab: TerminalWindowTab): void {
     const grids = paneGrids(tab)
     for (const pane of tab.panes) {
@@ -496,13 +490,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   function showRenderer(paneId: string): void {
     const state = panes.get(paneId)
-    // No host yet means the pane has not mounted; attachPane claims it there.
     if (!state?.host || state.rendered) return
     loadRenderer(state)
   }
-
-  // ─── Find ────────────────────────────────────────────────────────────────
-  // One bar over one pane: the active window's active pane, scrollback included.
 
   function openSearch(): void {
     search.value = { ...search.value, open: true }
@@ -597,7 +587,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     scheduleVote()
   }
 
-  // Whether the keyboard is in one of a window's panes.
   function focusIsInside(windowId: string): boolean {
     const host = windows.get(windowId)?.host
     return !!host && host.contains(document.activeElement)
@@ -623,12 +612,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     resizeTimer = setTimeout(voteSize, RESIZE_DEBOUNCE_MS)
   }
 
-  // The cell every pane of this session renders at. One measurement serves
-  // them all: they share a font, and tmux's grid is one grid. The shown
-  // window's panes are asked first, an atlas-rendered one ahead of the rest:
-  // only the shown window claims a renderer, and the DOM renderer's cell is
-  // the unfloored device width, which drifts from the atlas one by a fraction
-  // of a pixel per column.
+  // All panes share font metrics. Prefer an active-window atlas renderer because
+  // the DOM renderer's fractional width can drift over many columns.
   function measureCell(): CellSize | null {
     for (const state of panesToMeasure()) {
       const measured = terminalCellSize(state.term)
@@ -660,12 +645,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     console.warn('terminalGrid.ts: an opened terminal reports no cell; xterm may have moved _core._renderService.dimensions')
   }
 
-  // The measurement is a vote, not a resize: it says how big a grid the window's
-  // box could show, and tmux answers with the size it actually gave the window
-  // (%layout-change -> a window event). It is taken over the window's box rather
-  // than one pane's, because a split window's panes share the grid the box is
-  // worth. No column is kept back for a scrollbar: a pane's box is exactly its
-  // canvas, so its scrollbar is hidden and the wheel is the way into scrollback.
+  // Vote the whole window box against shared cell metrics; tmux remains
+  // authoritative for the actual grid. Hidden scrollbars reserve no column.
   function voteSize(): void {
     const tab = findTab(activeWindowId.value)
     const host = tab ? windows.get(tab.windowId)?.host : undefined
@@ -809,8 +790,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     scheduleConstraintCheck()
   }
 
-  // Folds tmux's word on a window into the tab: its grid, its layout, its
-  // active pane, and the panes the layout now holds.
   function applyWindowState(tab: TerminalWindowTab, state: WindowState): void {
     const previousActivePane = tab.activePane
     // Read before any pane is disposed: closing the pane the keyboard was in
@@ -833,9 +812,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
   }
 
-  // Panes come and go with the layout: a split names one nothing has opened,
-  // a kill-pane drops one. The emulator behind a hidden pane — one zoom is
-  // covering — stays, because tmux keeps streaming to it.
+  // Keep zoom-hidden emulators alive because tmux continues streaming to them.
   function reconcilePanes(tab: TerminalWindowTab): void {
     const wanted = windowPanes(tab)
     const grids = paneGrids(tab)
@@ -1076,11 +1053,6 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       actionError.value = message(e, 'Could not move that window.')
     }
   }
-
-  // ─── Panes ───────────────────────────────────────────────────────────────
-  // Every verb names the active window's active pane unless told otherwise,
-  // and every answer comes back on the stream: tmux owns the layout and the
-  // active pane, so nothing here rearranges a pane on its own.
 
   // A click into a pane is a select. The tab's active pane moves at once so
   // the keystrokes that follow are addressed to it — the input frame names a

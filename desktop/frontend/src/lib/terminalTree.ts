@@ -38,9 +38,7 @@ export interface TerminalTreeHandles {
   splitPane(direction: SplitDirection): void
   /** Close the active window's active pane, asking first when it is running something. */
   closePane(): void
-  /** Toggle the active pane between filling its window and its place in the layout. */
   zoomPane(): void
-  /** Move the keyboard to the active pane's neighbour in a direction. */
   focusPaneDirection(direction: PaneDirection): void
 }
 

@@ -274,7 +274,6 @@ func (f *fakeTmux) sentCommands() []string {
 	return append([]string(nil), f.commands...)
 }
 
-// commandsMatching is every command sent so far that contains substr, in order.
 func (f *fakeTmux) commandsMatching(substr string) []string {
 	var matched []string
 	for _, cmd := range f.sentCommands() {
@@ -285,7 +284,6 @@ func (f *fakeTmux) commandsMatching(substr string) []string {
 	return matched
 }
 
-// setSplitPane sets the pane id split-window answers with.
 func (f *fakeTmux) setSplitPane(pane string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

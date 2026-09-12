@@ -163,7 +163,7 @@ export interface TerminalClient {
   selectPane(slug: string, paneId: string, direction?: PaneDirection): Promise<void>
   /** Kills one pane; the last pane of a window takes the window with it. */
   closePane(slug: string, paneId: string): Promise<void>
-  /** windowForeground asked of one pane. */
+  /** Reports whether this pane is running anything a close would kill. */
   paneForeground(slug: string, paneId: string): Promise<WindowForeground>
   /**
    * Sets a pane's width and/or height in cells; 0 leaves that axis alone.

@@ -238,8 +238,8 @@ func (s *TerminalsService) SplitPane(ctx context.Context, slug, paneID string, d
 	return id, nil
 }
 
-// SelectPane makes a pane its window's active pane — the pane itself, or the
-// neighbour direction names.
+// SelectPane selects paneID when direction is empty; otherwise it selects the
+// neighbor in that direction.
 func (s *TerminalsService) SelectPane(ctx context.Context, slug, paneID string, direction tmuxcc.PaneDirection) error {
 	client, err := s.client(slug)
 	if err != nil {
@@ -257,8 +257,7 @@ func (s *TerminalsService) ClosePane(ctx context.Context, slug, paneID string) e
 	return terminalError(client.KillPane(ctx, paneID), "closing pane %q", paneID)
 }
 
-// ResizePane sets a pane's width and/or height in cells; 0 leaves that axis
-// alone. The neighbours in its layout give or take the difference.
+// ResizePane sets width and/or height in cells; zero leaves that axis unchanged.
 func (s *TerminalsService) ResizePane(ctx context.Context, slug, paneID string, width, height int) error {
 	client, err := s.client(slug)
 	if err != nil {
@@ -381,9 +380,7 @@ func (s *TerminalsService) WindowForeground(ctx context.Context, slug, windowID 
 	return s.foregroundOf(ctx, panes), nil
 }
 
-// PaneForeground is WindowForeground asked of one pane: whether closing that
-// pane alone would kill work. The same guard, read the same way, because the
-// close it gates kills the same kind of thing.
+// PaneForeground reports whether closing paneID would kill work.
 func (s *TerminalsService) PaneForeground(ctx context.Context, slug, paneID string) (WindowForeground, error) {
 	client, err := s.client(slug)
 	if err != nil {

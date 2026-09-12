@@ -1189,9 +1189,8 @@ onMounted(() => setTerminalTreeHandles({
     const name = session.tabs.value.find((tab) => tab.windowId === windowId)?.name ?? ''
     void requestCloseWindow(activeSlug.value, windowId, name)
   },
-  // The pane verbs act on the attached session's active pane and answer from
-  // the stream; a chord that splits or zooms is an intent to keep typing, so
-  // the pane may take focus when tmux announces the result.
+  // Split, zoom, and directional focus keep typing focus when tmux reports the
+  // active pane.
   splitPane: (direction): void => {
     paneMayAutoFocus.value = true
     void current.value?.splitPane(direction)
@@ -1583,9 +1582,8 @@ async function requestCloseWindow(slug: string, windowId: string, name: string):
   })
 }
 
-// Closing a pane is the tab's close asked of one pane: the same guard, read
-// the same way, because it kills the same kind of thing. tmux closes the window
-// with its last pane, so a one-pane window answers the chord like ⌘W would.
+// tmux closes the window when its last pane closes, so use the tab-close
+// confirmation policy.
 async function requestClosePane(slug: string, paneId: string, name: string): Promise<void> {
   const pooled = pool.get(slug)
   if (!pooled) return

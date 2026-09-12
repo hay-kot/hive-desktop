@@ -165,7 +165,6 @@ func windowEventOf(frame []byte) (windowEventPayload, bool) {
 	return payload, true
 }
 
-// leafPanes lists the pane ids a wire layout holds, in layout order.
 func leafPanes(layout *terminalLayout) []string {
 	if layout == nil {
 		return nil
@@ -589,7 +588,6 @@ func pasteFrames(paneID, text string) [][]byte {
 	}
 }
 
-// paneIDNamed is the active pane of the window called name.
 func paneIDNamed(t *testing.T, attached attachResult, name string) string {
 	t.Helper()
 	for _, w := range attached.Windows {
@@ -698,10 +696,7 @@ func TestTmuxAttachIsScopedToItsSession(t *testing.T) {
 	}
 }
 
-// A split reaches the stream as a layout naming a pane nothing has captured,
-// followed by that pane's first paint; from then on every pane of the window
-// streams under its own id, the one that is not active included. Closing the
-// pane hands the window back to the other.
+// The stream must publish the split layout before the new pane's first paint.
 func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
 	tmux := startTmux(t, "hive-split")
 	h := newTerminalHarness(t)
@@ -735,9 +730,8 @@ func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
 	assert.Equal(t, 120, ev.Layout.Width)
 	assert.Equal(t, 120, ev.Layout.Cells[0].Width+1+ev.Layout.Cells[1].Width, "one cell of border between the two")
 
-	// The new pane's first paint lands under its own id — a blank screen or a
-	// prompt, depending on how far its shell got before the capture — and what
-	// the shell prints afterwards follows on the same id.
+	// The first paint may be blank or contain a prompt, depending on whether the
+	// shell started before capture.
 	readUntil(t, conn, "the new pane's first paint", func(f []byte) bool {
 		if len(f) == 0 || f[0] != frameOutput {
 			return false
@@ -756,7 +750,6 @@ func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
 		return paneID == split.PaneID && strings.Contains(string(data), "NEW_PANE_MARK")
 	})
 
-	// The original pane is no longer active, and still streams.
 	tmux.tmux("send-keys", "-t", original, "echo BACKGROUND_PANE_MARK", "Enter")
 	readUntil(t, conn, "output from the inactive pane", func(f []byte) bool {
 		if len(f) == 0 || f[0] != frameOutput {
@@ -767,7 +760,6 @@ func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
 		return paneID == original && strings.Contains(string(data), "BACKGROUND_PANE_MARK")
 	})
 
-	// Keystrokes name the pane they are for, whichever is active.
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, encodeInputFrame(original, []byte("echo TYPED_INTO_INACTIVE\r"))))
@@ -793,8 +785,6 @@ func TestTmuxSplitStreamsEveryPaneAndCloseTakesItBack(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// Resize, zoom and select are tmux window state, so each is proven by the
-// event tmux answers with rather than by the request being accepted.
 func TestTmuxPaneResizeZoomAndSelect(t *testing.T) {
 	tmux := startTmux(t, "hive-panes")
 	h := newTerminalHarness(t)
@@ -885,7 +875,6 @@ func TestTmuxPaneResizeZoomAndSelect(t *testing.T) {
 	_ = resp.Body.Close()
 }
 
-// awaitPaneForeground is awaitForeground asked of one pane.
 func (h *terminalHarness) awaitPaneForeground(t *testing.T, slug, paneID string, want foregroundResult) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)

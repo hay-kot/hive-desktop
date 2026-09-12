@@ -57,8 +57,6 @@ type terminalWindow struct {
 	Layout *terminalLayout `json:"layout,omitempty"`
 }
 
-// terminalLayout is one cell of a window's pane tree, in cells of the window's
-// grid. A leaf names a pane; a node names a split and carries its cells.
 type terminalLayout struct {
 	PaneID string `json:"paneId,omitempty"`
 	// Split is "leftright" for cells side by side (tmux's split-window -h) or
@@ -171,7 +169,6 @@ func (b terminalRenameRequest) Validate() error {
 	)
 }
 
-// terminalPaneRequest names one pane of an attached session.
 type terminalPaneRequest struct {
 	Slug   string `json:"slug"`
 	PaneID string `json:"paneId"`
@@ -217,10 +214,8 @@ func (b terminalSelectPaneRequest) Validate() error {
 	)
 }
 
-// terminalResizePaneRequest sets a pane's width and/or height in cells. A 0
-// leaves that axis alone. The sizes are not validated here: the core owns the
-// 1..1000 bound and refuses both 0, and its ErrInvalidSize is the 400 the
-// route documents.
+// Width and Height are validated by tmuxcc, which permits one zero axis,
+// rejects both zero, and enforces the 1..1000 bound.
 type terminalResizePaneRequest struct {
 	Slug   string `json:"slug"`
 	PaneID string `json:"paneId"`

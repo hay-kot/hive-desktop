@@ -37,16 +37,12 @@ func (w Window) Panes() []string {
 	return nil
 }
 
-// consistent reports whether the active pane is one of the layout's leaves. A
-// window whose layout has not been read yet is consistent by definition.
+// A missing layout is consistent until reconciliation supplies its tree.
 func (w Window) consistent() bool {
 	panes := w.Layout.Panes()
 	return len(panes) == 0 || slices.Contains(panes, w.ActivePane)
 }
 
-// controller holds the window set of one attached session and derives events
-// from notifications. Every pane of every window is rendered, so the pane
-// index covers each window's whole layout.
 type controller struct {
 	mu      sync.Mutex
 	order   []string
@@ -159,9 +155,6 @@ func (c *controller) apply(n Notification) []Event {
 	}
 }
 
-// settleLocked stores w and answers the event to publish for it: nothing while
-// its active pane is outside its layout, and WindowLayoutChanged for the whole
-// window once a hold lifts, whatever the notification that completed it.
 func (c *controller) settleLocked(w Window, kind WindowEventKind) []Event {
 	c.storeLocked(w)
 	if !w.consistent() {
@@ -266,7 +259,6 @@ func (c *controller) Windows() []Window {
 	return out
 }
 
-// windowForPane resolves a pane to the window that owns it.
 func (c *controller) windowForPane(pane string) (Window, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -572,9 +572,6 @@ func TestOversizedOutputReachesTheSubscriber(t *testing.T) {
 	require.Contains(t, outputData(events, "@1"), payload)
 }
 
-// Every pane of a window streams, not only the active one: a split window
-// draws each of its panes, and a pane zoom is hiding has to stay current for
-// the moment it comes back. Only a pane no tracked window owns is dropped.
 func TestOutputFromEveryPaneInTheLayoutIsForwarded(t *testing.T) {
 	t.Parallel()
 
@@ -601,9 +598,6 @@ func TestOutputFromEveryPaneInTheLayoutIsForwarded(t *testing.T) {
 	require.Equal(t, []string{"%1:left", "%2:right", "%1:done"}, panes)
 }
 
-// A split reaches the client as %layout-change naming a pane nothing has
-// captured. The reconcile that triggers is what paints it — at the pane's own
-// height, since that is the grid the emulator behind it renders.
 func TestSplitPaintsTheNewPaneAtItsOwnHeight(t *testing.T) {
 	t.Parallel()
 
@@ -642,12 +636,8 @@ func TestSplitPaintsTheNewPaneAtItsOwnHeight(t *testing.T) {
 	require.Equal(t, 19, strings.Count(string(painted), "\r\n")+1, "the screen is written at the pane's 19 rows, not the window's 40")
 }
 
-// The controller indexes a new pane the moment its notification is applied, and
-// %output for it routes from then on, while the snapshot that has to precede
-// that output is a list-windows round trip away. tmux sends the notification
-// and the pane's first %output back to back, in both orders a split produces;
-// those bytes are already on the pane's screen, so the snapshot carries them
-// and replaying them as well would draw the prompt twice.
+// tmux can send a split notification and the new pane's first output in either
+// order. Output waits for the snapshot so the prompt is not drawn twice.
 func TestSplitOutputWaitsForTheNewPanesSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -691,9 +681,7 @@ func TestSplitOutputWaitsForTheNewPanesSnapshot(t *testing.T) {
 	}
 }
 
-// A zoomed pane is drawn over the whole window, so its snapshot is written at
-// the window's height, and the panes zoom is hiding are painted afterwards at
-// their own.
+// Paint the visible zoomed pane before deferred captures of hidden panes.
 func TestZoomedPanePaintsAtTheWindowHeight(t *testing.T) {
 	t.Parallel()
 

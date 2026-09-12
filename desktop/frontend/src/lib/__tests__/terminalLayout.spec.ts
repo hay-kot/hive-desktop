@@ -101,7 +101,7 @@ describe('terminalLayout', () => {
 
     const zoomed = paneGrids({ layout: nested, activePane: '%1', zoomed: true, width: 120, height: 40 })
     expect(zoomed.get('%1')).toEqual({ cols: 120, rows: 40 })
-    // The panes zoom is hiding keep the size tmux keeps their screens at.
+    // Hidden panes retain the grid tmux uses for their screens.
     expect(zoomed.get('%2')).toEqual({ cols: 59, rows: 19 })
 
     const unreported = paneGrids({ layout: null, activePane: '%3', zoomed: false, width: 80, height: 24 })
@@ -125,10 +125,7 @@ describe('terminalLayout', () => {
   it('finds the border between every pair of siblings, addressed to the cell before it', () => {
     const dividers = paneDividers({ layout: nested, zoomed: false })
     expect(dividers).toEqual([
-      // The outer split's border is column 60, the full height of the window;
-      // %0 is the cell before it and may grow to 118 before %1's cell is gone.
       { axis: 'x', at: 60, from: 0, to: 40, before: '%0', beforePanes: ['%0'], afterPanes: ['%1', '%2'], origin: 0, extent: 60, limit: 118 },
-      // The inner split's border is row 20, spanning the right column only.
       { axis: 'y', at: 20, from: 61, to: 120, before: '%1', beforePanes: ['%1'], afterPanes: ['%2'], origin: 0, extent: 20, limit: 38 },
     ])
     expect(paneDividers({ layout: nested, zoomed: true })).toEqual([])

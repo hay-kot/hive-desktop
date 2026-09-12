@@ -17,10 +17,7 @@ const cell = computed(() => props.session.cell.value)
 const dividers = computed(() => paneDividers(props.tab))
 const split = computed(() => props.tab.panes.length > 1)
 
-// Cells to pixels, for every pane on screen; a pane with no entry is hidden.
-// Until a pane has been opened and measured there is no cell to multiply by,
-// so the active pane takes the whole box and the rest wait hidden - which is
-// exactly a one-pane window's arrangement.
+// Before xterm reports cell metrics, show only the active pane at full size.
 const placements = computed(() => {
   const size = cell.value
   const placed = new Map<string, Record<string, string>>()
@@ -72,9 +69,8 @@ function dividerClass(divider: PaneDivider): string[] {
   ]
 }
 
-// A drag names the cell before the divider and the size it should end up at;
-// tmux moves the divider and answers with the layout it settled on, which is
-// what redraws the panes. Nothing here moves a pane on its own.
+// tmux owns layout. Dragging requests a pane size; the streamed layout redraws
+// the panes.
 function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
   const size = cell.value
   const box = host.value?.getBoundingClientRect()
@@ -124,9 +120,6 @@ function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
         @mount="session.attachPane"
         @select="session.selectPane"
       />
-      <!-- The one-cell border between two panes, drawn the way tmux draws it:
-           a line, brighter beside the active pane, and the whole cell drags
-           when tmux can be told to move it. -->
       <div
         v-for="divider in dividers"
         :key="dividerKey(divider)"
@@ -152,10 +145,7 @@ function startDividerDrag(divider: PaneDivider, event: PointerEvent): void {
 </template>
 
 <style scoped>
-/* Neutral on purpose: the border sits beside the pane's own colours for the
-   life of the split, and the accent — yellow in the default dark theme — reads
-   as a highlight that never goes away. One step up the border scale marks the
-   active pane; the drag target brightens a step further under the pointer. */
+/* Persistent dividers use neutral borders; an accent would read as a permanent highlight. */
 .terminal-divider { touch-action: none; }
 .terminal-divider-line { background: var(--color-border); }
 .terminal-divider-active .terminal-divider-line { background: var(--color-strong); }

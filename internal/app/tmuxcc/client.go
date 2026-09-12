@@ -36,8 +36,6 @@ const (
 	sendKeysChunk = 64
 
 	// The window name goes last: it is the only field that can contain spaces.
-	// The layout is the unzoomed tree and the zoom flag says whether the active
-	// pane is drawn over it, the same pair %layout-change carries.
 	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_width} #{window_height} #{window_zoomed_flag} #{window_layout} #{window_name}"
 	// The same row prefixed with the session it belongs to, for the one call
 	// that lists the whole server. The name goes first because window_name is
@@ -476,11 +474,9 @@ func (c *Client) KillPane(ctx context.Context, pane string) error {
 	return err
 }
 
-// ResizePane sets a pane's width, height or both, in cells; 0 leaves that
-// axis alone. tmux moves the divider on the far side of the pane's cell in
-// its parent — or the near side for the last cell — and the neighbours give
-// or take the difference, so the caller names the pane before the divider it
-// is dragging.
+// ResizePane sets width and/or height in cells. Zero leaves that axis
+// unchanged; nonzero values must be in 1..1000. tmux adjusts the divider
+// after the pane, or before it when the pane is last.
 func (c *Client) ResizePane(ctx context.Context, pane string, width, height int) error {
 	if _, err := c.pane(pane); err != nil {
 		return err
@@ -742,9 +738,8 @@ func (c *Client) negotiate(ctx context.Context, opts Options) (err error) {
 	return nil
 }
 
-// paintShown snapshots the panes on screen in order. A failure releases every
-// pane still owed a paint, shown and deferred alike: one left held buffers its
-// output for the life of the client and renders nothing.
+// On failure, paintShown releases every unpainted target; otherwise its output
+// remains buffered for the client's lifetime.
 func (c *Client) paintShown(ctx context.Context, shown, deferred []paintTarget) error {
 	for i, target := range shown {
 		if err := c.firstPaint(ctx, target.pane, target.rows); err != nil {
@@ -784,9 +779,8 @@ type paintTarget struct {
 	rows int
 }
 
-// paintTargets splits a window's panes into the ones on screen and the ones
-// zoom is hiding. A window whose layout has not been read yet — a %window-add
-// placeholder — has only its active pane to offer, at the window's height.
+// A missing layout is a %window-add placeholder; paint its active pane at
+// window height until reconciliation supplies the tree.
 func paintTargets(w Window) (shown, hidden []paintTarget) {
 	leaves := w.Layout.Leaves()
 	if len(leaves) == 0 {
@@ -808,11 +802,8 @@ func paintTargets(w Window) (shown, hidden []paintTarget) {
 	return shown, hidden
 }
 
-// holdPanes puts every pane into the paint gate before the synchronous paint
-// starts, so output produced from this moment on is buffered rather than
-// emitted ahead of the snapshot that has to precede it. It returns the panes
-// the active window shows, which are painted before the attach answers, and
-// the rest, which are painted straight after on the client's own lifetime.
+// holdPanes holds every pane before painting so live output cannot overtake
+// its snapshot. It defers panes not visible during Attach.
 func (c *Client) holdPanes(windows []Window) (shown, deferred []paintTarget) {
 	active, hasActive := activeWindow(windows)
 	for _, w := range windows {
@@ -863,8 +854,6 @@ func (c *Client) startBackgroundPaint(targets []paintTarget) {
 	})
 }
 
-// releaseRemaining unblocks every pane still held, for the case a paint pass
-// gave up partway.
 func (c *Client) releaseRemaining(targets []paintTarget) {
 	for _, target := range targets {
 		c.paint.release(target.pane, nil)
@@ -1102,12 +1091,8 @@ func (c *Client) worker(ctx context.Context) {
 	}
 }
 
-// runReconcile refreshes the window set and first-paints whatever it just
-// discovered. A window created after attach reaches us as %window-add, which
-// carries no pane, and a split reaches us as %layout-change naming a pane
-// nothing has captured: either way the snapshot is the only thing that puts
-// the new pane's prompt on screen. The reader may already hold a pane it saw
-// arrive; hold answers true for those too, so this pass paints them.
+// %window-add carries no pane ID, while %layout-change can name an uncaptured
+// pane. Reconciliation snapshots either case before live output is released.
 func (c *Client) runReconcile(ctx context.Context) {
 	since := c.ctrl.mark()
 	windows, err := c.listWindows(ctx)
@@ -1214,11 +1199,8 @@ func (c *Client) onNotification(n Notification) {
 	}
 }
 
-// holdNewPanes puts the panes a notification introduces into the paint gate
-// before the controller indexes them. Indexed, their %output routes at once,
-// while the snapshot that has to precede it is a reconcile away, and a prompt
-// published in between is drawn twice. It reports whether it held any: a pane
-// only a snapshot can put on screen.
+// holdNewPanes holds unknown panes before the controller indexes them, so live
+// output cannot overtake and duplicate their first-paint snapshot.
 func (c *Client) holdNewPanes(windowID string, panes ...string) bool {
 	if _, ok := c.ctrl.byID(windowID); !ok {
 		return false
@@ -1233,9 +1215,8 @@ func (c *Client) holdNewPanes(windowID string, panes ...string) bool {
 	return held
 }
 
-// emitOutput resolves a pane to its window and forwards the bytes. Only a pane
-// no tracked window owns is dropped: every pane in a layout has an emulator
-// behind it, the hidden ones under a zoom included, so they all stay current.
+// Every tracked pane streams, including panes hidden by zoom, so each emulator
+// remains current.
 //
 // The measurements take c.lifeCtx because that is what they measure: this
 // client's stream, for as long as it is attached.
@@ -1391,9 +1372,8 @@ func platformSupported() bool {
 	return buildSupportsTerminal && (runtime.GOOS == "darwin" || runtime.GOOS == "linux")
 }
 
-// parseWindowLine reads one listWindowsFormat row. A layout that does not
-// parse leaves the window with none rather than failing the row: the size
-// fields still place it, and the active pane still paints.
+// parseWindowLine tolerates a malformed layout because the size and active
+// pane still provide a paintable window.
 func parseWindowLine(line string) (Window, bool) {
 	fields := strings.SplitN(line, " ", 8)
 	if len(fields) < 7 || !validWindowID(fields[0]) {

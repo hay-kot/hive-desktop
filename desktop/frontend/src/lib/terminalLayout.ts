@@ -1,7 +1,3 @@
-// Geometry over a tmux window layout: where each pane's emulator goes inside
-// the window's grid, and where the dividers between them are. Everything here
-// is in cells; the renderer multiplies by the cell it measured.
-
 import type { PaneLayout, WindowState } from './terminalClient'
 
 export interface PaneRect {
@@ -58,10 +54,10 @@ export function windowPanes(state: Pick<WindowState, 'layout' | 'activePane'>): 
 }
 
 /**
- * The grid each pane renders at: its cell in the layout, or the whole window
- * for a zoomed active pane. A pane zoom is hiding keeps its layout size, which
- * is what tmux keeps its screen at. A window with no layout gives its active
- * pane the whole grid.
+ * The grid each pane renders at: its layout cell, or the whole window for the
+ * zoomed active pane. A pane hidden by zoom keeps its layout size because tmux
+ * keeps its screen at that size. Without a layout, the active pane uses the
+ * window grid.
  */
 export function paneGrids(state: Pick<WindowState, 'layout' | 'activePane' | 'zoomed' | 'width' | 'height'>): Map<string, { cols: number; rows: number }> {
   const grids = new Map<string, { cols: number; rows: number }>()
@@ -150,7 +146,6 @@ export function draggedExtent(divider: PaneDivider, position: number): number {
   return Math.min(Math.max(wanted, 1), divider.limit)
 }
 
-/** Whether a divider borders the pane, on either side. */
 export function dividerTouches(divider: PaneDivider, paneId: string): boolean {
   return divider.beforePanes.includes(paneId) || divider.afterPanes.includes(paneId)
 }

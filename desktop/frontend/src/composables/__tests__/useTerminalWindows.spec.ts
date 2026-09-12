@@ -336,9 +336,8 @@ function resizeHost(host: HTMLElement, cols: number, rows: number): void {
   })
 }
 
-// Mounts a window the way TerminalTab does: the window's box first, then a
-// host for each of its panes. One element stands in for both, since the fake
-// terminal opens nothing inside it.
+// The fake terminal creates no pane DOM, so one host stands in for both the
+// window box and each pane host.
 function mountWindow(session: ReturnType<typeof open>, windowId: string, host: HTMLElement = paneHost()): HTMLElement {
   session.attachTab(windowId, host)
   const tab = session.tabs.value.find((candidate) => candidate.windowId === windowId)
@@ -818,7 +817,6 @@ describe('useTerminalWindows', () => {
     xterm.FakeTerminal.instances[1].type('ls\r')
 
     expect(socket.sent).toHaveLength(1)
-    // The frame names the pane (%2), never the window.
     expect(Array.from(socket.sent[0])).toEqual([0x10, 2, 0x25, 0x32, 0x6c, 0x73, 0x0d])
     expect(session.status.value).toBe('live')
   })
@@ -854,8 +852,6 @@ describe('useTerminalWindows', () => {
     }
   })
 
-  // A split window's panes share the grid the window's box is worth, so the
-  // vote is the window's and a pane's own box must not stand in for it.
   it('votes from the window box, not a pane box', async () => {
     vi.useFakeTimers()
     const client = fakeClient()
@@ -1090,8 +1086,7 @@ describe('useTerminalWindows', () => {
     await flushPromises()
 
     mountWindow(session, '@1')
-    // An xterm that has not measured a cell yet answers 0×0, as the fit addon
-    // would see it.
+    // The fake uses xterm's pre-measurement 0×0 cell dimensions.
     xterm.FakeTerminal.instances[0]._core._renderService!.dimensions.css.cell = { width: 0, height: 0 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
@@ -1100,9 +1095,8 @@ describe('useTerminalWindows', () => {
     warn.mockRestore()
   })
 
-  // terminalGrid.ts reads a private xterm field the fakes reproduce, so a bump
-  // that moves it passes here and leaves the window never voting; the warning
-  // is what says so in the app.
+  // The fake mirrors a private xterm cell field; this warning catches upstream
+  // changes that would otherwise silently stop size votes.
   it('warns once when an opened, visible pane reports no cell', async () => {
     vi.useFakeTimers()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -1124,8 +1118,7 @@ describe('useTerminalWindows', () => {
     warn.mockRestore()
   })
 
-  // A hidden pane measures nothing, and that is not drift: every pooled
-  // session behind the shown one opens its panes under display:none.
+  // Pooled sessions legitimately expose 0×0 pane boxes under display:none.
   it('does not warn about a pane with no rendered box', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { session } = await attached()
@@ -1348,7 +1341,7 @@ describe('useTerminalWindows', () => {
     expect(socket.sent).toHaveLength(1)
     expect(Array.from(socket.sent[0])).toEqual([0x10, 2, 0x25, 0x37, 0x6d, 0x61, 0x6b, 0x65, 0x0d])
 
-    // Typed once: the reconcile behind the layout reports the window again.
+    // Reconciliation reports the window again; it must not replay the command.
     socket.onmessage?.({ data: windowFrame('renamed', '@3', { name: 'make', activePane: '%7' }) })
     expect(socket.sent).toHaveLength(1)
   })
@@ -1658,7 +1651,6 @@ describe('useTerminalWindows', () => {
   })
 
   describe('panes', () => {
-    // A left-right split of the attach fixture's first window.
     const split = (): PaneLayout => ({
       split: 'leftright', x: 0, y: 0, width: 213, height: 55,
       cells: [leaf('%1', 106, 55), leaf('%9', 106, 55, 107)],
@@ -1678,7 +1670,6 @@ describe('useTerminalWindows', () => {
       expect(left.term.resize).toHaveBeenLastCalledWith(106, 55)
       expect(right.term.resize).toHaveBeenCalledWith(106, 55)
 
-      // Output is routed by pane, active or not.
       socket.onmessage?.({ data: outputFrame('@1', '%1', 'left says') })
       socket.onmessage?.({ data: outputFrame('@1', '%9', 'right says') })
       const lastWrite = (term: { write: unknown }): string =>
@@ -1690,7 +1681,7 @@ describe('useTerminalWindows', () => {
     it('drops the pane a layout no longer holds and lands the keyboard on the new active pane', async () => {
       const { session, socket } = await attached()
       const host = mountWindow(session, '@1')
-      // The keyboard is in the window, which is what a kill-pane takes away.
+      // Focus starts inside the window to model the focus that pane removal displaces.
       const focused = document.createElement('input')
       host.append(focused)
       document.body.append(host)
@@ -1712,8 +1703,6 @@ describe('useTerminalWindows', () => {
       host.remove()
     })
 
-    // The keyboard follows tmux's active pane only when it was in the window
-    // to begin with; one on the tab strip or in the sidebar stays there.
     it('leaves the keyboard alone when the active pane moves under a keyboard elsewhere', async () => {
       const { session, socket } = await attached()
       const host = mountWindow(session, '@1')
@@ -1769,7 +1758,6 @@ describe('useTerminalWindows', () => {
       xterm.FakeTerminal.instances[0].type('x')
       expect(Array.from(socket.sent.at(-1)!)).toEqual([0x10, 2, 0x25, 0x31, 0x78])
 
-      // Reselecting the pane the keyboard is in costs no round trip.
       client.selectPane.mockClear()
       await session.selectPane('%1')
       expect(client.selectPane).not.toHaveBeenCalled()

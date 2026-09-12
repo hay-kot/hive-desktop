@@ -219,10 +219,8 @@ func streamToken(r *http.Request) (token string, fromSubprotocol bool) {
 	return "", false
 }
 
-// windowEventPayload carries the whole window on every kind, not just
-// "layout-changed": the renderer must draw at tmux's size and place each pane
-// where the layout puts it, or cursor-addressed output lands wrong, and a
-// reconcile reports one event per window whatever changed about it.
+// windowEventPayload carries a full snapshot so one reconcile event can update
+// layout, dimensions, and metadata atomically.
 type windowEventPayload struct {
 	Kind string `json:"kind"`
 	terminalWindow
@@ -298,8 +296,6 @@ func decodeOutputFrame(frame []byte) (windowID, paneID string, data []byte, err 
 	return windowID, paneID, data, nil
 }
 
-// clientFrame is one decoded client -> server frame. Every kind carries the
-// same pane-id header, so they differ only in what the payload means.
 type clientFrame struct {
 	kind   byte
 	paneID string

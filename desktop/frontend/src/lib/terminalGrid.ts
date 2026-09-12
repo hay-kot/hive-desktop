@@ -1,7 +1,5 @@
-// The cell an xterm renders at, read the way @xterm/addon-fit reads it. The
-// fit addon measures its own terminal's host, which is one pane's box; the
-// window's size vote needs the same cell against the whole window's box, and
-// pane placement needs it to turn layout cells into pixels.
+// @xterm/addon-fit measures one pane host. Window votes instead reuse xterm's
+// private cell metrics against the full window box.
 
 import type { Terminal } from '@xterm/xterm'
 
@@ -30,7 +28,6 @@ export function terminalCellSize(term: Terminal): CellSize | null {
   return { width: cell.width, height: cell.height }
 }
 
-/** How many whole cells fit a box. */
 export function proposeGrid(box: { width: number; height: number }, cell: CellSize): GridSize | null {
   if (!box.width || !box.height || !cell.width || !cell.height) return null
   const cols = Math.floor(box.width / cell.width)

@@ -63,8 +63,7 @@ type agentSessionView struct {
 	// output on the windowed tmux wire. Set only by Start/Resume, which
 	// attach; a listing read leaves it empty even for a live session.
 	WindowID string `json:"windowId"`
-	// PaneID is that window's active pane, which client frames on the tmux
-	// wire name. Set beside windowId.
+	// PaneID is WindowID's active pane at attach and frames client input.
 	PaneID string `json:"paneId"`
 	// Cols and Rows are tmux's own size for that window at attach — the grid
 	// the pane must open at, which may differ from the cols/rows voted. 0

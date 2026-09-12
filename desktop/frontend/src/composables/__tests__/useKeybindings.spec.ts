@@ -169,11 +169,9 @@ describe('terminalEscapeCombo', () => {
   })
 })
 
-// Where `mod` is Ctrl the escape form drops the stand-in Shift, so a default
-// spelled `mod+shift+<key>` is unreachable from a pane there and the catalog
-// gives those commands unshifted stand-ins (ctrlDefaultCombos). detectMac reads
-// navigator.userAgent, and happy-dom's names Darwin without "Mac", so a spec is
-// on a Ctrl platform unless it says otherwise.
+// terminalEscapeCombo drops Ctrl+Shift's stand-in Shift on Ctrl platforms, so
+// pane-escaping commands need unshifted defaults. happy-dom's Darwin user agent
+// lacks "Mac", so tests default to Ctrl unless overridden.
 describe('pane chords per platform', () => {
   function fakePlatform(mac: boolean): void {
     Object.defineProperty(navigator, 'userAgent', {
@@ -220,7 +218,6 @@ describe('pane chords per platform', () => {
     expect(kb.resolve('mod+m')).toBeNull()
   })
 
-  // The stand-in is what the settings list shows and what a reset restores.
   it('seeds, lists and restores the platform default', async () => {
     fakePlatform(false)
     const { useKeybindings } = await import('../useKeybindings')

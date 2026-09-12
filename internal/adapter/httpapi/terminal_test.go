@@ -269,8 +269,7 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 		"every window event carries tmux's size and layout, not only the layout-changed one")
 
 	// The size the renderer must draw at is tmux's, so it rides the frame the
-	// frontend already resizes on. A window whose layout has not been read yet
-	// carries none rather than an empty tree.
+	// frontend already resizes on.
 	frame, ok = encodeEvent(tmuxcc.WindowChanged{
 		Kind:   tmuxcc.WindowLayoutChanged,
 		Window: tmuxcc.Window{ID: "@3", Name: "shell", Width: 80, Height: 24, Zoomed: true},
