@@ -162,7 +162,15 @@ func openReleaseNotesPR(ctx context.Context, dryRun bool) error {
 	if err := runCommand(ctx, "git", "push", "--set-upstream", "origin", branch); err != nil {
 		return err
 	}
-	return runCommand(ctx, "gh", "pr", "create", "--title", subject, "--body", releaseNotesPRBody(entry))
+	if err := runCommand(ctx, "gh", "pr", "create", "--title", subject, "--body", releaseNotesPRBody(entry)); err != nil {
+		// The commit is pushed by this point, so the only step left is the one
+		// that failed. Say that, or the next run hits requireBranchIsFree and
+		// reads as though the whole command has to be undone.
+		return fmt.Errorf(
+			"%w\nthe release notes are committed and pushed to %s; open the pull request with:\n  gh pr create --title %q",
+			err, branch, subject)
+	}
+	return nil
 }
 
 // validatePromotedEntry is the gate on an entry a person edited. Promotion
@@ -187,7 +195,9 @@ func requireBranchIsFree(ctx context.Context, branch string) error {
 		return fmt.Errorf("check branch %s: %w", branch, err)
 	}
 	if strings.TrimSpace(local) != "" {
-		return fmt.Errorf("branch %s already exists locally; delete it or finish the release notes it holds", branch)
+		return fmt.Errorf(
+			"branch %s already exists locally: if its commit is pushed, `gh pr create` is the only step left; otherwise delete the branch and promote again",
+			branch)
 	}
 	remote, err := commandOutput(ctx, "git", "ls-remote", "--heads", "origin", "refs/heads/"+branch)
 	if err != nil {
@@ -199,11 +209,14 @@ func requireBranchIsFree(ctx context.Context, branch string) error {
 	return nil
 }
 
+// releaseNotesCommitBody keeps every interpolated value on a short line of its
+// own. A version and a count spliced into a pre-wrapped sentence push it past
+// the margin, and git does not reflow a commit body.
 func releaseNotesCommitBody(version releaseVersion, fragments int) string {
 	return fmt.Sprintf(
-		"The notes for %s were %d fragments in %s. This change collapses them into\none entry and deletes them.\n\n"+
-			"The app embeds the notes in the binary, so `release publish` refuses a stable\nversion that has no entry. This must land before the release.",
-		version, fragments, unreleasedDir())
+		"%s collects %d changelog fragments into one entry and deletes them.\n\n"+
+			"The app embeds the notes in the binary, so `release publish` refuses a\nstable version that has no entry. This must land before the release runs.",
+		version, fragments)
 }
 
 func releaseNotesPRBody(entry releasenotes.Entry) string {
