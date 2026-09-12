@@ -96,7 +96,7 @@ func TestFragmentSlugProducesAParseableName(t *testing.T) {
 		"`code` and ▸ symbols -- and punctuation!",
 		"123 numeric lead",
 	} {
-		name := releasenotes.FragmentName("20260912T135003", "added", fragmentSlug(note))
+		name := releasenotes.FragmentName("20260912T135003", fragmentSlug(note))
 		if err := releasenotes.CheckFragmentName(name); err != nil {
 			t.Errorf("fragment name for %q: %v", note, err)
 		}

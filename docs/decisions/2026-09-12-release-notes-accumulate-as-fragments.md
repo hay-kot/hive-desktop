@@ -30,11 +30,17 @@ as much as the hand-written one it replaces.
 ## Decision
 
 **The draft is a directory.** `changelog/unreleased/` holds one file per
-change, named `<YYYYMMDDThhmmss>-<kind>-<slug>.md`, and there is no `next.md`.
+change, named `<YYYYMMDDThhmmss>-<slug>.md`, and there is no `next.md`.
 Nothing allocates the name: the timestamp is UTC so fragments written in
 different timezones still sort into the order they were written, and the slug
 comes from the note. A collision needs two branches to write the same note in
 the same second.
+
+**The filename carries nothing the renderer reads.** It is an ordering key and
+a unique name; the section a note belongs to is `kind` in its frontmatter, and
+that is the only copy. Putting the kind in the name as well would make a diff
+say more, at the price of a rule that keeps two spellings of one fact from
+drifting apart, which is not a trade worth making for a file listing.
 
 **The roll-up is not a file.** `go:embed` takes the fragment directory and
 `Load` renders the draft entry in memory, so no generated artifact is
@@ -44,12 +50,6 @@ over. The rendered body is the same markdown the hand-written draft carried —
 filename within a section — which is what lets promotion keep moving bytes
 rather than re-deriving them. `Entry`, `Entries.Draft` and everything
 downstream of them are unchanged.
-
-**The kind is written twice**, in the filename and in the header, and
-`parseFragment` rejects a fragment where they disagree. The filename copy is
-what makes a diff readable without opening the file; the check is what keeps
-it honest, the same bargain `parseEntry` already strikes between a release
-entry's filename and its `version`.
 
 **`release changelog new` writes the file** so the name is never typed, the
 way `adr new` does. `mise run changelog:new -- --kind added "..."`.
@@ -83,6 +83,7 @@ it is now written at promotion with the rest of the curation.
   `unreleased/` at all, which `Fragments` reads as "no draft".
 - A fragment is not reviewable as a rendered changelog. What a pull request
   shows is one file; what the release says is only assembled at build time.
-  `TestChangelogParses` covers the parse, not the reading.
+  `TestChangelogParses` covers the parse, not the reading. A file listing does
+  not say which section a note lands in either — that is in the file.
 - Notes for work that never shipped are deleted by deleting a file, rather than
   by editing a bullet out of a shared one.

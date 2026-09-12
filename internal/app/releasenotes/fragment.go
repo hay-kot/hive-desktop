@@ -45,31 +45,27 @@ type Fragment struct {
 	Body string
 }
 
-var fragmentNameRE = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}-([a-z]+)-[a-z0-9]+(?:-[a-z0-9]+)*\.md$`)
+var fragmentNameRE = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}-[a-z0-9]+(?:-[a-z0-9]+)*\.md$`)
 
 // FragmentStampFormat is the layout a fragment name starts with. Format it in
 // UTC: fragments written on machines in different timezones have to sort into
 // the order they were written.
 const FragmentStampFormat = "20060102T150405"
 
-func FragmentName(stamp, kind, slug string) string {
-	return fmt.Sprintf("%s-%s-%s.md", stamp, kind, slug)
+func FragmentName(stamp, slug string) string {
+	return fmt.Sprintf("%s-%s.md", stamp, slug)
 }
 
 type fragmentHeader struct {
 	Kind string `yaml:"kind"`
 }
 
-// parseFragment reads one unreleased change. The kind appears in both the
-// filename and the header so that a fragment's section is visible in a diff
-// without opening it; they are checked against each other here, the same way
-// a release entry's version is checked against its filename.
+// parseFragment reads one unreleased change. The filename carries nothing but
+// ordering and uniqueness; everything the renderer needs is in the header.
 func parseFragment(filename string, raw []byte) (Fragment, error) {
-	match := fragmentNameRE.FindStringSubmatch(filename)
-	if match == nil {
+	if err := CheckFragmentName(filename); err != nil {
 		return Fragment{}, fmt.Errorf(
-			"changelog %s/%s: name must be <YYYYMMDDThhmmss>-<kind>-<slug>.md; write one with `mise run changelog:new`",
-			UnreleasedDir, filename)
+			"changelog %s/%s: %w; write one with `mise run changelog:new`", UnreleasedDir, filename, err)
 	}
 
 	header, body, err := splitFrontmatter(raw)
@@ -83,10 +79,6 @@ func parseFragment(filename string, raw []byte) (Fragment, error) {
 	kind, ok := ParseKind(fm.Kind)
 	if !ok {
 		return Fragment{}, fmt.Errorf("changelog %s/%s: kind %q is not one of %v", UnreleasedDir, filename, fm.Kind, Kinds)
-	}
-	if string(kind) != match[1] {
-		return Fragment{}, fmt.Errorf(
-			"changelog %s/%s: kind %q does not match its filename", UnreleasedDir, filename, fm.Kind)
 	}
 
 	body = strings.TrimSpace(body)
@@ -150,7 +142,7 @@ func bullet(body string) string {
 // against a copy of the pattern.
 func CheckFragmentName(name string) error {
 	if !fragmentNameRE.MatchString(name) {
-		return fmt.Errorf("%q is not <YYYYMMDDThhmmss>-<kind>-<slug>.md", name)
+		return fmt.Errorf("%q is not <YYYYMMDDThhmmss>-<slug>.md", name)
 	}
 	return nil
 }

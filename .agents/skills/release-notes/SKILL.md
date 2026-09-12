@@ -86,9 +86,9 @@ poll tick.
 NOTE
 ```
 
-The command prints the path it wrote. Read it back and edit the body if the
-wording needs work; leave the `kind` header and the filename alone, since a
-kind that disagrees with its filename fails the parse.
+The command prints the path it wrote. Read it back and edit the body or the
+`kind` header if either needs work. The filename is only an ordering key, so
+it does not have to match what the note ends up saying -- leave it alone.
 
 ## 4. Write it well
 

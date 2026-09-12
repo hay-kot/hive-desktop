@@ -152,8 +152,7 @@ func newFragment(kind releasenotes.Kind, body string) (string, error) {
 		return "", fmt.Errorf("note %q has no words to name the file after", body)
 	}
 
-	name := releasenotes.FragmentName(
-		time.Now().UTC().Format(releasenotes.FragmentStampFormat), string(kind), slug)
+	name := releasenotes.FragmentName(time.Now().UTC().Format(releasenotes.FragmentStampFormat), slug)
 	path := filepath.Join(unreleasedDir(), name)
 	contents := fmt.Sprintf("---\nkind: %s\n---\n\n%s\n", kind, body)
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
