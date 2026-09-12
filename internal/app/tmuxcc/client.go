@@ -200,8 +200,8 @@ type Client struct {
 
 // Attach spawns `tmux -C attach -t <slug>` over the process seam and runs the
 // attach sequence: handshake, client size, window enumeration, then a
-// capture-pane first paint per window. Live output produced during that
-// sequence is buffered and replayed behind each window's snapshot.
+// capture-pane first paint per pane. Live output produced during that
+// sequence is buffered and replayed behind each pane's snapshot.
 //
 // ctx bounds the handshake and the attach commands only; lifetime bounds the
 // client's own goroutines, which outlive the request that opened them.
