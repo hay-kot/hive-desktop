@@ -25,8 +25,8 @@ whose GitHub step failed after the upload.
 binary, so an entry written after the build would describe a release that cannot
 display it (ADR release-notes-ship-inside-the-binary) — which is why `prepare`
 and `publish` refuse a stable version with none. A dev or beta release needs no
-changelog work at all: it publishes `internal/app/releasenotes/changelog/next.md`
-as it stands. Step 4 below covers what to do when `prepare` reports an entry
+changelog work at all: it publishes the fragments in
+`internal/app/releasenotes/changelog/unreleased/` as they stand. Step 4 below covers what to do when `prepare` reports an entry
 missing.
 
 ## Arguments
@@ -75,14 +75,15 @@ Reject missing or unknown channels instead of guessing.
    here. Promote the draft, stop, and tell the operator to land it first:
 
    ```bash
-   mise run changelog:promote -- <stable|version>   # next.md -> <version>.md
+   mise run changelog:promote -- <stable|version>   # unreleased/ -> <version>.md
    ```
 
-   Promotion moves the accumulated draft's bytes unchanged and stamps the
-   version and date, so what dev and beta users have been reading is what the
-   stable release says. Review the result before it lands — anything reverted
-   during the cycle has to be pruned, and the `summary` line is what the What's
-   New toast shows. It lands through a normal PR like any other change; restart
+   Promotion collapses the accumulated fragments into the entry, stamps the
+   version and date, and deletes them. **The result is a draft, not the final
+   entry**: it is the sum of every PR since the last release, so consolidate
+   near-duplicate bullets into one note each, prune anything reverted during the
+   cycle, and write the `summary` line — it is empty, and it is what the What's
+   New toast shows (ADR release-notes-accumulate-as-fragments). It lands through a normal PR like any other change; restart
    this procedure from step 2 once it is on `main`.
 
    Dev and beta releases never reach this step: they are not gated, and they

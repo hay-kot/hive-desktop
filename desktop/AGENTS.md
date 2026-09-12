@@ -121,11 +121,15 @@ store works live and silently fails otherwise.
 
 ## Release notes
 
-A user-visible change appends its line to
-`internal/app/releasenotes/changelog/next.md` **in the PR that earns it**.
-Prereleases publish that draft as it stands; a stable release promotes it to
-`changelog/<version>.md`, and the release gate refuses a stable version with no
-entry (ADR release-notes-ship-inside-the-binary).
+A user-visible change adds a fragment to
+`internal/app/releasenotes/changelog/unreleased/` **in the PR that earns it**,
+with `mise run changelog:new -- --kind <added|changed|fixed> "..."`. One file
+per change is what keeps concurrent branches from conflicting over the
+changelog (ADR release-notes-accumulate-as-fragments). The fragments render as
+the draft; prereleases publish it as it stands, and a stable release promotes
+it to `changelog/<version>.md` -- which is also where it is consolidated and
+given its summary. The release gate refuses a stable version with no entry
+(ADR release-notes-ship-inside-the-binary).
 
 ## Settings and environment
 

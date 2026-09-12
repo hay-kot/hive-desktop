@@ -9,7 +9,8 @@ import (
 
 // TestChangelogParses is the gate that keeps a malformed entry from shipping:
 // every committed release entry must have a well-formed header whose version
-// matches its filename, and there is at most one draft.
+// matches its filename, every unreleased fragment must parse, and there is at
+// most one draft.
 func TestChangelogParses(t *testing.T) {
 	entries, err := Load()
 	require.NoError(t, err)
@@ -144,7 +145,7 @@ func TestParseEntryRejectsMismatchedFilename(t *testing.T) {
 func TestParseEntryRejectsAPrerelease(t *testing.T) {
 	_, err := parseEntry("1.2.0-dev.3.md", []byte("---\nversion: 1.2.0-dev.3\ndate: 2026-01-01\n---\n\nnotes\n"))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), DraftFile)
+	assert.Contains(t, err.Error(), UnreleasedDir)
 }
 
 func TestParseEntryRequiresAValidHeader(t *testing.T) {
@@ -171,37 +172,4 @@ func TestParseEntryReadsSummaryAndBody(t *testing.T) {
 	assert.Equal(t, "A short line.", entry.Summary)
 	assert.Equal(t, "## Added\n\n- a thing", entry.Body)
 	assert.Equal(t, 2026, entry.Date.Year())
-}
-
-// The draft's header is optional so a pull request can land its changelog line
-// by appending a bullet, without editing frontmatter it does not own.
-func TestParseDraftAcceptsABareBody(t *testing.T) {
-	entry, err := parseDraft([]byte("- a thing\n"))
-	require.NoError(t, err)
-
-	assert.True(t, entry.Draft)
-	assert.Empty(t, entry.Version)
-	assert.True(t, entry.Date.IsZero())
-	assert.Equal(t, "- a thing", entry.Body)
-}
-
-func TestParseDraftReadsItsSummary(t *testing.T) {
-	entry, err := parseDraft([]byte("---\nsummary: A short line.\n---\n\n- a thing\n"))
-	require.NoError(t, err)
-
-	assert.Equal(t, "A short line.", entry.Summary)
-	assert.Equal(t, "- a thing", entry.Body)
-}
-
-// The header-only file a promotion leaves behind has to read as saying
-// nothing, because that emptiness is what Load drops the draft on — and that
-// drop is what lets every reader treat "there is a draft" as "there is
-// something to say".
-func TestParseDraftOfAPromotedFileSaysNothing(t *testing.T) {
-	entry, err := parseDraft([]byte("---\nsummary: \"\"\n---\n"))
-	require.NoError(t, err)
-
-	assert.True(t, entry.Draft)
-	assert.Empty(t, entry.Summary)
-	assert.Empty(t, entry.Body)
 }

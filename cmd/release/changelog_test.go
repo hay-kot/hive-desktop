@@ -70,3 +70,44 @@ func TestReleaseNotesBodyOmitsAnAbsentSummary(t *testing.T) {
 		t.Fatalf("body = %q, want %q", body, want)
 	}
 }
+
+// The slug is what makes two fragments written in the same second distinct, and
+// what makes a file listing readable, so it has to survive the markdown a note
+// opens with.
+func TestFragmentSlug(t *testing.T) {
+	for note, want := range map[string]string{
+		"**A notify terminal node**, so a feed can notify on new items.": "a-notify-terminal-node-so-a-feed",
+		"**Refresh now fetches.**":                                       "refresh-now-fetches",
+		"`profiles.order` is read":                                       "profiles-order-is-read",
+		"Settings ▸ Terminal opens":                                      "settings-terminal-opens",
+		"one":                                                            "one",
+	} {
+		if got := fragmentSlug(note); got != want {
+			t.Errorf("fragmentSlug(%q) = %q, want %q", note, got, want)
+		}
+	}
+}
+
+// A name the tool builds has to be a name the parser accepts, or a fragment
+// lands that no build can read.
+func TestFragmentSlugProducesAParseableName(t *testing.T) {
+	for _, note := range []string{
+		"**A thing.** It does something.",
+		"`code` and ▸ symbols -- and punctuation!",
+		"123 numeric lead",
+	} {
+		name := releasenotes.FragmentName("20260912T135003", "added", fragmentSlug(note))
+		if err := releasenotes.CheckFragmentName(name); err != nil {
+			t.Errorf("fragment name for %q: %v", note, err)
+		}
+	}
+}
+
+func TestNewFragmentRejectsANoteWithNoWords(t *testing.T) {
+	if _, err := newFragment(releasenotes.KindAdded, "   "); err == nil {
+		t.Fatal("expected an empty note to be rejected")
+	}
+	if _, err := newFragment(releasenotes.KindAdded, "***"); err == nil {
+		t.Fatal("expected a note with no words to be rejected")
+	}
+}

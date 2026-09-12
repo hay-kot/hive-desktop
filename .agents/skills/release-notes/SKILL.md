@@ -1,22 +1,24 @@
 ---
 name: release-notes
-description: Write the release-notes line a branch owes to internal/app/releasenotes/changelog/next.md. Use when asked to update the changelog or release notes, or to check whether the work on this branch earns an entry before the PR goes up.
+description: Write the release-notes line a branch owes to internal/app/releasenotes/changelog/unreleased/. Use when asked to update the changelog or release notes, or to check whether the work on this branch earns an entry before the PR goes up.
 ---
 
-# Update the release notes draft
+# Add a release note
 
-A user-visible change appends its line to
-`internal/app/releasenotes/changelog/next.md` **in the pull request that earns
-it** (`desktop/AGENTS.md`). The draft is what every dev and beta build embeds
-and shows, and a stable release ships its bytes unchanged after
-`mise run changelog:promote` -- so what you write here is the product's
-changelog, not a note to a future maintainer.
+A user-visible change adds a fragment to
+`internal/app/releasenotes/changelog/unreleased/` **in the pull request that
+earns it** (`desktop/AGENTS.md`). The fragments are the draft every dev and
+beta build embeds and shows, so what you write here is the product's changelog,
+not a note to a future maintainer.
 
-**Only ever edit `next.md`.** A `changelog/<version>.md` is written by
-promotion during a release, on `main`, by `cmd/release`. Writing one by hand on
-a feature branch is wrong even when the version looks obvious, and a file
-naming a prerelease is rejected at parse time
-(ADR [release-notes-ship-inside-the-binary](../../../docs/decisions/2026-08-06-release-notes-ship-inside-the-binary.md)).
+One file per change is what keeps concurrent branches from conflicting over the
+changelog, so **never collapse two branches' notes into one file and never
+create the file by hand** -- `changelog:new` builds the name
+(ADR [release-notes-accumulate-as-fragments](../../../docs/decisions/2026-09-12-release-notes-accumulate-as-fragments.md)).
+
+A `changelog/<version>.md` is written by promotion during a release, on `main`,
+by `cmd/release`. Writing one on a feature branch is wrong even when the version
+looks obvious, and a file naming a prerelease is rejected at parse time.
 
 ## 1. Find what the branch changed
 
@@ -29,11 +31,11 @@ The commit bodies carry the intent, which is most of the line already. For a
 PR that is not the checked-out branch, `gh pr diff <number>` and
 `gh pr view <number>`.
 
-## 2. Decide whether it earns a line
+## 2. Decide whether it earns a note
 
 The test is whether a user could notice without reading the diff.
 
-Earns a line:
+Earns a note:
 
 - a capability that did not exist -- a view, an overlay, a connector, a source,
   a node type, an MCP tool, a palette scope, a shortcut;
@@ -50,63 +52,73 @@ Earns nothing:
 - `docs/`, ADRs, `AGENTS.md`, agent skills;
 - a `hivecore` vendor sync or a dependency bump that changes nothing visible;
 - a fix to something that never reached a build a user runs -- if the bug was
-  introduced and fixed inside the same draft cycle, correct or delete the line
-  that described it instead of adding a "Fixed" entry beneath it.
+  introduced and fixed inside the same draft cycle, correct or delete the
+  fragment that described it instead of adding a "Fixed" note beneath it.
 
-When in doubt, look at what is already in the file: it is consolidated per
-capability, not per pull request.
+## 3. Add to an existing fragment, or write a new one
 
-## 3. Place it
+Read what is already unreleased before writing:
 
-The draft uses `## Added`, `## Changed`, `## Fixed`, in that order. Read the
-file first and use the headings it has; add a missing one in that order rather
-than inventing a fourth.
+```bash
+ls internal/app/releasenotes/changelog/unreleased/
+```
 
-**Prefer extending an existing bullet to adding a near-duplicate.** A feature
-that landed over five PRs is one entry describing what the app now does, not
-five entries describing five days of work. If a bullet already covers the
-surface you touched, rewrite it to include the new behaviour.
+**If a fragment already describes the exact surface you touched, edit that
+fragment** so the release says what the app now does rather than listing five
+days of work. A feature that lands over several PRs is one note. Two branches
+editing the same fragment is a real conflict worth resolving by hand; that is
+the trade, and it is rare.
 
-If the branch reverts or removes something the draft describes, edit that
-bullet out. Promotion moves the bytes unchanged, so a stale draft line ships as
-a stable release note.
+Otherwise write a new one:
 
-## 4. Write it
+```bash
+mise run changelog:new -- --kind added "**A notify terminal node**, so a feed can notify on new items."
+```
+
+`--kind` is `added`, `changed`, or `fixed` -- the section it renders under. For
+a note that spans lines, pipe it on stdin instead of quoting it:
+
+```bash
+mise run changelog:new -- --kind fixed <<'NOTE'
+**Refresh now fetches.** The feed's Refresh button and `r` re-read the
+database and nothing else, so a source was only ever as fresh as the last
+poll tick.
+NOTE
+```
+
+The command prints the path it wrote. Read it back and edit the body if the
+wording needs work; leave the `kind` header and the filename alone, since a
+kind that disagrees with its filename fails the parse.
+
+## 4. Write it well
 
 This is product copy a user reads inside the app. **The Simplified Technical
 English rule in `CONTRIBUTING.md` applies to commit and PR text, not here** --
-write these the way the surrounding entries are written.
+write these the way the committed entries in `changelog/*.md` are written.
 
-Follow the shape already in the file:
-
-- open with the thing in bold, then say what it does and where it is:
+- one fragment is one bullet: open with the thing in bold, then say what it
+  does and where it is:
   `**A notify terminal node**, so a feed can notify on new items.`
 - present tense, addressed to the user, describing the app rather than the
   work: "the palette knows where you are", never "we added" or "this PR";
 - name the surface a user can find (`Settings ▸ Terminal`, the command palette,
   the Code view's session tree) and config keys as they are written
   (`profiles.order` in `settings.yaml`);
-- for a `Changed` entry, say what a user has to do differently, and for a
-  `Fixed` entry, describe the symptom, not the cause;
+- for a `changed` note, say what a user has to do differently, and for a
+  `fixed` note, describe the symptom, not the cause;
 - mark an unfinished area `(experimental)` the way Terminal mode and Chats are;
 - never name a Go package, a Vue component, an ADR, an issue, or a PR number.
 
-## 5. The `summary` frontmatter
+Do not write a release summary. The draft has no `summary`: it describes a
+whole release, which no single change can write, so promotion writes it.
 
-One sentence, and the only frontmatter key the draft carries. It is what the
-What's New toast shows and what a channel manifest carries for a release the
-user has not installed yet, so it describes the **whole accumulated draft**,
-not your line. Leave it alone unless the branch adds something big enough to
-change the release's headline; if you do rewrite it, keep it one sentence.
-
-Never add `version:` or `date:` to the draft. Promotion stamps both.
-
-## 6. Verify
+## 5. Verify
 
 ```bash
 go test ./internal/app/releasenotes/...
 ```
 
-`TestChangelogParses` reads the embedded file, so a broken header, a stray
-frontmatter key, or an unterminated `---` fails there rather than at release
-time. It runs inside `mise run check`, which the pre-push hook already runs.
+`TestChangelogParses` and `TestCommittedFragmentsParse` read the embedded
+files, so a broken header, an unknown kind, a name the tool did not build, or
+an empty body fails there rather than at release time. It runs inside
+`mise run check`, which the pre-push hook already runs.
