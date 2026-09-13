@@ -29,6 +29,13 @@ const (
 	// cover it (ADR ephemeral-popup-terminals point 4).
 	PTYStreamPath = "/api/terminal/pty/stream"
 
+	// ptyWireVersion is this wire's own, deliberately not terminalWireVersion:
+	// the two sockets carry different frames and change on their own schedules,
+	// and sharing the constant made a tmux-wire change refuse every pop-up
+	// handshake. It pins POPUP_WIRE_VERSION in
+	// desktop/frontend/src/lib/popupTerminalClient.ts; move the two together.
+	ptyWireVersion = "1"
+
 	popupFrameOutput byte = 0x00
 	popupFrameExit   byte = 0x01
 	popupFrameInput  byte = 0x10
@@ -54,7 +61,7 @@ type popupExitPayload struct {
 
 func (h *popupTerminalStream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	if query.Get("v") != terminalWireVersion {
+	if query.Get("v") != ptyWireVersion {
 		http.Error(w, "unsupported terminal wire version", http.StatusBadRequest)
 		return
 	}

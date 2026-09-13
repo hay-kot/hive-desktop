@@ -114,8 +114,8 @@ func TestPTYStreamRejectsBadHandshakes(t *testing.T) {
 	}
 
 	assert.Equal(t, http.StatusBadRequest, dial(t, h.popupStreamURL("t1", testToken, "999")), "a stale wire version fails before the upgrade")
-	assert.Equal(t, http.StatusUnauthorized, dial(t, h.popupStreamURL("t1", "wrong", terminalWireVersion)), "a wrong token fails before the upgrade")
-	assert.Equal(t, http.StatusNotFound, dial(t, h.popupStreamURL("no-such-terminal", testToken, terminalWireVersion)), "an id with no terminal fails before the upgrade")
+	assert.Equal(t, http.StatusUnauthorized, dial(t, h.popupStreamURL("t1", "wrong", ptyWireVersion)), "a wrong token fails before the upgrade")
+	assert.Equal(t, http.StatusNotFound, dial(t, h.popupStreamURL("no-such-terminal", testToken, ptyWireVersion)), "an id with no terminal fails before the upgrade")
 }
 
 // The whole path a pop-up actually takes: open over HTTP, stream over the
@@ -136,7 +136,7 @@ func TestPTYStreamOpensAndEchoesOverTheWire(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	conn, resp, err := websocket.Dial(ctx, h.popupStreamURL(term.ID, testToken, terminalWireVersion), nil) //nolint:bodyclose // closed below
+	conn, resp, err := websocket.Dial(ctx, h.popupStreamURL(term.ID, testToken, ptyWireVersion), nil) //nolint:bodyclose // closed below
 	// A completed upgrade hands back a 101 whose body is nil.
 	if resp != nil && resp.Body != nil {
 		defer func() { _ = resp.Body.Close() }()
