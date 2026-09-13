@@ -21,6 +21,7 @@ import (
 	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/rss"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
@@ -62,7 +63,7 @@ func testGiteaFetchers(t *testing.T) *gitea.Fetchers {
 func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), rss.NewFetchers(zerolog.Nop()), execenv.NewResolver(execenv.Options{}))
 
 	for _, connectorType := range sources.Types() {
 		factory, ok := factories[connectorType]
@@ -84,7 +85,7 @@ func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), rss.NewFetchers(zerolog.Nop()), execenv.NewResolver(execenv.Options{}))
 
 	for _, connectorType := range sources.Types() {
 		descriptor, _ := sources.Lookup(connectorType)
@@ -133,7 +134,7 @@ func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 func TestPullFactoriesCarryTheConfiguredInterval(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), testGiteaFetchers(t), rss.NewFetchers(zerolog.Nop()), execenv.NewResolver(execenv.Options{}))
 	const floor = 90 * time.Minute
 
 	for _, connectorType := range sources.Types() {
@@ -163,7 +164,7 @@ func TestPullFactoriesCarryTheConfiguredInterval(t *testing.T) {
 func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(nil, nil, nil, nil, execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(nil, nil, nil, nil, nil, execenv.NewResolver(execenv.Options{}))
 
 	_, ok := factories[ghsource.Descriptor.Type]
 	assert.False(t, ok, "the GitHub connector is wired without a fetcher to construct it over")
@@ -199,6 +200,8 @@ func seedValidConfig(config connector.Config) error {
 	case *gitea.Config:
 		c.Credential = gitea.Provider + "/gitea.example.com-octocat"
 		c.Kind = gitea.KindSearch
+	case *rss.Config:
+		c.URL = "https://example.com/feed.xml"
 	default:
 		return fmt.Errorf("no valid config seed for %T; add one alongside the connector", config)
 	}

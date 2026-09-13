@@ -23,7 +23,8 @@ test('lists one card per registered connector, with the mock account connected',
   await expect(page.getByTestId('integration-exec')).toBeVisible()
   await expect(page.getByTestId('integration-posthog')).toBeVisible()
   await expect(page.getByTestId('integration-gitea')).toBeVisible()
-  await expect(page.locator('[data-testid^="integration-"][data-testid$="-status"]')).toHaveCount(6)
+  await expect(page.getByTestId('integration-rss')).toBeVisible()
+  await expect(page.locator('[data-testid^="integration-"][data-testid$="-status"]')).toHaveCount(7)
 
   // The mock connection stores github/octocat, so the card reports the account
   // rather than a bare "Connected".
@@ -33,6 +34,10 @@ test('lists one card per registered connector, with the mock account connected',
   // A connector with no credential is not "not connected" — the webhook
   // listener is local ingress and reports its own runtime state instead.
   await expect(page.getByTestId('integration-webhook-status')).not.toHaveText('Not connected')
+
+  // Nor is a connector that reads a public URL: the RSS card is listed because
+  // the screen projects the registry, and it has no account to report.
+  await expect(page.getByTestId('integration-rss-status')).toHaveText('Local')
 })
 
 test('the removed placeholder integrations are gone', async ({ page }) => {

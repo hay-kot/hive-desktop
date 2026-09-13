@@ -13,6 +13,7 @@ Add sources in the flow editor. Connect provider accounts under **Settings ▸ I
 | Gitea and Forgejo | Beta | Filtered search and notifications |
 | Grafana | Stable | Managed alerts, IRM alerts, and Prometheus metrics |
 | PostHog | Experimental | Error tracking and insight alerts |
+| RSS feeds | Experimental | Entries from an RSS, Atom, or JSON Feed URL |
 | Webhooks | Stable | JSON sent to a local endpoint |
 | Commands and CLIs | Stable | JSON returned by a shell command |
 
@@ -62,6 +63,26 @@ Connect a PostHog instance and personal API key, then select a project. Error tr
 - `sources.posthog_alerts` for insight alerts.
 
 Both PostHog source types are experimental.
+
+## RSS feeds
+
+An RSS source reads one feed URL. RSS, Atom, and JSON Feed all use the same field; Hive reads the document, not the file extension. Use `sources.rss` in a flow.
+
+The feed must be readable without credentials. This source sends no token and no basic auth.
+
+Set these fields:
+
+- `url`, the feed document;
+- `limit`, how many of the newest entries to ingest per fetch (50 by default, 500 at most);
+- `interval`, the shortest time between fetches. Set one. A feed publishes far less often than the poll tick runs.
+
+Each entry becomes an item with kind `Post`. Its title, link, author, categories, and dates come from the feed; its body is the entry summary, reduced to text. The feed's own title is shown above the entry. Actions target these items with `applies_to: [Post]`.
+
+Hive sends the feed's `ETag` on every fetch, so an unchanged feed costs one request and no parse.
+
+A feed is a window, not a list: publishers drop old entries as they add new ones. Hive does not archive an entry that scrolls off the end, because that means the entry is old, not finished. Adding a node ingests everything still in the window on the first tick, so point a notify node at a busy feed only if you want that.
+
+This source is experimental.
 
 ## Webhooks
 

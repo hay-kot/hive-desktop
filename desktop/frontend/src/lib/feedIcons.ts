@@ -75,6 +75,9 @@ export const defaultWebhookSourceIcon = 'webhook'
 // The same, for a sources.exec node's items.
 export const defaultExecSourceIcon = 'terminal'
 
+// The same, for a sources.rss node's items.
+export const defaultRssSourceIcon = 'rss'
+
 const componentByKey = new Map(feedIconOptions.map((o) => [o.value, o.component]))
 
 /** True when key is one of the supported feed icons. */
