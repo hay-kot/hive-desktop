@@ -20,9 +20,7 @@ type fetcher interface {
 // source emits one feed's newest entries.
 //
 // What it emits is a window, not the whole feed: a publisher drops old entries
-// as new ones arrive, and `limit` cuts it further. That is why the connector
-// confirms no absence — an entry that left the window is old, and archiving it
-// would say it was resolved.
+// as new ones arrive, and `limit` cuts it further.
 type source struct {
 	id      string
 	topic   string

@@ -20,7 +20,6 @@ var fetchCounter = observe.Must(meter.Int64Counter(
 	metric.WithDescription("Feed fetches by outcome."),
 ))
 
-// The outcomes a fetch can end in.
 const (
 	resultModified     = "modified"
 	resultNotModified  = "not_modified"

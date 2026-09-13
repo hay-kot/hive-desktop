@@ -23,8 +23,8 @@ const SourceKind = "rss"
 // `applies_to: [Post]` targets one whichever feed it came from.
 const ItemKind = "Post"
 
-// Descriptor declares the connector. No Provider: the first cut reads public
-// feeds only, so there is no account for the app to hold or connect.
+// Descriptor declares the connector. No Provider: it reads public feeds only,
+// so there is no account for the app to hold or connect.
 var Descriptor = connector.Descriptor{
 	Type:      "sources.rss",
 	Title:     "RSS feed",

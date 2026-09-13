@@ -30,8 +30,7 @@ const maxLabels = 20
 // The cache holds these rather than a parsed document, so what a 304 re-emits
 // is exactly what the last 200 emitted.
 type Entry struct {
-	// Key is the entry's identity across fetches: its GUID or Atom id, else
-	// its link, else a digest of the fields that stand in for one.
+	// Key is the entry's identity across fetches.
 	Key string
 	// Payload is the canonical item JSON, built at parse time because a 304
 	// re-emits it unchanged.
@@ -331,7 +330,6 @@ func markdownLink(text, href string) string {
 	return "[" + strings.ReplaceAll(text, "]", "\\]") + "](" + href + ")"
 }
 
-// collapse squeezes whitespace and cuts to max runes.
 func collapse(text string, max int) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if utf8.RuneCountInString(text) <= max {
