@@ -87,9 +87,9 @@ func TestAgentControlPlaneRequiresTheBearerToken(t *testing.T) {
 		require.Error(t, err)
 		return 0
 	}
-	assert.Equal(t, http.StatusUnauthorized, dial(h.popupStreamURL("agentws-1", "wrong", terminalWireVersion)),
+	assert.Equal(t, http.StatusUnauthorized, dial(h.popupStreamURL("agentws-1", "wrong", ptyWireVersion)),
 		"the shared PTY stream a session rides enforces the same token")
-	assert.Equal(t, http.StatusUnauthorized, dial(h.popupStreamURL("agentws-1", "", terminalWireVersion)),
+	assert.Equal(t, http.StatusUnauthorized, dial(h.popupStreamURL("agentws-1", "", ptyWireVersion)),
 		"no token fails the stream the same way")
 }
 
