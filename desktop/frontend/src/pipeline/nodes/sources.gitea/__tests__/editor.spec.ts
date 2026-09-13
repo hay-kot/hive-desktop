@@ -15,7 +15,7 @@ vi.mock('@wailsio/runtime', () => ({
 
 function connectedAccounts(...accounts: string[]) {
   mocks.List.mockResolvedValue([
-    { type: 'sources.gitea', title: 'Gitea source', stability: 'beta', mode: 'pull', provider: 'gitea', accounts, envOverride: false },
+    { type: 'sources.gitea', title: 'Gitea source', stability: 'stable', mode: 'pull', provider: 'gitea', accounts, envOverride: false },
   ])
 }
 

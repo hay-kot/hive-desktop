@@ -60,6 +60,12 @@ Check the sender's result:
 
 **Settings ▸ Integrations ▸ Webhooks** shows the current URL and lets you set a fixed port. The webhook node editor shows the most recent accepted delivery.
 
+## A feed source reports an error
+
+Open Activity and read the error. The usual cause is a URL that points at a page instead of at its feed document. Look for a `<link rel="alternate" type="application/rss+xml">` tag in the page source, or try `/feed`, `/rss`, or `/atom.xml`.
+
+Hive also fails the fetch when the feed asks for credentials, answers a non-2xx status, or is larger than 8 MiB. A failed fetch changes nothing, so the entries already in the feed stay where they are.
+
 ## The terminal does not fill its pane
 
 Another tmux client may be setting the shared window size. Detach or resize that client, or add this to `tmux.conf`:

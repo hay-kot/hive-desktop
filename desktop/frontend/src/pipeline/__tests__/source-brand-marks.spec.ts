@@ -23,7 +23,7 @@ const sourceTypes = Object.values(byType).filter((def) => def.role === 'source')
 
 describe('source brand marks', () => {
   it('covers every source node type — each is either a known brand or a deliberate generic', () => {
-    const generic = ['sources.exec', 'sources.webhook']
+    const generic = ['sources.exec', 'sources.rss', 'sources.webhook']
     for (const def of sourceTypes) {
       const kind = sourceKindForNodeType(def.type)
       expect(kind, `${def.type} has no sourceKind`).toBeTruthy()
@@ -55,10 +55,10 @@ describe('source brand marks', () => {
     expect(byBrand.get('posthog')?.size).toBe(1)
   })
 
-  // The two protocol sources have no vendor behind them, so they keep the
-  // generic hue rather than borrowing a brand's.
+  // The protocol sources have no vendor behind them, so they keep the generic
+  // hue rather than borrowing a brand's.
   it('leaves the unbranded sources on the generic source hue', () => {
-    for (const type of ['sources.exec', 'sources.webhook']) {
+    for (const type of ['sources.exec', 'sources.rss', 'sources.webhook']) {
       expect(byType[type]!.accentToken).toBe('var(--color-node-blue)')
     }
   })

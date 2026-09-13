@@ -5,6 +5,7 @@
 import { computed, ref, watch } from 'vue'
 import IconSettings from '~icons/lucide/settings'
 import IconPlug from '~icons/lucide/plug'
+import IconRss from '~icons/lucide/rss'
 import IconWebhook from '~icons/lucide/webhook'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
@@ -101,6 +102,7 @@ const presentation: Record<string, { description: string }> = {
   'posthog': { description: 'Error tracking issues and insight alerts from a PostHog project' },
   'gitea': { description: 'Issues, pull requests, and notifications from a Gitea or Forgejo instance' },
   'sources.webhook': { description: 'Receive JSON from anything that can POST' },
+  'sources.rss': { description: 'Entries from an RSS, Atom, or JSON Feed URL' },
 }
 
 // The drawer each card's gear opens. A connector with no drawer yet gets no
@@ -222,6 +224,7 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
                 <PostHogMark v-else-if="integration.key === 'posthog'" class="size-full" />
                 <GiteaMark v-else-if="integration.key === 'gitea'" class="size-full" />
                 <IconWebhook v-else-if="integration.key === 'sources.webhook'" class="size-full" />
+                <IconRss v-else-if="integration.key === 'sources.rss'" class="size-full" />
                 <IconPlug v-else class="size-full" />
               </BaseIconBadge>
             </template>

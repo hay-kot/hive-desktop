@@ -15,7 +15,7 @@ vi.mock('@wailsio/runtime', () => ({
 
 function connectedProjects(...accounts: string[]) {
   mocks.List.mockResolvedValue([
-    { key: 'posthog', title: 'PostHog', stability: 'experimental', provider: 'posthog', types: ['sources.posthog_errors', 'sources.posthog_alerts'], accounts, envOverride: false },
+    { key: 'posthog', title: 'PostHog', stability: 'stable', provider: 'posthog', types: ['sources.posthog_errors', 'sources.posthog_alerts'], accounts, envOverride: false },
   ])
 }
 

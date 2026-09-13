@@ -24,6 +24,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/rss"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
@@ -42,6 +43,7 @@ var descriptors = map[string]connector.Descriptor{
 	grafana.IRMAlertsDescriptor.Type: grafana.IRMAlertsDescriptor,
 	posthog.ErrorsDescriptor.Type:    posthog.ErrorsDescriptor,
 	posthog.AlertsDescriptor.Type:    posthog.AlertsDescriptor,
+	rss.Descriptor.Type:              rss.Descriptor,
 	webhook.Descriptor.Type:          webhook.Descriptor,
 }
 

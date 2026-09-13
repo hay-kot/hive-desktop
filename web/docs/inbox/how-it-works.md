@@ -9,7 +9,7 @@ Hive collects work from external sources and routes it into local feeds.
 
 ## The model
 
-- A **source** reads from a provider, a command, or a local webhook.
+- A **source** reads from a provider, a feed, a command, or a local webhook.
 - A **flow** connects sources to filters and destinations.
 - A **workspace** is the Inbox view of one flow.
 - A **feed** is a list of items produced by a flow.

@@ -28,7 +28,7 @@ var Descriptor = connector.Descriptor{
 	Title:     "Gitea source",
 	Provider:  Provider,
 	Mode:      connector.ModePull,
-	Stability: connector.Beta,
+	Stability: connector.Stable,
 	Capabilities: connector.CapClassify |
 		connector.CapConfirmAbsence,
 	NewConfig: func() connector.Config { return &Config{} },

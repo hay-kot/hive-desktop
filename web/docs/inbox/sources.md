@@ -10,9 +10,10 @@ Add sources in the flow editor. Connect provider accounts under **Settings ▸ I
 | Source | Support | Available inputs |
 | --- | --- | --- |
 | GitHub | Stable | Search and notifications |
-| Gitea and Forgejo | Beta | Filtered search and notifications |
+| Gitea and Forgejo | Stable | Filtered search and notifications |
 | Grafana | Stable | Managed alerts, IRM alerts, and Prometheus metrics |
-| PostHog | Experimental | Error tracking and insight alerts |
+| PostHog | Stable | Error tracking and insight alerts |
+| RSS feeds | Stable | Entries from an RSS, Atom, or JSON Feed URL |
 | Webhooks | Stable | JSON sent to a local endpoint |
 | Commands and CLIs | Stable | JSON returned by a shell command |
 
@@ -42,8 +43,6 @@ Gitea sources work with Gitea and Forgejo instances. They support:
 
 Connect an instance URL and access token under **Settings ▸ Integrations**. The token needs `read:user`, `read:issue`, and `read:notification`. Use `sources.gitea` in a flow.
 
-This source is beta.
-
 ## Grafana
 
 Connect a Grafana stack with its URL and a Viewer service account token. IRM also needs `grafana-irm-app.alert-groups:read`. The same account can be used by three source types:
@@ -61,7 +60,29 @@ Connect a PostHog instance and personal API key, then select a project. Error tr
 - `sources.posthog_errors` for error-tracking issues;
 - `sources.posthog_alerts` for insight alerts.
 
-Both PostHog source types are experimental.
+## RSS feeds
+
+An RSS source reads one feed URL. RSS, Atom, and JSON Feed all use the same field; Hive reads the document, not the file extension. Use `sources.rss` in a flow.
+
+The feed must be readable without credentials. This source sends no token and no basic auth.
+
+Set these fields:
+
+- `url`, the feed document;
+- `limit`, how many of the newest entries to ingest per fetch (50 by default, 500 at most);
+- `interval`, the shortest time between fetches. New nodes start at `30m`. A feed publishes far less often than the poll tick runs.
+
+Each entry becomes an item with kind `Post`. Its title, link, author, categories, and dates come from the feed. Its body is the entry summary reduced to markdown text, with links kept. The feed's own title is shown above the entry. Actions target these items with `applies_to: [Post]`.
+
+How much of that arrives is the feed's choice, not Hive's. A feed that publishes no summary gives you a title and a link. Where a site offers more than one feed, the fuller one is worth using: Hacker News's own feed at `news.ycombinator.com/rss` has no summary and no entry ids, while the same stories through `hnrss.org/frontpage` carry a summary, the submitter, and proper ids. Without ids an entry is matched on its title and date, so editing a title publishes it again as a new item.
+
+The item's link is whatever the feed puts in its `link` element. For an aggregator that is usually the article it points at, not the discussion page.
+
+Each fetch carries the previous response's `ETag` and `Last-Modified`, so an unchanged feed costs one request and no parse. Refreshing the inbox drops that cache and fetches every feed again.
+
+A fetch either returns the whole window or fails. An unreachable host, a non-2xx response, a document over 8 MiB, and a page the parser cannot read as a feed are all failures. A failed fetch changes nothing: the previous entries stay, nothing is archived, and the error is recorded in Activity.
+
+A feed is a window, not a list: publishers drop old entries as they add new ones. Hive does not archive an entry that scrolls off the end, because that means the entry is old, not finished. Adding a node ingests everything still in the window on the first tick, so point a notify node at a busy feed only if you want that.
 
 ## Webhooks
 

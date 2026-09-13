@@ -513,6 +513,13 @@ specified rather than left to grow. ADR source-connector-registry records why.
   before the first `emit`, so a run cannot half-succeed — and where truncation
   is possible it fails rather than truncates, because truncated-but-parseable
   output *is* a short snapshot. ADR a-command-is-a-source.
+- **A snapshot is authoritative; a window is not.** Where the provider drops
+  old items as it adds new ones — a feed — the result is a *window*, and a
+  connector over one declares neither `CapConfirmAbsence` nor `CapClassify`:
+  an item that left it is old, not resolved. Such a connector must also never
+  answer a conditional `304` with an empty result; it re-emits the window it
+  cached alongside the validators, because an empty result is read as "the
+  source published nothing" and archives everything (ADR an-rss-window-is-not-an-authoritative-set).
 - **Cadence is a floor on the instance, not a second scheduler.** There is one
   ticker (`settings.polling.interval`); an instance whose cost does not suit it
   sets `Instance.MinInterval` and the producer skips it until it is due,

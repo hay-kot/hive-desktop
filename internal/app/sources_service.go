@@ -5,6 +5,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/rss"
 )
 
 // SourcesService is ingestion on demand: a producer tick someone asked for
@@ -20,10 +21,11 @@ import (
 type SourcesService struct {
 	producer *ingest.Producer
 	fetchers *ghsource.Fetchers
+	feeds    *rss.Fetchers
 }
 
-func newSourcesService(producer *ingest.Producer, fetchers *ghsource.Fetchers) *SourcesService {
-	return &SourcesService{producer: producer, fetchers: fetchers}
+func newSourcesService(producer *ingest.Producer, fetchers *ghsource.Fetchers, feeds *rss.Fetchers) *SourcesService {
+	return &SourcesService{producer: producer, fetchers: fetchers, feeds: feeds}
 }
 
 // Refresh clears the fetch caches and drains every source now. Engine commits
@@ -32,6 +34,11 @@ func newSourcesService(producer *ingest.Producer, fetchers *ghsource.Fetchers) *
 func (s *SourcesService) Refresh(ctx context.Context) (ingest.TickSummary, error) {
 	if s.fetchers != nil {
 		s.fetchers.InvalidateAll()
+	}
+	// A feed's cache holds its ETag as well as its window, so dropping it is
+	// what makes refresh refetch rather than answer 304 from the last window.
+	if s.feeds != nil {
+		s.feeds.InvalidateAll()
 	}
 	return s.Run(ctx)
 }

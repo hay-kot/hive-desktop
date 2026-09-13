@@ -41,6 +41,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/rss"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -161,6 +162,10 @@ type App struct {
 	// disconnects instances. Like GitHub, nothing is gated on them.
 	giteaFetchers *gitea.Fetchers
 	giteaAuth     *gitea.Authenticator
+
+	// rssFetchers is the shared feed client and its per-URL window cache.
+	// There is no auth beside it: the connector reads public feeds.
+	rssFetchers *rss.Fetchers
 
 	// sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
@@ -368,6 +373,10 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: gitea.Provider})
 	})
 
+	// Feeds need no account, so the client is wired unconditionally and has
+	// no connection callback to drop its cache on.
+	a.rssFetchers = rss.NewFetchers(cfg.Logger)
+
 	a.outputs = a.buildOutputWorker(cfg)
 	a.retention = ingest.NewMaintenance(db, queries.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
@@ -377,7 +386,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
-	a.Sources = newSourcesService(a.producer, a.fetchers)
+	a.Sources = newSourcesService(a.producer, a.fetchers, a.rssFetchers)
 	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
 	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
 	a.Sessions = newSessionsService(SessionsDeps{
@@ -946,13 +955,13 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.posthogFetchers, a.giteaFetchers, a.execEnv), logger)
+	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.posthogFetchers, a.giteaFetchers, a.rssFetchers, a.execEnv), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
 // function of its dependencies rather than a method so the bijection test can
 // hold it against the descriptors without standing up an App.
-func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, posthogFetchers *posthog.Fetchers, giteaFetchers *gitea.Fetchers, env execsource.Environment) map[string]connector.Factory {
+func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, posthogFetchers *posthog.Fetchers, giteaFetchers *gitea.Fetchers, rssFetchers *rss.Fetchers, env execsource.Environment) map[string]connector.Factory {
 	factories := map[string]connector.Factory{
 		webhook.Descriptor.Type:    webhook.NewFactory(),
 		execsource.Descriptor.Type: execsource.NewFactory(env),
@@ -975,6 +984,9 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 	}
 	if giteaFetchers != nil {
 		factories[gitea.Descriptor.Type] = gitea.NewFactory(giteaFetchers)
+	}
+	if rssFetchers != nil {
+		factories[rss.Descriptor.Type] = rss.NewFactory(rssFetchers)
 	}
 	return factories
 }
