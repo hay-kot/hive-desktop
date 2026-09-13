@@ -29,7 +29,7 @@ var Descriptor = connector.Descriptor{
 	Type:      "sources.rss",
 	Title:     "RSS feed",
 	Mode:      connector.ModePull,
-	Stability: connector.Experimental,
+	Stability: connector.Stable,
 	NewConfig: func() connector.Config { return &Config{} },
 }
 

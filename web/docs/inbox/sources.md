@@ -10,10 +10,10 @@ Add sources in the flow editor. Connect provider accounts under **Settings ▸ I
 | Source | Support | Available inputs |
 | --- | --- | --- |
 | GitHub | Stable | Search and notifications |
-| Gitea and Forgejo | Beta | Filtered search and notifications |
+| Gitea and Forgejo | Stable | Filtered search and notifications |
 | Grafana | Stable | Managed alerts, IRM alerts, and Prometheus metrics |
-| PostHog | Experimental | Error tracking and insight alerts |
-| RSS feeds | Experimental | Entries from an RSS, Atom, or JSON Feed URL |
+| PostHog | Stable | Error tracking and insight alerts |
+| RSS feeds | Stable | Entries from an RSS, Atom, or JSON Feed URL |
 | Webhooks | Stable | JSON sent to a local endpoint |
 | Commands and CLIs | Stable | JSON returned by a shell command |
 
@@ -43,8 +43,6 @@ Gitea sources work with Gitea and Forgejo instances. They support:
 
 Connect an instance URL and access token under **Settings ▸ Integrations**. The token needs `read:user`, `read:issue`, and `read:notification`. Use `sources.gitea` in a flow.
 
-This source is beta.
-
 ## Grafana
 
 Connect a Grafana stack with its URL and a Viewer service account token. IRM also needs `grafana-irm-app.alert-groups:read`. The same account can be used by three source types:
@@ -61,8 +59,6 @@ Connect a PostHog instance and personal API key, then select a project. Error tr
 
 - `sources.posthog_errors` for error-tracking issues;
 - `sources.posthog_alerts` for insight alerts.
-
-Both PostHog source types are experimental.
 
 ## RSS feeds
 
@@ -87,8 +83,6 @@ Each fetch carries the previous response's `ETag` and `Last-Modified`, so an unc
 A fetch either returns the whole window or fails. An unreachable host, a non-2xx response, a document over 8 MiB, and a page the parser cannot read as a feed are all failures. A failed fetch changes nothing: the previous entries stay, nothing is archived, and the error is recorded in Activity.
 
 A feed is a window, not a list: publishers drop old entries as they add new ones. Hive does not archive an entry that scrolls off the end, because that means the entry is old, not finished. Adding a node ingests everything still in the window on the first tick, so point a notify node at a busy feed only if you want that.
-
-This source is experimental.
 
 ## Webhooks
 

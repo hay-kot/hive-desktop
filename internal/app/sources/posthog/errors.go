@@ -134,7 +134,7 @@ var ErrorsDescriptor = connector.Descriptor{
 	ProviderTitle: "PostHog",
 	Provider:      Provider,
 	Mode:          connector.ModePull,
-	Stability:     connector.Experimental,
+	Stability:     connector.Stable,
 	Capabilities:  connector.CapClassify,
 	NewConfig:     func() connector.Config { return &ErrorsConfig{} },
 }

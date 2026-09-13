@@ -64,8 +64,8 @@ func TestIntegrationsGroupAProviderIntoOneCard(t *testing.T) {
 }
 
 // leastStable is the card's stability, and a mixed-stability family must read as
-// its least-stable member. The Grafana card can't prove this — both its node
-// types are Experimental — so a synthetic mix pins the discriminating case.
+// its least-stable member. No shipped family mixes stabilities, so a synthetic
+// mix pins the discriminating case.
 func TestLeastStableTakesTheMostConservative(t *testing.T) {
 	t.Parallel()
 
