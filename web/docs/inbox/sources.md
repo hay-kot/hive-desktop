@@ -76,7 +76,11 @@ Set these fields:
 - `limit`, how many of the newest entries to ingest per fetch (50 by default, 500 at most);
 - `interval`, the shortest time between fetches. Set one. A feed publishes far less often than the poll tick runs.
 
-Each entry becomes an item with kind `Post`. Its title, link, author, categories, and dates come from the feed; its body is the entry summary, reduced to text. The feed's own title is shown above the entry. Actions target these items with `applies_to: [Post]`.
+Each entry becomes an item with kind `Post`. Its title, link, author, categories, and dates come from the feed. Its body is the entry summary reduced to markdown text, with links kept. The feed's own title is shown above the entry. Actions target these items with `applies_to: [Post]`.
+
+How much of that arrives is the feed's choice, not Hive's. A feed that publishes no summary gives you a title and a link. Where a site offers more than one feed, the fuller one is worth using: Hacker News's own feed at `news.ycombinator.com/rss` has no summary and no entry ids, while the same stories through `hnrss.org/frontpage` carry a summary, the submitter, and proper ids.
+
+The item's link is whatever the feed puts in its `link` element. For an aggregator that is usually the article it points at, not the discussion page.
 
 Hive sends the feed's `ETag` on every fetch, so an unchanged feed costs one request and no parse.
 

@@ -22,7 +22,7 @@ Each entry is emitted as one item against the canonical item contract:
 - `kind` is `Post`, so `applies_to: [Post]` targets a feed entry whichever feed it came from.
 - `title`, `url` and `author` come from the entry.
 - `repo` is the **feed's** title, which is what the row renders above the entry.
-- `body` is the entry's summary, or its content when it publishes no summary. HTML is reduced to text and cut at 4000 characters; this is a description, not a reader.
+- `body` is the entry's summary, or its content when it publishes no summary. HTML becomes markdown text, cut at 4000 characters: tags go, links stay as markdown links, and a block boundary becomes a space. This is a description, not a reader. Plenty of feeds publish no summary at all, and one that puts only a link in its summary (Hacker News points at its comments page) gives you that link and nothing else.
 - `labels` are the entry's categories, at most 20.
 - `published` and `updated` are RFC 3339 timestamps, absent when the feed omits them.
 

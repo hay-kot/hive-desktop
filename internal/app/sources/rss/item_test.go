@@ -215,14 +215,80 @@ func TestEntriesOfSkipsAnEntryWithNothingToShow(t *testing.T) {
 	assert.Equal(t, "real", entries[0].Key)
 }
 
-func TestPlainTextCutsAtMaxRunes(t *testing.T) {
+func TestRenderTextCollapsesAndCutsAtMaxRunes(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "a b c", plainText("  a\n b\tc  ", 100), "whitespace collapses")
-	assert.Empty(t, plainText("   ", 100))
+	assert.Equal(t, "a b c", renderText("  a\n b\tc  ", false, 100), "whitespace collapses")
+	assert.Empty(t, renderText("   ", false, 100))
 
-	long := plainText(strings.Repeat("é", 50), 10)
+	long := renderText(strings.Repeat("é", 50), false, 10)
 	assert.Equal(t, strings.Repeat("é", 10)+"…", long, "the cut lands on a rune boundary")
+}
+
+// A block boundary is a word boundary. A tag stripper runs these together into
+// one word, which is how a summary of short paragraphs became unreadable.
+func TestRenderTextSeparatesBlocks(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "one two", renderText("<p>one</p><p>two</p>", false, 100))
+	assert.Equal(t, "one two", renderText("one<br>two", false, 100))
+}
+
+// Some feeds put nothing in a summary but a link, so discarding the href
+// discards the summary. The body is markdown, so the link survives as one.
+func TestRenderTextKeepsLinkTargetsInABody(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		"[Comments](https://news.ycombinator.com/item?id=1)",
+		renderText(`<a href="https://news.ycombinator.com/item?id=1">Comments</a>`, true, 400))
+
+	assert.Equal(t, "read [the post](https://example.com/p) now",
+		renderText(`read <a href="https://example.com/p">the post</a> now`, true, 400))
+}
+
+// A title is not markdown, so it keeps the anchor text and nothing else.
+func TestRenderTextDropsLinksFromATitle(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "Comments", renderText(`<a href="https://example.com">Comments</a>`, false, 400))
+}
+
+// "[https://x](https://x)" is noise. Feeds that print the URL as the link text
+// (hnrss does) are the common case, not the exception.
+func TestRenderTextRendersASelfLinkAsABareURL(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "Article URL: https://example.com/p",
+		renderText(`<p>Article URL: <a href="https://example.com/p">https://example.com/p</a></p>`, true, 400))
+}
+
+// The body is rendered as markdown in a webview, so the scheme allow-list is
+// the boundary: an anchor keeps its text and loses a target that is not http.
+func TestRenderTextDropsANonHTTPHref(t *testing.T) {
+	t.Parallel()
+
+	for _, href := range []string{"javascript:alert(1)", "data:text/html,x", "mailto:a@b.c", ""} {
+		assert.Equalf(t, "click", renderText(`<a href="`+href+`">click</a>`, true, 400), "href %q", href)
+	}
+}
+
+// A URL with parentheses ends a markdown link early. CommonMark's angle
+// brackets are what that case is for.
+func TestRenderTextWrapsAURLThatWouldBreakTheLink(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "[wiki](<https://en.wikipedia.org/wiki/Go_(language)>)",
+		renderText(`<a href="https://en.wikipedia.org/wiki/Go_(language)">wiki</a>`, true, 400))
+}
+
+// A feed is not held to well-formed HTML, and an unclosed anchor must not
+// swallow the rest of the summary.
+func TestRenderTextClosesAnUnclosedAnchor(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "[Comments](https://example.com)",
+		renderText(`<a href="https://example.com">Comments`, true, 400))
 }
 
 func TestEntryLabelsAreCapped(t *testing.T) {

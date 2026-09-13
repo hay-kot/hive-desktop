@@ -4,15 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"html"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
-	"github.com/microcosm-cc/bluemonday"
 	"github.com/mmcdole/gofeed"
+	"golang.org/x/net/html"
 )
 
 // maxBodyText caps, in runes, the text carried into an item's body. A
@@ -113,7 +111,7 @@ func entriesOf(feed *gofeed.Feed) []Entry {
 // identify or show, which is a feed's own malformed row rather than a failure
 // of the fetch.
 func entryOf(item *gofeed.Item, feedTitle string) (Entry, bool) {
-	title := plainText(item.Title, maxTitleText)
+	title := renderText(item.Title, false, maxTitleText)
 	link := strings.TrimSpace(item.Link)
 	key := entryKey(item, title)
 	if key == "" || (title == "" && link == "") {
@@ -163,10 +161,10 @@ func entryKey(item *gofeed.Item, title string) string {
 // content because a full-content feed ships the whole post, and the pane is
 // there to say what the entry is, not to be a reader.
 func entryBody(item *gofeed.Item) string {
-	if summary := plainText(item.Description, maxBodyText); summary != "" {
+	if summary := renderText(item.Description, true, maxBodyText); summary != "" {
 		return summary
 	}
-	return plainText(item.Content, maxBodyText)
+	return renderText(item.Content, true, maxBodyText)
 }
 
 func entryAuthor(item *gofeed.Item) string {
@@ -218,22 +216,126 @@ func formatTime(at *time.Time) string {
 	return at.UTC().Format(time.RFC3339)
 }
 
-// textPolicy strips every tag. Feed titles and summaries are HTML, and every
-// consumer of the payload treats these fields as text.
-var textPolicy = sync.OnceValue(bluemonday.StrictPolicy)
-
-// plainText renders a feed's HTML as the text the contract promises: tags
-// stripped, entities resolved, whitespace collapsed, and cut to max runes.
-func plainText(raw string, max int) string {
+// renderText reduces a feed's HTML to the text a payload field carries. With
+// links, an anchor becomes a markdown link, which is what the detail pane
+// renders; without, only its text survives, because a title is not markdown.
+//
+// A tokenizer rather than a tag stripper, for two reasons a strip cannot
+// cover: an anchor's href is the only thing some feeds put in a summary (HN's
+// is a bare link to the comments), and a strip runs "<p>a</p><p>b</p>"
+// together into "ab" where a block boundary is a word boundary.
+func renderText(raw string, links bool, max int) string {
 	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
-	// Sanitize escapes what it keeps, so the unescape after it is what turns
-	// "&amp;" back into "&" rather than leaving the entity in the text.
-	text := html.UnescapeString(textPolicy().Sanitize(raw))
+
+	var out strings.Builder
+	var anchor strings.Builder
+	href := ""
+	inAnchor := false
+
+	write := func(text string) {
+		if inAnchor {
+			anchor.WriteString(text)
+			return
+		}
+		out.WriteString(text)
+	}
+
+	z := html.NewTokenizer(strings.NewReader(raw))
+	for {
+		switch z.Next() {
+		case html.ErrorToken:
+			if inAnchor {
+				out.WriteString(markdownLink(anchor.String(), href))
+			}
+			return collapse(out.String(), max)
+
+		case html.TextToken:
+			write(string(z.Text()))
+
+		case html.StartTagToken, html.SelfClosingTagToken:
+			name, hasAttr := z.TagName()
+			tag := string(name)
+			if links && tag == "a" && !inAnchor {
+				href, inAnchor = linkHref(z, hasAttr), true
+				anchor.Reset()
+				continue
+			}
+			if blockTags[tag] {
+				write(" ")
+			}
+
+		case html.EndTagToken:
+			name, _ := z.TagName()
+			tag := string(name)
+			if tag == "a" && inAnchor {
+				inAnchor = false
+				out.WriteString(markdownLink(anchor.String(), href))
+				continue
+			}
+			if blockTags[tag] {
+				write(" ")
+			}
+
+		case html.CommentToken, html.DoctypeToken:
+			// Neither carries text a summary should show.
+		}
+	}
+}
+
+// blockTags are the elements whose boundary is a word boundary. The set is
+// deliberately short: it only has to stop text running together, not model
+// HTML layout.
+var blockTags = map[string]bool{
+	"br": true, "p": true, "div": true, "li": true, "tr": true, "td": true,
+	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+	"blockquote": true, "pre": true, "section": true, "article": true,
+}
+
+// linkHref reads an anchor's href, keeping only the schemes safe to put in
+// markdown a webview renders. Anything else (javascript:, data:) returns
+// empty, which keeps the anchor's text and drops the target.
+func linkHref(z *html.Tokenizer, hasAttr bool) string {
+	for hasAttr {
+		var key, val []byte
+		key, val, hasAttr = z.TagAttr()
+		if string(key) != "href" {
+			continue
+		}
+		href := strings.TrimSpace(string(val))
+		lower := strings.ToLower(href)
+		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+			return href
+		}
+		return ""
+	}
+	return ""
+}
+
+// markdownLink renders one anchor. A link whose text is its own URL renders as
+// the bare URL, because "[https://x](https://x)" is noise; a URL carrying
+// parentheses or spaces takes the angle-bracket form CommonMark provides for
+// exactly that.
+func markdownLink(text, href string) string {
+	text = strings.TrimSpace(text)
+	switch {
+	case href == "":
+		return text
+	case text == "" || text == href:
+		return href
+	}
+	if strings.ContainsAny(href, "() ") {
+		href = "<" + href + ">"
+	}
+	return "[" + strings.ReplaceAll(text, "]", "\\]") + "](" + href + ")"
+}
+
+// collapse squeezes whitespace and cuts to max runes.
+func collapse(text string, max int) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if utf8.RuneCountInString(text) <= max {
 		return text
 	}
-	return strings.TrimSpace(string([]rune(text)[:max])) + "…"
+	return strings.TrimSpace(string([]rune(text)[:max])) + "\u2026"
 }
