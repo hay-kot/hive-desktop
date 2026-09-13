@@ -74,15 +74,17 @@ Set these fields:
 
 - `url`, the feed document;
 - `limit`, how many of the newest entries to ingest per fetch (50 by default, 500 at most);
-- `interval`, the shortest time between fetches. Set one. A feed publishes far less often than the poll tick runs.
+- `interval`, the shortest time between fetches. New nodes start at `30m`. A feed publishes far less often than the poll tick runs.
 
 Each entry becomes an item with kind `Post`. Its title, link, author, categories, and dates come from the feed. Its body is the entry summary reduced to markdown text, with links kept. The feed's own title is shown above the entry. Actions target these items with `applies_to: [Post]`.
 
-How much of that arrives is the feed's choice, not Hive's. A feed that publishes no summary gives you a title and a link. Where a site offers more than one feed, the fuller one is worth using: Hacker News's own feed at `news.ycombinator.com/rss` has no summary and no entry ids, while the same stories through `hnrss.org/frontpage` carry a summary, the submitter, and proper ids.
+How much of that arrives is the feed's choice, not Hive's. A feed that publishes no summary gives you a title and a link. Where a site offers more than one feed, the fuller one is worth using: Hacker News's own feed at `news.ycombinator.com/rss` has no summary and no entry ids, while the same stories through `hnrss.org/frontpage` carry a summary, the submitter, and proper ids. Without ids an entry is matched on its title and date, so editing a title publishes it again as a new item.
 
 The item's link is whatever the feed puts in its `link` element. For an aggregator that is usually the article it points at, not the discussion page.
 
-Hive sends the feed's `ETag` on every fetch, so an unchanged feed costs one request and no parse.
+Each fetch carries the previous response's `ETag` and `Last-Modified`, so an unchanged feed costs one request and no parse. Refreshing the inbox drops that cache and fetches every feed again.
+
+A fetch either returns the whole window or fails. An unreachable host, a non-2xx response, a document over 8 MiB, and a page the parser cannot read as a feed are all failures. A failed fetch changes nothing: the previous entries stay, nothing is archived, and the error is recorded in Activity.
 
 A feed is a window, not a list: publishers drop old entries as they add new ones. Hive does not archive an entry that scrolls off the end, because that means the entry is old, not finished. Adding a node ingests everything still in the window on the first tick, so point a notify node at a busy feed only if you want that.
 
