@@ -2,9 +2,9 @@ import { ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import { IssueURL } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
 
-// Two separate actions, deliberately. "Report a problem" opens a public issue
-// and carries only the build identity. The bundle dialog writes a file that
-// names the user's paths, hosts and repositories, and it never goes to GitHub.
+// Both halves of a bug report live here so the split is visible at the call
+// site: reportProblem opens a public issue, the bundle dialog writes a private
+// file. Do not join them.
 const bundleOpen = ref(false)
 
 export function useReportDialog() {

@@ -1,12 +1,12 @@
-// Package report assembles a redacted diagnostic bundle for bug reports and
-// compresses it for the user to attach to a GitHub issue. Redaction is the
-// load-bearing part: config is included only after every secret-bearing field
-// is scrubbed.
+// Package report builds the two halves of a bug report, which are deliberately
+// not one artifact. IssueURL is public and carries only the build identity.
+// Assemble builds a redacted bundle that must never reach a public issue: the
+// user sends it to a maintainer privately, when one asks.
 //
-// Redaction removes credentials, not identity. A log tail still names the
-// user's home directory, repositories and branches, and flows still name their
-// orgs and hosts, so the bundle is written to disk for the user to review
-// rather than attached or posted anywhere on their behalf.
+// Redaction is why they are separate. It removes credentials, not identity. A
+// log tail still names the user's home directory, repositories and branches,
+// and flows still name their orgs and hosts (ADR
+// problem-reports-are-github-issues).
 package report
 
 import (
@@ -142,8 +142,8 @@ func (a *Assembler) Inventory() Inventory {
 	return inv
 }
 
-// BuildInfo is the identity a bug report carries on its own, with no bundle
-// behind it.
+// BuildInfo is exported because the public half of a report needs it without
+// assembling a bundle.
 func (a *Assembler) BuildInfo(channel string) BuildInfo {
 	return BuildInfo{
 		Version:   a.build.Version,

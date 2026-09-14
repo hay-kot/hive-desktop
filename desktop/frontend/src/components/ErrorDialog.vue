@@ -4,10 +4,8 @@
 // affordances that make a failure actionable: the full text on the clipboard,
 // and the report dialog one click away.
 //
-// Report opens a bug form carrying only the build identity. The error text is
-// not prefilled: it names flows, nodes and repositories, and the issue is
-// public, so pasting it is the user's own call
-// (ADR problem-reports-are-github-issues).
+// The error text is not prefilled into the issue: it names flows, nodes and
+// repositories, so pasting it is the user's own call.
 //
 // The backdrop does not dismiss it: a failure the app decided to interrupt for
 // should not close on a stray click before it has been read.

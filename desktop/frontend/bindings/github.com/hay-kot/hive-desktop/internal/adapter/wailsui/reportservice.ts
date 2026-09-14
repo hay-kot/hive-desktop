@@ -9,9 +9,6 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
-/**
- * IssueURL is what "Report a problem" opens. No bundle is built.
- */
 export function IssueURL(): $CancellablePromise<string> {
     return $Call.ByID(2612044405);
 }
@@ -20,10 +17,6 @@ export function Preview(): $CancellablePromise<$models.ReportPreview> {
     return $Call.ByID(2830240947);
 }
 
-/**
- * Save writes the bundle and returns where it went. It does not touch the
- * issue flow: the bundle is private and the issue is not.
- */
 export function Save($in: $models.ReportInput): $CancellablePromise<$models.ReportResult> {
     return $Call.ByID(540616300, $in);
 }

@@ -7,8 +7,8 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-// The bundle half of reporting. It writes a file and stops there: nothing here
-// or in the backend uploads it, and it must never be wired to the issue flow.
+// The bundle half. It writes a file and stops: nothing here or in the backend
+// uploads it.
 export function useReportProblem() {
   const preview = ref<ReportPreview | null>(null)
   const loading = ref(false)

@@ -51,8 +51,6 @@ describe('ReportProblemDialog', () => {
     })
   })
 
-  // The bundle is the private half of a report. Wiring it to the issue flow is
-  // the mistake this split exists to prevent.
   it('shows where the bundle landed and opens nothing', async () => {
     await mountDialog()
 
