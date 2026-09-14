@@ -1,6 +1,12 @@
-// Package report assembles a redacted diagnostic bundle for in-app bug
-// reports and compresses it for upload. Redaction is the load-bearing part:
-// config is included only after every secret-bearing field is scrubbed.
+// Package report builds the two halves of a bug report, which are deliberately
+// not one artifact. IssueURL is public and carries only the build identity.
+// Assemble builds a redacted bundle that must never reach a public issue: the
+// user sends it to a maintainer privately, when one asks.
+//
+// Redaction is why they are separate. It removes credentials, not identity. A
+// log tail still names the user's home directory, repositories and branches,
+// and flows still name their orgs and hosts (ADR
+// problem-reports-are-github-issues).
 package report
 
 import (
@@ -19,13 +25,11 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
-const (
-	MaxUploadBytes = 5 * 1024 * 1024
+// MaxBundleBytes is GitHub's per-attachment ceiling for a non-image file. A
+// bundle over it cannot be attached to the issue it exists for.
+const MaxBundleBytes = 25 * 1024 * 1024
 
-	maxLogTailBytes     = 256 * 1024
-	maxDescriptionRunes = 5000
-	maxContactRunes     = 254
-)
+const maxLogTailBytes = 256 * 1024
 
 // Build is the ldflags-stamped identity of the running binary, supplied by the
 // adapter because -X binds to package main.
@@ -35,15 +39,12 @@ type Build struct {
 	Date    string
 }
 
+// Options chooses what the bundle carries beyond build info, which is always
+// present. Every surface here is opt-in and its zero value is deliberate.
 type Options struct {
-	Description string
-	Contact     string
-	Channel     string
+	Channel string
 
-	// IncludeBasics gates build/system info, the log tail, and the connected
-	// account list as one group. Settings/Flows/Actions are opted in
-	// independently.
-	IncludeBasics   bool
+	IncludeLogs     bool
 	IncludeSettings bool
 	IncludeFlows    bool
 	IncludeActions  bool
@@ -52,9 +53,7 @@ type Options struct {
 type Bundle struct {
 	ReportID    string         `json:"report_id"`
 	GeneratedAt time.Time      `json:"generated_at"`
-	Description string         `json:"description,omitempty"`
-	Contact     string         `json:"contact,omitempty"`
-	Build       *BuildInfo     `json:"build,omitempty"`
+	Build       BuildInfo      `json:"build"`
 	Logs        *LogTail       `json:"logs,omitempty"`
 	Config      ConfigSnapshot `json:"config"`
 }
@@ -62,12 +61,11 @@ type Bundle struct {
 // Inventory is what the reporter could attach, read from disk, so the dialog
 // can label each toggle without the bundle itself.
 type Inventory struct {
-	HasSettings  bool
-	FlowCount    int
-	HasActions   bool
-	AccountCount int
-	HasLogs      bool
-	LogBytes     int
+	HasSettings bool
+	FlowCount   int
+	HasActions  bool
+	HasLogs     bool
+	LogBytes    int
 }
 
 type BuildInfo struct {
@@ -92,7 +90,6 @@ type ConfigSnapshot struct {
 	Settings any        `json:"settings,omitempty"`
 	Flows    []FlowFile `json:"flows,omitempty"`
 	Actions  any        `json:"actions,omitempty"`
-	Accounts []string   `json:"accounts,omitempty"`
 }
 
 type FlowFile struct {
@@ -113,14 +110,10 @@ func (a *Assembler) Assemble(id string, at time.Time, opts Options) *Bundle {
 	b := &Bundle{
 		ReportID:    id,
 		GeneratedAt: at,
-		Description: scrubText(truncateRunes(strings.TrimSpace(opts.Description), maxDescriptionRunes)),
-		Contact:     scrubText(truncateRunes(strings.TrimSpace(opts.Contact), maxContactRunes)),
+		Build:       a.BuildInfo(opts.Channel),
 	}
-	if opts.IncludeBasics {
-		bi := a.buildInfo(opts.Channel)
-		b.Build = &bi
+	if opts.IncludeLogs {
 		b.Logs = readLogTail(a.paths.LogFile, maxLogTailBytes)
-		b.Config.Accounts = readAccounts(a.paths.CredentialsIndexPath)
 	}
 	if opts.IncludeSettings {
 		b.Config.Settings = redactedYAML(a.paths.SettingsPath)
@@ -138,10 +131,9 @@ func (a *Assembler) Assemble(id string, at time.Time, opts Options) *Bundle {
 // dialog can show accurate counts and hide toggles for what does not exist.
 func (a *Assembler) Inventory() Inventory {
 	inv := Inventory{
-		HasSettings:  redactedYAML(a.paths.SettingsPath) != nil,
-		HasActions:   redactedYAML(a.paths.ActionsPath) != nil,
-		FlowCount:    len(redactedFlows(a.paths.FlowsDir)),
-		AccountCount: len(readAccounts(a.paths.CredentialsIndexPath)),
+		HasSettings: redactedYAML(a.paths.SettingsPath) != nil,
+		HasActions:  redactedYAML(a.paths.ActionsPath) != nil,
+		FlowCount:   len(redactedFlows(a.paths.FlowsDir)),
 	}
 	if tail := readLogTail(a.paths.LogFile, maxLogTailBytes); tail != nil {
 		inv.HasLogs = true
@@ -150,7 +142,9 @@ func (a *Assembler) Inventory() Inventory {
 	return inv
 }
 
-func (a *Assembler) buildInfo(channel string) BuildInfo {
+// BuildInfo is exported because the public half of a report needs it without
+// assembling a bundle.
+func (a *Assembler) BuildInfo(channel string) BuildInfo {
 	return BuildInfo{
 		Version:   a.build.Version,
 		Commit:    a.build.Commit,
@@ -246,26 +240,4 @@ func redactedFlows(dir string) []FlowFile {
 		}
 	}
 	return flows
-}
-
-func readAccounts(path string) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var index struct {
-		Refs []string `json:"refs"`
-	}
-	if err := json.Unmarshal(data, &index); err != nil {
-		return nil
-	}
-	return index.Refs
-}
-
-func truncateRunes(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max])
 }

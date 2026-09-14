@@ -60,11 +60,3 @@ body:
         - tmux 3.5a (Homebrew)
     validations:
       required: true
-
-  - type: textarea
-    id: bundle
-    attributes:
-      label: Diagnostic bundle or logs
-      description: If you saved a bundle from Report a problem, drag the file into this box. Otherwise paste the relevant part of the log file. The bundle contains build info, a log tail, and the settings you chose to include, with secrets removed.
-    validations:
-      required: false

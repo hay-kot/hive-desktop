@@ -5,6 +5,7 @@
 import { onMounted } from 'vue'
 import IconInfo from '~icons/lucide/info'
 import IconBug from '~icons/lucide/bug'
+import IconLifeBuoy from '~icons/lucide/life-buoy'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import SettingsError from './settings/SettingsError.vue'
 import SettingsPage from './settings/SettingsPage.vue'
@@ -13,7 +14,7 @@ import SettingsSection from './settings/SettingsSection.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
 import { useReportDialog } from '../composables/useReportDialog'
 
-const { openDialog: openReport } = useReportDialog()
+const { openBundleDialog, reportProblem } = useReportDialog()
 
 const {
   info,
@@ -57,14 +58,30 @@ onMounted(() => {
       type="button"
       class="group flex cursor-pointer items-center gap-3.5 overflow-hidden rounded-[11px] border border-accent/40 bg-raised px-4 py-3.5 text-left transition-colors hover:border-accent hover:bg-accent-tint/20"
       data-testid="system-report-problem"
-      @click="openReport"
+      @click="reportProblem"
     >
       <span class="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-accent-tint text-accent">
         <IconBug class="size-[18px]" />
       </span>
       <div class="min-w-0 flex-1">
         <div class="text-[13.5px] font-semibold text-text">Report a problem</div>
-        <div class="mt-0.5 text-[11.5px] text-text-3">Send build info, recent logs, and redacted config — secrets are removed first.</div>
+        <div class="mt-0.5 text-[11.5px] text-text-3">Open a GitHub issue. Nothing from this machine is attached.</div>
+      </div>
+      <IconChevronRight class="size-4 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5 group-hover:text-text-2" />
+    </button>
+
+    <button
+      type="button"
+      class="group flex cursor-pointer items-center gap-3.5 overflow-hidden rounded-[11px] border border-card bg-raised px-4 py-3.5 text-left transition-colors hover:border-strong"
+      data-testid="system-save-bundle"
+      @click="openBundleDialog"
+    >
+      <span class="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-app text-text-2">
+        <IconLifeBuoy class="size-[18px]" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <div class="text-[13.5px] font-semibold text-text">Save a diagnostic bundle</div>
+        <div class="mt-0.5 text-[11.5px] text-text-3">For when a maintainer asks for one. Send it privately, not on an issue.</div>
       </div>
       <IconChevronRight class="size-4 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5 group-hover:text-text-2" />
     </button>

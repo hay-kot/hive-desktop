@@ -15,46 +15,43 @@ func NewReportService(report *app.ReportService) *ReportService {
 }
 
 type ReportInput struct {
-	Description     string `json:"description"`
-	Contact         string `json:"contact"`
-	IncludeBasics   bool   `json:"includeBasics"`
-	IncludeSettings bool   `json:"includeSettings"`
-	IncludeFlows    bool   `json:"includeFlows"`
-	IncludeActions  bool   `json:"includeActions"`
+	IncludeLogs     bool `json:"includeLogs"`
+	IncludeSettings bool `json:"includeSettings"`
+	IncludeFlows    bool `json:"includeFlows"`
+	IncludeActions  bool `json:"includeActions"`
 }
 
 type ReportPreview struct {
-	Available    bool `json:"available"`
-	HasSettings  bool `json:"hasSettings"`
-	FlowCount    int  `json:"flowCount"`
-	HasActions   bool `json:"hasActions"`
-	AccountCount int  `json:"accountCount"`
-	HasLogs      bool `json:"hasLogs"`
-	LogBytes     int  `json:"logBytes"`
+	HasSettings bool `json:"hasSettings"`
+	FlowCount   int  `json:"flowCount"`
+	HasActions  bool `json:"hasActions"`
+	HasLogs     bool `json:"hasLogs"`
+	LogBytes    int  `json:"logBytes"`
 }
 
 type ReportResult struct {
-	ID string `json:"id"`
+	Path string `json:"path"`
+	Dir  string `json:"dir"`
+}
+
+func (s *ReportService) IssueURL(ctx context.Context) string {
+	return s.report.IssueURL(ctx)
 }
 
 func (s *ReportService) Preview(ctx context.Context) ReportPreview {
 	p := s.report.Preview(ctx)
 	return ReportPreview{
-		Available:    p.Available,
-		HasSettings:  p.HasSettings,
-		FlowCount:    p.FlowCount,
-		HasActions:   p.HasActions,
-		AccountCount: p.AccountCount,
-		HasLogs:      p.HasLogs,
-		LogBytes:     p.LogBytes,
+		HasSettings: p.HasSettings,
+		FlowCount:   p.FlowCount,
+		HasActions:  p.HasActions,
+		HasLogs:     p.HasLogs,
+		LogBytes:    p.LogBytes,
 	}
 }
 
-func (s *ReportService) Submit(ctx context.Context, in ReportInput) (ReportResult, error) {
-	res, err := s.report.Submit(ctx, app.ReportRequest{
-		Description:     in.Description,
-		Contact:         in.Contact,
-		IncludeBasics:   in.IncludeBasics,
+func (s *ReportService) Save(ctx context.Context, in ReportInput) (ReportResult, error) {
+	res, err := s.report.Save(ctx, app.ReportRequest{
+		IncludeLogs:     in.IncludeLogs,
 		IncludeSettings: in.IncludeSettings,
 		IncludeFlows:    in.IncludeFlows,
 		IncludeActions:  in.IncludeActions,
@@ -62,5 +59,5 @@ func (s *ReportService) Submit(ctx context.Context, in ReportInput) (ReportResul
 	if err != nil {
 		return ReportResult{}, err
 	}
-	return ReportResult{ID: res.ID}, nil
+	return ReportResult{Path: res.Path, Dir: res.Dir}, nil
 }

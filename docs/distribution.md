@@ -12,8 +12,6 @@ Concrete infrastructure and runbook for shipping the desktop app. Decisions behi
 | Artifact bucket | R2 `hive-desktop-releases` (ENAM, Standard) |
 | Download domain | https://dl.hivedesktop.com (bucket custom domain, public, TLS ≥ 1.2) |
 | Liveness probe | https://dl.hivedesktop.com/healthcheck.txt |
-| Reports bucket | R2 `hive-desktop-reports` (private, no custom domain, no public access) |
-| Report endpoint | `POST https://hivedesktop.com/api/report` (worker `REPORTS` binding) |
 
 ## Bucket layout
 
@@ -104,33 +102,21 @@ It detects OS+arch, resolves the channel's latest build from the **same manifest
 
 ## Problem reporting
 
-The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The reporter chooses what to attach: basic info (build/system info, a bounded log tail, connected accounts) as one group, and settings/flows/actions individually — each config surface is secret-scrubbed before it is included (ADR in-app-problem-reporting). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
+"Report a problem" (System settings ▸ Diagnostics) opens `issues/new?template=bug.yml` with the build version and the OS/arch/commit line filled in, and attaches nothing. "Save a diagnostic bundle" is a separate command that writes `<DataDir>/reports/hive-report-<id>.json.gz` and opens no browser. Nothing is uploaded, and a bundle must never go on an issue: ask for one and give the reporter a private channel (ADR [problem-reports-are-github-issues](decisions/2026-09-14-problem-reports-are-github-issues.md)).
 
-**One-time setup to enable it:**
-
-```bash
-# 1. Create the private bucket (no public access, no custom domain).
-wrangler r2 bucket create hive-desktop-reports
-
-# 2. Set the shared token the worker checks (any long random string).
-cd web && wrangler secret put REPORT_TOKEN
-
-# 3. Expire reports after 90 days.
-wrangler r2 bucket lifecycle add hive-desktop-reports --expire-days 90 --prefix reports/
-
-# 4. Rate-limit the endpoint at the edge (dashboard): a WAF rate-limiting rule
-#    on hostname hivedesktop.com + path /api/report, e.g. 10 requests / 10 min / IP.
-```
-
-The same token value is stamped into the released app so its uploads pass the worker's bearer check. The release build reads `HIVE_DESKTOP_REPORT_TOKEN` from the environment (repo-root `.env` locally) and stamps it via `-X github.com/hay-kot/hive-desktop/internal/adapter/wailsui.reportToken=$HIVE_DESKTOP_REPORT_TOKEN` in both platform Taskfiles (`desktop/build/darwin/Taskfile.yml` and `desktop/build/linux/Taskfile.yml`); set its value to the worker's `REPORT_TOKEN` secret. With no token stamped in — every source and dev build — the app hides/disables reporting and the worker answers `503 reporting_disabled`, so the feature fails closed. The publisher warns when `HIVE_DESKTOP_REPORT_TOKEN` is empty so a release cannot silently ship with reporting off.
-
-The stamped client token is not a secret — it ships in the binary and is extractable. It exists to gate the feature off in non-release builds and as a rotatable deterrent; the endpoint's real protection is edge rate-limiting plus the write-only private bucket, the server-chosen object key, and the size cap.
-
-**Reading reports** (no viewer UI yet):
+There is no infrastructure behind it — no bucket, no token, no worker route. **Teardown of the retired path is still owed.** Wrangler cannot list objects, so the inventory goes through the S3 API with the same credential pair `publish` uses (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, repo-root `.env`):
 
 ```bash
-wrangler r2 object get hive-desktop-reports/reports/2026/07/27/<id>.json.gz --file report.json.gz
-gunzip -c report.json.gz | jq .
+# 1. Inventory what is in the bucket, and keep anything worth keeping.
+#    R2_ACCOUNT_ID is the account id in the table at the top of this page.
+curl --aws-sigv4 aws:amz:auto:s3 --user "$R2_ACCESS_KEY_ID:$R2_SECRET_ACCESS_KEY" \
+  "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com/hive-desktop-reports?list-type=2&prefix=reports/"
+
+# 2. Then delete the bucket and the worker secret. Both are irreversible.
+wrangler r2 bucket delete hive-desktop-reports
+cd web && wrangler secret delete REPORT_TOKEN
+
+# 3. Drop the WAF rate-limiting rule on hivedesktop.com + /api/report (dashboard).
 ```
 
 ## Cache-Control (set per object at upload)
@@ -161,7 +147,7 @@ mise run build:linux                    # binary only → desktop/bin/hive-deskt
 
 Building the non-host architecture (amd64 on Apple Silicon) works but runs the image build *and* the compile under emulation — budget considerably more time. The Go module cache is mounted **read-only** from the host and `GOPROXY=off` is set, so the container resolves every module from that cache and never fetches one itself, and the third-party npm code it runs (with lifecycle scripts disabled) cannot poison the cache the host's own builds trust; `node_modules` lives in a per-arch named volume so the host's macOS-native copy is never mounted in.
 
-The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`mise run install && mise run deploy` from inside `web/`, which builds the Zensical site and runs `wrangler deploy`) and verifies the worker is live and — when `HIVE_DESKTOP_REPORT_TOKEN` is set — that the release token is accepted (an authenticated non-gzip `POST /api/report` must return `415`, past the `401`/`503` gates, so it never writes a report). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
+The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`mise run install && mise run deploy` from inside `web/`, which builds the Zensical site and runs `wrangler deploy`) and verifies the worker is live (`GET /api/latest?channel=__probe__` must return `400`; an unknown channel stops at the worker's own validation without reading the manifest bucket, and a missing worker falls through to the static assets and answers `404`). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
 
 **Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise):
 
@@ -263,6 +249,5 @@ Dev builds are pruned by a scheduled job (delete `-dev.` versions older than N d
 
 - `CLOUDFLARE_API_TOKEN` (repo secret) — web deploys; Workers edit on the account + `hivedesktop.com` zone. Dashboard-created (OAuth sessions cannot mint API tokens).
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (repo secrets + local `.env`) — S3 credentials for `hive-desktop-releases`.
-- `HIVE_DESKTOP_REPORT_TOKEN` (repo secret + local `.env`) — stamped into release builds so problem-report uploads pass the worker's bearer check; set it to the same value as the worker's `REPORT_TOKEN` secret. Extractable from the binary, so not a real secret (see [Problem reporting](#problem-reporting)).
 - Signing/notary set (local `.env`): `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, `MACOS_SIGN_IDENTITY`, `AC_API_KEY`, `AC_API_KEY_ID`, `AC_API_ISSUER_ID`. macOS only — Linux publishing needs nothing beyond the R2 pair.
 - `gh` authentication (`gh auth status`) — the maintainer's own GitHub login, used to create the GitHub Release; the tag push uses `git`'s configured push credentials. Not a repo secret. `publish` checks it in preflight so a missing login aborts before the upload.

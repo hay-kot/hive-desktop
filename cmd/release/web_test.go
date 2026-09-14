@@ -1,27 +1,6 @@
 package main
 
-import (
-	"net/http"
-	"testing"
-)
-
-func TestReportProbeResult(t *testing.T) {
-	tests := []struct {
-		status  int
-		wantErr bool
-	}{
-		{http.StatusUnsupportedMediaType, false},
-		{http.StatusUnauthorized, true},
-		{http.StatusServiceUnavailable, true},
-		{http.StatusOK, true},
-		{http.StatusNotFound, true},
-	}
-	for _, tt := range tests {
-		if err := reportProbeResult(tt.status); (err != nil) != tt.wantErr {
-			t.Errorf("reportProbeResult(%d) err = %v, wantErr %v", tt.status, err, tt.wantErr)
-		}
-	}
-}
+import "testing"
 
 func TestSiteBaseURL(t *testing.T) {
 	if got := siteBaseURL(); got != defaultSiteBase {

@@ -70,10 +70,8 @@ type Config struct {
 	Notifier dispatch.SystemNotifier
 	Gate     dispatch.NotificationGate
 
-	// Build stamps the running binary into report bundles. ReportUploader is a
-	// driven port; nil disables problem reporting (no report token in the build).
-	Build          report.Build
-	ReportUploader report.Uploader
+	// Build stamps the running binary into report bundles.
+	Build report.Build
 }
 
 // App is the headless core. Driving adapters hold *App and the concrete
@@ -428,7 +426,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// reads it, so drop it once; the SKILL.md files it tracked stay where they
 	// are, valid but frozen (ADR skills-are-declared-by-a-workspace).
 	_ = os.Remove(filepath.Join(cfg.Paths.StateDir, "skills.json"))
-	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
+	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir, Logger: cfg.Logger})

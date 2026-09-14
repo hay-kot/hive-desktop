@@ -4,19 +4,20 @@ import ErrorDialog from '../ErrorDialog.vue'
 import type { ErrorDetails } from '../../composables/useErrorDialog'
 
 const mocks = vi.hoisted(() => ({
-  Preview: vi.fn(),
-  Submit: vi.fn(),
   SetText: vi.fn(),
+  OpenURL: vi.fn(),
+  IssueURL: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice', () => ({
-  Preview: mocks.Preview,
-  Submit: mocks.Submit,
-}))
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
+  Browser: { OpenURL: mocks.OpenURL },
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice', () => ({
+  IssueURL: mocks.IssueURL,
 }))
 
+const ISSUE_URL = 'https://github.com/hay-kot/hive-desktop/issues/new?template=bug.yml'
 const DETAIL = 'flow "inbox": node "notify-me": action "ping" is not defined in actions.yml'
 
 function details(overrides: Partial<ErrorDetails> = {}): ErrorDetails {
@@ -27,10 +28,6 @@ function details(overrides: Partial<ErrorDetails> = {}): ErrorDetails {
     context: { flow: 'inbox' },
     ...overrides,
   }
-}
-
-function preview(available = true) {
-  return { available, hasSettings: true, flowCount: 2, hasActions: true, accountCount: 1, hasLogs: true, logBytes: 4096 }
 }
 
 async function mountDialog(error: ErrorDetails = details()) {
@@ -46,9 +43,9 @@ function el(testid: string): HTMLElement | null {
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
-  mocks.Preview.mockResolvedValue(preview())
-  mocks.Submit.mockResolvedValue({ id: 'rpt_abc123' })
   mocks.SetText.mockResolvedValue(undefined)
+  mocks.IssueURL.mockResolvedValue(ISSUE_URL)
+  mocks.OpenURL.mockResolvedValue(undefined)
 })
 
 describe('ErrorDialog', () => {
@@ -88,41 +85,17 @@ describe('ErrorDialog', () => {
     expect(el('error-dialog-message')?.contains(el('error-dialog-copy'))).toBe(true)
   })
 
-  it('files a diagnostic report in one click and keeps the reference id', async () => {
-    await mountDialog()
+  // The error text names flows, nodes and repositories, so it reaches a public
+  // issue by the user's paste, never by a prefill.
+  it('opens a bug form carrying no error text and dismisses itself', async () => {
+    const wrapper = await mountDialog()
 
     el('error-dialog-report')?.click()
     await flushPromises()
 
-    expect(mocks.Submit).toHaveBeenCalledWith({
-      description: expect.stringContaining(DETAIL),
-      contact: '',
-      includeBasics: true,
-      includeSettings: true,
-      includeFlows: true,
-      includeActions: true,
-    })
-    expect(el('error-dialog-report-id')?.textContent).toBe('rpt_abc123')
-    expect(el('error-dialog-report')).toBeNull()
-  })
-
-  it('surfaces a failed report without losing the error it was raised for', async () => {
-    mocks.Submit.mockRejectedValue(new Error('report endpoint unreachable'))
-    await mountDialog()
-
-    el('error-dialog-report')?.click()
-    await flushPromises()
-
-    expect(el('error-dialog-report-error')?.textContent).toContain('unreachable')
-    expect(el('error-dialog-detail')?.textContent).toBe(DETAIL)
-  })
-
-  it('explains and disables reporting in a build with no report endpoint', async () => {
-    mocks.Preview.mockResolvedValue(preview(false))
-    await mountDialog()
-
-    expect(el('error-dialog-report-unavailable')).not.toBeNull()
-    expect(el('error-dialog-report')).toHaveProperty('disabled', true)
+    expect(mocks.OpenURL).toHaveBeenCalledWith(ISSUE_URL)
+    expect(ISSUE_URL).not.toContain(encodeURIComponent(DETAIL))
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('says so when the failure carried no text', async () => {

@@ -5,6 +5,7 @@ import IconArrowRight from '~icons/lucide/arrow-right'
 import IconArrowUp from '~icons/lucide/arrow-up'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconBug from '~icons/lucide/bug'
+import IconLifeBuoy from '~icons/lucide/life-buoy'
 import IconChevronLeft from '~icons/lucide/chevron-left'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCode from '~icons/lucide/code'
@@ -478,9 +479,19 @@ export const commandCatalog: BindableCommand[] = [
     id: 'report.open',
     title: 'Report a problem',
     group: 'General',
-    keywords: ['bug', 'issue', 'feedback', 'diagnostics', 'crash', 'report'],
+    keywords: ['bug', 'issue', 'feedback', 'github', 'crash', 'report'],
     icon: IconBug,
     defaultCombos: ['mod+shift+b'],
+    context: 'global',
+  },
+  {
+    id: 'report.bundle',
+    title: 'Save a diagnostic bundle',
+    group: 'General',
+    keywords: ['bundle', 'diagnostics', 'logs', 'support', 'report'],
+    icon: IconLifeBuoy,
+    // Palette-only: asked for once, when a maintainer requests a bundle.
+    defaultCombos: [],
     context: 'global',
   },
   // Cmd+, is the macOS settings standard; g s is the genre chord.

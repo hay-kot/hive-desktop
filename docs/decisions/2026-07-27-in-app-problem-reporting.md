@@ -1,7 +1,11 @@
 # In-app problem reporting to a private R2 bucket
 
-- **Status:** accepted
+- **Status:** superseded by ADR [problem-reports-are-github-issues](2026-09-14-problem-reports-are-github-issues.md)
 - **Date:** 2026-07-27
+
+The repository is public and has an issue tracker. The bundle builder and the
+redactor survive; the upload path, the worker route, the shared token and the
+bucket are gone.
 
 ## Context
 

@@ -382,26 +382,23 @@ export interface ReleaseNote {
 }
 
 export interface ReportInput {
-    "description": string;
-    "contact": string;
-    "includeBasics": boolean;
+    "includeLogs": boolean;
     "includeSettings": boolean;
     "includeFlows": boolean;
     "includeActions": boolean;
 }
 
 export interface ReportPreview {
-    "available": boolean;
     "hasSettings": boolean;
     "flowCount": number;
     "hasActions": boolean;
-    "accountCount": number;
     "hasLogs": boolean;
     "logBytes": number;
 }
 
 export interface ReportResult {
-    "id": string;
+    "path": string;
+    "dir": string;
 }
 
 /**

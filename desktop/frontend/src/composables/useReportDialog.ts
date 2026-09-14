@@ -1,13 +1,17 @@
 import { ref } from 'vue'
+import { Browser } from '@wailsio/runtime'
+import { IssueURL } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
 
-// Module-scoped so the System settings entry and the command palette open the
-// same dialog, which is mounted once at the app root.
-const open = ref(false)
+// Both halves of a bug report live here so the split is visible at the call
+// site: reportProblem opens a public issue, the bundle dialog writes a private
+// file. Do not join them.
+const bundleOpen = ref(false)
 
 export function useReportDialog() {
   return {
-    open,
-    openDialog: () => { open.value = true },
-    close: () => { open.value = false },
+    open: bundleOpen,
+    openBundleDialog: () => { bundleOpen.value = true },
+    close: () => { bundleOpen.value = false },
+    reportProblem: async () => { await Browser.OpenURL(await IssueURL()) },
   }
 }

@@ -1,17 +1,20 @@
 import { ref } from 'vue'
-import { Preview, Submit } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
-import type { ReportInput, ReportPreview } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
+import { Preview, Save } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
+import { OpenPath } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice'
+import type { ReportInput, ReportPreview, ReportResult } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+// The bundle half. It writes a file and stops: nothing here or in the backend
+// uploads it.
 export function useReportProblem() {
   const preview = ref<ReportPreview | null>(null)
   const loading = ref(false)
-  const submitting = ref(false)
+  const saving = ref(false)
   const error = ref('')
-  const reportId = ref('')
+  const saved = ref<ReportResult | null>(null)
 
   async function loadPreview(): Promise<void> {
     loading.value = true
@@ -25,20 +28,31 @@ export function useReportProblem() {
     }
   }
 
-  async function submit(input: ReportInput): Promise<boolean> {
-    submitting.value = true
+  async function save(input: ReportInput): Promise<boolean> {
+    saving.value = true
     error.value = ''
     try {
-      const res = await Submit(input)
-      reportId.value = res.id
+      saved.value = await Save(input)
       return true
     } catch (err) {
       error.value = errText(err)
       return false
     } finally {
-      submitting.value = false
+      saving.value = false
     }
   }
 
-  return { preview, loading, submitting, error, reportId, loadPreview, submit }
+  // The reports directory is one of the app's known locations, so this needs
+  // no reveal binding of its own.
+  async function openFolder(): Promise<void> {
+    if (!saved.value) return
+    error.value = ''
+    try {
+      await OpenPath(saved.value.dir)
+    } catch (err) {
+      error.value = errText(err)
+    }
+  }
+
+  return { preview, loading, saving, error, saved, loadPreview, save, openFolder }
 }

@@ -419,10 +419,13 @@ func (p *publisher) deployWeb(ctx context.Context) error {
 
 func (p *publisher) verifyWeb(ctx context.Context) error {
 	client := &http.Client{Timeout: 30 * time.Second}
-	endpoint := siteBaseURL() + "/api/report"
+	// An unknown channel stops at the worker's own validation (400) without
+	// touching the manifest bucket, so this proves the worker is live and
+	// routing even before a channel has published a manifest. A missing worker
+	// or route falls through to the static assets and answers 404. Retry
+	// briefly for edge propagation.
+	endpoint := siteBaseURL() + "/api/latest?channel=__probe__"
 
-	// The report route is POST-only, so a live worker answers GET with 405; a
-	// missing worker or route answers 404. Retry briefly for edge propagation.
 	var liveErr error
 	for attempt := range 5 {
 		if attempt > 0 {
@@ -433,32 +436,17 @@ func (p *publisher) verifyWeb(ctx context.Context) error {
 			liveErr = err
 			continue
 		}
-		if status == http.StatusMethodNotAllowed {
+		if status == http.StatusBadRequest {
 			liveErr = nil
 			break
 		}
-		liveErr = fmt.Errorf("GET %s returned HTTP %d, want 405", endpoint, status)
+		liveErr = fmt.Errorf("GET %s returned HTTP %d, want 400", endpoint, status)
 	}
 	if liveErr != nil {
 		return fmt.Errorf("verify web worker: %w", liveErr)
 	}
 
-	token := os.Getenv("HIVE_DESKTOP_REPORT_TOKEN")
-	if token == "" {
-		fmt.Println("==> web deployed; problem reporting disabled (HIVE_DESKTOP_REPORT_TOKEN unset)")
-		return nil
-	}
-	// An authenticated POST with a non-gzip body stops at the worker's gzip gate
-	// (415), which is past the 401 (token) and 503 (reporting disabled) checks.
-	// So a 415 proves the release token is accepted without writing a report.
-	status, err := probeStatus(ctx, client, http.MethodPost, endpoint, token)
-	if err != nil {
-		return fmt.Errorf("verify web report token: %w", err)
-	}
-	if err := reportProbeResult(status); err != nil {
-		return fmt.Errorf("verify web report token: %w", err)
-	}
-	fmt.Println("==> web deployed; report endpoint accepts the release token")
+	fmt.Println("==> web deployed; worker is live")
 	return nil
 }
 
@@ -480,24 +468,8 @@ func probeStatus(ctx context.Context, client *http.Client, method, url, bearer s
 	return resp.StatusCode, nil
 }
 
-func reportProbeResult(status int) error {
-	switch status {
-	case http.StatusUnsupportedMediaType:
-		return nil
-	case http.StatusUnauthorized:
-		return errors.New("worker rejected the release token: HIVE_DESKTOP_REPORT_TOKEN does not match the worker's REPORT_TOKEN secret")
-	case http.StatusServiceUnavailable:
-		return errors.New("worker reports problem reporting disabled: set the REPORT_TOKEN secret on the worker (wrangler secret put REPORT_TOKEN)")
-	default:
-		return fmt.Errorf("unexpected status %d from the report endpoint", status)
-	}
-}
-
 func (p *publisher) build(ctx context.Context) error {
 	fmt.Println("==> building universal .app")
-	if os.Getenv("HIVE_DESKTOP_REPORT_TOKEN") == "" {
-		fmt.Fprintln(os.Stderr, "warning: HIVE_DESKTOP_REPORT_TOKEN is empty; problem reporting will be disabled in this build")
-	}
 	command := exec.CommandContext(ctx, "mise", "x", "--", "wails3", "task", "darwin:package:universal")
 	command.Dir = "desktop"
 	command.Env = append(os.Environ(),

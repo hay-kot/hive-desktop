@@ -8,8 +8,6 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import type { BuildInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
-// The product site is the only public surface: the source repository is
-// private, so there is no commit, tag or release page to send anyone to.
 const docsURL = 'https://hivedesktop.com/docs'
 const updatesDocURL = 'https://hivedesktop.com/docs/help/updates'
 

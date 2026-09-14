@@ -1,7 +1,10 @@
 package app
 
 import (
-	"context"
+	"compress/gzip"
+	"encoding/json"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,68 +15,95 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
-type captureUploader struct {
-	gzipped []byte
-	meta    report.Meta
-}
-
-func (u *captureUploader) Upload(_ context.Context, gzipped []byte, meta report.Meta) error {
-	u.gzipped = gzipped
-	u.meta = meta
-	return nil
-}
-
 func testPaths(t *testing.T) settings.Paths {
 	t.Helper()
 	dir := t.TempDir()
 	return settings.Paths{
-		SettingsPath:         filepath.Join(dir, "settings.yaml"),
-		ActionsPath:          filepath.Join(dir, "actions.yml"),
-		FlowsDir:             filepath.Join(dir, "flows"),
-		CredentialsIndexPath: filepath.Join(dir, "credentials.json"),
-		LogFile:              filepath.Join(dir, "desktop.log"),
+		DataDir:      dir,
+		ReportsDir:   filepath.Join(dir, "reports"),
+		SettingsPath: filepath.Join(dir, "settings.yaml"),
+		ActionsPath:  filepath.Join(dir, "actions.yml"),
+		FlowsDir:     filepath.Join(dir, "flows"),
+		LogFile:      filepath.Join(dir, "desktop.log"),
 	}
 }
 
-func TestReportSubmit(t *testing.T) {
+func TestReportSave(t *testing.T) {
 	paths := testPaths(t)
-	up := &captureUploader{}
-	svc := newReportService(paths, settings.NewStore(paths.SettingsPath), report.Build{Version: "9.9.9"}, up, zerolog.Nop())
+	svc := newReportService(paths, settings.NewStore(paths.SettingsPath), report.Build{Version: "9.9.9"}, zerolog.Nop())
 
-	if !svc.Available() {
-		t.Fatal("service should be available with an uploader")
-	}
-
-	res, err := svc.Submit(t.Context(), ReportRequest{Description: "broken", IncludeBasics: true})
+	res, err := svc.Save(t.Context(), ReportRequest{})
 	if err != nil {
-		t.Fatalf("submit: %v", err)
+		t.Fatalf("save: %v", err)
 	}
-	if !strings.HasPrefix(res.ID, "rpt_") {
-		t.Errorf("unexpected report id: %q", res.ID)
+	if filepath.Dir(res.Path) != paths.ReportsDir {
+		t.Errorf("saved to %q, want a file in %q", res.Path, paths.ReportsDir)
 	}
-	if res.ID != up.meta.ReportID {
-		t.Errorf("uploaded id %q != returned id %q", up.meta.ReportID, res.ID)
+	if res.Dir != paths.ReportsDir {
+		t.Errorf("result dir %q, want %q", res.Dir, paths.ReportsDir)
 	}
-	if up.meta.Version != "9.9.9" {
-		t.Errorf("uploaded version %q", up.meta.Version)
+	if !strings.Contains(filepath.Base(res.Path), "rpt_") {
+		t.Errorf("bundle name carries no report id: %q", res.Path)
 	}
-	if len(up.gzipped) < 2 || up.gzipped[0] != 0x1f || up.gzipped[1] != 0x8b {
-		t.Error("uploaded body is not gzip")
+
+	gz, err := os.ReadFile(res.Path)
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+	if len(gz) < 2 || gz[0] != 0x1f || gz[1] != 0x8b {
+		t.Fatal("saved bundle is not gzip")
+	}
+
+	zr, err := gzip.NewReader(strings.NewReader(string(gz)))
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("decompress: %v", err)
+	}
+	var bundle report.Bundle
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		t.Fatalf("decode bundle: %v", err)
+	}
+	if bundle.Build.Version != "9.9.9" {
+		t.Errorf("build info missing from the bundle: %+v", bundle.Build)
 	}
 }
 
-func TestReportSubmitUnavailable(t *testing.T) {
+func TestReportSaveOmitsEverySurfaceByDefault(t *testing.T) {
 	paths := testPaths(t)
-	svc := newReportService(paths, settings.NewStore(paths.SettingsPath), report.Build{}, nil, zerolog.Nop())
+	if err := os.WriteFile(paths.LogFile, []byte("2026-09-14 INF /Users/somebody/private-repo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.SettingsPath, []byte("updates:\n  channel: beta\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	svc := newReportService(paths, settings.NewStore(paths.SettingsPath), report.Build{Version: "1.0.0"}, zerolog.Nop())
 
-	if svc.Available() {
-		t.Fatal("service should be unavailable without an uploader")
+	res, err := svc.Save(t.Context(), ReportRequest{})
+	if err != nil {
+		t.Fatalf("save: %v", err)
 	}
-	_, err := svc.Submit(t.Context(), ReportRequest{})
-	if err == nil {
-		t.Fatal("expected an error with no uploader")
+	if strings.Contains(readBundle(t, res.Path), "private-repo") {
+		t.Error("log content reached a bundle that did not ask for it")
 	}
-	if KindOf(err) != KindUnavailable {
-		t.Errorf("expected KindUnavailable, got %v", KindOf(err))
+}
+
+func readBundle(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer func() { _ = f.Close() }()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }

@@ -841,7 +841,7 @@ describe('App', () => {
       const wrapper = await mountApp()
       const kb = useKeybindings()
       kb.addBinding('palette.toggle', 'mod+e')
-      kb.addBinding('report.open', 'mod+e x')
+      kb.addBinding('report.bundle', 'mod+e x')
       const { open: paletteOpen } = useCommandPalette()
 
       // A plain input appended straight to the document, like the terminal
@@ -904,7 +904,7 @@ describe('App', () => {
     it('cancels the deferred timer when a continuation arrives first, so the deferred binding never also fires', async () => {
       const wrapper = await mountApp()
       const kb = useKeybindings()
-      kb.addBinding('report.open', 'g') // dual bound+prefix, same as above
+      kb.addBinding('report.bundle', 'g') // dual bound+prefix, same as above
       const report = useReportDialog()
 
       vi.useFakeTimers()
@@ -923,7 +923,7 @@ describe('App', () => {
       const wrapper = await mountApp()
       const kb = useKeybindings()
       kb.addBinding('view.go-code', 'g')
-      const { openDialog: openReport } = useReportDialog()
+      const { openBundleDialog: openReport } = useReportDialog()
 
       vi.useFakeTimers()
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }))
@@ -959,7 +959,7 @@ describe('App', () => {
     it('does not start a pending sequence while an overlay is open', async () => {
       const wrapper = await mountApp()
       const kb = useKeybindings()
-      const { openDialog: openReport, close: closeReport } = useReportDialog()
+      const { openBundleDialog: openReport, close: closeReport } = useReportDialog()
 
       openReport()
       await flushPromises()
@@ -2358,7 +2358,7 @@ describe('App', () => {
     mocks.ListTasks.mockResolvedValue([taskItem])
     mocks.TaskDetail.mockResolvedValue({ ...taskItem, desc: '', blockers: [], comments: [] })
     const { wrapper } = await mountAppWithRouter()
-    const { openDialog: openReport, close: closeReport } = useReportDialog()
+    const { openBundleDialog: openReport, close: closeReport } = useReportDialog()
 
     // A different modal swallows the toggle like any other command.
     openReport()
@@ -2748,7 +2748,7 @@ describe('App', () => {
     await router.push('/terminal/hive-fix-parser')
     await flushPromises()
 
-    useKeybindings().addBinding('report.open', 'alt+t')
+    useKeybindings().addBinding('report.bundle', 'alt+t')
     const pane = focusedPane()
 
     const event = new KeyboardEvent('keydown', { key: 't', altKey: true, bubbles: true, cancelable: true })
