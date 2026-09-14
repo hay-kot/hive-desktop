@@ -14,8 +14,7 @@ export function Preview(): $CancellablePromise<$models.ReportPreview> {
 }
 
 /**
- * Save writes the bundle to disk and returns where it landed plus the issue
- * form to file it against. The frontend opens that URL; nothing is uploaded.
+ * Save returns the issue URL rather than opening it; the frontend does that.
  */
 export function Save($in: $models.ReportInput): $CancellablePromise<$models.ReportResult> {
     return $Call.ByID(540616300, $in);
