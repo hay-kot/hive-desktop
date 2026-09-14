@@ -17,6 +17,7 @@ The command palette at <kbd>⌘K</kbd> can run commands with or without a shortc
 | Open shortcut list | <kbd>?</kbd> |
 | Search the current view | <kbd>/</kbd> or <kbd>⌘F</kbd> |
 | Open Settings | <kbd>⌘,</kbd> or <kbd>g</kbd> then <kbd>s</kbd> |
+| Show or hide the Code sidebar | <kbd>⌘B</kbd> |
 | Go to Inbox | <kbd>g</kbd> then <kbd>i</kbd> |
 | Go to Code | <kbd>g</kbd> then <kbd>c</kbd> |
 | Go to Chats | <kbd>g</kbd> then <kbd>a</kbd> |
@@ -46,5 +47,7 @@ Use lower-case key names and join modifiers with `+`, such as `mod+shift+t`. `mo
 ## Terminal shortcuts
 
 A focused terminal sends most keys to the running program. Global app shortcuts use Command on macOS or Control+Shift on other platforms so they can still leave the terminal pane.
+
+**Toggle Code sidebar** (`terminal.toggle-sidebar`) uses <kbd>⌘B</kbd> on macOS. On Windows and Linux, use <kbd>Ctrl+B</kbd> outside a terminal pane or <kbd>Ctrl+Shift+B</kbd> inside one. A focused terminal keeps <kbd>Ctrl+B</kbd> for tmux and shell commands.
 
 Check **Settings ▸ Keyboard** before assigning a Control shortcut that your shell or terminal program already uses.

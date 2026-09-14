@@ -38,6 +38,7 @@ Scratch tabs can be selected, renamed, reordered, and closed. The session keeps 
 - Select a window from the sidebar to attach to it.
 - Use <kbd>⌘1</kbd> through <kbd>⌘9</kbd> to switch windows.
 - Use <kbd>⌘←</kbd> to focus the sidebar and <kbd>⌘→</kbd> to return to the terminal.
+- Use <kbd>⌘B</kbd> to show or hide the left sidebar, including while a terminal has focus.
 - Press <kbd>/</kbd> while the sidebar is focused to filter sessions.
 - Press <kbd>⌘F</kbd> in a terminal to search its recent scrollback.
 - Drag windows in the sidebar to reorder them.

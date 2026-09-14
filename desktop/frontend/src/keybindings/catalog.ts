@@ -254,6 +254,16 @@ export const commandCatalog: BindableCommand[] = [
     context: 'global',
     piercesPane: true,
   },
+  {
+    id: 'terminal.toggle-sidebar',
+    title: 'Toggle Code sidebar',
+    group: 'Code',
+    keywords: ['terminal', 'sidebar', 'sessions', 'tree', 'show', 'hide', 'collapse'],
+    icon: IconPanelLeft,
+    defaultCombos: ['mod+b'],
+    context: 'terminal',
+    escapesPane: true,
+  },
   // Directional rather than one toggle: which pane you land on should be
   // readable off the chord, not off where focus happened to be.
   //

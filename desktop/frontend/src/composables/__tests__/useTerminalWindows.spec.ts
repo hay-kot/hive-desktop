@@ -1602,6 +1602,16 @@ describe('useTerminalWindows', () => {
     expect(socket.sent).toHaveLength(0)
   })
 
+  it('keeps the sidebar shortcut off the wire while preserving the tmux prefix', async () => {
+    const { socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(term.press({ key: 'b', metaKey: true })).toBe(false)
+    expect(term.press({ key: 'B', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(term.press({ key: 'b', ctrlKey: true })).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
   // Alt+T is readline's transpose-words, and nothing here may take it from the
   // shell until a command that pierces the pane is actually bound to it — the
   // decision the pane and App.vue both read off the catalog flag.

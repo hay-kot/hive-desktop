@@ -676,6 +676,7 @@ describe('App', () => {
     expect(ids).toContain('feed.refresh')
     expect(ids.filter((id) => id.startsWith('theme:')).length).toBeGreaterThan(0)
     expect(ids).not.toContain('terminal.focus-sidebar')
+    expect(ids).not.toContain('terminal.toggle-sidebar')
     expect(ids).toContain('mode:terminal')
     expect(ids).not.toContain('mode:hub')
 
@@ -697,6 +698,7 @@ describe('App', () => {
     expect(ids.some((id) => id.startsWith('item:action:'))).toBe(false)
     expect(ids).not.toContain('mode:terminal')
     expect(ids).toContain('terminal.focus-sidebar')
+    expect(ids).toContain('terminal.toggle-sidebar')
     expect(ids).toContain('session.new')
 
     wrapper.unmount()
@@ -2119,7 +2121,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('restores and toggles the terminal sidebar independently of the feed sidebar', async () => {
+  it('restores and toggles the terminal sidebar from the title bar, keyboard, and palette', async () => {
     localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'true')
     mocks.TerminalAvailable.mockResolvedValue({ available: true, reason: '' })
@@ -2144,7 +2146,32 @@ describe('App', () => {
     expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(false)
     expect(localStorage.getItem('hive.panel.terminal.sidebar.collapsed')).toBe('true')
 
+    const pane = focusedPane()
+    const shortcut = new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true, cancelable: true })
+    pane.dispatchEvent(shortcut)
+    await flushPromises()
+    expect(shortcut.defaultPrevented).toBe(true)
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+
+    const { results } = useCommandPalette()
+    results.value.find((command) => command.id === 'terminal.toggle-sidebar')!.run()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(false)
+
+    const kb = useKeybindings()
+    kb.removeBinding('terminal.toggle-sidebar', 'mod+b')
+    kb.addBinding('terminal.toggle-sidebar', 'mod+j')
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(false)
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true, bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+    pane.remove()
+
     await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', metaKey: true }))
     await flushPromises()
     expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(true)
     expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('false')
