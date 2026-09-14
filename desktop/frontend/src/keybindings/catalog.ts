@@ -262,7 +262,7 @@ export const commandCatalog: BindableCommand[] = [
     icon: IconPanelLeft,
     defaultCombos: ['mod+b'],
     context: 'terminal',
-    escapesPane: true,
+    piercesPane: true,
   },
   // Directional rather than one toggle: which pane you land on should be
   // readable off the chord, not off where focus happened to be.

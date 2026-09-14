@@ -1602,13 +1602,13 @@ describe('useTerminalWindows', () => {
     expect(socket.sent).toHaveLength(0)
   })
 
-  it('keeps the sidebar shortcut off the wire while preserving the tmux prefix', async () => {
+  it('keeps both platform sidebar shortcuts off the wire', async () => {
     const { socket } = await attached()
     const term = xterm.FakeTerminal.instances[0]
 
     expect(term.press({ key: 'b', metaKey: true })).toBe(false)
-    expect(term.press({ key: 'B', ctrlKey: true, shiftKey: true })).toBe(false)
-    expect(term.press({ key: 'b', ctrlKey: true })).toBe(true)
+    expect(term.press({ key: 'b', ctrlKey: true })).toBe(false)
+    expect(term.press({ key: 'b' })).toBe(true)
     expect(socket.sent).toHaveLength(0)
   })
 
