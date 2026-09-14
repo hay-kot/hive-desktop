@@ -30,9 +30,13 @@ type ReportPreview struct {
 }
 
 type ReportResult struct {
-	Path     string `json:"path"`
-	Dir      string `json:"dir"`
-	IssueURL string `json:"issueUrl"`
+	Path string `json:"path"`
+	Dir  string `json:"dir"`
+}
+
+// IssueURL is what "Report a problem" opens. No bundle is built.
+func (s *ReportService) IssueURL(ctx context.Context) string {
+	return s.report.IssueURL(ctx)
 }
 
 func (s *ReportService) Preview(ctx context.Context) ReportPreview {
@@ -46,7 +50,8 @@ func (s *ReportService) Preview(ctx context.Context) ReportPreview {
 	}
 }
 
-// Save returns the issue URL rather than opening it; the frontend does that.
+// Save writes the bundle and returns where it went. It does not touch the
+// issue flow: the bundle is private and the issue is not.
 func (s *ReportService) Save(ctx context.Context, in ReportInput) (ReportResult, error) {
 	res, err := s.report.Save(ctx, app.ReportRequest{
 		IncludeLogs:     in.IncludeLogs,
@@ -57,5 +62,5 @@ func (s *ReportService) Save(ctx context.Context, in ReportInput) (ReportResult,
 	if err != nil {
 		return ReportResult{}, err
 	}
-	return ReportResult{Path: res.Path, Dir: res.Dir, IssueURL: res.IssueURL}, nil
+	return ReportResult{Path: res.Path, Dir: res.Dir}, nil
 }

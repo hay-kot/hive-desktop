@@ -4,8 +4,9 @@
 // affordances that make a failure actionable: the full text on the clipboard,
 // and the report dialog one click away.
 //
-// Report hands off to that dialog and files nothing itself: the bundle goes on
-// a public issue, so the user picks what it carries
+// Report opens a bug form carrying only the build identity. The error text is
+// not prefilled: it names flows, nodes and repositories, and the issue is
+// public, so pasting it is the user's own call
 // (ADR problem-reports-are-github-issues).
 //
 // The backdrop does not dismiss it: a failure the app decided to interrupt for
@@ -24,7 +25,7 @@ const props = defineProps<{ error: ErrorDetails }>()
 const emit = defineEmits<{ close: [] }>()
 
 const { copy, status: copyStatus } = useClipboard()
-const { openDialog: openReportDialog } = useReportDialog()
+const { reportProblem: openIssue } = useReportDialog()
 
 const text = computed(() => errorDetailsText(props.error))
 const detail = computed(() => props.error.detail.trim() || 'No further detail was reported.')
@@ -36,11 +37,9 @@ const copyLabel = computed(() => {
   return 'Copy error details'
 })
 
-// The error text is already on the clipboard behind Copy, so the report dialog
-// opens over a dismissed error rather than under it.
 function reportProblem(): void {
   emit('close')
-  openReportDialog()
+  void openIssue()
 }
 </script>
 
@@ -89,8 +88,7 @@ function reportProblem(): void {
       </div>
 
       <p class="text-[11.5px] text-text-3">
-        Report a problem saves a diagnostic bundle and opens a GitHub issue. Copy this error first;
-        it belongs in the issue body.
+        Report a problem opens a GitHub issue. Copy this error first; it belongs in the issue body.
       </p>
 
     </div>

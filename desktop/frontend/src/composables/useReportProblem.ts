@@ -1,5 +1,4 @@
 import { ref } from 'vue'
-import { Browser } from '@wailsio/runtime'
 import { Preview, Save } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
 import { OpenPath } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice'
 import type { ReportInput, ReportPreview, ReportResult } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
@@ -8,8 +7,8 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-// Save writes a file and opens a form. Nothing uploads the bundle, here or in
-// the backend, and nothing should.
+// The bundle half of reporting. It writes a file and stops there: nothing here
+// or in the backend uploads it, and it must never be wired to the issue flow.
 export function useReportProblem() {
   const preview = ref<ReportPreview | null>(null)
   const loading = ref(false)
@@ -33,9 +32,7 @@ export function useReportProblem() {
     saving.value = true
     error.value = ''
     try {
-      const res = await Save(input)
-      saved.value = res
-      await Browser.OpenURL(res.issueUrl)
+      saved.value = await Save(input)
       return true
     } catch (err) {
       error.value = errText(err)
@@ -57,15 +54,5 @@ export function useReportProblem() {
     }
   }
 
-  async function openIssue(): Promise<void> {
-    if (!saved.value) return
-    error.value = ''
-    try {
-      await Browser.OpenURL(saved.value.issueUrl)
-    } catch (err) {
-      error.value = errText(err)
-    }
-  }
-
-  return { preview, loading, saving, error, saved, loadPreview, save, openFolder, openIssue }
+  return { preview, loading, saving, error, saved, loadPreview, save, openFolder }
 }

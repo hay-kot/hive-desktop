@@ -399,7 +399,6 @@ export interface ReportPreview {
 export interface ReportResult {
     "path": string;
     "dir": string;
-    "issueUrl": string;
 }
 
 /**

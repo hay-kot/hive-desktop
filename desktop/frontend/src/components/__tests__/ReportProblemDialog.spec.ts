@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   Preview: vi.fn(),
   Save: vi.fn(),
   OpenPath: vi.fn(),
-  OpenURL: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice', () => ({
@@ -16,16 +15,8 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   OpenPath: mocks.OpenPath,
 }))
-vi.mock('@wailsio/runtime', () => ({
-  Browser: { OpenURL: mocks.OpenURL },
-}))
-
 const REPORTS_DIR = '/home/u/.local/share/hive/desktop/reports'
-const SAVED = {
-  path: `${REPORTS_DIR}/hive-report-rpt_abc123.json.gz`,
-  dir: REPORTS_DIR,
-  issueUrl: 'https://github.com/hay-kot/hive-desktop/issues/new?template=bug.yml&version=1.0.0',
-}
+const SAVED = { path: `${REPORTS_DIR}/hive-report-rpt_abc123.json.gz`, dir: REPORTS_DIR }
 
 async function mountDialog() {
   const wrapper = mount(ReportProblemDialog)
@@ -43,7 +34,6 @@ beforeEach(() => {
   mocks.Preview.mockResolvedValue({ hasSettings: true, flowCount: 2, hasActions: true, hasLogs: true, logBytes: 4096 })
   mocks.Save.mockResolvedValue(SAVED)
   mocks.OpenPath.mockResolvedValue(undefined)
-  mocks.OpenURL.mockResolvedValue(undefined)
 })
 
 describe('ReportProblemDialog', () => {
@@ -61,14 +51,16 @@ describe('ReportProblemDialog', () => {
     })
   })
 
-  it('opens the prefilled issue and shows where the bundle landed', async () => {
+  // The bundle is the private half of a report. Wiring it to the issue flow is
+  // the mistake this split exists to prevent.
+  it('shows where the bundle landed and opens nothing', async () => {
     await mountDialog()
 
     el('report-submit')?.click()
     await flushPromises()
 
-    expect(mocks.OpenURL).toHaveBeenCalledWith(SAVED.issueUrl)
     expect(el('report-path')?.textContent).toBe(SAVED.path)
+    expect(el('report-open-issue')).toBeNull()
   })
 
   it('opens the reports folder so the bundle can be read before it is attached', async () => {
@@ -91,6 +83,5 @@ describe('ReportProblemDialog', () => {
 
     expect(el('report-error')?.textContent).toContain('disk is full')
     expect(el('report-success')).toBeNull()
-    expect(mocks.OpenURL).not.toHaveBeenCalled()
   })
 })

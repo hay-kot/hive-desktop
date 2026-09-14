@@ -110,7 +110,7 @@ func (a *Assembler) Assemble(id string, at time.Time, opts Options) *Bundle {
 	b := &Bundle{
 		ReportID:    id,
 		GeneratedAt: at,
-		Build:       a.buildInfo(opts.Channel),
+		Build:       a.BuildInfo(opts.Channel),
 	}
 	if opts.IncludeLogs {
 		b.Logs = readLogTail(a.paths.LogFile, maxLogTailBytes)
@@ -142,7 +142,9 @@ func (a *Assembler) Inventory() Inventory {
 	return inv
 }
 
-func (a *Assembler) buildInfo(channel string) BuildInfo {
+// BuildInfo is the identity a bug report carries on its own, with no bundle
+// behind it.
+func (a *Assembler) BuildInfo(channel string) BuildInfo {
 	return BuildInfo{
 		Version:   a.build.Version,
 		Commit:    a.build.Commit,

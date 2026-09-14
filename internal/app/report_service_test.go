@@ -45,9 +45,6 @@ func TestReportSave(t *testing.T) {
 	if !strings.Contains(filepath.Base(res.Path), "rpt_") {
 		t.Errorf("bundle name carries no report id: %q", res.Path)
 	}
-	if !strings.Contains(res.IssueURL, "template=bug.yml") {
-		t.Errorf("issue url does not target the bug form: %q", res.IssueURL)
-	}
 
 	gz, err := os.ReadFile(res.Path)
 	if err != nil {

@@ -102,7 +102,7 @@ It detects OS+arch, resolves the channel's latest build from the **same manifest
 
 ## Problem reporting
 
-The app's "Report a problem" dialog (System settings ▸ Diagnostics) writes a redacted diagnostic bundle to `<DataDir>/reports/hive-report-<id>.json.gz` and opens `issues/new?template=bug.yml` with the build version and the OS/arch/commit line filled in. Nothing is uploaded: the user reviews the file and attaches it to the issue, or does not (ADR [problem-reports-are-github-issues](decisions/2026-09-14-problem-reports-are-github-issues.md)).
+"Report a problem" (System settings ▸ Diagnostics) opens `issues/new?template=bug.yml` with the build version and the OS/arch/commit line filled in, and attaches nothing. "Save a diagnostic bundle" is a separate command that writes `<DataDir>/reports/hive-report-<id>.json.gz` and opens no browser. Nothing is uploaded, and a bundle must never go on an issue: ask for one and give the reporter a private channel (ADR [problem-reports-are-github-issues](decisions/2026-09-14-problem-reports-are-github-issues.md)).
 
 There is no infrastructure behind it — no bucket, no token, no worker route. **Teardown of the retired path is still owed.** Wrangler cannot list objects, so the inventory goes through the S3 API with the same credential pair `publish` uses (`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`, repo-root `.env`):
 

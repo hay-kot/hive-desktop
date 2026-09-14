@@ -78,11 +78,23 @@ See [Terminal mode](../code/terminal-mode.md#shared-tmux-sizing).
 
 ## Report a problem
 
-Open **Settings ▸ System** and select **Report a problem**. Hive writes a diagnostic bundle to your data directory and opens a new issue at [github.com/hay-kot/hive-desktop/issues](https://github.com/hay-kot/hive-desktop/issues) with your version and platform filled in. Nothing is uploaded.
+Open **Settings ▸ System** and select **Report a problem**. Hive opens a new issue at [github.com/hay-kot/hive-desktop/issues](https://github.com/hay-kot/hive-desktop/issues) with your version and platform filled in. Nothing from your machine is attached. Describe the problem and paste the log lines that show it.
 
-The bundle always holds build and system details. Logs, settings, flows, and actions are separate switches, and all four start off. Switch on what the problem needs.
+The default log path is:
 
-Tokens, secrets, and API keys are removed from everything the bundle holds. Names are not. A log tail names your home directory, repositories, and branches, and flows name the orgs and hosts they poll. Read the file before you attach it to a public issue.
+```text
+~/.local/share/hive/desktop/desktop.log
+```
+
+## Save a diagnostic bundle
+
+Use this only when a maintainer asks for one. Open **Settings ▸ System** and select **Save a diagnostic bundle**.
+
+The bundle always holds build and system details. Logs, settings, flows, and actions are separate switches, and all four start off. Switch on what the maintainer asks for.
+
+Tokens, secrets, and API keys are removed from everything the bundle holds. Names are not. A log tail names your home directory, repositories, and branches, and flows name the orgs and hosts they poll.
+
+**Do not attach a bundle to a GitHub issue.** Issues are public. Send the file through the private channel the maintainer gives you.
 
 Bundles are written to:
 
@@ -90,8 +102,4 @@ Bundles are written to:
 ~/.local/share/hive/desktop/reports/
 ```
 
-Read one with `gunzip -c hive-report-<id>.json.gz | jq .`. Attach it to the issue by dragging it into the **Diagnostic bundle or logs** box, or paste the relevant log lines instead. The default log path is:
-
-```text
-~/.local/share/hive/desktop/desktop.log
-```
+Read one with `gunzip -c hive-report-<id>.json.gz | jq .`.

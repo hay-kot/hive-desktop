@@ -2,9 +2,11 @@
 kind: changed
 ---
 
-- **Report a problem files a GitHub issue.** The dialog now writes a diagnostic
-  bundle to `reports/` in your data directory and opens the bug form with your
-  version and platform filled in. Nothing is uploaded, and the bundle is yours
-  to read before you attach it. Logs, settings, flows and actions are separate
-  switches and all start off: secrets are stripped, but a log tail still names
-  your home directory, repositories and branches.
+- **Report a problem opens a GitHub issue.** It fills in your version and
+  platform and attaches nothing else. Nothing is uploaded and no diagnostic
+  bundle is built.
+- **Saving a diagnostic bundle is now its own command.** Use it when a
+  maintainer asks for one. Logs, settings, flows and actions are separate
+  switches and all start off. Secrets are stripped, but a bundle still names
+  your home directory, repositories and branches, so send it privately rather
+  than attaching it to an issue.

@@ -850,7 +850,7 @@ async function toggleMaximise(): Promise<void> {
 // ── Command palette ──────────────────────────────────────────────────────────
 
 const { open: paletteOpen, toggle: togglePalette, openWithScope } = useCommandPalette()
-const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
+const { open: reportDialogOpen, openBundleDialog, reportProblem } = useReportDialog()
 const { current: appError, dismissError } = useErrorDialog()
 
 // An update installs by relaunching, so the version bump is only observable on
@@ -938,7 +938,8 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-all-read': markSelectedFeedRead,
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
-  'report.open': openReportDialog,
+  'report.open': () => { void reportProblem() },
+  'report.bundle': openBundleDialog,
   'tasks.toggle': openTasks,
   'terminal.popup.toggle': togglePopupTerminal,
   // Reaching for the tree is also how you get a collapsed sidebar back: the

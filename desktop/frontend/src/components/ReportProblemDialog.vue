@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import IconBug from '~icons/lucide/bug'
+import IconLifeBuoy from '~icons/lucide/life-buoy'
 import IconCheck from '~icons/lucide/check'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
@@ -9,7 +9,7 @@ import { useReportProblem } from '../composables/useReportProblem'
 
 const emit = defineEmits<{ close: [] }>()
 
-const { preview, loading, saving, error, saved, loadPreview, save, openFolder, openIssue } = useReportProblem()
+const { preview, loading, saving, error, saved, loadPreview, save, openFolder } = useReportProblem()
 
 // Off is the deliberate default for all four: the file ends up on a public
 // issue, and redaction strips credentials but not names.
@@ -37,8 +37,8 @@ async function onSave(): Promise<void> {
 
 <template>
   <BaseModal
-    title="Report a problem"
-    :icon="IconBug"
+    title="Save a diagnostic bundle"
+    :icon="IconLifeBuoy"
     :width="520"
     :busy="saving"
     testid="report-dialog"
@@ -50,8 +50,8 @@ async function onSave(): Promise<void> {
         <span class="text-[14px] font-semibold">Bundle saved</span>
       </div>
       <p class="text-[13px] text-text-2">
-        The issue form is open in your browser. Review this file, then drag it into the
-        <span class="font-semibold">Diagnostic bundle or logs</span> box.
+        Read this file before you send it. Do not attach it to a GitHub issue: it is readable by
+        anyone. Send it only when a maintainer asks, through the channel they give you.
       </p>
       <code class="select-all break-all rounded-lg border border-strong bg-app px-3 py-2.5 font-mono text-[12px] text-text" data-testid="report-path">{{ saved.path }}</code>
       <p v-if="error" class="text-[12px] text-severity-error" data-testid="report-error">{{ error }}</p>
@@ -59,9 +59,9 @@ async function onSave(): Promise<void> {
 
     <form v-else class="flex flex-col gap-4 px-5 py-4" @submit.prevent="onSave">
       <p class="text-[13px] text-text-2">
-        Hive writes a diagnostic bundle to disk and opens a GitHub issue with your version and
-        platform filled in. Nothing is sent anywhere. You choose what the file holds and whether
-        to attach it.
+        Hive writes a bundle to disk for you to send to a maintainer who has asked for one.
+        Nothing is uploaded. To file a bug, use <span class="font-semibold">Report a problem</span>
+        instead.
       </p>
 
       <div class="overflow-hidden rounded-lg border border-card bg-raised">
@@ -127,8 +127,8 @@ async function onSave(): Promise<void> {
       </div>
 
       <p class="text-[11.5px] text-text-3">
-        Tokens, secrets and API keys are stripped from everything above. Names are not, so read
-        the file before you attach it to a public issue.
+        Tokens, secrets and API keys are stripped from everything above. Names are not, so this
+        file belongs in a private channel, never on a public issue.
       </p>
       <p v-if="error" class="text-[12px] text-severity-error" data-testid="report-error">{{ error }}</p>
     </form>
@@ -136,7 +136,6 @@ async function onSave(): Promise<void> {
     <template #footer>
       <template v-if="saved">
         <BaseButton class="flex-1" data-testid="report-reveal" @click="openFolder">Show in folder</BaseButton>
-        <BaseButton variant="secondary" data-testid="report-open-issue" @click="openIssue">Open issue again</BaseButton>
         <BaseButton variant="secondary" data-testid="report-done" @click="emit('close')">Done</BaseButton>
       </template>
       <template v-else>
@@ -146,7 +145,7 @@ async function onSave(): Promise<void> {
           :disabled="loading"
           data-testid="report-submit"
           @click="onSave"
-        >{{ saving ? 'Saving…' : 'Save bundle & open issue' }}</BaseButton>
+        >{{ saving ? 'Saving…' : 'Save bundle' }}</BaseButton>
         <BaseButton variant="secondary" :busy="saving" @click="emit('close')">Cancel</BaseButton>
       </template>
     </template>

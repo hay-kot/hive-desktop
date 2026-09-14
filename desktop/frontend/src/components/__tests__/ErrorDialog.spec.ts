@@ -1,17 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ErrorDialog from '../ErrorDialog.vue'
-import { useReportDialog } from '../../composables/useReportDialog'
 import type { ErrorDetails } from '../../composables/useErrorDialog'
 
 const mocks = vi.hoisted(() => ({
   SetText: vi.fn(),
+  OpenURL: vi.fn(),
+  IssueURL: vi.fn(),
 }))
 
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
+  Browser: { OpenURL: mocks.OpenURL },
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice', () => ({
+  IssueURL: mocks.IssueURL,
 }))
 
+const ISSUE_URL = 'https://github.com/hay-kot/hive-desktop/issues/new?template=bug.yml'
 const DETAIL = 'flow "inbox": node "notify-me": action "ping" is not defined in actions.yml'
 
 function details(overrides: Partial<ErrorDetails> = {}): ErrorDetails {
@@ -37,8 +43,9 @@ function el(testid: string): HTMLElement | null {
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
-  useReportDialog().close()
   mocks.SetText.mockResolvedValue(undefined)
+  mocks.IssueURL.mockResolvedValue(ISSUE_URL)
+  mocks.OpenURL.mockResolvedValue(undefined)
 })
 
 describe('ErrorDialog', () => {
@@ -78,14 +85,16 @@ describe('ErrorDialog', () => {
     expect(el('error-dialog-message')?.contains(el('error-dialog-copy'))).toBe(true)
   })
 
-  it('hands off to the report dialog and dismisses itself', async () => {
+  // The error text names flows, nodes and repositories, so it reaches a public
+  // issue by the user's paste, never by a prefill.
+  it('opens a bug form carrying no error text and dismisses itself', async () => {
     const wrapper = await mountDialog()
-    const report = useReportDialog()
 
     el('error-dialog-report')?.click()
     await flushPromises()
 
-    expect(report.open.value).toBe(true)
+    expect(mocks.OpenURL).toHaveBeenCalledWith(ISSUE_URL)
+    expect(ISSUE_URL).not.toContain(encodeURIComponent(DETAIL))
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
