@@ -17,6 +17,7 @@ type ItemRef struct {
 
 // ItemState is the lifecycle state of one ItemRef as of the query.
 type ItemState struct {
+	Author    string
 	Number    int
 	State     string // "open", "closed", or "merged"
 	UpdatedAt time.Time
@@ -58,6 +59,9 @@ func (c *Client) ItemStates(ctx context.Context, refs []ItemRef) ([]ItemState, e
 				UpdatedAt: result.Item.UpdatedAt,
 				Found:     true,
 			}
+			if result.Item.Author != nil {
+				out[base+i].Author = result.Item.Author.Login
+			}
 		}
 		base += len(chunk)
 	}
@@ -90,8 +94,8 @@ func buildItemStateQuery(refs []ItemRef) (doc string, variables map[string]any) 
 		// cmd/devserver's overlay rewriter, which only sees the response body.
 		// A future change to this selection set must not drop it.
 		b.WriteString(`      __typename
-      ... on Issue { number state updatedAt repository { nameWithOwner } }
-      ... on PullRequest { number state updatedAt repository { nameWithOwner } }
+      ... on Issue { number state updatedAt author { login } repository { nameWithOwner } }
+      ... on PullRequest { number state updatedAt author { login } repository { nameWithOwner } }
     }
   }
 `)
@@ -105,9 +109,10 @@ type gqlItemResult struct {
 }
 
 type gqlItemNode struct {
-	Type       string        `json:"__typename"`
-	Number     int           `json:"number"`
-	State      string        `json:"state"`
-	UpdatedAt  time.Time     `json:"updatedAt"`
-	Repository gqlRepository `json:"repository"`
+	Author     *gqlSearchAuthor `json:"author"`
+	Type       string           `json:"__typename"`
+	Number     int              `json:"number"`
+	State      string           `json:"state"`
+	UpdatedAt  time.Time        `json:"updatedAt"`
+	Repository gqlRepository    `json:"repository"`
 }

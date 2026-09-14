@@ -17,6 +17,7 @@ describe('DetailPane', () => {
     const wrapper = mount(DetailPane, { props: { item, actions } })
     expect(wrapper.get('[data-testid="source-badge"]').attributes('data-source')).toBe('github')
     expect(wrapper.text()).toContain('colonyops/hive #42')
+    expect(wrapper.text()).toContain('octocat')
     expect(wrapper.findAll('[data-testid="action-card"]')).toHaveLength(1)
   })
 

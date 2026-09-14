@@ -371,6 +371,14 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 			return next.items, nil
 		}
 		items := p.notificationItems(result.Items)
+		if err := hydrateNotificationAuthors(ctx, client, items, prev); err != nil {
+			p.noteRateLimit(ctx, err)
+			if errors.Is(err, sourcehttp.ErrUnauthorized) || ctx.Err() != nil {
+				return nil, err
+			}
+			p.logger.Debug().Err(err).Msg("notification authors fetch failed; retrying next poll")
+			result.Validators = sourcehttp.Validators{}
+		}
 		p.setCache(key, &cachedSource{
 			items:        items,
 			fetchedAt:    p.now(),
@@ -521,6 +529,35 @@ func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) 
 		})
 	}
 	return out
+}
+
+func hydrateNotificationAuthors(ctx context.Context, client *ghclient.Client, items []Item, prev *cachedSource) error {
+	refs := make([]ghclient.ItemRef, 0, len(items))
+	indices := make([]int, 0, len(items))
+	for i, item := range items {
+		owner, name, ok := strings.Cut(item.Repo, "/")
+		if !ok || owner == "" || name == "" || item.Num <= 0 {
+			continue
+		}
+		refs = append(refs, ghclient.ItemRef{Owner: owner, Name: name, Number: item.Num})
+		indices = append(indices, i)
+	}
+	details, err := client.ItemStates(ctx, refs)
+	previous := make(map[string]Item)
+	if err != nil && prev != nil {
+		for _, item := range prev.items {
+			previous[item.ID] = item
+		}
+	}
+	for j, detail := range details {
+		item := &items[indices[j]]
+		if detail.Found {
+			item.Author = detail.Author
+		} else if old, ok := previous[item.ID]; ok {
+			item.Author = old.Author
+		}
+	}
+	return err
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
