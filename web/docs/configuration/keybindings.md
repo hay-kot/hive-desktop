@@ -48,6 +48,6 @@ Use lower-case key names and join modifiers with `+`, such as `mod+shift+t`. `mo
 
 A focused terminal sends most keys to the running program. Global app shortcuts use Command on macOS or Control+Shift on other platforms so they can still leave the terminal pane.
 
-**Toggle Code sidebar** (`terminal.toggle-sidebar`) uses <kbd>⌘B</kbd> on macOS and <kbd>Ctrl+B</kbd> on Windows and Linux, including inside a focused terminal. Rebind this command in **Settings ▸ Keyboard** if you need <kbd>Ctrl+B</kbd> for tmux.
+**Toggle Code sidebar** (`terminal.toggle-sidebar`) uses <kbd>⌘B</kbd> on macOS and <kbd>Ctrl+B</kbd> on Windows and Linux, including inside a focused terminal. On macOS, <kbd>Ctrl+B</kbd> still reaches the terminal. On Windows and Linux, rebind this command in **Settings ▸ Keyboard** if you need <kbd>Ctrl+B</kbd> for tmux.
 
 Check **Settings ▸ Keyboard** before assigning a Control shortcut that your shell or terminal program already uses.

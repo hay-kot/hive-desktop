@@ -101,8 +101,9 @@ export interface BindableCommand {
    * cannot express, since terminalEscapeCombo only qualifies Command and
    * Ctrl+Shift. Prefer `escapesPane`: this one takes the chord away from the
    * shell outright, so `alt+t` stops being readline's transpose-words.
+   * `non-mac` limits this policy to Windows/Linux, preserving Control on macOS.
    */
-  piercesPane?: boolean
+  piercesPane?: boolean | 'non-mac'
 }
 
 // How far the digit row reaches. A session with more windows than this is
@@ -262,7 +263,8 @@ export const commandCatalog: BindableCommand[] = [
     icon: IconPanelLeft,
     defaultCombos: ['mod+b'],
     context: 'terminal',
-    piercesPane: true,
+    escapesPane: true,
+    piercesPane: 'non-mac',
   },
   // Directional rather than one toggle: which pane you land on should be
   // readable off the chord, not off where focus happened to be.
@@ -606,7 +608,7 @@ export const commandCatalog: BindableCommand[] = [
 // focused pane through its own path, and nothing loaded from actions.yml gets
 // to claim the escape chord.
 const paneEscapes = new Set(commandCatalog.filter((command) => command.escapesPane).map((command) => command.id))
-const panePierces = new Set(commandCatalog.filter((command) => command.piercesPane).map((command) => command.id))
+const panePierces = new Map(commandCatalog.filter((command) => command.piercesPane).map((command) => [command.id, command.piercesPane]))
 
 /** Whether the command fires over a focused terminal pane on the escape chord. */
 export function commandEscapesPane(commandID: string): boolean {
@@ -614,8 +616,9 @@ export function commandEscapesPane(commandID: string): boolean {
 }
 
 /** Whether the command fires over a focused terminal pane on the binding alone. */
-export function commandPiercesPane(commandID: string): boolean {
-  return panePierces.has(commandID)
+export function commandPiercesPane(commandID: string, mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)): boolean {
+  const policy = panePierces.get(commandID)
+  return policy === true || (policy === 'non-mac' && !mac)
 }
 
 export function defaultCombosFor(command: BindableCommand, mac: boolean): string[] {

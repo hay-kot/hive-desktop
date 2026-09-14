@@ -433,7 +433,10 @@ describe('useTerminalWindows', () => {
     })
   })
 
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    Reflect.deleteProperty(navigator, 'userAgent')
+  })
 
   it('attaches, builds one terminal per window and goes live on the stream', async () => {
     const { session, socket } = await attached()
@@ -1602,12 +1605,13 @@ describe('useTerminalWindows', () => {
     expect(socket.sent).toHaveLength(0)
   })
 
-  it('keeps both platform sidebar shortcuts off the wire', async () => {
+  it.each(['Macintosh', 'Windows', 'Linux'])('keeps the sidebar shortcut off the wire on %s', async (userAgent) => {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: userAgent })
     const { socket } = await attached()
     const term = xterm.FakeTerminal.instances[0]
 
     expect(term.press({ key: 'b', metaKey: true })).toBe(false)
-    expect(term.press({ key: 'b', ctrlKey: true })).toBe(false)
+    expect(term.press({ key: 'b', ctrlKey: true })).toBe(userAgent === 'Macintosh')
     expect(term.press({ key: 'b' })).toBe(true)
     expect(socket.sent).toHaveLength(0)
   })

@@ -371,6 +371,7 @@ describe('App', () => {
   // above throws before a test's own vi.useRealTimers() runs.
   afterEach(() => {
     vi.useRealTimers()
+    Reflect.deleteProperty(navigator, 'userAgent')
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -2122,6 +2123,7 @@ describe('App', () => {
   })
 
   it.each(['metaKey', 'ctrlKey'] as const)('restores and toggles the terminal sidebar from the title bar, keyboard, and palette (%s)', async (modifier) => {
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: modifier === 'metaKey' ? 'Macintosh' : 'Windows' })
     localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'true')
     mocks.TerminalAvailable.mockResolvedValue({ available: true, reason: '' })
@@ -2147,6 +2149,13 @@ describe('App', () => {
     expect(localStorage.getItem('hive.panel.terminal.sidebar.collapsed')).toBe('true')
 
     const pane = focusedPane()
+    if (modifier === 'metaKey') {
+      const prefix = new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true, cancelable: true })
+      pane.dispatchEvent(prefix)
+      await flushPromises()
+      expect(prefix.defaultPrevented).toBe(false)
+      expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(false)
+    }
     const shortcut = new KeyboardEvent('keydown', { key: 'b', [modifier]: true, bubbles: true, cancelable: true })
     pane.dispatchEvent(shortcut)
     await flushPromises()

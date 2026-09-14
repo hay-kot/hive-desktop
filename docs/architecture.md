@@ -1663,6 +1663,8 @@ Three rules govern it, and each is a consequence of that:
   escaping command whose macOS chord is shifted carries `ctrlDefaultCombos`, an
   unshifted default for that platform (`terminal.split-down`: ⌘⇧D, Ctrl+Shift+O).
   Prefer escaping: piercing is for a chord the escape form cannot carry.
+  A command can combine `escapesPane` with `piercesPane: 'non-mac'` when its
+  Windows/Linux default must use bare Ctrl while macOS keeps Ctrl for the pane.
   An alt chord is the case that forces it — `terminalEscapeCombo` qualifies only
   Command and Ctrl+Shift, so a user who binds `alt+t` to a command that merely
   escapes gets nothing. Widening the escape chord to accept alt was rejected:
