@@ -78,8 +78,6 @@ describe('ErrorDialog', () => {
     expect(el('error-dialog-message')?.contains(el('error-dialog-copy'))).toBe(true)
   })
 
-  // The bundle goes on a public issue, so what it carries is chosen in the
-  // report dialog rather than filed wholesale from here.
   it('hands off to the report dialog and dismisses itself', async () => {
     const wrapper = await mountDialog()
     const report = useReportDialog()

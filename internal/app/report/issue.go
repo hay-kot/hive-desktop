@@ -6,16 +6,11 @@ import (
 	"strings"
 )
 
-// IssueFormURL is the public tracker's new-issue endpoint. The app bakes in
-// the repository the same way it bakes in the product domain.
 const IssueFormURL = "https://github.com/hay-kot/hive-desktop/issues/new"
 
-// IssueURL returns the bug form with the build identity filled in.
-//
-// Build identity is the only thing prefilled. A bundle's other surfaces name
-// the user's machine, hosts and repositories, and this URL opens a public
-// issue — so they travel as a file the user reviews and attaches, never as
-// query parameters the app sends on their behalf.
+// IssueURL returns the bug form with the build identity filled in. Do not
+// prefill another field: this URL opens a public issue, and every other
+// surface a bundle carries names the user's machine, hosts or repositories.
 func IssueURL(b BuildInfo) string {
 	q := url.Values{}
 	q.Set("template", "bug.yml")
@@ -24,8 +19,7 @@ func IssueURL(b BuildInfo) string {
 	return IssueFormURL + "?" + q.Encode()
 }
 
-// versionField matches the wording the template asks for: a released build
-// reports its version and channel, an unreleased one reports how it was made.
+// versionField matches the wording bug.yml's Version field asks for.
 func versionField(b BuildInfo) string {
 	if b.Version == "" || b.Version == "dev" {
 		return "built from source"

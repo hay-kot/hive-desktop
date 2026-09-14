@@ -46,8 +46,7 @@ func (s *ReportService) Preview(ctx context.Context) ReportPreview {
 	}
 }
 
-// Save writes the bundle to disk and returns where it landed plus the issue
-// form to file it against. The frontend opens that URL; nothing is uploaded.
+// Save returns the issue URL rather than opening it; the frontend does that.
 func (s *ReportService) Save(ctx context.Context, in ReportInput) (ReportResult, error) {
 	res, err := s.report.Save(ctx, app.ReportRequest{
 		IncludeLogs:     in.IncludeLogs,

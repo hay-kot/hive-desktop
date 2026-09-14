@@ -8,9 +8,8 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-// The bundle is written to disk and the issue form is opened for the user to
-// fill in. Nothing leaves the machine on its own: a bundle names the user's
-// paths, hosts and repositories, and the issue it goes on is public.
+// Save writes a file and opens a form. Nothing uploads the bundle, here or in
+// the backend, and nothing should.
 export function useReportProblem() {
   const preview = ref<ReportPreview | null>(null)
   const loading = ref(false)
@@ -46,8 +45,8 @@ export function useReportProblem() {
     }
   }
 
-  // The reports directory is one of the app's known locations, so showing a
-  // bundle needs no reveal of its own.
+  // The reports directory is one of the app's known locations, so this needs
+  // no reveal binding of its own.
   async function openFolder(): Promise<void> {
     if (!saved.value) return
     error.value = ''

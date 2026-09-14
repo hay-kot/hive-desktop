@@ -4,9 +4,9 @@
 // affordances that make a failure actionable: the full text on the clipboard,
 // and the report dialog one click away.
 //
-// Reporting hands off rather than filing in one click. A bundle is attached to
-// a public issue, so which surfaces it carries is the user's choice to make in
-// that dialog (ADR problem-reports-are-github-issues).
+// Report hands off to that dialog and files nothing itself: the bundle goes on
+// a public issue, so the user picks what it carries
+// (ADR problem-reports-are-github-issues).
 //
 // The backdrop does not dismiss it: a failure the app decided to interrupt for
 // should not close on a stray click before it has been read.

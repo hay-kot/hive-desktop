@@ -74,8 +74,6 @@ func TestReportSave(t *testing.T) {
 	}
 }
 
-// Nothing beyond build info goes in unless it is asked for: the bundle ends up
-// on a public issue.
 func TestReportSaveOmitsEverySurfaceByDefault(t *testing.T) {
 	paths := testPaths(t)
 	if err := os.WriteFile(paths.LogFile, []byte("2026-09-14 INF /Users/somebody/private-repo\n"), 0o600); err != nil {

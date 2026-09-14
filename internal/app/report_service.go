@@ -44,8 +44,9 @@ type ReportRequest struct {
 }
 
 type ReportResult struct {
-	// Path is the saved bundle; Dir is the directory to show it in.
-	Path     string
+	Path string
+	// Dir is returned rather than derived from Path because the caller is the
+	// webview, which has no path handling of its own.
 	Dir      string
 	IssueURL string
 }
@@ -71,8 +72,6 @@ func (s *ReportService) Preview(_ context.Context) ReportPreview {
 	}
 }
 
-// Save writes the bundle under the data directory and returns its path with
-// the issue URL to file it against.
 func (s *ReportService) Save(_ context.Context, req ReportRequest) (ReportResult, error) {
 	id := newReportID()
 	bundle := s.assembler.Assemble(id, time.Now().UTC(), report.Options{

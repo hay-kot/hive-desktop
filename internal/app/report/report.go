@@ -39,9 +39,8 @@ type Build struct {
 	Date    string
 }
 
-// Options chooses what the bundle carries beyond build info. Every surface is
-// opt-in and defaults off: each one identifies the user or their work to
-// anyone who reads the issue it is attached to.
+// Options chooses what the bundle carries beyond build info, which is always
+// present. Every surface here is opt-in and its zero value is deliberate.
 type Options struct {
 	Channel string
 

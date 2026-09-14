@@ -11,9 +11,8 @@ const emit = defineEmits<{ close: [] }>()
 
 const { preview, loading, saving, error, saved, loadPreview, save, openFolder, openIssue } = useReportProblem()
 
-// Every surface defaults off. The bundle is attached to a public issue, and
-// redaction removes credentials, not identity: a log tail names the user's
-// home directory, repositories and branches.
+// Off is the deliberate default for all four: the file ends up on a public
+// issue, and redaction strips credentials but not names.
 const includeLogs = ref(false)
 const includeSettings = ref(false)
 const includeFlows = ref(false)

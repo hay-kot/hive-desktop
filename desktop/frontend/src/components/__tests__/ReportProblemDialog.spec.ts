@@ -47,8 +47,6 @@ beforeEach(() => {
 })
 
 describe('ReportProblemDialog', () => {
-  // The bundle is attached to a public issue, and redaction removes
-  // credentials, not names. Nothing beyond build info goes in unasked.
   it('saves build info only until a surface is switched on', async () => {
     await mountDialog()
 
