@@ -50,8 +50,12 @@ type Paths struct {
 	SettingsPath         string
 	CredentialsIndexPath string
 	LogFile              string
-	DataDirOverridden    bool
-	ConfigDirOverridden  bool
+	// ReportsDir holds the diagnostic bundles "Report a problem" writes. It is
+	// resolved here so the reporter and the system service's path allowlist
+	// cannot disagree about where they live.
+	ReportsDir          string
+	DataDirOverridden   bool
+	ConfigDirOverridden bool
 }
 
 // ResolveOptions carries the settings-derived inputs to path resolution. They
@@ -137,6 +141,7 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 		SettingsPath:         filepath.Join(configDir, settingsFileName),
 		CredentialsIndexPath: filepath.Join(stateDir, "credentials.json"),
 		LogFile:              filepath.Join(stateDir, logFileName),
+		ReportsDir:           filepath.Join(dataDir, "reports"),
 		DataDirOverridden:    dataOverride || b.DataDir != "",
 		ConfigDirOverridden:  configOverride || b.ConfigDir != "",
 	}
@@ -177,6 +182,7 @@ func ConfigDir() string    { return defaultPaths().ConfigDir }
 func FlowsDir() string     { return defaultPaths().FlowsDir }
 func ActionsPath() string  { return defaultPaths().ActionsPath }
 func SettingsPath() string { return defaultPaths().SettingsPath }
+func ReportsDir() string   { return defaultPaths().ReportsDir }
 func MockMode() string     { return envMockMode() }
 
 var onboardingFlowsDir = sync.OnceValue(func() string {

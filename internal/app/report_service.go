@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colonyops/hive/pkg/osopen"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
@@ -18,6 +17,9 @@ import (
 // ReportService writes a redacted diagnostic bundle to disk and hands back the
 // GitHub issue form to file it against. It never transmits the bundle: the
 // user reviews the file and attaches it themselves.
+//
+// The saved file is shown through SystemService.OpenPath, which already guards
+// the app's known locations; ReportsDir is one of them.
 type ReportService struct {
 	assembler  *report.Assembler
 	settings   *settings.Store
@@ -29,7 +31,7 @@ func newReportService(paths settings.Paths, store *settings.Store, build report.
 	return &ReportService{
 		assembler:  report.NewAssembler(paths, build),
 		settings:   store,
-		reportsDir: filepath.Join(paths.DataDir, "reports"),
+		reportsDir: paths.ReportsDir,
 		logger:     logger,
 	}
 }
@@ -42,8 +44,9 @@ type ReportRequest struct {
 }
 
 type ReportResult struct {
-	ID       string
+	// Path is the saved bundle; Dir is the directory to show it in.
 	Path     string
+	Dir      string
 	IssueURL string
 }
 
@@ -97,25 +100,7 @@ func (s *ReportService) Save(_ context.Context, req ReportRequest) (ReportResult
 	}
 
 	s.logger.Info().Str("report_id", id).Str("path", path).Int("bytes", len(gz)).Msg("diagnostic bundle saved")
-	return ReportResult{ID: id, Path: path, IssueURL: report.IssueURL(bundle.Build)}, nil
-}
-
-// Reveal opens a saved bundle in the OS file manager. The path is checked
-// against the reports directory so this cannot be used to reveal an arbitrary
-// file, the same rule SystemService.RevealPath follows.
-func (s *ReportService) Reveal(_ context.Context, path string) error {
-	dir, err := filepath.Abs(s.reportsDir)
-	if err != nil {
-		return Wrap(err, KindInternal, "resolving the reports directory")
-	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return Wrap(err, KindInvalid, "resolving %s", path)
-	}
-	if filepath.Dir(abs) != dir {
-		return Errorf(KindInvalid, "%s is not a saved report", path)
-	}
-	return Wrap(osopen.Reveal(abs), KindInternal, "revealing %s", abs)
+	return ReportResult{Path: path, Dir: s.reportsDir, IssueURL: report.IssueURL(bundle.Build)}, nil
 }
 
 func (s *ReportService) channel() string {

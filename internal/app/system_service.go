@@ -145,6 +145,7 @@ func (s *SystemService) checkAllowed(path string) error {
 		filepath.Clean(s.paths.LogFile):                        {},
 		filepath.Clean(queries.DatabasePath(s.paths.StateDir)): {},
 		filepath.Clean(s.paths.AgentWorkspacesDir):             {},
+		filepath.Clean(s.paths.ReportsDir):                     {},
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

@@ -9,7 +9,7 @@ import { useReportProblem } from '../composables/useReportProblem'
 
 const emit = defineEmits<{ close: [] }>()
 
-const { preview, loading, saving, error, saved, loadPreview, save, reveal, openIssue } = useReportProblem()
+const { preview, loading, saving, error, saved, loadPreview, save, openFolder, openIssue } = useReportProblem()
 
 // Every surface defaults off. The bundle is attached to a public issue, and
 // redaction removes credentials, not identity: a log tail names the user's
@@ -136,7 +136,7 @@ async function onSave(): Promise<void> {
 
     <template #footer>
       <template v-if="saved">
-        <BaseButton class="flex-1" data-testid="report-reveal" @click="reveal">Show file</BaseButton>
+        <BaseButton class="flex-1" data-testid="report-reveal" @click="openFolder">Show in folder</BaseButton>
         <BaseButton variant="secondary" data-testid="report-open-issue" @click="openIssue">Open issue again</BaseButton>
         <BaseButton variant="secondary" data-testid="report-done" @click="emit('close')">Done</BaseButton>
       </template>

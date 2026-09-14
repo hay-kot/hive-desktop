@@ -30,8 +30,8 @@ type ReportPreview struct {
 }
 
 type ReportResult struct {
-	ID       string `json:"id"`
 	Path     string `json:"path"`
+	Dir      string `json:"dir"`
 	IssueURL string `json:"issueUrl"`
 }
 
@@ -58,10 +58,5 @@ func (s *ReportService) Save(ctx context.Context, in ReportInput) (ReportResult,
 	if err != nil {
 		return ReportResult{}, err
 	}
-	return ReportResult{ID: res.ID, Path: res.Path, IssueURL: res.IssueURL}, nil
-}
-
-// Reveal shows a saved bundle in the OS file manager.
-func (s *ReportService) Reveal(ctx context.Context, path string) error {
-	return s.report.Reveal(ctx, path)
+	return ReportResult{Path: res.Path, Dir: res.Dir, IssueURL: res.IssueURL}, nil
 }

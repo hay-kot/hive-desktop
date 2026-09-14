@@ -5,22 +5,25 @@ import ReportProblemDialog from '../ReportProblemDialog.vue'
 const mocks = vi.hoisted(() => ({
   Preview: vi.fn(),
   Save: vi.fn(),
-  Reveal: vi.fn(),
+  OpenPath: vi.fn(),
   OpenURL: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice', () => ({
   Preview: mocks.Preview,
   Save: mocks.Save,
-  Reveal: mocks.Reveal,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
+  OpenPath: mocks.OpenPath,
 }))
 vi.mock('@wailsio/runtime', () => ({
   Browser: { OpenURL: mocks.OpenURL },
 }))
 
+const REPORTS_DIR = '/home/u/.local/share/hive/desktop/reports'
 const SAVED = {
-  id: 'rpt_abc123',
-  path: '/home/u/.local/share/hive/desktop/reports/hive-report-rpt_abc123.json.gz',
+  path: `${REPORTS_DIR}/hive-report-rpt_abc123.json.gz`,
+  dir: REPORTS_DIR,
   issueUrl: 'https://github.com/hay-kot/hive-desktop/issues/new?template=bug.yml&version=1.0.0',
 }
 
@@ -39,7 +42,7 @@ beforeEach(() => {
   document.body.innerHTML = ''
   mocks.Preview.mockResolvedValue({ hasSettings: true, flowCount: 2, hasActions: true, hasLogs: true, logBytes: 4096 })
   mocks.Save.mockResolvedValue(SAVED)
-  mocks.Reveal.mockResolvedValue(undefined)
+  mocks.OpenPath.mockResolvedValue(undefined)
   mocks.OpenURL.mockResolvedValue(undefined)
 })
 
@@ -70,7 +73,7 @@ describe('ReportProblemDialog', () => {
     expect(el('report-path')?.textContent).toBe(SAVED.path)
   })
 
-  it('reveals the saved bundle so it can be read before it is attached', async () => {
+  it('opens the reports folder so the bundle can be read before it is attached', async () => {
     await mountDialog()
 
     el('report-submit')?.click()
@@ -78,7 +81,7 @@ describe('ReportProblemDialog', () => {
     el('report-reveal')?.click()
     await flushPromises()
 
-    expect(mocks.Reveal).toHaveBeenCalledWith(SAVED.path)
+    expect(mocks.OpenPath).toHaveBeenCalledWith(REPORTS_DIR)
   })
 
   it('keeps the dialog open with the error when saving fails', async () => {

@@ -14,13 +14,6 @@ export function Preview(): $CancellablePromise<$models.ReportPreview> {
 }
 
 /**
- * Reveal shows a saved bundle in the OS file manager.
- */
-export function Reveal(path: string): $CancellablePromise<void> {
-    return $Call.ByID(1501527460, path);
-}
-
-/**
  * Save writes the bundle to disk and returns where it landed plus the issue
  * form to file it against. The frontend opens that URL; nothing is uploaded.
  */

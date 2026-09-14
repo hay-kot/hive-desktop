@@ -397,8 +397,8 @@ export interface ReportPreview {
 }
 
 export interface ReportResult {
-    "id": string;
     "path": string;
+    "dir": string;
     "issueUrl": string;
 }
 

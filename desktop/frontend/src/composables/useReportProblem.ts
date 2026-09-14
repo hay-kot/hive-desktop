@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import { Preview, Reveal, Save } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
+import { Preview, Save } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
+import { OpenPath } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice'
 import type { ReportInput, ReportPreview, ReportResult } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
@@ -45,11 +46,13 @@ export function useReportProblem() {
     }
   }
 
-  async function reveal(): Promise<void> {
+  // The reports directory is one of the app's known locations, so showing a
+  // bundle needs no reveal of its own.
+  async function openFolder(): Promise<void> {
     if (!saved.value) return
     error.value = ''
     try {
-      await Reveal(saved.value.path)
+      await OpenPath(saved.value.dir)
     } catch (err) {
       error.value = errText(err)
     }
@@ -65,5 +68,5 @@ export function useReportProblem() {
     }
   }
 
-  return { preview, loading, saving, error, saved, loadPreview, save, reveal, openIssue }
+  return { preview, loading, saving, error, saved, loadPreview, save, openFolder, openIssue }
 }

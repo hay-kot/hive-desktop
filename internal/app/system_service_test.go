@@ -85,5 +85,8 @@ func TestSystemServiceCheckAllowed(t *testing.T) {
 
 	require.NoError(t, s.checkAllowed(settings.DataDir()))
 	require.NoError(t, s.checkAllowed(settings.LogFile()))
+	// The report dialog shows a saved bundle through OpenPath rather than
+	// through a reveal of its own.
+	require.NoError(t, s.checkAllowed(settings.ReportsDir()))
 	require.Error(t, s.checkAllowed("/etc/passwd"))
 }

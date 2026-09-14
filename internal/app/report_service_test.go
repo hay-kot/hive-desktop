@@ -20,6 +20,7 @@ func testPaths(t *testing.T) settings.Paths {
 	dir := t.TempDir()
 	return settings.Paths{
 		DataDir:      dir,
+		ReportsDir:   filepath.Join(dir, "reports"),
 		SettingsPath: filepath.Join(dir, "settings.yaml"),
 		ActionsPath:  filepath.Join(dir, "actions.yml"),
 		FlowsDir:     filepath.Join(dir, "flows"),
@@ -35,11 +36,14 @@ func TestReportSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if !strings.HasPrefix(res.ID, "rpt_") {
-		t.Errorf("unexpected report id: %q", res.ID)
+	if filepath.Dir(res.Path) != paths.ReportsDir {
+		t.Errorf("saved to %q, want a file in %q", res.Path, paths.ReportsDir)
 	}
-	if got, want := filepath.Dir(res.Path), filepath.Join(paths.DataDir, "reports"); got != want {
-		t.Errorf("saved to %q, want a file in %q", got, want)
+	if res.Dir != paths.ReportsDir {
+		t.Errorf("result dir %q, want %q", res.Dir, paths.ReportsDir)
+	}
+	if !strings.Contains(filepath.Base(res.Path), "rpt_") {
+		t.Errorf("bundle name carries no report id: %q", res.Path)
 	}
 	if !strings.Contains(res.IssueURL, "template=bug.yml") {
 		t.Errorf("issue url does not target the bug form: %q", res.IssueURL)
@@ -88,19 +92,6 @@ func TestReportSaveOmitsEverySurfaceByDefault(t *testing.T) {
 	}
 	if strings.Contains(readBundle(t, res.Path), "private-repo") {
 		t.Error("log content reached a bundle that did not ask for it")
-	}
-}
-
-func TestReportRevealRejectsPathsOutsideReports(t *testing.T) {
-	paths := testPaths(t)
-	svc := newReportService(paths, settings.NewStore(paths.SettingsPath), report.Build{}, zerolog.Nop())
-
-	err := svc.Reveal(t.Context(), filepath.Join(paths.DataDir, "settings.yaml"))
-	if err == nil {
-		t.Fatal("expected a rejection outside the reports directory")
-	}
-	if KindOf(err) != KindInvalid {
-		t.Errorf("expected KindInvalid, got %v", KindOf(err))
 	}
 }
 
