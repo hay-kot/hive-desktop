@@ -1,17 +1,21 @@
 import { ref } from 'vue'
-import { Preview, Submit } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
-import type { ReportInput, ReportPreview } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
+import { Browser } from '@wailsio/runtime'
+import { Preview, Reveal, Save } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
+import type { ReportInput, ReportPreview, ReportResult } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+// The bundle is written to disk and the issue form is opened for the user to
+// fill in. Nothing leaves the machine on its own: a bundle names the user's
+// paths, hosts and repositories, and the issue it goes on is public.
 export function useReportProblem() {
   const preview = ref<ReportPreview | null>(null)
   const loading = ref(false)
-  const submitting = ref(false)
+  const saving = ref(false)
   const error = ref('')
-  const reportId = ref('')
+  const saved = ref<ReportResult | null>(null)
 
   async function loadPreview(): Promise<void> {
     loading.value = true
@@ -25,20 +29,41 @@ export function useReportProblem() {
     }
   }
 
-  async function submit(input: ReportInput): Promise<boolean> {
-    submitting.value = true
+  async function save(input: ReportInput): Promise<boolean> {
+    saving.value = true
     error.value = ''
     try {
-      const res = await Submit(input)
-      reportId.value = res.id
+      const res = await Save(input)
+      saved.value = res
+      await Browser.OpenURL(res.issueUrl)
       return true
     } catch (err) {
       error.value = errText(err)
       return false
     } finally {
-      submitting.value = false
+      saving.value = false
     }
   }
 
-  return { preview, loading, submitting, error, reportId, loadPreview, submit }
+  async function reveal(): Promise<void> {
+    if (!saved.value) return
+    error.value = ''
+    try {
+      await Reveal(saved.value.path)
+    } catch (err) {
+      error.value = errText(err)
+    }
+  }
+
+  async function openIssue(): Promise<void> {
+    if (!saved.value) return
+    error.value = ''
+    try {
+      await Browser.OpenURL(saved.value.issueUrl)
+    } catch (err) {
+      error.value = errText(err)
+    }
+  }
+
+  return { preview, loading, saving, error, saved, loadPreview, save, reveal, openIssue }
 }

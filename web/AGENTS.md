@@ -96,9 +96,6 @@ match:
 - `/api/latest` — proxies a release channel manifest for the download buttons.
   `?channel=stable|beta|dev`, stable by default. `download.js` asks for `dev`
   because no stable manifest is published yet.
-- `/api/report` — gzipped diagnostic bundles from the app's problem reporter,
-  written to the private `hive-desktop-reports` R2 bucket (ADR
-  in-app-problem-reporting).
 - Old URLs 301-redirect to where their content went. `/docs` to
   `/getting-started/`; `/install` to `/getting-started/#install`; `/compare`
   and `/compare/*` to `/`; the moved pages `/docs/concepts/*` to `/inbox/*`,

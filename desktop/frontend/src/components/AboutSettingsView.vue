@@ -142,7 +142,7 @@ interface Link {
 const links: Link[] = [
   { key: 'docs', label: 'Documentation', hint: 'Guides and reference', external: true, open: openDocs },
   { key: 'updates', label: 'How updates work', hint: 'Channels and releases', external: true, open: openUpdatesDoc },
-  { key: 'report', label: 'Report a problem', hint: 'Build info and logs', external: false, open: openReport },
+  { key: 'report', label: 'Report a problem', hint: 'Diagnostic bundle and a GitHub issue', external: false, open: openReport },
 ]
 
 // The changelog ships inside the binary, so this list is complete offline. It

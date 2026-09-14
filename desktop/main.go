@@ -170,15 +170,14 @@ func main() {
 
 	_, coreSpan := tracer.Start(startupCtx, "app.core.new")
 	core, err := app.New(ctx, app.Config{
-		Settings:       cfg,
-		SettingsStore:  settingsStore,
-		Paths:          paths,
-		MockMode:       cfg.MockMode(),
-		Logger:         logger,
-		Notifier:       ui.Notifier(),
-		Gate:           ui.Gate(),
-		Build:          report.Build{Version: version, Commit: commit, Date: date},
-		ReportUploader: ui.ReportUploader(),
+		Settings:      cfg,
+		SettingsStore: settingsStore,
+		Paths:         paths,
+		MockMode:      cfg.MockMode(),
+		Logger:        logger,
+		Notifier:      ui.Notifier(),
+		Gate:          ui.Gate(),
+		Build:         report.Build{Version: version, Commit: commit, Date: date},
 	})
 	coreSpan.End()
 	if err != nil {

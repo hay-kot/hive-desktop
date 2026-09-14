@@ -78,11 +78,19 @@ See [Terminal mode](../code/terminal-mode.md#shared-tmux-sizing).
 
 ## Report a problem
 
-Open **Settings ▸ System** and select **Report a problem**. The report includes build details, system details, a limited log tail, and a scrubbed configuration snapshot. It excludes account tokens and the pipeline database.
+Open **Settings ▸ System** and select **Report a problem**. Hive writes a diagnostic bundle to your data directory and opens a new issue at [github.com/hay-kot/hive-desktop/issues](https://github.com/hay-kot/hive-desktop/issues) with your version and platform filled in. Nothing is uploaded.
 
-You can also open an issue at [github.com/hay-kot/hive-desktop/issues](https://github.com/hay-kot/hive-desktop/issues). Include the build number from **Settings ▸ About** and relevant log lines.
+The bundle always holds build and system details. Logs, settings, flows, and actions are separate switches, and all four start off. Switch on what the problem needs.
 
-The default log path is:
+Tokens, secrets, and API keys are removed from everything the bundle holds. Names are not. A log tail names your home directory, repositories, and branches, and flows name the orgs and hosts they poll. Read the file before you attach it to a public issue.
+
+Bundles are written to:
+
+```text
+~/.local/share/hive/desktop/reports/
+```
+
+Read one with `gunzip -c hive-report-<id>.json.gz | jq .`. Attach it to the issue by dragging it into the **Diagnostic bundle or logs** box, or paste the relevant log lines instead. The default log path is:
 
 ```text
 ~/.local/share/hive/desktop/desktop.log

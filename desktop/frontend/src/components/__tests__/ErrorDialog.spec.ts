@@ -1,18 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import ErrorDialog from '../ErrorDialog.vue'
+import { useReportDialog } from '../../composables/useReportDialog'
 import type { ErrorDetails } from '../../composables/useErrorDialog'
 
 const mocks = vi.hoisted(() => ({
-  Preview: vi.fn(),
-  Submit: vi.fn(),
   SetText: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice', () => ({
-  Preview: mocks.Preview,
-  Submit: mocks.Submit,
-}))
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
 }))
@@ -29,10 +24,6 @@ function details(overrides: Partial<ErrorDetails> = {}): ErrorDetails {
   }
 }
 
-function preview(available = true) {
-  return { available, hasSettings: true, flowCount: 2, hasActions: true, accountCount: 1, hasLogs: true, logBytes: 4096 }
-}
-
 async function mountDialog(error: ErrorDetails = details()) {
   const wrapper = mount(ErrorDialog, { props: { error } })
   await flushPromises()
@@ -46,8 +37,7 @@ function el(testid: string): HTMLElement | null {
 beforeEach(() => {
   vi.clearAllMocks()
   document.body.innerHTML = ''
-  mocks.Preview.mockResolvedValue(preview())
-  mocks.Submit.mockResolvedValue({ id: 'rpt_abc123' })
+  useReportDialog().close()
   mocks.SetText.mockResolvedValue(undefined)
 })
 
@@ -88,41 +78,17 @@ describe('ErrorDialog', () => {
     expect(el('error-dialog-message')?.contains(el('error-dialog-copy'))).toBe(true)
   })
 
-  it('files a diagnostic report in one click and keeps the reference id', async () => {
-    await mountDialog()
+  // The bundle goes on a public issue, so what it carries is chosen in the
+  // report dialog rather than filed wholesale from here.
+  it('hands off to the report dialog and dismisses itself', async () => {
+    const wrapper = await mountDialog()
+    const report = useReportDialog()
 
     el('error-dialog-report')?.click()
     await flushPromises()
 
-    expect(mocks.Submit).toHaveBeenCalledWith({
-      description: expect.stringContaining(DETAIL),
-      contact: '',
-      includeBasics: true,
-      includeSettings: true,
-      includeFlows: true,
-      includeActions: true,
-    })
-    expect(el('error-dialog-report-id')?.textContent).toBe('rpt_abc123')
-    expect(el('error-dialog-report')).toBeNull()
-  })
-
-  it('surfaces a failed report without losing the error it was raised for', async () => {
-    mocks.Submit.mockRejectedValue(new Error('report endpoint unreachable'))
-    await mountDialog()
-
-    el('error-dialog-report')?.click()
-    await flushPromises()
-
-    expect(el('error-dialog-report-error')?.textContent).toContain('unreachable')
-    expect(el('error-dialog-detail')?.textContent).toBe(DETAIL)
-  })
-
-  it('explains and disables reporting in a build with no report endpoint', async () => {
-    mocks.Preview.mockResolvedValue(preview(false))
-    await mountDialog()
-
-    expect(el('error-dialog-report-unavailable')).not.toBeNull()
-    expect(el('error-dialog-report')).toHaveProperty('disabled', true)
+    expect(report.open.value).toBe(true)
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
   it('says so when the failure carried no text', async () => {

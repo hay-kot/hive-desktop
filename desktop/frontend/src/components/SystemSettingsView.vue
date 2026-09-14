@@ -64,7 +64,7 @@ onMounted(() => {
       </span>
       <div class="min-w-0 flex-1">
         <div class="text-[13.5px] font-semibold text-text">Report a problem</div>
-        <div class="mt-0.5 text-[11.5px] text-text-3">Send build info, recent logs, and redacted config — secrets are removed first.</div>
+        <div class="mt-0.5 text-[11.5px] text-text-3">Save a diagnostic bundle and open a GitHub issue.</div>
       </div>
       <IconChevronRight class="size-4 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5 group-hover:text-text-2" />
     </button>

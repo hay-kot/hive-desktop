@@ -13,6 +13,17 @@ export function Preview(): $CancellablePromise<$models.ReportPreview> {
     return $Call.ByID(2830240947);
 }
 
-export function Submit($in: $models.ReportInput): $CancellablePromise<$models.ReportResult> {
-    return $Call.ByID(2664891537, $in);
+/**
+ * Reveal shows a saved bundle in the OS file manager.
+ */
+export function Reveal(path: string): $CancellablePromise<void> {
+    return $Call.ByID(1501527460, path);
+}
+
+/**
+ * Save writes the bundle to disk and returns where it landed plus the issue
+ * form to file it against. The frontend opens that URL; nothing is uploaded.
+ */
+export function Save($in: $models.ReportInput): $CancellablePromise<$models.ReportResult> {
+    return $Call.ByID(540616300, $in);
 }

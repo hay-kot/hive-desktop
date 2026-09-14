@@ -82,18 +82,15 @@ nodes:
 
 	write(filepath.Join(flows, "main.ui.yaml"), "should: be skipped\n")
 
-	write(filepath.Join(dir, "credentials.json"), `{"refs":["github/octocat"]}`)
-
 	write(filepath.Join(dir, "desktop.log"),
 		"2026-07-27 INFO starting up\n"+
 			"2026-07-27 DEBUG using token ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC now\n")
 
 	return settings.Paths{
-		SettingsPath:         filepath.Join(dir, "settings.yaml"),
-		ActionsPath:          filepath.Join(dir, "actions.yml"),
-		FlowsDir:             flows,
-		CredentialsIndexPath: filepath.Join(dir, "credentials.json"),
-		LogFile:              filepath.Join(dir, "desktop.log"),
+		SettingsPath: filepath.Join(dir, "settings.yaml"),
+		ActionsPath:  filepath.Join(dir, "actions.yml"),
+		FlowsDir:     flows,
+		LogFile:      filepath.Join(dir, "desktop.log"),
 	}
 }
 
@@ -102,10 +99,8 @@ func TestAssembleRedactsEverySecret(t *testing.T) {
 	a := NewAssembler(paths, Build{Version: "1.2.3", Commit: "abcdef1", Date: "2026-07-27"})
 
 	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{
-		Description:     "here is my token ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD oops",
-		Contact:         "me@example.com",
 		Channel:         "beta",
-		IncludeBasics:   true,
+		IncludeLogs:     true,
 		IncludeSettings: true,
 		IncludeFlows:    true,
 		IncludeActions:  true,
@@ -115,7 +110,7 @@ func TestAssembleRedactsEverySecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gzip: %v", err)
 	}
-	if len(gz) > MaxUploadBytes {
+	if len(gz) > MaxBundleBytes {
 		t.Fatalf("bundle over cap: %d", len(gz))
 	}
 
@@ -128,12 +123,11 @@ func TestAssembleRedactsEverySecret(t *testing.T) {
 	}
 
 	mustContain := []string{
-		"1.2.3",          // build version
-		"beta",           // update channel
-		"[REDACTED]",     // redaction sentinel
-		"main.yaml",      // flow file included
-		"starting up",    // log tail included
-		"github/octocat", // connected account ref (not a secret)
+		"1.2.3",       // build version
+		"beta",        // update channel
+		"[REDACTED]",  // redaction sentinel
+		"main.yaml",   // flow file included
+		"starting up", // log tail included
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(payload, want) {
@@ -146,30 +140,32 @@ func TestAssembleRedactsEverySecret(t *testing.T) {
 	}
 }
 
-func TestAssembleBasicsOptOut(t *testing.T) {
+// Build info is unconditional; every other surface names the user or their
+// work and only travels when the reporter asks for it.
+func TestAssembleOptOut(t *testing.T) {
 	paths := writeFixtures(t)
 	a := NewAssembler(paths, Build{Version: "1.0.0"})
 
-	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{
-		IncludeBasics: false,
-		IncludeFlows:  true,
-	})
-	if bundle.Build != nil {
-		t.Error("build info included despite basics opt-out")
+	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{IncludeFlows: true})
+	if bundle.Build.Version != "1.0.0" {
+		t.Error("build info should always be present")
 	}
 	if bundle.Logs != nil {
-		t.Error("logs included despite basics opt-out")
+		t.Error("logs included without an opt-in")
 	}
-	if len(bundle.Config.Accounts) != 0 {
-		t.Error("connected accounts included despite basics opt-out")
+	if bundle.Config.Settings != nil {
+		t.Error("settings included without an opt-in")
+	}
+	if bundle.Config.Actions != nil {
+		t.Error("actions included without an opt-in")
 	}
 	if len(bundle.Config.Flows) == 0 {
-		t.Error("flows should still be included when opted in independently")
+		t.Error("flows should be included when opted in")
 	}
 
 	payload := decompress(t, mustGzip(t, bundle))
 	if strings.Contains(payload, "starting up") {
-		t.Error("log content present with basics disabled")
+		t.Error("log content present without a log opt-in")
 	}
 }
 
@@ -182,12 +178,12 @@ func TestAssembleMissingConfigIsNotFatal(t *testing.T) {
 	}, Build{Version: "1.0.0"})
 
 	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{
-		IncludeBasics:   true,
+		IncludeLogs:     true,
 		IncludeSettings: true,
 		IncludeFlows:    true,
 		IncludeActions:  true,
 	})
-	if bundle.Build == nil || bundle.Build.Version != "1.0.0" {
+	if bundle.Build.Version != "1.0.0" {
 		t.Fatal("build info missing")
 	}
 	if bundle.Logs != nil || bundle.Config.Settings != nil || len(bundle.Config.Flows) != 0 {
@@ -204,9 +200,6 @@ func TestInventoryCounts(t *testing.T) {
 	}
 	if inv.FlowCount != 1 {
 		t.Errorf("expected 1 flow (sidecar excluded), got %d", inv.FlowCount)
-	}
-	if inv.AccountCount != 1 {
-		t.Errorf("expected 1 account, got %d", inv.AccountCount)
 	}
 	if !inv.HasLogs || inv.LogBytes == 0 {
 		t.Errorf("expected a non-empty log tail: %+v", inv)
