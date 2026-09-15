@@ -942,6 +942,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'report.bundle': openBundleDialog,
   'tasks.toggle': openTasks,
   'terminal.popup.toggle': togglePopupTerminal,
+  'terminal.toggle-sidebar': toggleSidebar,
   // Reaching for the tree is also how you get a collapsed sidebar back: the
   // chord means "work in the session list", and a hidden panel is not an
   // answer to it.
