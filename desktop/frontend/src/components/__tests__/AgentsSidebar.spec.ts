@@ -522,10 +522,10 @@ describe('AgentsSidebar', () => {
     const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
     expect(header.text()).toBe('Demo B') // no count beside the name
     expect(header.find('.bg-severity-warning').exists()).toBe(false)
-    // +, edit, chevron — in that order, all on one pitch.
+    // edit, +, chevron — in that order, all on one pitch.
     expect(header.findAll('button').map((button) => button.attributes('data-testid'))).toEqual([
-      'agents-sidebar-workspace-new-session',
       'agents-sidebar-workspace-edit',
+      'agents-sidebar-workspace-new-session',
       'agents-sidebar-workspace-toggle',
     ])
   })

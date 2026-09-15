@@ -558,21 +558,21 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               v-if="node.workspace"
               type="button"
               class="row-action"
+              title="Edit workspace"
+              aria-label="Edit workspace"
+              data-testid="agents-sidebar-workspace-edit"
+              @click.stop="editWorkspace(node)"
+            ><IconPencil class="size-3" /></button>
+            <button
+              v-if="node.workspace"
+              type="button"
+              class="row-action"
               :title="`New chat in ${node.name}`"
               :aria-label="`New chat in ${node.name}`"
               :disabled="startingSession"
               data-testid="agents-sidebar-workspace-new-session"
               @click.stop="startSessionIn(node)"
             ><IconPlus class="size-3" /></button>
-            <button
-              v-if="node.workspace"
-              type="button"
-              class="row-action"
-              title="Edit workspace"
-              aria-label="Edit workspace"
-              data-testid="agents-sidebar-workspace-edit"
-              @click.stop="editWorkspace(node)"
-            ><IconPencil class="size-3" /></button>
             <!-- The chevron trails the row, where the Code view's group chevron
                  sits. Unlike that one it is the fold control rather than an
                  indicator of it, because clicking this row focuses the
