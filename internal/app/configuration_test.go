@@ -23,6 +23,7 @@ import (
 
 func newConfigurationTestApp(t *testing.T, ctx context.Context) *App {
 	t.Helper()
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))

@@ -67,6 +67,7 @@ func TestStartupCompactionContinuesWhenFileSizeCannotBeMeasured(t *testing.T) {
 }
 
 func TestAppLifecycle(t *testing.T) {
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
@@ -137,6 +138,11 @@ func TestAppLifecycle(t *testing.T) {
 
 // settle waits for goroutines left over from earlier tests in this package to
 // exit, so the baseline is this test's own.
+func unsetDefaultAgentForAppTest(t *testing.T) {
+	t.Helper()
+	t.Setenv("HIVE_DEFAULT_AGENT", "")
+}
+
 func settle(t *testing.T) {
 	t.Helper()
 	baseline := runtime.NumGoroutine()
@@ -154,6 +160,7 @@ func settle(t *testing.T) {
 // manager -> store -> events.AgentWorkspacesUpdated chain end to end. A broken
 // manifest still publishes, so the UI re-reads and sees the failure in Statuses.
 func TestAgentWorkspacesReloadPublishesEvenOnFailure(t *testing.T) {
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
@@ -211,6 +218,7 @@ func TestAgentWorkspacesReloadPublishesEvenOnFailure(t *testing.T) {
 // signed-out iCloud Drive) is reported, never silently created — and nothing
 // downstream (SeedDefaultsIfMissing, NewWatcher) may create it either.
 func TestAgentWorkspacesUnavailableRootCreatesNothing(t *testing.T) {
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))

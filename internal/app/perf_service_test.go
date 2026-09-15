@@ -15,6 +15,7 @@ import (
 )
 
 func TestPerfRecordingReachesTheFileWhenTheSettingIsOn(t *testing.T) {
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
@@ -51,6 +52,7 @@ func TestPerfRecordingReachesTheFileWhenTheSettingIsOn(t *testing.T) {
 }
 
 func TestPerfRecordingIsInertWhenTheSettingIsOff(t *testing.T) {
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))

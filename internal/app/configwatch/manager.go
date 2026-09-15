@@ -116,9 +116,17 @@ type retryTimer interface {
 	Reset(time.Duration) bool
 }
 
+type scanTicker interface {
+	C() <-chan time.Time
+	Stop()
+}
+
 type standardRetryTimer struct{ *time.Timer }
 
+type standardScanTicker struct{ *time.Ticker }
+
 func (t standardRetryTimer) C() <-chan time.Time { return t.Timer.C }
+func (t standardScanTicker) C() <-chan time.Time { return t.Ticker.C }
 
 type sourceState struct {
 	registration  Registration
@@ -169,6 +177,7 @@ type Manager struct {
 
 	newWatcher    func() (watcher, error)
 	newRetryTimer func(time.Duration) retryTimer
+	newScanTicker func(time.Duration) scanTicker
 	scan          sourceScanner
 }
 
@@ -187,6 +196,7 @@ func New(opts Options) (*Manager, error) {
 		sources: make(map[configstate.Source]*sourceState), wake: make(chan struct{}, 1), watchRetry: make(chan struct{}, 1),
 		done: make(chan struct{}), stopDone: make(chan struct{}), watched: make(map[string]bool), watchAdding: make(map[string]bool),
 		newRetryTimer: func(delay time.Duration) retryTimer { return standardRetryTimer{time.NewTimer(delay)} },
+		newScanTicker: func(interval time.Duration) scanTicker { return standardScanTicker{time.NewTicker(interval)} },
 		newWatcher: func() (watcher, error) {
 			w, err := fsnotify.NewWatcher()
 			if err != nil {
@@ -359,7 +369,7 @@ func (m *Manager) shutdown() {
 
 func (m *Manager) observe(ctx context.Context) {
 	defer m.wg.Done()
-	ticker := time.NewTicker(m.scanInterval)
+	ticker := m.newScanTicker(m.scanInterval)
 	defer ticker.Stop()
 	var retry retryTimer
 	var retryC <-chan time.Time
@@ -425,7 +435,7 @@ func (m *Manager) observe(ctx context.Context) {
 			m.closeWatcher(ctx)
 			m.shutdown()
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			refresh()
 		case <-retryC:
 			retryC = nil
@@ -725,7 +735,6 @@ func (m *Manager) scheduleScan(ctx context.Context, source configstate.Source, t
 		if (forceDirty || (err == nil && changed)) && !m.stopped {
 			m.markLocked(source, trigger)
 		}
-		m.recordModeLocked(ctx, source, state)
 		m.mu.Unlock()
 		if err == nil {
 			m.commitTopology(ctx, source, result.topology)
@@ -788,6 +797,9 @@ func (m *Manager) recordModeLocked(ctx context.Context, source configstate.Sourc
 	mode := sourceMode(state)
 	recordMode(ctx, source, mode)
 	if state.lastLoggedMode == mode {
+		return
+	}
+	if mode == "unavailable" && state.lastLoggedMode == "" && state.lastObserved.IsZero() && state.scanFailures == 0 {
 		return
 	}
 	state.lastLoggedMode = mode

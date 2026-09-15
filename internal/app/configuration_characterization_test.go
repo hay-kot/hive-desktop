@@ -14,6 +14,7 @@ import (
 )
 
 func TestConfigurationCharacterizationInitializesAfterSettingsMigration(t *testing.T) {
+	unsetDefaultAgentForAppTest(t)
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))

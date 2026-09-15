@@ -16,9 +16,21 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configstate"
 )
+
+var metricReader *sdkmetric.ManualReader
+
+func TestMain(m *testing.M) {
+	metricReader = sdkmetric.NewManualReader()
+	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(metricReader)))
+	os.Exit(m.Run())
+}
 
 type testAuthority struct{ topology Topology }
 
@@ -80,9 +92,12 @@ func TestManagerLogsDetectionModeTransitions(t *testing.T) {
 	var logs bytes.Buffer
 	m, err := New(Options{Logger: zerolog.New(&logs)})
 	require.NoError(t, err)
-	state := &sourceState{scanFailures: 2}
+	state := &sourceState{}
 
 	m.mu.Lock()
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	state.scanFailures = 2
 	m.recordModeLocked(t.Context(), configstate.Flows, state)
 	m.recordModeLocked(t.Context(), configstate.Flows, state)
 	state.lastObserved = time.Now()
@@ -94,11 +109,84 @@ func TestManagerLogsDetectionModeTransitions(t *testing.T) {
 	m.recordModeLocked(t.Context(), configstate.Flows, state)
 	m.mu.Unlock()
 
-	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	lines := detectionModeLogs(logs.String())
 	require.Len(t, lines, 3)
 	require.JSONEq(t, `{"level":"error","source":"flows","detection_mode":"unavailable","consecutive_scan_failures":2,"message":"configuration detection mode changed"}`, lines[0])
 	require.JSONEq(t, `{"level":"warn","source":"flows","detection_mode":"poll","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`, lines[1])
 	require.JSONEq(t, `{"level":"info","source":"flows","detection_mode":"notify","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`, lines[2])
+}
+
+func TestManagerHealthyStartupLogsOnlyNotify(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("one"), 0o600))
+	var logs bytes.Buffer
+	m, err := New(Options{Logger: zerolog.New(&logs), Debounce: time.Millisecond, ScanInterval: time.Hour})
+	require.NoError(t, err)
+	m.newWatcher = func() (watcher, error) { return newTestWatcher(), nil }
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: fixedAuthority{dir: dir, path: path}}))
+
+	require.NoError(t, m.Start(t.Context()))
+	defer func() { require.NoError(t, m.Stop(t.Context())) }()
+	initial := nextBatch(t, m)
+	require.Equal(t, configstate.Startup, initial.Dirty[0].Trigger)
+	m.Ack(t.Context(), initial)
+
+	lines := detectionModeLogs(logs.String())
+	require.Len(t, lines, 1)
+	require.JSONEq(t, `{"level":"info","source":"actions","detection_mode":"notify","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`, lines[0])
+}
+
+func detectionModeLogs(raw string) []string {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Contains(line, "configuration detection mode changed") {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+func TestManagerRecordsModeMetricWhenTransitionLogSuppressed(t *testing.T) {
+	var logs bytes.Buffer
+	m, err := New(Options{Logger: zerolog.New(&logs)})
+	require.NoError(t, err)
+	source := configstate.Source("suppressed-metric")
+
+	m.mu.Lock()
+	m.recordModeLocked(t.Context(), source, &sourceState{})
+	m.mu.Unlock()
+
+	require.Empty(t, detectionModeLogs(logs.String()))
+	value, ok := watchModeMetric(t, source, "unavailable")
+	require.True(t, ok)
+	require.Equal(t, int64(1), value)
+}
+
+func watchModeMetric(t *testing.T, source configstate.Source, mode string) (int64, bool) {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, metricReader.Collect(t.Context(), &rm))
+	for _, scope := range rm.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != "config.watch.mode" {
+				continue
+			}
+			data, ok := metric.Data.(metricdata.Gauge[int64])
+			if !ok {
+				return 0, false
+			}
+			for _, point := range data.DataPoints {
+				pointSource, sourceOK := point.Attributes.Value(attribute.Key("source"))
+				pointMode, modeOK := point.Attributes.Value(attribute.Key("mode"))
+				if sourceOK && modeOK && pointSource.AsString() == string(source) && pointMode.AsString() == mode {
+					return point.Value, true
+				}
+			}
+		}
+	}
+	return 0, false
 }
 
 func TestManagerDirtyDuringReconcile(t *testing.T) {
@@ -378,17 +466,68 @@ func (a *changingAuthority) set(topology Topology) {
 }
 
 func TestManagerWatcherConstructionFailureDoesNotStopPolling(t *testing.T) {
-	m := newTestManager(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("one"), 0o600))
+	var logs bytes.Buffer
+	m, err := New(Options{Logger: zerolog.New(&logs), Debounce: time.Millisecond, ScanInterval: time.Hour})
+	require.NoError(t, err)
+	ticker := newManualScanTicker()
+	m.newScanTicker = func(time.Duration) scanTicker { return ticker }
 	m.newWatcher = func() (watcher, error) { return nil, errors.New("unavailable") }
-	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: testAuthority{}}))
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: fixedAuthority{dir: dir, path: path}}))
 	require.NoError(t, m.Start(t.Context()))
 	batch := nextBatch(t, m)
 	require.Equal(t, configstate.Startup, batch.Dirty[0].Trigger)
+	require.Equal(t, fixedRevision([]byte("one")), batch.Dirty[0].ObservedRevision)
 	m.Ack(t.Context(), batch)
-	status := m.Status(t.Context())
-	require.Equal(t, "poll", status[0].Mode)
+	require.Equal(t, "poll", m.Status(t.Context())[0].Mode)
+
+	require.NoError(t, os.WriteFile(path, []byte("two"), 0o600))
+	ticker.fire()
+	changed := nextBatchForRevision(t, m, fixedRevision([]byte("two")))
+	require.Equal(t, configstate.Scan, changed.Dirty[0].Trigger)
+	m.Ack(t.Context(), changed)
 	require.NoError(t, m.Stop(t.Context()))
+
+	lines := detectionModeLogs(logs.String())
+	require.Len(t, lines, 1)
+	require.JSONEq(t, `{"level":"warn","source":"actions","detection_mode":"poll","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`, lines[0])
 }
+
+func TestManagerLogsUnavailableWhenWatcherAndScanFail(t *testing.T) {
+	var logs bytes.Buffer
+	m, err := New(Options{Logger: zerolog.New(&logs), Debounce: time.Millisecond, ScanInterval: time.Hour})
+	require.NoError(t, err)
+	m.newWatcher = func() (watcher, error) { return nil, errors.New("unavailable") }
+	scanned := make(chan struct{})
+	m.scan = func(context.Context, Authority, topologySynchronizer) (scanResult, error) {
+		close(scanned)
+		return scanResult{}, errors.New("scan failed")
+	}
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: testAuthority{}}))
+	require.NoError(t, m.Start(t.Context()))
+	select {
+	case <-scanned:
+	case <-time.After(time.Second):
+		t.Fatal("startup scan did not run")
+	}
+	require.NoError(t, m.Stop(t.Context()))
+
+	lines := detectionModeLogs(logs.String())
+	require.Len(t, lines, 1)
+	require.JSONEq(t, `{"level":"error","source":"actions","detection_mode":"unavailable","consecutive_scan_failures":1,"message":"configuration detection mode changed"}`, lines[0])
+}
+
+type manualScanTicker struct{ events chan time.Time }
+
+func newManualScanTicker() *manualScanTicker {
+	return &manualScanTicker{events: make(chan time.Time, 1)}
+}
+
+func (t *manualScanTicker) C() <-chan time.Time { return t.events }
+func (t *manualScanTicker) Stop()               {}
+func (t *manualScanTicker) fire()               { t.events <- time.Now() }
 
 type fixedAuthority struct{ dir, path string }
 
@@ -438,37 +577,83 @@ func TestManagerAtomicReplacement(t *testing.T) {
 
 func TestManagerSharedWatchInvalidation(t *testing.T) {
 	m := newTestManager(t)
-	watch := newTestWatcher()
-	var adds int
+	testWatch := newTestWatcher()
+	addEvents := make(chan string, 4)
+	watch := &recordingWatcher{testWatcher: testWatch, addEvents: addEvents}
 	m.newWatcher = func() (watcher, error) { return watch, nil }
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yml")
 	for _, source := range []configstate.Source{configstate.Actions, configstate.Flows} {
 		require.NoError(t, m.Register(t.Context(), Registration{Source: source, Authority: fixedAuthority{dir: dir, path: path}}))
 	}
-	// Count registrations through a wrapper so a shared directory needs one Add.
-	m.newWatcher = func() (watcher, error) { return countingWatcher{testWatcher: watch, adds: &adds}, nil }
 	require.NoError(t, m.Start(t.Context()))
 	initial := nextBatch(t, m)
 	m.Ack(t.Context(), initial)
-	require.Equal(t, 1, adds)
-	watch.events <- fsnotify.Event{Name: dir, Op: fsnotify.Remove}
+	require.Equal(t, dir, nextAdd(t, addEvents))
+	require.Equal(t, []string{dir}, watch.addCalls())
+	require.Empty(t, watch.removeCalls())
+
+	testWatch.events <- fsnotify.Event{Name: dir, Op: fsnotify.Remove}
 	batch := nextBatch(t, m)
 	require.Len(t, batch.Dirty, 2)
 	m.Ack(t.Context(), batch)
+	require.Equal(t, dir, nextAdd(t, addEvents))
+	require.Equal(t, []string{dir, dir}, watch.addCalls())
+	require.Empty(t, watch.removeCalls())
 	require.NoError(t, m.Stop(t.Context()))
 }
 
-type countingWatcher struct {
-	testWatcher *testWatcher
-	adds        *int
+func nextAdd(t *testing.T, events <-chan string) string {
+	t.Helper()
+	select {
+	case path := <-events:
+		return path
+	case <-time.After(time.Second):
+		t.Fatal("watch Add did not run")
+		return ""
+	}
 }
 
-func (w countingWatcher) Add(path string) error         { *w.adds++; return w.testWatcher.Add(path) }
-func (w countingWatcher) Remove(path string) error      { return w.testWatcher.Remove(path) }
-func (w countingWatcher) Close() error                  { return w.testWatcher.Close() }
-func (w countingWatcher) Events() <-chan fsnotify.Event { return w.testWatcher.Events() }
-func (w countingWatcher) Errors() <-chan error          { return w.testWatcher.Errors() }
+type recordingWatcher struct {
+	testWatcher *testWatcher
+	addEvents   chan<- string
+	mu          sync.Mutex
+	adds        []string
+	removes     []string
+}
+
+func (w *recordingWatcher) Add(path string) error {
+	w.mu.Lock()
+	w.adds = append(w.adds, path)
+	w.mu.Unlock()
+	if w.addEvents != nil {
+		w.addEvents <- path
+	}
+	return w.testWatcher.Add(path)
+}
+
+func (w *recordingWatcher) Remove(path string) error {
+	w.mu.Lock()
+	w.removes = append(w.removes, path)
+	w.mu.Unlock()
+	return w.testWatcher.Remove(path)
+}
+
+func (w *recordingWatcher) Close() error                  { return w.testWatcher.Close() }
+func (w *recordingWatcher) Events() <-chan fsnotify.Event { return w.testWatcher.Events() }
+func (w *recordingWatcher) Errors() <-chan error          { return w.testWatcher.Errors() }
+
+func (w *recordingWatcher) addCalls() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.adds...)
+}
+
+func (w *recordingWatcher) removeCalls() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.removes...)
+}
 
 func TestManagerMissingRootRetainsRevisionAndRestoresNotify(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
