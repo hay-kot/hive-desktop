@@ -129,8 +129,8 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
     }
 
     // view.focus-search is palette-hidden because one command answers `/` in
-    // two unrelated surfaces, and a single row for it would no-op wherever the
-    // other surface is on screen. These named rows stand in per surface,
+    // three unrelated surfaces, and a single row for it would no-op wherever
+    // another surface is on screen. These named rows stand in per surface,
     // gated the same way the surface's own commands are, sharing its hint.
     const focusSearchHint = hintFor('view.focus-search')
     if (contextActive('feed')) {
@@ -152,6 +152,18 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         group: 'Code',
         scope: 'actions',
         keywords: ['terminal', 'filter', 'search', 'find', 'session'],
+        icon: IconSearch,
+        hint: focusSearchHint,
+        run: () => runCommand('view.focus-search'),
+      })
+    }
+    if (contextActive('agents')) {
+      cmds.push({
+        id: 'view.focus-search:agents',
+        title: 'Filter workspaces',
+        group: 'Chats',
+        scope: 'actions',
+        keywords: ['chats', 'agents', 'filter', 'search', 'find', 'workspace'],
         icon: IconSearch,
         hint: focusSearchHint,
         run: () => runCommand('view.focus-search'),

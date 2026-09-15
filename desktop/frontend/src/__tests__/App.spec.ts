@@ -19,6 +19,7 @@ import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../composables
 import { resetTasksForTests, useTasks } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
 import TerminalMode from '../components/TerminalMode.vue'
+import { setAgentsTreeHandles } from '../lib/agentsTree'
 import { setTerminalTreeHandles, type TerminalTreeHandles } from '../lib/terminalTree'
 import { ListSessions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 
@@ -1287,6 +1288,29 @@ describe('App', () => {
       await flushPromises()
       expect(select).toHaveBeenCalled()
 
+      wrapper.unmount()
+    })
+
+    it('offers "Filter workspaces" in Chats, carrying the / hint, and dispatches into the workspace filter', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/workspaces')
+      await vi.waitFor(() => expect(agentsOnScreen(wrapper)).toBe(true))
+      await flushPromises()
+      const focusFilter = vi.fn()
+      setAgentsTreeHandles({ focusList: vi.fn(), focusFilter, focusPane: vi.fn() })
+
+      const { results, query } = useCommandPalette()
+      query.value = ''
+      expect(results.value.some((cmd) => cmd.id === 'view.focus-search:terminal')).toBe(false)
+      const row = results.value.find((cmd) => cmd.id === 'view.focus-search:agents')
+      expect(row?.title).toBe('Filter workspaces')
+      expect(row?.hint).toBe(formatCombo('/'))
+
+      await row!.run()
+      await flushPromises()
+      expect(focusFilter).toHaveBeenCalled()
+
+      setAgentsTreeHandles(null)
       wrapper.unmount()
     })
 

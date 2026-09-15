@@ -133,6 +133,9 @@ const presetOptions = computed<AppSelectOption[]>(() => [
 watch(presets, (rows) => {
   if (!creating.value || command.value || !rows.length) return
   command.value = rows[0].command
+  // A default the form fills in for itself is not an edit the user has to be
+  // asked about on the way out.
+  baseline.value = formState()
 }, { immediate: true })
 
 // DANGEROUS_FLAGS mirrors agentws's own list. It is duplicated rather than
@@ -395,6 +398,24 @@ function cardFrom(schedule: AgentSchedule): ScheduleCard {
 
 const scheduleCards = ref<ScheduleCard[]>((props.workspace?.schedules ?? []).map(cardFrom))
 const scheduleDraft = ref<ScheduleDraft | null>(null)
+
+// ── Unsaved work ─────────────────────────────────────────────────────────────
+// What Save would write, in one comparable shape. That is also what an edit
+// has to mean here: a schedule whose next run time moved while the sheet was
+// open changed the card, not the manifest, and must not make the form dirty.
+function formState(): string {
+  return JSON.stringify({
+    dir: dir.value.trim(),
+    name: name.value.trim(),
+    command: command.value.trim(),
+    mcps: [...selectedMCPs.value].sort(),
+    skills: [...selectedSkills.value].sort(),
+    schedules: scheduleEdits(),
+  })
+}
+
+const baseline = ref(formState())
+const dirty = computed(() => formState() !== baseline.value)
 
 const REPEAT_OPTIONS: SelectOption[] = [
   { value: 'hourly', label: 'Hourly' },
@@ -882,16 +903,25 @@ function submit(): void {
   })
 }
 
+const discarding = ref(false)
+
 // Escape and the backdrop step back one surface: off the schedule page while
-// one is open, and out of the sheet otherwise. The header's X always closes.
+// one is open, and out of the sheet otherwise.
 function cancel(): void {
-  if (props.busy || confirming.value) return
+  if (props.busy || confirming.value || discarding.value) return
   if (scheduleDraft.value) closeScheduleDraft()
-  else emit('close')
+  else closeSheet()
 }
 
+// The one way out, so every gesture that leaves — Escape, the backdrop, the
+// header's X, the footer's Cancel — asks before it throws an edit away. The
+// question is a footer strip rather than a second dialog: a modal over the
+// sheet doubles the backdrop and both would answer the same Escape, which is
+// what InlineConfirm exists to avoid.
 function closeSheet(): void {
-  if (!props.busy && !confirming.value) emit('close')
+  if (props.busy || confirming.value) return
+  if (dirty.value) discarding.value = true
+  else emit('close')
 }
 
 const nameInput = ref<{ focus: () => void } | null>(null)
@@ -910,8 +940,8 @@ onMounted(async () => {
     :ariaLabel="creating ? 'New workspace' : 'Edit workspace'"
     testid="agent-workspace-editor"
     :default-size="520"
-    :close-on-escape="!confirming && !scheduleDraft?.removing"
-    :close-on-backdrop="!confirming"
+    :close-on-escape="!confirming && !discarding && !scheduleDraft?.removing"
+    :close-on-backdrop="!confirming && !discarding"
     @close="cancel"
   >
     <template #header>
@@ -929,7 +959,7 @@ onMounted(async () => {
           <div class="text-[15px] font-semibold tracking-[-.01em]">{{ headerTitle }}</div>
           <div class="truncate font-mono text-[12px] text-text-3">{{ headerSubtitle }}</div>
         </div>
-        <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy || confirming" @click="closeSheet"><IconX class="size-4" /></button>
+        <button class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" data-testid="agent-workspace-editor-close" :disabled="busy || confirming || discarding" @click="closeSheet"><IconX class="size-4" /></button>
       </div>
     </template>
 
@@ -1090,7 +1120,7 @@ onMounted(async () => {
 
     <!-- While a delete is pending the form recedes: dimmed and inert, so the
          two states can't be misread for each other (FolderEditModal's rule). -->
-    <div v-else class="flex flex-col gap-7 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming }">
+    <div v-else class="flex flex-col gap-7 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming || discarding }">
       <!-- Above the open/reveal actions on purpose: the fix is in the file,
            and those two buttons are what reach it. -->
       <div
@@ -1481,6 +1511,17 @@ onMounted(async () => {
         testid="agent-workspace-editor-delete-confirm"
         @confirm="emit('delete', workspace!.dir)"
         @cancel="confirming = false"
+      />
+      <InlineConfirm
+        v-else-if="discarding"
+        class="-mx-[18px] -my-[13px]"
+        title="Discard your changes?"
+        description="Nothing here is written until you save. Closing now leaves agent-workspace.yaml exactly as it was."
+        confirm-label="Discard"
+        cancel-label="Keep editing"
+        testid="agent-workspace-editor-discard-confirm"
+        @confirm="emit('close')"
+        @cancel="discarding = false"
       />
       <div v-else class="flex items-center gap-2.5">
         <button
