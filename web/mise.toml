@@ -6,7 +6,7 @@
 
 [tools]
 python = "3.13.13"
-uv = "0.12.9"
+uv = "0.12.11"
 node = "22.23.2"
 
 [tasks.install]
