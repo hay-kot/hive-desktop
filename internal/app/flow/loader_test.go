@@ -143,6 +143,23 @@ func TestLoadFlows_SkipsUIYAMLSiblings(t *testing.T) {
 	assert.Empty(t, perFileErrors)
 }
 
+func TestLoadFlows_SkipsTempYAMLFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeFlow(t, dir, "flow.yaml", minimalValidFlowYAML())
+	writeFlow(t, dir, "flow-yml.yml", minimalValidFlowYAML())
+	writeFlow(t, dir, "flow.tmp.yaml", "not: [a flow")
+	writeFlow(t, dir, "flow.tmp.yml", "not: [a flow")
+	writeFlow(t, dir, "flow.yaml.tmp", "not: [a flow")
+
+	flows, perFileErrors, _ := LoadFlows(dir, minimalRefs())
+
+	require.Len(t, flows, 2)
+	ids := []string{flows[0].ID, flows[1].ID}
+	assert.Contains(t, ids, "flow")
+	assert.Contains(t, ids, "flow-yml")
+	assert.Empty(t, perFileErrors)
+}
+
 func TestLoadFlow_ValidatesActionReferences(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFlow(t, dir, "triage.yaml", `version: 1

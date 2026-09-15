@@ -93,9 +93,9 @@ func LoadFlows(dir string, refs Refs) (flows []Flow, perFileErrors map[string]er
 }
 
 // isFlowDefinition reports whether name is a flow definition file (not a
-// .ui.yaml / .sidebar.yaml sibling), factored from LoadFlows. Deliberately NOT
-// unified with the watcher's isFlowFile (watcher.go), which keeps .ui.yaml on
-// purpose.
+// .ui.yaml / .sidebar.yaml sibling or temporary YAML file), factored from
+// LoadFlows. Deliberately NOT unified with the watcher's isFlowFile
+// (watcher.go), which keeps .ui.yaml on purpose.
 func isFlowDefinition(name string) bool {
 	if strings.HasSuffix(name, ".ui.yaml") || strings.HasSuffix(name, ".ui.yml") {
 		return false
@@ -103,8 +103,10 @@ func isFlowDefinition(name string) bool {
 	if strings.HasSuffix(name, ".sidebar.yaml") || strings.HasSuffix(name, ".sidebar.yml") {
 		return false
 	}
-	ext := filepath.Ext(name)
-	return ext == ".yaml" || ext == ".yml"
+	if isFlowTempFilename(name) {
+		return false
+	}
+	return isFlowYAMLFilename(name)
 }
 
 // flowIDFromFilename strips a .yaml/.yml extension from a base filename to

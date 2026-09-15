@@ -12,6 +12,8 @@ func TestIsFlowFile(t *testing.T) {
 		name string
 		want bool
 	}{
+		{"flow.yaml", true},
+		{"flow.yml", true},
 		{"triage.yaml", true},
 		{"triage.yml", true},
 		{"triage.ui.yaml", true}, // layout edits still trigger a reload
@@ -19,6 +21,9 @@ func TestIsFlowFile(t *testing.T) {
 		{"triage.sidebar.yaml", false}, // sidebar layout is frontend-owned UI state
 		{"triage.sidebar.yml", false},
 		{"triage.sidebar.yaml.tmp", false}, // atomic-write temp file
+		{"flow.tmp.yaml", false},
+		{"flow.tmp.yml", false},
+		{"flow.yaml.tmp", false},
 		{"triage.yaml.tmp", false},
 		{"notes.txt", false},
 		{"triage", false},

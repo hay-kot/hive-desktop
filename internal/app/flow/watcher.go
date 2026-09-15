@@ -102,16 +102,15 @@ func (w *FlowsWatcher) run() {
 // the watched directory) is worth a reload. It matches *.yaml/*.yml — flow
 // definitions and their sibling .ui.yaml layouts, where a layout-only edit
 // triggers the same (cheap, idempotent) Reload as a flow edit — but excludes
-// .sidebar.yaml files. The sidebar layout (feed folders + order) is per-profile
-// UI state the frontend owns and applies optimistically; reloading + emitting
-// flows:updated on its writes would make the frontend blank and refetch the
-// sidebar, causing a visible flash on every folder toggle or reorder.
+// .sidebar.yaml files and temporary YAML files. The sidebar layout (feed
+// folders + order) is per-profile UI state the frontend owns and applies
+// optimistically; reloading + emitting flows:updated on its writes would make
+// the frontend blank and refetch the sidebar, causing a visible flash on every
+// folder toggle or reorder.
 func isFlowFile(name string) bool {
 	base := filepath.Base(name)
-	if strings.HasSuffix(base, ".sidebar.yaml") || strings.HasSuffix(base, ".sidebar.yml") ||
-		strings.HasSuffix(base, ".tmp.yaml") || strings.HasSuffix(base, ".tmp.yml") {
+	if strings.HasSuffix(base, ".sidebar.yaml") || strings.HasSuffix(base, ".sidebar.yml") || isFlowTempFilename(base) {
 		return false
 	}
-	ext := filepath.Ext(base)
-	return ext == ".yaml" || ext == ".yml"
+	return isFlowYAMLFilename(base)
 }
