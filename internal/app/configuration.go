@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -140,7 +141,7 @@ func (c *configuration) reconcile(ctx context.Context, batch configwatch.Batch) 
 	var actionsUpdated bool
 	var flowsUpdated bool
 	var workspacesUpdated bool
-	for _, source := range []configstate.Source{
+	for sourceIndex, source := range []configstate.Source{
 		configstate.Settings,
 		configstate.Actions,
 		configstate.Flows,
@@ -150,7 +151,9 @@ func (c *configuration) reconcile(ctx context.Context, batch configwatch.Batch) 
 		if !ok || ctx.Err() != nil {
 			continue
 		}
-		c.apply(ctx, source)
+		startedAt := time.Now()
+		err := c.apply(ctx, source)
+		c.logReconcile(ctx, batch.ID, sourceIndex, dirty, time.Now(), time.Since(startedAt), err)
 		switch source {
 		case configstate.Settings:
 		case configstate.Actions:
@@ -184,32 +187,44 @@ func (c *configuration) reconcile(ctx context.Context, batch configwatch.Batch) 
 	return processed
 }
 
-func (c *configuration) apply(ctx context.Context, source configstate.Source) {
+func (c *configuration) apply(ctx context.Context, source configstate.Source) error {
 	if c.applySource != nil {
-		if err := c.applySource(ctx, source); err != nil {
-			c.logger.Warn().Err(err).Str("source", string(source)).Msg("configuration reload failed")
-		}
-		return
+		return c.applySource(ctx, source)
 	}
 
 	switch source {
 	case configstate.Settings:
-		if _, err := c.app.settingsStore.Effective(); err != nil {
-			c.logger.Warn().Err(err).Msg("settings reload failed")
-		}
+		_, err := c.app.settingsStore.Effective()
+		return err
 	case configstate.Actions:
-		if err := c.app.actionStore.Reload(); err != nil {
-			c.logger.Warn().Err(err).Msg("actions.yml reload failed")
-		}
+		return c.app.actionStore.Reload()
 	case configstate.Flows:
-		if err := c.app.flowStore.Reload(); err != nil {
-			c.logger.Warn().Err(err).Msg("flows reload failed")
-		}
+		return c.app.flowStore.Reload()
 	case configstate.AgentWorkspaces:
-		if err := c.app.agentWorkspaceStore.Reload(); err != nil {
-			c.logger.Warn().Err(err).Msg("agent workspace reload failed")
-		}
+		return c.app.agentWorkspaceStore.Reload()
+	default:
+		return nil
 	}
+}
+
+func (c *configuration) logReconcile(ctx context.Context, batchID uint64, sourceIndex int, dirty configwatch.Dirty, completedAt time.Time, duration time.Duration, err error) {
+	level := zerolog.InfoLevel
+	outcome := "applied"
+	if err != nil {
+		level = zerolog.WarnLevel
+		outcome = "error"
+	}
+	c.logger.WithLevel(level).
+		Ctx(ctx).
+		Uint64("batch_id", batchID).
+		Int("source_index", sourceIndex).
+		Str("source", string(dirty.Source)).
+		Str("trigger", string(dirty.Trigger)).
+		Str("observed_revision", string(dirty.ObservedRevision)).
+		Time("completed_at", completedAt).
+		Int64("duration_ms", duration.Milliseconds()).
+		Str("outcome", outcome).
+		Msg("configuration source reconciled")
 }
 
 func (c *configuration) publishEvent(ctx context.Context, event events.Event) {

@@ -1,17 +1,20 @@
 package configwatch
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/configstate"
@@ -71,6 +74,31 @@ func nextBatchForRevision(t *testing.T, m *Manager, revision configstate.Revisio
 	}
 	t.Fatal("configuration scan did not publish the expected revision")
 	return Batch{}
+}
+
+func TestManagerLogsDetectionModeTransitions(t *testing.T) {
+	var logs bytes.Buffer
+	m, err := New(Options{Logger: zerolog.New(&logs)})
+	require.NoError(t, err)
+	state := &sourceState{scanFailures: 2}
+
+	m.mu.Lock()
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	state.lastObserved = time.Now()
+	state.scanFailures = 0
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	state.watchComplete = true
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	m.recordModeLocked(t.Context(), configstate.Flows, state)
+	m.mu.Unlock()
+
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	require.Len(t, lines, 3)
+	require.JSONEq(t, `{"level":"error","source":"flows","detection_mode":"unavailable","consecutive_scan_failures":2,"message":"configuration detection mode changed"}`, lines[0])
+	require.JSONEq(t, `{"level":"warn","source":"flows","detection_mode":"poll","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`, lines[1])
+	require.JSONEq(t, `{"level":"info","source":"flows","detection_mode":"notify","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`, lines[2])
 }
 
 func TestManagerDirtyDuringReconcile(t *testing.T) {

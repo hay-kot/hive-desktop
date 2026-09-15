@@ -1,10 +1,13 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -359,6 +362,8 @@ func TestConfigurationDetectionRecovery(t *testing.T) {
 func TestConfigurationReconcileOrdersDomainsBeforePublishing(t *testing.T) {
 	core := newConfigurationTestApp(t, t.Context())
 	configuration := core.configuration
+	var logs bytes.Buffer
+	configuration.logger = zerolog.New(&logs)
 
 	var mu sync.Mutex
 	sequence := make([]string, 0, 7)
@@ -370,17 +375,17 @@ func TestConfigurationReconcileOrdersDomainsBeforePublishing(t *testing.T) {
 	configuration.applySource = func(_ context.Context, source configstate.Source) error {
 		record(string(source))
 		if source == configstate.Actions {
-			return errors.New("actions reload failed")
+			return errors.New("private config secret")
 		}
 		return nil
 	}
 	configuration.publish = func(context.Context, events.Event) { record("publish") }
 
 	batch := configwatch.Batch{ID: 1, Dirty: []configwatch.Dirty{
-		{Source: configstate.AgentWorkspaces, Generation: 1},
-		{Source: configstate.Flows, Generation: 1},
-		{Source: configstate.Actions, Generation: 1},
-		{Source: configstate.Settings, Generation: 1},
+		{Source: configstate.AgentWorkspaces, Generation: 1, Trigger: configstate.Filesystem, ObservedRevision: "workspaces-revision"},
+		{Source: configstate.Flows, Generation: 1, Trigger: configstate.Filesystem, ObservedRevision: "flows-revision"},
+		{Source: configstate.Actions, Generation: 1, Trigger: configstate.Filesystem, ObservedRevision: "actions-revision"},
+		{Source: configstate.Settings, Generation: 1, Trigger: configstate.Filesystem, ObservedRevision: "settings-revision"},
 	}}
 	processed := configuration.reconcile(t.Context(), batch)
 
@@ -399,4 +404,37 @@ func TestConfigurationReconcileOrdersDomainsBeforePublishing(t *testing.T) {
 		"publish",
 		"publish",
 	}, sequence)
+
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	require.Len(t, lines, 4)
+	require.NotContains(t, logs.String(), "private config secret")
+
+	type reconcileLogEntry struct {
+		BatchID          uint64    `json:"batch_id"`
+		SourceIndex      int       `json:"source_index"`
+		Source           string    `json:"source"`
+		Trigger          string    `json:"trigger"`
+		ObservedRevision string    `json:"observed_revision"`
+		CompletedAt      time.Time `json:"completed_at"`
+		Outcome          string    `json:"outcome"`
+	}
+	entries := make([]reconcileLogEntry, 0, len(lines))
+	for _, line := range lines {
+		var entry reconcileLogEntry
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		entries = append(entries, entry)
+	}
+
+	for index, source := range []string{"settings", "actions", "flows", "agent_workspaces"} {
+		entry := entries[index]
+		require.Equal(t, uint64(1), entry.BatchID)
+		require.Equal(t, index, entry.SourceIndex)
+		require.Equal(t, source, entry.Source)
+		require.Equal(t, "filesystem", entry.Trigger)
+		require.False(t, entry.CompletedAt.IsZero())
+	}
+	require.Equal(t, "applied", entries[0].Outcome)
+	require.Equal(t, "error", entries[1].Outcome)
+	require.Equal(t, "actions-revision", entries[1].ObservedRevision)
+	require.Equal(t, "flows-revision", entries[2].ObservedRevision)
 }

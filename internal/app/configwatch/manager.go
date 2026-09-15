@@ -125,12 +125,13 @@ type sourceState struct {
 	directories   map[string]bool
 	watchComplete bool
 
-	observed     configstate.Revision
-	lastObserved time.Time
-	lastScan     time.Time
-	scanFailures int
-	diagnostic   *configstate.Diagnostic
-	lastOverflow time.Time
+	observed       configstate.Revision
+	lastObserved   time.Time
+	lastScan       time.Time
+	scanFailures   int
+	diagnostic     *configstate.Diagnostic
+	lastOverflow   time.Time
+	lastLoggedMode string
 
 	dirty      bool
 	inFlight   bool
@@ -631,7 +632,7 @@ func (m *Manager) refreshWatchCoverage(ctx context.Context) {
 		for dir := range state.directories {
 			state.watchComplete = state.watchComplete && watched[dir]
 		}
-		recordMode(ctx, source, sourceMode(state))
+		m.recordModeLocked(ctx, source, state)
 	}
 	m.mu.Unlock()
 }
@@ -640,7 +641,7 @@ func (m *Manager) setWatchCoverage(ctx context.Context) {
 	m.mu.Lock()
 	for source, state := range m.sources {
 		state.watchComplete = false
-		recordMode(ctx, source, sourceMode(state))
+		m.recordModeLocked(ctx, source, state)
 	}
 	m.mu.Unlock()
 }
@@ -724,6 +725,7 @@ func (m *Manager) scheduleScan(ctx context.Context, source configstate.Source, t
 		if (forceDirty || (err == nil && changed)) && !m.stopped {
 			m.markLocked(source, trigger)
 		}
+		m.recordModeLocked(ctx, source, state)
 		m.mu.Unlock()
 		if err == nil {
 			m.commitTopology(ctx, source, result.topology)
@@ -780,6 +782,28 @@ func (m *Manager) signal() {
 	case m.wake <- struct{}{}:
 	default:
 	}
+}
+
+func (m *Manager) recordModeLocked(ctx context.Context, source configstate.Source, state *sourceState) {
+	mode := sourceMode(state)
+	recordMode(ctx, source, mode)
+	if state.lastLoggedMode == mode {
+		return
+	}
+	state.lastLoggedMode = mode
+	level := zerolog.InfoLevel
+	switch mode {
+	case "poll":
+		level = zerolog.WarnLevel
+	case "unavailable":
+		level = zerolog.ErrorLevel
+	}
+	m.logger.WithLevel(level).
+		Ctx(ctx).
+		Str("source", string(source)).
+		Str("detection_mode", mode).
+		Int("consecutive_scan_failures", state.scanFailures).
+		Msg("configuration detection mode changed")
 }
 
 func sourceMode(state *sourceState) string {
