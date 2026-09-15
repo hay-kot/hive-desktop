@@ -734,6 +734,7 @@ const sidebarEl = ref<InstanceType<typeof AgentsSidebar> | null>(null)
 onMounted(() => {
   setAgentsTreeHandles({
     focusList: () => sidebarEl.value?.focus(),
+    focusFilter: () => sidebarEl.value?.focusFilter(),
     focusPane: () => term.value?.focus(),
   })
 })

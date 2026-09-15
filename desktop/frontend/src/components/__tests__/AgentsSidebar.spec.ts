@@ -556,13 +556,72 @@ describe('AgentsSidebar', () => {
     expect(add.attributes('disabled')).toBeDefined()
   })
 
-  it('the header\'s + buttons emit create-workspace and request-new-session', async () => {
+  it("the bar's + emits request-new-session", async () => {
     const wrapper = await mountSidebar()
-    await wrapper.get('[data-testid="agents-sidebar-new-workspace"]').trigger('click')
-    expect(wrapper.emitted('create-workspace')).toHaveLength(1)
-
     await wrapper.get('[data-testid="agents-sidebar-new-session"]').trigger('click')
     expect(wrapper.emitted('request-new-session')).toHaveLength(1)
+  })
+
+  // ── The bar ─────────────────────────────────────────────────────────────
+  // A workspace is created rarely and a chat constantly, so the bar's + is the
+  // chat and the workspace moved into the list menu.
+  it('creates a workspace from the list menu', async () => {
+    const wrapper = await mountSidebar()
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="agents-sidebar-new-workspace"]').trigger('click')
+    expect(wrapper.emitted('create-workspace')).toHaveLength(1)
+  })
+
+  it('re-reads both lists from the bar, and spins while either read is in flight', async () => {
+    const wrapper = await mountSidebar()
+    let land: (() => void) | undefined
+    mocks.workspaces.mockImplementation(() => new Promise((resolve) => {
+      land = () => resolve({ root: '/root', rootProblem: '', available: true, error: '', workspaces: workspaceFixtures })
+    }))
+    mocks.allSessions.mockClear()
+
+    const reload = () => wrapper.get('[data-testid="agents-sidebar-reload"]')
+    await reload().trigger('click')
+    await flushPromises()
+    expect(mocks.allSessions).toHaveBeenCalled()
+    expect(reload().attributes('disabled')).toBeDefined()
+    expect(reload().find('.animate-spin').exists()).toBe(true)
+
+    land!()
+    await flushPromises()
+    expect(reload().attributes('disabled')).toBeUndefined()
+    expect(reload().find('.animate-spin').exists()).toBe(false)
+  })
+
+  it('narrows to a workspace by name, carrying all of its chats', async () => {
+    const wrapper = await mountSidebar()
+    await wrapper.get('[data-testid="agents-sidebar-filter"]').setValue('Demo B')
+
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-b'])
+    expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(1)
+  })
+
+  it('narrows to a chat by name, and unfolds the workspace holding it', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    await wrapper.get('[data-testid="agents-sidebar-filter"]').setValue('a-session')
+
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a'])
+    // A fold would hide the only reason the workspace is still on screen.
+    expect(rows[0].attributes('data-expanded')).toBe('true')
+    const chats = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(chats.map((row) => row.text())).toEqual([expect.stringContaining('a-session')])
+  })
+
+  it('says what emptied the tree, and restores it when the filter clears', async () => {
+    const wrapper = await mountSidebar()
+    const field = wrapper.get('[data-testid="agents-sidebar-filter"]')
+    await field.setValue('nothing-matches-this')
+    expect(wrapper.get('[data-testid="agents-sidebar-workspaces-empty"]').text()).toContain('nothing-matches-this')
+
+    await field.trigger('keydown.esc')
+    expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')).toHaveLength(2)
   })
 
   it('a workspace row\'s edit button and its context menu both emit edit-workspace', async () => {

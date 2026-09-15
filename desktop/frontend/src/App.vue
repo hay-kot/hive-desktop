@@ -48,7 +48,7 @@ import {
   closeTerminalPane, closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalPaneDirection, focusTerminalTree,
   newTerminalWindow, selectTerminalWindow, splitTerminalPane, stepTerminalWindow, zoomTerminalPane,
 } from './lib/terminalTree'
-import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
+import { focusAgentsFilter, focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
@@ -958,6 +958,9 @@ const runMap: Record<string, () => void | Promise<void>> = {
     else if (terminalActive.value) {
       terminalSidebarCollapsed.value = false
       void nextTick(focusTerminalFilter)
+    } else if (agentsActive.value) {
+      agentsSidebarCollapsed.value = false
+      void nextTick(focusAgentsFilter)
     }
   },
   'terminal.new-window': newTerminalWindow,

@@ -9,6 +9,8 @@
 export interface AgentsTreeHandles {
   /** Move DOM focus to the workspace list. */
   focusList(): void
+  /** Move DOM focus to the list's filter field. */
+  focusFilter(): void
   /** Move DOM focus to the open session's pane. */
   focusPane(): void
 }
@@ -21,6 +23,10 @@ export function setAgentsTreeHandles(next: AgentsTreeHandles | null): void {
 
 export function focusAgentsList(): void {
   handles?.focusList()
+}
+
+export function focusAgentsFilter(): void {
+  handles?.focusFilter()
 }
 
 export function focusAgentsPane(): void {
