@@ -177,19 +177,19 @@ function startSessionIn(node: WorkspaceNode): void {
   emit('start-session', node.dir)
 }
 
-// The chip folds; the rest of the row focuses. Focus is what regenerates the
-// workspace's files and fills the missing-capability strips above the pane, so
-// it survived the filter it used to double as — but it only ever moves now.
-// Clearing it would change nothing on screen except silently dropping those
-// strips.
-function focusWorkspace(node: WorkspaceNode): void {
-  // A directory the listing cannot see cannot be opened, so its row is a
-  // container and nothing more.
-  if (!node.workspace) {
-    toggleExpanded(node)
-    return
-  }
-  unfold(node.dir)
+// The workspace this row's own click focused, read and cleared by the focus
+// watcher below.
+let focusedHere = ''
+
+// A click folds, as the Code view's group row does — the focus it also moves
+// changes nothing on screen except the missing-capability strips above the
+// pane, so on its own the row read as inert.
+function activateWorkspace(node: WorkspaceNode): void {
+  toggleExpanded(node)
+  // A directory the listing cannot see cannot be focused, so its row folds and
+  // nothing more.
+  if (!node.workspace) return
+  focusedHere = node.dir
   emit('select-workspace', node.dir)
 }
 
@@ -201,10 +201,14 @@ function unfold(dir: string): void {
   if (node && !expanded(node)) expansion.value[dir] = true
 }
 
-// The route sets the focus too — the Code view deep-links into a chat by
-// workspace — so unfolding rides the prop rather than only the click.
+// Focus that arrives from outside unfolds the workspace it names: the Code view
+// deep-links into a chat by workspace, and the row it lands on has to be
+// visible. A click is excluded because the click already decided the fold —
+// without this the watcher would re-open a workspace the user just folded.
 watch(() => props.selectedWorkspace, (dir) => {
-  if (dir) unfold(dir)
+  const fromClick = dir === focusedHere
+  focusedHere = ''
+  if (dir && !fromClick) unfold(dir)
 }, { immediate: true })
 
 // ── What a row's tooltip says ────────────────────────────────────────────
@@ -537,9 +541,9 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             :data-focused="node.dir === selectedWorkspace"
             :data-expanded="expanded(node)"
             :title="workspaceTooltip(node)"
-            @click="focusWorkspace(node)"
-            @keydown.enter.self.prevent="focusWorkspace(node)"
-            @keydown.space.self.prevent="focusWorkspace(node)"
+            @click="activateWorkspace(node)"
+            @keydown.enter.self.prevent="activateWorkspace(node)"
+            @keydown.space.self.prevent="activateWorkspace(node)"
             @contextmenu.prevent="editWorkspace(node)"
           >
             <!-- Leading, not trailing: the trailing pitch is the three
@@ -574,9 +578,8 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               @click.stop="startSessionIn(node)"
             ><IconPlus class="size-3" /></button>
             <!-- The chevron trails the row, where the Code view's group chevron
-                 sits. Unlike that one it is the fold control rather than an
-                 indicator of it, because clicking this row focuses the
-                 workspace instead of folding it. -->
+                 sits, and says the same thing: the row itself folds, and this
+                 is the affordance for it. -->
             <button
               type="button"
               class="ws-toggle"

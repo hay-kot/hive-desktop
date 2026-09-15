@@ -211,17 +211,48 @@ describe('AgentsSidebar', () => {
     expect(JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}')['demo-b']).toBe(false)
   })
 
-  it('clicking a workspace row body focuses it and opens it', async () => {
+  it('clicking a folded workspace row opens it and focuses it', async () => {
     const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
     await wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].trigger('click')
     expect(wrapper.emitted('select-workspace')).toEqual([['demo-a']])
     expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].attributes('data-expanded')).toBe('true')
   })
 
-  it('clicking the focused workspace row keeps the focus rather than clearing it', async () => {
-    const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
-    await wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1].trigger('click')
+  // The row is the fold control now, so the focus it also moves must not undo
+  // the fold when the parent routes that focus straight back in.
+  it('clicking an open workspace row folds it, and the focus it emits leaves it folded', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-b': true })
+    const row = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+    expect(row().attributes('data-expanded')).toBe('true')
+
+    await row().trigger('click')
     expect(wrapper.emitted('select-workspace')).toEqual([['demo-b']])
+    expect(row().attributes('data-expanded')).toBe('false')
+
+    await wrapper.setProps({ selectedWorkspace: 'demo-b' })
+    expect(row().attributes('data-expanded')).toBe('false')
+  })
+
+  it('unfolds a workspace the route focuses from outside', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    const row = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0]
+    expect(row().attributes('data-expanded')).toBe('false')
+
+    await wrapper.setProps({ selectedWorkspace: 'demo-a' })
+    expect(row().attributes('data-expanded')).toBe('true')
+  })
+
+  // A directory the listing no longer knows about has nothing to focus, so its
+  // row is a fold control and nothing else.
+  it('folds a workspace whose directory is gone without emitting a focus', async () => {
+    mocks.workspaces.mockResolvedValue({ root: '/root', rootProblem: '', available: true, error: '', workspaces: [workspaceFixtures[0]] })
+    const wrapper = await mountSidebar()
+    const row = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+    expect(row().attributes('data-expanded')).toBe('true')
+
+    await row().trigger('click')
+    expect(row().attributes('data-expanded')).toBe('false')
+    expect(wrapper.emitted('select-workspace')).toBeUndefined()
   })
 
   it('an expanded workspace with no chats says so instead of drawing nothing', async () => {
