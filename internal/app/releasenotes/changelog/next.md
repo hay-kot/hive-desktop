@@ -11,6 +11,9 @@ summary: ""
 
 ## Fixed
 
+- **Actions, flows and agent workspaces reload after missed changes.** Hive
+  detects edits if file notifications fail and resumes watching their folders
+  after they return.
 - **Grafana IRM alert groups show the active alert and its context.** Firing,
   acknowledged and silenced groups all reach the feed, and details include the
   source description and labels instead of only an alert count.
