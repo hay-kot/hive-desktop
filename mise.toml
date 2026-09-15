@@ -6,7 +6,7 @@
 "go:golang.org/x/vuln/cmd/govulncheck" = "v1.6.0"
 "github:sqlc-dev/sqlc" = "v1.31.1"
 golangci-lint = "2.13.2"
-lefthook = "2.1.10"
+lefthook = "2.1.12"
 
 [env]
 # hive is fetched directly: the sum.golang.org proxy lags freshly pushed
