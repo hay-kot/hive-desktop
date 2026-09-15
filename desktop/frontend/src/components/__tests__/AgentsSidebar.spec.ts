@@ -403,6 +403,38 @@ describe('AgentsSidebar', () => {
     expect(menuEntry('agents-sidebar-session-close')).toBeNull()
   })
 
+  // Stop was the only lifecycle entry, so a stopped chat's menu said nothing
+  // about how to get it running again.
+  it("a chat row's menu offers start only while stopped, and start opens the chat", async () => {
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+
+    await rows[1].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    expect(menuEntry('agents-sidebar-session-start-menu')).toBeNull()
+
+    await rows[0].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    menuEntry('agents-sidebar-session-start-menu')!.click()
+    await flushPromises()
+    expect(wrapper.emitted('select-session')).toEqual([[recentFixtures[1]]])
+  })
+
+  // The same resume the row's own click makes, on a control that says so.
+  it('gives a stopped chat a start button, and a live one none', async () => {
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(rows[1].find('[data-testid="agents-sidebar-session-start"]').exists()).toBe(false)
+
+    await rows[0].get('[data-testid="agents-sidebar-session-start"]').trigger('click')
+    expect(wrapper.emitted('select-session')).toEqual([[recentFixtures[1]]])
+  })
+
+  it('disables the start button while another chat is already launching', async () => {
+    const wrapper = await mountSidebar({ startingSession: true })
+    const start = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+      .get('[data-testid="agents-sidebar-session-start"]')
+    expect(start.attributes('disabled')).toBeDefined()
+  })
+
   it('deleting a chat opens a confirmation and emits delete-session only on confirm', async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')

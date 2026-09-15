@@ -30,6 +30,7 @@ import IconMessageSquare from '~icons/lucide/message-square'
 import IconPencil from '~icons/lucide/pencil'
 import IconPin from '~icons/lucide/pin'
 import IconPinOff from '~icons/lucide/pin-off'
+import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconPower from '~icons/lucide/power'
 import IconTrash2 from '~icons/lucide/trash-2'
@@ -343,9 +344,11 @@ function sessionMenuEntries(session: AgentSession): MenuEntry[] {
       ? { kind: 'action', id: 'pin', label: 'Unpin from Code', icon: IconPinOff, testid: 'agents-sidebar-session-unpin' }
       : { kind: 'action', id: 'pin', label: 'Pin to Code', icon: IconPin, testid: 'agents-sidebar-session-pin' },
   ]
-  if (session.terminalId) {
-    entries.push({ kind: 'action', id: 'stop', label: 'Stop agent', icon: IconPower, testid: 'agents-sidebar-session-close' })
-  }
+  // "Start agent" rather than "Start chat": the chat outlives its agent — the
+  // row is here either way — and this is the entry that mirrors Stop agent.
+  entries.push(session.terminalId
+    ? { kind: 'action', id: 'stop', label: 'Stop agent', icon: IconPower, testid: 'agents-sidebar-session-close' }
+    : { kind: 'action', id: 'start', label: 'Start agent', icon: IconPlay, testid: 'agents-sidebar-session-start-menu' })
   entries.push(
     { kind: 'separator' },
     { kind: 'action', id: 'delete', label: 'Delete', icon: IconTrash2, testid: 'agents-sidebar-session-delete' },
@@ -357,6 +360,7 @@ function onSessionMenuSelect(session: AgentSession, id: string): void {
   closeSessionMenu()
   if (id === 'rename') emit('rename-session', session)
   else if (id === 'pin') togglePin(session.id)
+  else if (id === 'start') emit('select-session', session)
   else if (id === 'stop') emit('close-session', session)
   else if (id === 'delete') pendingDeleteSession.value = session
 }
@@ -659,6 +663,19 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                   data-testid="agents-sidebar-session-pinned"
                 />
                 <span v-if="chatAge(session)" class="entry-age">{{ chatAge(session) }}</span>
+                <!-- The way from stopped to running, which the kebab alone did
+                     not state. It goes through the same select the row's own
+                     click does — selecting a stopped chat resumes it. -->
+                <button
+                  v-if="!session.terminalId"
+                  type="button"
+                  class="entry-action"
+                  :title="`Start ${session.name}`"
+                  :aria-label="`Start ${session.name}`"
+                  :disabled="startingSession"
+                  data-testid="agents-sidebar-session-start"
+                  @click.stop="emit('select-session', session)"
+                ><IconPlay class="size-3" /></button>
                 <!-- One cell, two occupants: the status is what the row says at
                      rest, the menu what it offers under the pointer. Neither
                      ever moves the name. -->
@@ -810,6 +827,14 @@ defineExpose({ focus: () => rootEl.value?.focus() })
    the stack whichever of the two is currently transparent. Fading with
    `display` would also fix it, but reserving the column is why this uses
    opacity. */
+/* Start, on a stopped chat. It holds its cell at rest like .row-action does,
+   so appearing under the pointer never re-truncates the name beside it. */
+.entry-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+.entry-action:hover { background: var(--color-raised); color: var(--color-text); }
+.entry-action:disabled { cursor: default; }
+.entry-action:disabled:hover { background: none; color: var(--color-text-4); }
+.sidebar-entry:hover .entry-action, .entry-action:focus-visible, .sidebar-entry.menu-open .entry-action { opacity: 1; }
+
 .entry-slot { display: grid; flex: none; width: 18px; height: 18px; }
 .entry-status, .entry-menu { grid-area: 1 / 1; width: 100%; height: 100%; }
 .entry-status { display: inline-flex; align-items: center; justify-content: center; pointer-events: none; }
