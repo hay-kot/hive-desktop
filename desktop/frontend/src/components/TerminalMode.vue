@@ -12,7 +12,6 @@ import IconChevronsUpDown from '~icons/lucide/chevrons-up-down'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconCircleCheck from '~icons/lucide/circle-check'
 import IconCircleOff from '~icons/lucide/circle-off'
-import IconEllipsis from '~icons/lucide/ellipsis'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
 import IconListFilter from '~icons/lucide/list-filter'
@@ -1920,7 +1919,7 @@ onBeforeUnmount(() => {
               aria-haspopup="menu"
               :aria-expanded="sidebarMenuOpen"
               @click="sidebarMenuOpen = !sidebarMenuOpen"
-            ><IconEllipsis class="size-3.5" /></button>
+            ><IconEllipsisVertical class="size-3.5" /></button>
             <AppMenu
               v-if="sidebarMenuOpen"
               :entries="sidebarMenuEntries"
@@ -2685,13 +2684,6 @@ onBeforeUnmount(() => {
    settles reads as instant, where ease-in-out spends its first frames barely
    moving and reads as lag. */
 .tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .18s cubic-bezier(.2, 0, 0, 1); }
-/* The pill pops rather than fades in: it appears over live output, and motion
-   is what separates it from the text moving behind it. Overshooting the scale
-   on the way in is the whole effect; leaving is a plain shrink, because an
-   affordance on its way out should not ask for attention. */
-.tail-pill-enter-active { transition: opacity .12s ease, transform .18s cubic-bezier(.2, 1.5, .4, 1); }
-.tail-pill-leave-active { transition: opacity .1s ease, transform .1s ease; }
-.tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
 
 /* The first fill is not a change to make legible: every row is entering, so the
    whole panel would animate in as one block and the rails would force layout
@@ -2701,8 +2693,7 @@ onBeforeUnmount(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .tree-enter-active, .tree-leave-active, .tree-move,
-  .tree-expand-enter-active, .tree-expand-leave-active, .tree-rail,
-  .tail-pill-enter-active, .tail-pill-leave-active { transition: none; }
+  .tree-expand-enter-active, .tree-expand-leave-active, .tree-rail { transition: none; }
 }
 
 /* Two fixed columns, so session and window names stay aligned whatever a row

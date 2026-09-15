@@ -211,17 +211,48 @@ describe('AgentsSidebar', () => {
     expect(JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}')['demo-b']).toBe(false)
   })
 
-  it('clicking a workspace row body focuses it and opens it', async () => {
+  it('clicking a folded workspace row opens it and focuses it', async () => {
     const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
     await wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].trigger('click')
     expect(wrapper.emitted('select-workspace')).toEqual([['demo-a']])
     expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].attributes('data-expanded')).toBe('true')
   })
 
-  it('clicking the focused workspace row keeps the focus rather than clearing it', async () => {
-    const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
-    await wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1].trigger('click')
+  // The row is the fold control now, so the focus it also moves must not undo
+  // the fold when the parent routes that focus straight back in.
+  it('clicking an open workspace row folds it, and the focus it emits leaves it folded', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-b': true })
+    const row = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+    expect(row().attributes('data-expanded')).toBe('true')
+
+    await row().trigger('click')
     expect(wrapper.emitted('select-workspace')).toEqual([['demo-b']])
+    expect(row().attributes('data-expanded')).toBe('false')
+
+    await wrapper.setProps({ selectedWorkspace: 'demo-b' })
+    expect(row().attributes('data-expanded')).toBe('false')
+  })
+
+  it('unfolds a workspace the route focuses from outside', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    const row = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0]
+    expect(row().attributes('data-expanded')).toBe('false')
+
+    await wrapper.setProps({ selectedWorkspace: 'demo-a' })
+    expect(row().attributes('data-expanded')).toBe('true')
+  })
+
+  // A directory the listing no longer knows about has nothing to focus, so its
+  // row is a fold control and nothing else.
+  it('folds a workspace whose directory is gone without emitting a focus', async () => {
+    mocks.workspaces.mockResolvedValue({ root: '/root', rootProblem: '', available: true, error: '', workspaces: [workspaceFixtures[0]] })
+    const wrapper = await mountSidebar()
+    const row = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+    expect(row().attributes('data-expanded')).toBe('true')
+
+    await row().trigger('click')
+    expect(row().attributes('data-expanded')).toBe('false')
+    expect(wrapper.emitted('select-workspace')).toBeUndefined()
   })
 
   it('an expanded workspace with no chats says so instead of drawing nothing', async () => {
@@ -372,6 +403,38 @@ describe('AgentsSidebar', () => {
     expect(menuEntry('agents-sidebar-session-close')).toBeNull()
   })
 
+  // Stop was the only lifecycle entry, so a stopped chat's menu said nothing
+  // about how to get it running again.
+  it("a chat row's menu offers start only while stopped, and start opens the chat", async () => {
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+
+    await rows[1].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    expect(menuEntry('agents-sidebar-session-start-menu')).toBeNull()
+
+    await rows[0].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    menuEntry('agents-sidebar-session-start-menu')!.click()
+    await flushPromises()
+    expect(wrapper.emitted('select-session')).toEqual([[recentFixtures[1]]])
+  })
+
+  // The same resume the row's own click makes, on a control that says so.
+  it('gives a stopped chat a start button, and a live one none', async () => {
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(rows[1].find('[data-testid="agents-sidebar-session-start"]').exists()).toBe(false)
+
+    await rows[0].get('[data-testid="agents-sidebar-session-start"]').trigger('click')
+    expect(wrapper.emitted('select-session')).toEqual([[recentFixtures[1]]])
+  })
+
+  it('disables the start button while another chat is already launching', async () => {
+    const wrapper = await mountSidebar({ startingSession: true })
+    const start = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+      .get('[data-testid="agents-sidebar-session-start"]')
+    expect(start.attributes('disabled')).toBeDefined()
+  })
+
   it('deleting a chat opens a confirmation and emits delete-session only on confirm', async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
@@ -493,13 +556,96 @@ describe('AgentsSidebar', () => {
     expect(add.attributes('disabled')).toBeDefined()
   })
 
-  it('the header\'s + buttons emit create-workspace and request-new-session', async () => {
+  it("the bar's + emits request-new-session", async () => {
     const wrapper = await mountSidebar()
-    await wrapper.get('[data-testid="agents-sidebar-new-workspace"]').trigger('click')
-    expect(wrapper.emitted('create-workspace')).toHaveLength(1)
-
     await wrapper.get('[data-testid="agents-sidebar-new-session"]').trigger('click')
     expect(wrapper.emitted('request-new-session')).toHaveLength(1)
+  })
+
+  // ── The bar ─────────────────────────────────────────────────────────────
+  // A workspace is created rarely and a chat constantly, so the bar's + is the
+  // chat and the workspace moved into the list menu.
+  it('creates a workspace from the list menu', async () => {
+    const wrapper = await mountSidebar()
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="agents-sidebar-new-workspace"]').trigger('click')
+    expect(wrapper.emitted('create-workspace')).toHaveLength(1)
+  })
+
+  it('folds and unfolds every workspace from the list menu, filtered-away ones included', async () => {
+    const wrapper = await mountSidebar({}, {})
+    const expanded = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+      .map((row) => row.attributes('data-expanded'))
+    expect(expanded()).toEqual(['false', 'true'])
+
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="agents-sidebar-expand-all"]').trigger('click')
+    expect(expanded()).toEqual(['true', 'true'])
+
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="agents-sidebar-collapse-all"]').trigger('click')
+    expect(expanded()).toEqual(['false', 'false'])
+  })
+
+  // The bar's own control reloads, and it is the one that says a read is
+  // running — a menu entry beside it would be a second way to do one thing.
+  it('keeps reload out of the list menu', async () => {
+    const wrapper = await mountSidebar()
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="agents-sidebar-menu-reload"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agents-sidebar-reload"]').exists()).toBe(true)
+  })
+
+  it('re-reads both lists from the bar, and spins while either read is in flight', async () => {
+    const wrapper = await mountSidebar()
+    let land: (() => void) | undefined
+    mocks.workspaces.mockImplementation(() => new Promise((resolve) => {
+      land = () => resolve({ root: '/root', rootProblem: '', available: true, error: '', workspaces: workspaceFixtures })
+    }))
+    mocks.allSessions.mockClear()
+
+    const reload = () => wrapper.get('[data-testid="agents-sidebar-reload"]')
+    await reload().trigger('click')
+    await flushPromises()
+    expect(mocks.allSessions).toHaveBeenCalled()
+    expect(reload().attributes('disabled')).toBeDefined()
+    expect(reload().find('.animate-spin').exists()).toBe(true)
+
+    land!()
+    await flushPromises()
+    expect(reload().attributes('disabled')).toBeUndefined()
+    expect(reload().find('.animate-spin').exists()).toBe(false)
+  })
+
+  it('narrows to a workspace by name, carrying all of its chats', async () => {
+    const wrapper = await mountSidebar()
+    await wrapper.get('[data-testid="agents-sidebar-filter"]').setValue('Demo B')
+
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-b'])
+    expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(1)
+  })
+
+  it('narrows to a chat by name, and unfolds the workspace holding it', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    await wrapper.get('[data-testid="agents-sidebar-filter"]').setValue('a-session')
+
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a'])
+    // A fold would hide the only reason the workspace is still on screen.
+    expect(rows[0].attributes('data-expanded')).toBe('true')
+    const chats = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(chats.map((row) => row.text())).toEqual([expect.stringContaining('a-session')])
+  })
+
+  it('says what emptied the tree, and restores it when the filter clears', async () => {
+    const wrapper = await mountSidebar()
+    const field = wrapper.get('[data-testid="agents-sidebar-filter"]')
+    await field.setValue('nothing-matches-this')
+    expect(wrapper.get('[data-testid="agents-sidebar-workspaces-empty"]').text()).toContain('nothing-matches-this')
+
+    await field.trigger('keydown.esc')
+    expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')).toHaveLength(2)
   })
 
   it('a workspace row\'s edit button and its context menu both emit edit-workspace', async () => {
@@ -522,10 +668,10 @@ describe('AgentsSidebar', () => {
     const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
     expect(header.text()).toBe('Demo B') // no count beside the name
     expect(header.find('.bg-severity-warning').exists()).toBe(false)
-    // +, edit, chevron — in that order, all on one pitch.
+    // edit, +, chevron — in that order, all on one pitch.
     expect(header.findAll('button').map((button) => button.attributes('data-testid'))).toEqual([
-      'agents-sidebar-workspace-new-session',
       'agents-sidebar-workspace-edit',
+      'agents-sidebar-workspace-new-session',
       'agents-sidebar-workspace-toggle',
     ])
   })

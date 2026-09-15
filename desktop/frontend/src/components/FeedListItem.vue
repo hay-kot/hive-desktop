@@ -5,7 +5,7 @@ import SourceMark from './SourceMark.vue'
 import { relativeAge } from '../lib/age'
 import { byline, container, containerLine, kind, kindLabel, kindStyle, presentationFor, snippet } from '../lib/itemPresentation'
 import IconArchive from '~icons/lucide/archive'
-import IconEllipsis from '~icons/lucide/ellipsis'
+import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
 import type { InboxItem } from '../types/feed'
@@ -76,7 +76,7 @@ function toggleMenu(): void {
       <button v-else class="hover-action" type="button" :title="item.archivedAt ? 'Move to inbox' : 'Archive'" :aria-label="item.archivedAt ? 'Move to inbox' : 'Archive'" data-testid="row-archive" @click="emit('toggle-archive')"><IconArchive class="size-[15px]" /></button>
       <button v-if="item.url" class="hover-action" type="button" title="Open in browser" aria-label="Open in browser" data-testid="row-open" @click="emit('open-browser')"><IconExternalLink class="size-[15px]" /></button>
       <div class="relative">
-        <button ref="menuToggle" class="hover-action" type="button" title="More actions" aria-label="More actions" aria-haspopup="menu" :aria-expanded="menuOpen" data-testid="row-menu-toggle" @click="toggleMenu()"><IconEllipsis class="size-[15px]" /></button>
+        <button ref="menuToggle" class="hover-action" type="button" title="More actions" aria-label="More actions" aria-haspopup="menu" :aria-expanded="menuOpen" data-testid="row-menu-toggle" @click="toggleMenu()"><IconEllipsisVertical class="size-[15px]" /></button>
         <ItemActionMenu
           v-if="menuOpen"
           :item="item"

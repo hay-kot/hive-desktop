@@ -9,7 +9,7 @@ import { body, byline, container, containerLine, kind, kindIcon, kindLabel, kind
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
 import { externalMarkdownHref } from '../lib/markdownLinks'
-import IconEllipsis from '~icons/lucide/ellipsis'
+import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconSettings from '~icons/lucide/settings'
 import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
@@ -113,7 +113,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
           <span v-if="itemContainer" class="min-w-0 truncate font-mono text-xs text-text-3">{{ itemContainerLine }}</span>
           <span class="flex-1" />
           <div class="relative shrink-0">
-            <button ref="itemMenuToggle" class="more-button" aria-label="Item actions" aria-haspopup="menu" data-testid="item-actions-toggle" :aria-expanded="itemMenuOpen" @click="itemMenuOpen = !itemMenuOpen"><IconEllipsis class="size-4" /></button>
+            <button ref="itemMenuToggle" class="more-button" aria-label="Item actions" aria-haspopup="menu" data-testid="item-actions-toggle" :aria-expanded="itemMenuOpen" @click="itemMenuOpen = !itemMenuOpen"><IconEllipsisVertical class="size-4" /></button>
             <ItemActionMenu
               v-if="itemMenuOpen"
               :item="item"
