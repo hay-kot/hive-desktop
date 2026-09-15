@@ -24,7 +24,6 @@ import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
-import IconEllipsis from '~icons/lucide/ellipsis'
 import IconFolderPlus from '~icons/lucide/folder-plus'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconMessageSquare from '~icons/lucide/message-square'
@@ -595,7 +594,7 @@ defineExpose({
           aria-haspopup="menu"
           :aria-expanded="listMenuOpen"
           @click="listMenuOpen = !listMenuOpen"
-        ><IconEllipsis class="size-3.5" /></button>
+        ><IconEllipsisVertical class="size-3.5" /></button>
         <AppMenu
           v-if="listMenuOpen"
           :entries="listMenuEntries"

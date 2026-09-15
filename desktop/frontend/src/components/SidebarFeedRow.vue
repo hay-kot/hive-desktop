@@ -4,7 +4,7 @@
 // parent SideBar's concern (the parent wraps this row in a draggable drop zone).
 import { computed, ref } from 'vue'
 import AppMenu from './AppMenu.vue'
-import IconEllipsis from '~icons/lucide/ellipsis'
+import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconMailCheck from '~icons/lucide/mail-check'
 import { feedIconComponent } from '../lib/feedIcons'
 import type { FeedSummary } from '../types/feed'
@@ -85,7 +85,7 @@ function onSelect(id: string): void {
         :aria-expanded="menuOpen"
         data-testid="sidebar-feed-menu-toggle"
         @click="toggleMenu()"
-      ><IconEllipsis class="size-3" /></button>
+      ><IconEllipsisVertical class="size-3" /></button>
       <AppMenu
         v-if="menuOpen"
         :entries="entries"

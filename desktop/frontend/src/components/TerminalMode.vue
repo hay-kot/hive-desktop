@@ -12,7 +12,6 @@ import IconChevronsUpDown from '~icons/lucide/chevrons-up-down'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconCircleCheck from '~icons/lucide/circle-check'
 import IconCircleOff from '~icons/lucide/circle-off'
-import IconEllipsis from '~icons/lucide/ellipsis'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
 import IconListFilter from '~icons/lucide/list-filter'
@@ -1920,7 +1919,7 @@ onBeforeUnmount(() => {
               aria-haspopup="menu"
               :aria-expanded="sidebarMenuOpen"
               @click="sidebarMenuOpen = !sidebarMenuOpen"
-            ><IconEllipsis class="size-3.5" /></button>
+            ><IconEllipsisVertical class="size-3.5" /></button>
             <AppMenu
               v-if="sidebarMenuOpen"
               :entries="sidebarMenuEntries"
