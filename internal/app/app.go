@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -15,7 +17,6 @@ import (
 	"github.com/colonyops/hive/pkg/tmpl"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
@@ -56,6 +57,10 @@ import (
 )
 
 // Config is everything App needs that it cannot resolve itself.
+var errAppClosed = errors.New("app is closed")
+
+const shutdownTimeout = 3 * time.Second
+
 type Config struct {
 	Settings      settings.Settings
 	SettingsStore *settings.Store
@@ -233,17 +238,20 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	settings               settings.Settings
-	settingsStore          *settings.Store
-	paths                  settings.Paths
-	flowsWatcher           *flow.FlowsWatcher
-	actionsWatcher         *actions.ActionsWatcher
-	agentWorkspacesWatcher *agentws.Watcher
-	hiveBusCancel          context.CancelFunc
+	settings      settings.Settings
+	settingsStore *settings.Store
+	paths         settings.Paths
+	configuration *configuration
+	hiveBusCancel context.CancelFunc
+
+	lifecycleMu sync.Mutex
+	started     bool
+	closing     bool
+	closed      bool
 }
 
-// New builds the core: the store, the domain stores and their watchers, the
-// Hive action runtime, and the background subsystems. Nothing is running when
+// New builds the core: the store, domain stores, configuration manager, Hive
+// action runtime, and background subsystems. Nothing is running when
 // it returns — call Start.
 func New(ctx context.Context, cfg Config) (*App, error) {
 	if cfg.Paths.SettingsPath == "" {
@@ -463,6 +471,17 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// running loop is the workspace editor's, not a route of its own.
 	a.AgentWorkspaces.OnSchedulesChanged = func(string) { a.scheduler.Reload() }
 
+	configuration, err := newConfiguration(a)
+	if err != nil {
+		if a.hiveDB != nil {
+			_ = a.hiveDB.Close()
+		}
+		_ = a.db.Close()
+		cancel()
+		return nil, err
+	}
+	a.configuration = configuration
+
 	return a, nil
 }
 
@@ -531,36 +550,46 @@ func compactPipelineStoreAtStartup(ctx context.Context, db pipelineCompactor, pa
 // deliberately skip the worker loop and have no producer, so a fixture run
 // stays deterministic.
 func (a *App) Start(ctx context.Context) error {
-	if a.actionsWatcher != nil {
-		a.actionsWatcher.Start()
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.closed || a.closing {
+		return errAppClosed
 	}
-	if a.flowsWatcher != nil {
-		a.flowsWatcher.Start()
+	if a.started {
+		return nil
 	}
-	if a.agentWorkspacesWatcher != nil {
-		a.agentWorkspacesWatcher.Start()
+	startCtx := ctx
+	ctx, cancelConfiguration := context.WithCancel(a.ctx)
+	//nolint:contextcheck // a.ctx is the App lifetime context.
+	if err := a.configuration.begin(ctx, cancelConfiguration); err != nil {
+		return fmt.Errorf("start configuration manager: %w", err)
 	}
-	// After the watcher, so the first pass evaluates the workspace set the
-	// watcher is already keeping current. That pass is the catch-up for
-	// everything that came due while the app was closed, so it runs in mock
-	// modes too -- a fixture root simply declares no schedules.
-	a.scheduler.Start(ctx)
+	a.scheduler.Start(startCtx)
+	if err := a.engine.Start(startCtx); err != nil {
+		a.scheduler.Stop()
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		defer cancel()
+		//nolint:contextcheck // stopCtx bounds App-owned configuration shutdown.
+		return errors.Join(fmt.Errorf("start flow engine: %w", err), a.stopConfiguration(stopCtx))
+	}
+	//nolint:contextcheck // ctx derives from the App lifetime context.
+	if err := a.configuration.start(ctx); err != nil {
+		a.engine.Stop()
+		a.scheduler.Stop()
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		defer cancel()
+		return errors.Join(fmt.Errorf("start configuration reconciler: %w", err), a.stopConfiguration(stopCtx))
+	}
+	a.started = true
 	if a.mock == "" {
-		a.outputs.Start(ctx)
+		a.outputs.Start(startCtx)
 	}
-	a.retention.Start(ctx)
-	// The engine starts before anything that can append to the log. Its flow
-	// installation is synchronous, so by the time a producer tick, a webhook
-	// delivery or a test harness can append, there is a runner ready to route
-	// it — no window in which a wake-up has nothing to wake.
-	if err := a.engine.Start(ctx); err != nil {
-		return fmt.Errorf("start flow engine: %w", err)
-	}
+	a.retention.Start(startCtx)
 	if a.producer != nil {
-		a.producer.Start(ctx)
+		a.producer.Start(startCtx)
 	}
 	if a.webhook != nil {
-		if err := a.webhook.Start(ctx); err != nil {
+		if err := a.webhook.Start(startCtx); err != nil {
 			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
 		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
@@ -634,6 +663,17 @@ func (a *App) HiveConn() *sql.DB {
 // before-vs-after goroutine count runs. Revisit once either that test
 // tolerates it or a plugs release makes signal registration optional.
 func (a *App) Close() error {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if a.closed {
+		return nil
+	}
+	a.closing = true
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), shutdownTimeout)
+	defer cancel()
+	if err := a.stopConfiguration(stopCtx); err != nil {
+		return fmt.Errorf("stop configuration: %w", err)
+	}
 	a.cancel()
 
 	// Before the terminals: a pass in flight is launching chats through them,
@@ -648,7 +688,7 @@ func (a *App) Close() error {
 	// socket has to be brought down by closing the streams behind it first
 	// (ADR terminal-transport). The context is a fresh one for the same reason Shutdown's is.
 	if a.terminals != nil {
-		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), shutdownTimeout)
 		_ = a.terminals.Stop(stopCtx)
 		cancel()
 	}
@@ -656,7 +696,7 @@ func (a *App) Close() error {
 	// server's, so this is not just a detach: whatever is running in them ends
 	// here.
 	if a.popupTerminals != nil {
-		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), shutdownTimeout)
 		_ = a.popupTerminals.Stop(stopCtx)
 		cancel()
 	}
@@ -668,7 +708,7 @@ func (a *App) Close() error {
 		// to drain." WithoutCancel keeps this a context derived from a.ctx
 		// rather than a bare root, without inheriting a deadline that may
 		// have already passed.
-		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), shutdownTimeout)
 		// A shutdown failure only warns, matching Start's own bind-failure
 		// policy: a slow or stuck drain must never fail Close outright.
 		if err := a.webhook.Stop(stopCtx); err != nil {
@@ -682,15 +722,6 @@ func (a *App) Close() error {
 	a.engine.Stop()
 	a.retention.Stop()
 	a.outputs.Stop()
-	if a.flowsWatcher != nil {
-		a.flowsWatcher.Close()
-	}
-	if a.actionsWatcher != nil {
-		a.actionsWatcher.Close()
-	}
-	if a.agentWorkspacesWatcher != nil {
-		a.agentWorkspacesWatcher.Close()
-	}
 	a.Events.Close()
 
 	if a.Perf != nil {
@@ -712,7 +743,16 @@ func (a *App) Close() error {
 	if closeErr := a.db.Close(); closeErr != nil && err == nil {
 		err = fmt.Errorf("close desktop store: %w", closeErr)
 	}
+	a.closed = true
+	a.closing = false
 	return err
+}
+
+func (a *App) stopConfiguration(ctx context.Context) error {
+	if a.configuration == nil {
+		return nil
+	}
+	return a.configuration.stop(ctx)
 }
 
 // PipelineDB exposes the raw pipeline database handle to driving adapters
@@ -745,8 +785,7 @@ func buildCredentialStore(mock, indexPath string) credentials.Store {
 
 // openActions loads actions.yml eagerly — rather than waiting for the first
 // lazy List/Get — so a broken file is logged at startup instead of surfacing
-// silently as "no actions found". A watcher that fails to start degrades to
-// no hot-reload: the app still works, edits just need a restart.
+// silently as "no actions found".
 func (a *App) openActions(path string, logger zerolog.Logger) {
 	if _, err := actions.SeedDefaultsIfMissing(path); err != nil {
 		logger.Warn().Err(err).Msg("actions seed failed")
@@ -755,48 +794,21 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 	if err := a.actionStore.Reload(); err != nil {
 		logger.Warn().Err(err).Msg("actions.yml load failed; using last-good (likely empty) action set")
 	}
-
-	watcher, err := actions.NewActionsWatcher(path, func() {
-		if err := a.actionStore.Reload(); err != nil {
-			logger.Warn().Err(err).Msg("actions.yml reload failed")
-		}
-		count := len(a.actionStore.List())
-		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: count})
-		// A hand edit (or the app's own write) reloaded actions.yml: record
-		// the now-effective action count so the change is auditable.
-		a.Activity.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
-	}, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("actions.yml hot-reload unavailable")
-		return
-	}
-	a.actionsWatcher = watcher
 }
 
-// openFlows constructs the flow store over settings.FlowsDir() and a watcher
-// that reloads it on any flows/*.yaml change, including the app's own
-// SaveFlow/SaveLayout writes. It must run before the producer, which
-// resolves enabled flow ids live from the flow store.
+// openFlows constructs the flow store over settings.FlowsDir(). It must run
+// before the producer, which resolves enabled flow ids live from the flow store.
 //
 // The rail order comes from settings.yaml, which the flow package does not
-// read; it is process state the watcher's reloads leave alone. Reordering the
+// read; it is process state configuration reloads leave alone. Reordering the
 // rail pushes it back through FlowsService.SetOrder, so only a hand edit of
 // settings.yaml waits for the next launch.
 func (a *App) openFlows(dir string, logger zerolog.Logger) {
 	a.flowStore = flow.NewFlowStore(dir, actions.NewRefs(a.actionStore))
 	a.flowStore.SetOrder(a.settings.Profiles.Order)
-
-	watcher, err := flow.NewFlowsWatcher(dir, func() {
-		if err := a.flowStore.Reload(); err != nil {
-			logger.Warn().Err(err).Msg("flows reload failed")
-		}
-		a.PublishFlowsUpdated("reload")
-	}, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("flows hot-reload unavailable")
-		return
+	if err := a.flowStore.Reload(); err != nil {
+		logger.Warn().Err(err).Msg("flows load failed; using last-good (likely empty) flow set")
 	}
-	a.flowsWatcher = watcher
 }
 
 // openAgentWorkspaces ensures the workspace root exists, seeds it — and,
@@ -809,9 +821,9 @@ func (a *App) openFlows(dir string, logger zerolog.Logger) {
 // unmounted volume, a signed-out iCloud Drive) or one occupied by a file —
 // spec §14 says that is reported, not silently replaced with a second empty
 // root elsewhere. So nothing past that point may create root or anything
-// under it: no seed, no Hive workspace, no watcher (NewWatcher's own
-// MkdirAll would recreate exactly what EnsureRoot just refused to). The store
-// still gets built — its Reload on a missing root is already a valid, empty
+// under it: no seed and no Hive workspace. The shared manager can still
+// register the authority because its failed topology scan never creates paths.
+// The store still gets built — its Reload on a missing root is already a valid, empty
 // snapshot — so the rest of the app has something non-nil to read; the
 // Agents area (phase 6) is what surfaces the unavailable root to the user.
 func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
@@ -839,22 +851,6 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 	if err := a.agentWorkspaceStore.Reload(); err != nil {
 		logger.Warn().Err(err).Msg("agent workspace root load failed; using last-good (likely empty) workspace set")
 	}
-
-	watcher, err := agentws.NewWatcher(root, func() {
-		if err := a.agentWorkspaceStore.Reload(); err != nil {
-			logger.Warn().Err(err).Msg("agent workspace reload failed")
-		}
-		count := len(a.agentWorkspaceStore.Statuses())
-		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
-		// A hand edit to a manifest's schedules: list is a schedule change like
-		// any other, so the scheduler re-reads on the same signal the UI does.
-		a.scheduler.Reload()
-	}, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("agent workspace hot-reload unavailable")
-		return
-	}
-	a.agentWorkspacesWatcher = watcher
 }
 
 // PublishLogAppended announces that the event log grew and wakes the engine to

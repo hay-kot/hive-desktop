@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/configstate"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -99,6 +100,15 @@ func TestAppLifecycle(t *testing.T) {
 	require.NotNil(t, core.Events)
 	require.NotNil(t, core.Stores)
 	require.NotNil(t, core.PipelineDB())
+	require.NotNil(t, core.configuration)
+	statuses := core.configuration.manager.Status(t.Context())
+	require.Len(t, statuses, 4)
+	assert.Equal(t, []configstate.Source{
+		configstate.Actions,
+		configstate.AgentWorkspaces,
+		configstate.Flows,
+		configstate.Settings,
+	}, []configstate.Source{statuses[0].Source, statuses[1].Source, statuses[2].Source, statuses[3].Source})
 
 	require.NoError(t, core.Start(t.Context()))
 	require.NoError(t, core.Close())
@@ -140,13 +150,9 @@ func settle(t *testing.T) {
 	}
 }
 
-// TestAgentWorkspacesReloadPublishesEvenOnFailure exercises the watcher ->
-// store -> events.AgentWorkspacesUpdated chain end to end, including that a
-// broken manifest still publishes — the whole point of the
-// publish-even-on-failure shape openAgentWorkspaces shares with openActions
-// (app.go:624-628): the reload's own error is only logged, never used to skip
-// the publish, so the UI still re-reads and sees the failure reflected in
-// Statuses.
+// TestAgentWorkspacesReloadPublishesEvenOnFailure exercises the configuration
+// manager -> store -> events.AgentWorkspacesUpdated chain end to end. A broken
+// manifest still publishes, so the UI re-reads and sees the failure in Statuses.
 func TestAgentWorkspacesReloadPublishesEvenOnFailure(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
@@ -166,7 +172,7 @@ func TestAgentWorkspacesReloadPublishesEvenOnFailure(t *testing.T) {
 	require.NoError(t, core.Start(t.Context()))
 
 	require.NotNil(t, core.agentWorkspaceStore)
-	require.NotNil(t, core.agentWorkspacesWatcher)
+	require.NotNil(t, core.configuration)
 
 	updates := make(chan events.AgentWorkspacesUpdated, 8)
 	cancel := events.Subscribe(t.Context(), core.Events, "test.agentworkspaces", events.Buffer(8), func(_ context.Context, e events.AgentWorkspacesUpdated) {
@@ -230,5 +236,5 @@ func TestAgentWorkspacesUnavailableRootCreatesNothing(t *testing.T) {
 
 	require.NotNil(t, core.agentWorkspaceStore)
 	assert.Empty(t, core.agentWorkspaceStore.Statuses())
-	assert.Nil(t, core.agentWorkspacesWatcher, "no watcher may exist over a root that was never created")
+	require.NotNil(t, core.configuration, "the shared manager owns unavailable roots without creating them")
 }
