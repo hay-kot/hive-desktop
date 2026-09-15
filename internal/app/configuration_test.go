@@ -72,9 +72,288 @@ func TestConfigurationUsesAppLifetimeAfterStartContextCancellation(t *testing.T)
 	case <-time.After(time.Second):
 		t.Fatal("configuration reconciliation loop did not stop")
 	}
-	_, err := core.configuration.manager.Mark(t.Context(), configstate.Actions, configstate.AppWrite)
+	manager, ok := core.configuration.detector.(*configwatch.Manager)
+	require.True(t, ok)
+	_, err := manager.Mark(t.Context(), configstate.Actions, configstate.AppWrite)
 	require.ErrorIs(t, err, configwatch.ErrStopped)
 	require.ErrorIs(t, core.Start(t.Context()), errAppClosed)
+}
+
+type fakeConfigurationDetector struct {
+	batches chan configwatch.Batch
+	acks    chan configwatch.Batch
+	started chan struct{}
+	stopped chan struct{}
+
+	statusMu sync.RWMutex
+	statuses []configwatch.Status
+
+	startOnce sync.Once
+	stopOnce  sync.Once
+}
+
+func newFakeConfigurationDetector(statuses []configwatch.Status) *fakeConfigurationDetector {
+	return &fakeConfigurationDetector{
+		batches:  make(chan configwatch.Batch, 8),
+		acks:     make(chan configwatch.Batch, 8),
+		started:  make(chan struct{}),
+		stopped:  make(chan struct{}),
+		statuses: append([]configwatch.Status(nil), statuses...),
+	}
+}
+
+func (d *fakeConfigurationDetector) Start(context.Context) error {
+	d.startOnce.Do(func() { close(d.started) })
+	return nil
+}
+
+func (d *fakeConfigurationDetector) Next(ctx context.Context) (configwatch.Batch, error) {
+	select {
+	case <-ctx.Done():
+		return configwatch.Batch{}, ctx.Err()
+	case <-d.stopped:
+		return configwatch.Batch{}, configwatch.ErrStopped
+	default:
+	}
+	select {
+	case batch := <-d.batches:
+		return batch, nil
+	case <-d.stopped:
+		return configwatch.Batch{}, configwatch.ErrStopped
+	case <-ctx.Done():
+		return configwatch.Batch{}, ctx.Err()
+	}
+}
+
+func (d *fakeConfigurationDetector) Ack(ctx context.Context, batch configwatch.Batch) {
+	select {
+	case d.acks <- batch:
+	case <-d.stopped:
+	case <-ctx.Done():
+	}
+}
+
+func (d *fakeConfigurationDetector) Status(context.Context) []configwatch.Status {
+	d.statusMu.RLock()
+	defer d.statusMu.RUnlock()
+	return append([]configwatch.Status(nil), d.statuses...)
+}
+
+func (d *fakeConfigurationDetector) setStatuses(statuses []configwatch.Status) {
+	d.statusMu.Lock()
+	defer d.statusMu.Unlock()
+	d.statuses = append([]configwatch.Status(nil), statuses...)
+}
+
+func (d *fakeConfigurationDetector) Stop(context.Context) error {
+	d.stopOnce.Do(func() { close(d.stopped) })
+	return nil
+}
+
+func sendConfigurationBatch(t *testing.T, detector *fakeConfigurationDetector, batch configwatch.Batch) {
+	t.Helper()
+	select {
+	case detector.batches <- batch:
+	case <-detector.stopped:
+		t.Fatal("configuration detector stopped before receiving a batch")
+	case <-t.Context().Done():
+		t.Fatal("test context stopped before configuration batch was sent")
+	case <-time.After(time.Second):
+		t.Fatal("configuration detector did not receive a batch")
+	}
+}
+
+func TestConfigurationDetectionRecovery(t *testing.T) {
+	type recoveryCase struct {
+		name            string
+		statuses        []configwatch.Status
+		batches         []configwatch.Batch
+		prepare         func(t *testing.T, core *App, detector *fakeConfigurationDetector) func()
+		check           func(t *testing.T, core *App, detector *fakeConfigurationDetector, acks []configwatch.Batch)
+		actionEvents    int
+		workspaceEvents int
+	}
+
+	cases := []recoveryCase{
+		{
+			name:    "missed filesystem notification is recovered by a scan",
+			batches: []configwatch.Batch{{ID: 1, Dirty: []configwatch.Dirty{{Source: configstate.Actions, Trigger: configstate.Scan, Generation: 11}}}},
+			prepare: func(t *testing.T, core *App, _ *fakeConfigurationDetector) func() {
+				require.NoError(t, os.WriteFile(core.paths.ActionsPath, []byte("version: 1\nactions: []\nlaunchers: []\n"), 0o600))
+				return nil
+			},
+			check: func(t *testing.T, core *App, _ *fakeConfigurationDetector, acks []configwatch.Batch) {
+				require.Empty(t, core.actionStore.List())
+				require.Equal(t, configwatch.Batch{ID: 1, Dirty: []configwatch.Dirty{{Source: configstate.Actions, Trigger: configstate.Scan, Generation: 11}}}, acks[0])
+			},
+			actionEvents: 1,
+		},
+		{
+			name:     "poll mode reloads after notification registration fails",
+			statuses: []configwatch.Status{{Source: configstate.Actions, Mode: "poll"}},
+			batches:  []configwatch.Batch{{ID: 2, Dirty: []configwatch.Dirty{{Source: configstate.Actions, Trigger: configstate.Scan, Generation: 12}}}},
+			prepare: func(t *testing.T, core *App, _ *fakeConfigurationDetector) func() {
+				require.NoError(t, os.WriteFile(core.paths.ActionsPath, []byte("version: 1\nactions: []\nlaunchers: []\n"), 0o600))
+				return nil
+			},
+			check: func(t *testing.T, core *App, _ *fakeConfigurationDetector, acks []configwatch.Batch) {
+				require.Equal(t, []configwatch.Status{{Source: configstate.Actions, Mode: "poll"}}, core.configuration.status(t.Context()))
+				require.Equal(t, configwatch.Batch{ID: 2, Dirty: []configwatch.Dirty{{Source: configstate.Actions, Trigger: configstate.Scan, Generation: 12}}}, acks[0])
+				require.Empty(t, core.actionStore.List())
+			},
+			actionEvents: 1,
+		},
+		{
+			name:     "root removal retains state and restoration reloads it",
+			statuses: []configwatch.Status{{Source: configstate.AgentWorkspaces, Mode: "unavailable"}},
+			batches: []configwatch.Batch{
+				{ID: 3, Dirty: []configwatch.Dirty{{Source: configstate.AgentWorkspaces, Trigger: configstate.Scan, Generation: 13}}},
+				{ID: 4, Dirty: []configwatch.Dirty{{Source: configstate.AgentWorkspaces, Trigger: configstate.Scan, Generation: 14}}},
+			},
+			prepare: func(t *testing.T, core *App, detector *fakeConfigurationDetector) func() {
+				root := core.paths.AgentWorkspacesDir
+				retained := filepath.Join(root, "retained")
+				require.NoError(t, os.Mkdir(retained, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(retained, "agent-workspace.yaml"), []byte("version: 1\n"), 0o600))
+				require.NoError(t, core.agentWorkspaceStore.Reload())
+				before := len(core.agentWorkspaceStore.Statuses())
+				moved := root + ".gone"
+				require.NoError(t, os.Rename(root, moved))
+				require.Equal(t, []configwatch.Status{{Source: configstate.AgentWorkspaces, Mode: "unavailable"}}, core.configuration.status(t.Context()))
+				return func() {
+					require.Len(t, core.agentWorkspaceStore.Statuses(), before)
+					require.NoError(t, os.Rename(moved, root))
+					restored := filepath.Join(root, "restored")
+					require.NoError(t, os.Mkdir(restored, 0o700))
+					require.NoError(t, os.WriteFile(filepath.Join(restored, "agent-workspace.yaml"), []byte("version: 1\n"), 0o600))
+					detector.setStatuses([]configwatch.Status{{Source: configstate.AgentWorkspaces, Mode: "notify"}})
+				}
+			},
+			check: func(t *testing.T, core *App, _ *fakeConfigurationDetector, acks []configwatch.Batch) {
+				require.Equal(t, []configwatch.Status{{Source: configstate.AgentWorkspaces, Mode: "notify"}}, core.configuration.status(t.Context()))
+				require.Equal(t, []configwatch.Batch{
+					{ID: 3, Dirty: []configwatch.Dirty{{Source: configstate.AgentWorkspaces, Trigger: configstate.Scan, Generation: 13}}},
+					{ID: 4, Dirty: []configwatch.Dirty{{Source: configstate.AgentWorkspaces, Trigger: configstate.Scan, Generation: 14}}},
+				}, acks)
+				_, ok := core.agentWorkspaceStore.Status("restored")
+				require.True(t, ok)
+			},
+			workspaceEvents: 2,
+		},
+		{
+			name: "overflow reloads all sources in fixed order",
+			batches: []configwatch.Batch{{ID: 5, Dirty: []configwatch.Dirty{
+				{Source: configstate.AgentWorkspaces, Trigger: configstate.Overflow, Generation: 15},
+				{Source: configstate.Flows, Trigger: configstate.Overflow, Generation: 16},
+				{Source: configstate.Actions, Trigger: configstate.Overflow, Generation: 17},
+				{Source: configstate.Settings, Trigger: configstate.Overflow, Generation: 18},
+			}}},
+			prepare: func(*testing.T, *App, *fakeConfigurationDetector) func() { return nil },
+			check: func(t *testing.T, _ *App, _ *fakeConfigurationDetector, acks []configwatch.Batch) {
+				require.Equal(t, configwatch.Batch{ID: 5, Dirty: []configwatch.Dirty{
+					{Source: configstate.Settings, Trigger: configstate.Overflow, Generation: 18},
+					{Source: configstate.Actions, Trigger: configstate.Overflow, Generation: 17},
+					{Source: configstate.Flows, Trigger: configstate.Overflow, Generation: 16},
+					{Source: configstate.AgentWorkspaces, Trigger: configstate.Overflow, Generation: 15},
+				}}, acks[0])
+			},
+			actionEvents:    1,
+			workspaceEvents: 1,
+		},
+		{
+			name: "read and enumeration failures retain state and acknowledge generation",
+			batches: []configwatch.Batch{{ID: 6, Dirty: []configwatch.Dirty{
+				{Source: configstate.AgentWorkspaces, Trigger: configstate.Scan, Generation: 19},
+				{Source: configstate.Flows, Trigger: configstate.Scan, Generation: 20},
+				{Source: configstate.Actions, Trigger: configstate.Scan, Generation: 21},
+			}}},
+			prepare: func(t *testing.T, core *App, _ *fakeConfigurationDetector) func() {
+				require.NoError(t, os.WriteFile(filepath.Join(core.paths.FlowsDir, "retained.yaml"), []byte("version: 1\nnodes:\n  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: \\\"is:open\\\" }\n  - { id: sink, type: feed }\nwires:\n  - { from: src, to: sink }\n"), 0o600))
+				require.NoError(t, core.flowStore.Reload())
+				workspace := filepath.Join(core.paths.AgentWorkspacesDir, "retained")
+				require.NoError(t, os.Mkdir(workspace, 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(workspace, "agent-workspace.yaml"), []byte("version: 1\n"), 0o600))
+				require.NoError(t, core.agentWorkspaceStore.Reload())
+				actionsBefore := len(core.actionStore.List())
+				flowsBefore := len(core.flowStore.List())
+				workspacesBefore := len(core.agentWorkspaceStore.Statuses())
+				require.NoError(t, os.Remove(core.paths.ActionsPath))
+				require.NoError(t, os.Mkdir(core.paths.ActionsPath, 0o700))
+				require.NoError(t, os.Rename(core.paths.FlowsDir, core.paths.FlowsDir+".gone"))
+				require.NoError(t, os.Rename(core.paths.AgentWorkspacesDir, core.paths.AgentWorkspacesDir+".gone"))
+				return func() {
+					require.Len(t, core.actionStore.List(), actionsBefore)
+					require.Len(t, core.flowStore.List(), flowsBefore)
+					require.Len(t, core.agentWorkspaceStore.Statuses(), workspacesBefore)
+				}
+			},
+			check: func(t *testing.T, core *App, _ *fakeConfigurationDetector, acks []configwatch.Batch) {
+				require.Error(t, core.actionStore.Err())
+				require.Equal(t, configwatch.Batch{ID: 6, Dirty: []configwatch.Dirty{
+					{Source: configstate.Actions, Trigger: configstate.Scan, Generation: 21},
+					{Source: configstate.Flows, Trigger: configstate.Scan, Generation: 20},
+					{Source: configstate.AgentWorkspaces, Trigger: configstate.Scan, Generation: 19},
+				}}, acks[0])
+			},
+			actionEvents:    1,
+			workspaceEvents: 1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			core := newConfigurationTestApp(t, t.Context())
+			detector := newFakeConfigurationDetector(tc.statuses)
+			core.configuration.detector = detector
+
+			actionUpdates := make(chan events.ActionsUpdated, 4)
+			workspaceUpdates := make(chan events.AgentWorkspacesUpdated, 4)
+			cancelActions := events.Subscribe(t.Context(), core.Events, "test.configuration-actions", events.Buffer(4), func(_ context.Context, event events.ActionsUpdated) { actionUpdates <- event })
+			cancelWorkspaces := events.Subscribe(t.Context(), core.Events, "test.configuration-workspaces", events.Buffer(4), func(_ context.Context, event events.AgentWorkspacesUpdated) { workspaceUpdates <- event })
+			t.Cleanup(cancelActions)
+			t.Cleanup(cancelWorkspaces)
+
+			runCtx, cancel := context.WithCancel(t.Context())
+			t.Cleanup(cancel)
+			require.NoError(t, core.configuration.begin(runCtx, cancel))
+			require.NoError(t, core.configuration.start(runCtx))
+			select {
+			case <-detector.started:
+			case <-time.After(time.Second):
+				t.Fatal("configuration detector did not start")
+			}
+
+			afterFirstAck := tc.prepare(t, core, detector)
+			acks := make([]configwatch.Batch, 0, len(tc.batches))
+			for index, batch := range tc.batches {
+				sendConfigurationBatch(t, detector, batch)
+				select {
+				case ack := <-detector.acks:
+					acks = append(acks, ack)
+				case <-time.After(time.Second):
+					t.Fatal("configuration batch was not acknowledged")
+				}
+				if index == 0 && afterFirstAck != nil {
+					afterFirstAck()
+				}
+			}
+			for range tc.actionEvents {
+				select {
+				case <-actionUpdates:
+				case <-time.After(time.Second):
+					t.Fatal("actions update was not published")
+				}
+			}
+			for range tc.workspaceEvents {
+				select {
+				case <-workspaceUpdates:
+				case <-time.After(time.Second):
+					t.Fatal("agent workspace update was not published")
+				}
+			}
+			tc.check(t, core, detector, acks)
+		})
+	}
 }
 
 func TestConfigurationReconcileOrdersDomainsBeforePublishing(t *testing.T) {

@@ -386,6 +386,12 @@ func (m *Manager) observe(ctx context.Context) {
 			retryC = nil
 		}
 	}
+	defer func() {
+		if retry != nil {
+			retry.Stop()
+		}
+	}()
+
 	refresh := func() {
 		if m.currentWatcher() == nil {
 			candidate, err := m.newWatcher()
@@ -525,12 +531,6 @@ func (m *Manager) dropWatch(path string) {
 	m.watchMu.Unlock()
 }
 
-func (m *Manager) synchronizeTopology(ctx context.Context, topology Topology) {
-	for _, dir := range topology.Directories {
-		m.addWatch(ctx, filepath.Clean(dir))
-	}
-}
-
 func (m *Manager) addWatch(ctx context.Context, dir string) {
 	m.watchMu.Lock()
 	w := m.watch
@@ -554,6 +554,12 @@ func (m *Manager) addWatch(ctx context.Context, dir string) {
 		recordWatchError(ctx, watchErrorRegistration)
 		m.logger.Debug().Err(err).Str("directory", dir).Msg("configuration watch registration failed")
 		return
+	}
+}
+
+func (m *Manager) addCandidateTopology(ctx context.Context, topology Topology) {
+	for dir := range topologyDirectories(topology) {
+		m.addWatch(ctx, dir)
 	}
 }
 
@@ -687,7 +693,11 @@ func (m *Manager) scheduleScan(ctx context.Context, source configstate.Source, t
 	m.mu.Unlock()
 	go func() {
 		defer m.wg.Done()
-		result, err := m.scan(ctx, authority, func(topology Topology) { m.synchronizeTopology(ctx, topology) })
+		// Candidate directories must be watched before reading files, but only a
+		// complete scan may replace the source's committed topology.
+		result, err := m.scan(ctx, authority, func(topology Topology) {
+			m.addCandidateTopology(ctx, topology)
+		})
 		now := time.Now()
 		m.mu.Lock()
 		state := m.sources[source]

@@ -159,12 +159,47 @@ func TestStoreReportsMalformedEntries(t *testing.T) {
 	require.Error(t, weird.Err)
 }
 
-func TestStoreReloadOnMissingRootIsEmptyNotError(t *testing.T) {
+func TestStoreRetainsLastGoodWhenAuthoredFilesBecomeDirectories(t *testing.T) {
 	t.Parallel()
 
-	root := filepath.Join(t.TempDir(), "does-not-exist")
+	root := t.TempDir()
+	manifestPath := writeWorkspace(t, root, "workspace", "Workspace")
+	libraryPath := filepath.Join(root, libraryFileName)
+	skillsPath := filepath.Join(root, skillLibraryFileName)
+	require.NoError(t, os.WriteFile(libraryPath, []byte("version: 1\nservers:\n  local: {command: npx}\n"), 0o600))
+	require.NoError(t, os.WriteFile(skillsPath, []byte("version: 1\npackages:\n  hive: {include: [\"hive-*\"]}\n"), 0o600))
+
+	store := NewStore(root)
+	require.NoError(t, store.Reload())
+
+	require.NoError(t, os.Remove(manifestPath))
+	require.NoError(t, os.Mkdir(manifestPath, 0o700))
+	require.NoError(t, os.Remove(libraryPath))
+	require.NoError(t, os.Mkdir(libraryPath, 0o700))
+	require.NoError(t, os.Remove(skillsPath))
+	require.NoError(t, os.Mkdir(skillsPath, 0o700))
+	require.NoError(t, store.Reload())
+
+	workspace, ok := store.Status("workspace")
+	require.True(t, ok)
+	assert.False(t, workspace.Valid)
+	assert.Equal(t, "Workspace", workspace.Workspace.Name)
+	assert.False(t, store.Library().Valid)
+	assert.Contains(t, store.Library().Library.Servers, "local")
+	assert.False(t, store.SkillLibrary().Valid)
+	assert.Contains(t, store.SkillLibrary().Library.Packages, "hive")
+}
+
+func TestStoreReloadOnMissingRootRetainsLastGoodState(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "workspaces")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, libraryFileName), []byte("version: 1\nservers: {}\n"), 0o600))
 	s := NewStore(root)
 	require.NoError(t, s.Reload())
-	assert.Empty(t, s.Statuses())
+
+	require.NoError(t, os.Rename(root, root+".gone"))
+	require.Error(t, s.Reload())
 	assert.True(t, s.Library().Valid)
 }

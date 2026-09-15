@@ -101,7 +101,7 @@ func TestAppLifecycle(t *testing.T) {
 	require.NotNil(t, core.Stores)
 	require.NotNil(t, core.PipelineDB())
 	require.NotNil(t, core.configuration)
-	statuses := core.configuration.manager.Status(t.Context())
+	statuses := core.configuration.status(t.Context())
 	require.Len(t, statuses, 4)
 	assert.Equal(t, []configstate.Source{
 		configstate.Actions,
@@ -132,7 +132,7 @@ func TestAppLifecycle(t *testing.T) {
 		buf := make([]byte, 1<<20)
 		t.Log(string(buf[:runtime.Stack(buf, true)]))
 	}
-	assert.LessOrEqual(t, after, before, "Close leaked a goroutine")
+	assert.LessOrEqual(t, after, before, "Close leaked a configuration manager, scanner, reconciler, or another background goroutine")
 }
 
 // settle waits for goroutines left over from earlier tests in this package to

@@ -46,9 +46,9 @@ type SkillLibraryStatus struct {
 	Err     error
 }
 
-// Store holds a per-workspace last-good snapshot of the workspace root,
-// reloading on demand (Reload) or from a Watcher. It follows flow.FlowStore
-// rather than actions.ActionStore: the root is a directory of N independently
+// Store holds a per-workspace last-good snapshot of the workspace root. It
+// follows flow.FlowStore rather than actions.ActionStore: the root is a
+// directory of N independently
 // authored manifests, not one file, so one broken manifest must not freeze
 // the whole set. Unlike FlowStore, a broken entry keeps its own previous
 // value rather than dropping out — see WorkspaceStatus.
@@ -74,10 +74,8 @@ func NewStore(root string) *Store {
 func (s *Store) Root() string { return s.root }
 
 // Reload re-reads mcps.yaml and every workspace directory under the root. It
-// errors only when the root directory itself cannot be read (and a missing
-// root is not that: it just means nothing has been created yet, so this
-// reports an empty, valid snapshot). Per-file failures never make Reload
-// error; they land in Library()/Statuses() instead.
+// returns an error when the root cannot be read and retains the last-good
+// snapshot. Per-file failures land in Library()/Statuses() instead.
 func (s *Store) Reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,10 +123,7 @@ func (s *Store) SkillLibrary() SkillLibraryStatus {
 func (s *Store) reloadLocked() error {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("agentws: read workspace root %s: %w", s.root, err)
-		}
-		entries = nil
+		return fmt.Errorf("agentws: read workspace root %s: %w", s.root, err)
 	}
 
 	s.library = s.reloadLibraryLocked()

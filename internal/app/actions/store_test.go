@@ -42,6 +42,19 @@ func TestActionStore_MissingFile_IsEmptyNotError(t *testing.T) {
 	assert.NoError(t, store.Err())
 }
 
+func TestActionStore_Reload_RetainsLastGoodOnUnavailableParent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "actions")
+	require.NoError(t, os.Mkdir(dir, 0o700))
+	path := filepath.Join(dir, "actions.yml")
+	require.NoError(t, os.WriteFile(path, []byte(multiActionYAML), 0o600))
+
+	store := NewActionStore(path)
+	require.Len(t, store.List(), 3)
+	require.NoError(t, os.Rename(dir, dir+".gone"))
+	require.Error(t, store.Reload())
+	assert.Len(t, store.List(), 3)
+}
+
 func TestActionStore_Reload_RetainsLastGoodOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "actions.yml")

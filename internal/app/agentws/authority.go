@@ -3,6 +3,7 @@ package agentws
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -36,14 +37,20 @@ func (a authority) Topology(ctx context.Context) (configwatch.Topology, error) {
 			}
 			continue
 		}
+		if entry.Name() == libraryFileName || entry.Name() == skillLibraryFileName {
+			return configwatch.Topology{}, fmt.Errorf("workspace library %q is a directory", path)
+		}
 		if entry.Name() == sharedDirName {
 			continue
 		}
 		topology.Directories = append(topology.Directories, path)
 		manifest := filepath.Join(path, manifestFileName)
-		if info, err := os.Stat(manifest); err == nil && !info.IsDir() {
+		if info, err := os.Stat(manifest); err == nil {
+			if info.IsDir() {
+				return configwatch.Topology{}, fmt.Errorf("workspace manifest %q is a directory", manifest)
+			}
 			topology.Files = append(topology.Files, configwatch.AuthorityFile{Key: entry.Name() + "/" + manifestFileName, Path: manifest})
-		} else if err != nil && !os.IsNotExist(err) {
+		} else if !os.IsNotExist(err) {
 			return configwatch.Topology{}, err
 		}
 	}

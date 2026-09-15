@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -177,18 +178,39 @@ func TestManagerLifecycle(t *testing.T) {
 	require.NoError(t, m.Start(t.Context()))
 	require.NoError(t, m.Start(t.Context()))
 	require.ErrorIs(t, m.Register(t.Context(), Registration{Source: configstate.Flows, Authority: testAuthority{}}), ErrAlreadyStarted)
-	require.NoError(t, m.Stop(t.Context()))
+	initial := nextBatch(t, m)
+	m.Ack(t.Context(), initial)
+
+	waiting := make(chan error, 1)
+	go func() {
+		_, err := m.Next(t.Context())
+		waiting <- err
+	}()
+	stopped := make(chan error, 2)
+	go func() { stopped <- m.Stop(t.Context()) }()
+	go func() { stopped <- m.Stop(t.Context()) }()
+	for range 2 {
+		require.NoError(t, <-stopped)
+	}
+	require.ErrorIs(t, <-waiting, ErrStopped)
+	m.Ack(t.Context(), Batch{Dirty: []Dirty{{Source: configstate.Actions, Generation: 1}}})
+	_, err = m.Mark(t.Context(), configstate.Actions, configstate.Scan)
+	require.ErrorIs(t, err, ErrStopped)
 }
 
 func TestManagerOverflowRecovery(t *testing.T) {
 	m := newTestManager(t)
+	timers := newManualTimers()
+	m.newRetryTimer = timers.new
 	first, second := newTestWatcher(), newTestWatcher()
 	var calls, scans atomic.Int64
+	watcherRecreated := make(chan struct{})
 	m.newWatcher = func() (watcher, error) {
 		call := calls.Add(1)
 		if call == 1 {
 			return first, nil
 		}
+		close(watcherRecreated)
 		return second, nil
 	}
 	dir := t.TempDir()
@@ -198,14 +220,22 @@ func TestManagerOverflowRecovery(t *testing.T) {
 		require.NoError(t, m.Register(t.Context(), Registration{Source: source, Authority: fixedAuthority{dir: dir, path: path}}))
 	}
 	originalScan := m.scan
+	var recovering atomic.Bool
+	refreshed := make(chan struct{})
+	var refreshedOnce sync.Once
 	m.scan = func(ctx context.Context, authority Authority, synchronize topologySynchronizer) (scanResult, error) {
 		scans.Add(1)
-		return originalScan(ctx, authority, synchronize)
+		result, err := originalScan(ctx, authority, synchronize)
+		if recovering.Load() {
+			refreshedOnce.Do(func() { close(refreshed) })
+		}
+		return result, err
 	}
 	require.NoError(t, m.Start(t.Context()))
 	initial := nextBatch(t, m)
 	m.Ack(t.Context(), initial)
 	initialScans := scans.Load()
+	recovering.Store(true)
 	first.errors <- fsnotify.ErrEventOverflow
 	overflow := nextBatch(t, m)
 	require.Len(t, overflow.Dirty, 2)
@@ -213,8 +243,110 @@ func TestManagerOverflowRecovery(t *testing.T) {
 		require.Equal(t, configstate.Overflow, dirty.Trigger)
 	}
 	m.Ack(t.Context(), overflow)
-	require.Eventually(t, func() bool { return calls.Load() >= 2 && scans.Load() > initialScans }, 2*time.Second, time.Millisecond)
+	timers.next(t).fire()
+	select {
+	case <-watcherRecreated:
+	case <-time.After(time.Second):
+		t.Fatal("overflow did not recreate the watcher")
+	}
+	select {
+	case <-refreshed:
+	case <-time.After(time.Second):
+		t.Fatal("overflow did not refresh source topology")
+	}
+	require.Greater(t, scans.Load(), initialScans)
 	require.NoError(t, m.Stop(t.Context()))
+}
+
+func TestManagerScanFailureRetainsTopologyAndRevision(t *testing.T) {
+	m := newTestManager(t)
+	watch := newTestWatcher()
+	m.newWatcher = func() (watcher, error) { return watch, nil }
+	firstDir := t.TempDir()
+	firstPath := filepath.Join(firstDir, "config.yml")
+	require.NoError(t, os.WriteFile(firstPath, []byte("one"), 0o600))
+	secondDir := t.TempDir()
+	secondPath := filepath.Join(secondDir, "config.yml")
+	require.NoError(t, os.WriteFile(secondPath, []byte("two"), 0o600))
+	authority := &changingAuthority{topology: Topology{Directories: []string{firstDir}, Files: []AuthorityFile{{Key: "config", Path: firstPath}}}}
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: authority}))
+
+	originalOpen := openFile
+	var failRead atomic.Bool
+	failed := make(chan struct{})
+	openFile = func(path string) (readFile, error) {
+		if failRead.Load() && path == secondPath {
+			select {
+			case failed <- struct{}{}:
+			default:
+			}
+			return nil, errors.New("injected read failure")
+		}
+		return originalOpen(path)
+	}
+	t.Cleanup(func() { openFile = originalOpen })
+
+	require.NoError(t, m.Start(t.Context()))
+	initial := nextBatch(t, m)
+	require.Equal(t, fixedRevision([]byte("one")), initial.Dirty[0].ObservedRevision)
+	m.Ack(t.Context(), initial)
+
+	authority.set(Topology{Directories: []string{secondDir}, Files: []AuthorityFile{{Key: "config", Path: secondPath}}})
+	failRead.Store(true)
+	_, err := m.Mark(t.Context(), configstate.Actions, configstate.Filesystem)
+	require.NoError(t, err)
+	m.scheduleScan(t.Context(), configstate.Actions, configstate.Scan, false)
+	select {
+	case <-failed:
+	case <-time.After(time.Second):
+		t.Fatal("injected content read did not run")
+	}
+	timeout := time.After(time.Second)
+	var status Status
+	for {
+		status = m.Status(t.Context())[0]
+		if status.ConsecutiveScanFailures == 1 {
+			break
+		}
+		select {
+		case <-timeout:
+			t.Fatal("injected scan failure did not complete")
+		default:
+			runtime.Gosched()
+		}
+	}
+	require.Equal(t, fixedRevision([]byte("one")), status.ObservedRevision)
+	require.Equal(t, 1, status.ConsecutiveScanFailures)
+	m.mu.Lock()
+	committedFirst := m.sources[configstate.Actions].directories[firstDir]
+	committedSecond := m.sources[configstate.Actions].directories[secondDir]
+	m.mu.Unlock()
+	require.True(t, committedFirst, "failed scan must retain the last complete topology")
+	require.False(t, committedSecond, "failed scan must not commit candidate topology")
+	m.watchMu.Lock()
+	candidateWatched := m.watched[secondDir]
+	m.watchMu.Unlock()
+	require.True(t, candidateWatched, "candidate watch must remain after a failed scan")
+	require.NoError(t, m.Stop(t.Context()))
+}
+
+type changingAuthority struct {
+	mu       sync.Mutex
+	topology Topology
+}
+
+func (a *changingAuthority) Topology(context.Context) (Topology, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.topology, nil
+}
+
+func (a *changingAuthority) Match(Change) Match { return Match{Dirty: true} }
+
+func (a *changingAuthority) set(topology Topology) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.topology = topology
 }
 
 func TestManagerWatcherConstructionFailureDoesNotStopPolling(t *testing.T) {
@@ -257,9 +389,14 @@ func TestManagerAtomicReplacement(t *testing.T) {
 	require.Equal(t, fixedRevision([]byte("one")), initial.Dirty[0].ObservedRevision)
 	m.Ack(t.Context(), initial)
 
+	before, err := os.Stat(path)
+	require.NoError(t, err)
 	tmp := path + ".new"
 	require.NoError(t, os.WriteFile(tmp, []byte("two"), 0o600))
 	require.NoError(t, os.Rename(tmp, path))
+	after, err := os.Stat(path)
+	require.NoError(t, err)
+	require.False(t, os.SameFile(before, after), "atomic replacement must replace the target inode")
 	changed := nextBatchForRevision(t, m, fixedRevision([]byte("two")))
 	require.Equal(t, fixedRevision([]byte("two")), changed.Dirty[0].ObservedRevision)
 	m.Ack(t.Context(), changed)
@@ -424,6 +561,56 @@ func (t *manualTimers) next(tb testing.TB) *manualRetryTimer {
 	case <-time.After(time.Second):
 		tb.Fatal("retry timer was not scheduled")
 		return nil
+	}
+}
+
+func TestManagerStopCancelsPendingRetryTimer(t *testing.T) {
+	m := newTestManager(t)
+	timers := newManualTimers()
+	m.newRetryTimer = timers.new
+	m.newWatcher = func() (watcher, error) { return nil, errors.New("injected watcher failure") }
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: testAuthority{}}))
+	require.NoError(t, m.Start(t.Context()))
+	_ = timers.next(t)
+	require.NoError(t, m.Stop(t.Context()))
+	select {
+	case <-timers.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the pending watcher retry")
+	}
+}
+
+func TestManagerStopStopsResetRetryTimer(t *testing.T) {
+	m := newTestManager(t)
+	timers := newManualTimers()
+	m.newRetryTimer = timers.new
+	watch := newTestWatcher()
+	var attempts atomic.Int64
+	m.newWatcher = func() (watcher, error) {
+		if attempts.Add(1) == 1 {
+			return nil, errors.New("injected watcher failure")
+		}
+		return watch, nil
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("one"), 0o600))
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: fixedAuthority{dir: dir, path: path}}))
+	require.NoError(t, m.Start(t.Context()))
+	timer := timers.next(t)
+	initial := nextBatch(t, m)
+	m.Ack(t.Context(), initial)
+	timer.fire()
+	select {
+	case <-timers.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("watch recovery did not reset the retry timer")
+	}
+	require.NoError(t, m.Stop(t.Context()))
+	select {
+	case <-timers.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not stop the reset retry timer")
 	}
 }
 

@@ -51,3 +51,21 @@ func TestAuthorityTopologyMissingRoot(t *testing.T) {
 	_, err := NewAuthority(filepath.Join(t.TempDir(), "missing")).Topology(t.Context())
 	require.Error(t, err)
 }
+
+func TestAuthorityTopologyRejectsAuthoredFilesOccupiedByDirectories(t *testing.T) {
+	for _, name := range []string{libraryFileName, skillLibraryFileName} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(root, name), 0o700))
+			_, err := NewAuthority(root).Topology(t.Context())
+			require.Error(t, err)
+		})
+	}
+
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	require.NoError(t, os.Mkdir(workspace, 0o700))
+	require.NoError(t, os.Mkdir(filepath.Join(workspace, manifestFileName), 0o700))
+	_, err := NewAuthority(root).Topology(t.Context())
+	require.Error(t, err)
+}

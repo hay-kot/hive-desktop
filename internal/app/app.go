@@ -806,6 +806,9 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 func (a *App) openFlows(dir string, logger zerolog.Logger) {
 	a.flowStore = flow.NewFlowStore(dir, actions.NewRefs(a.actionStore))
 	a.flowStore.SetOrder(a.settings.Profiles.Order)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		logger.Warn().Err(err).Msg("flows directory initialization failed")
+	}
 	if err := a.flowStore.Reload(); err != nil {
 		logger.Warn().Err(err).Msg("flows load failed; using last-good (likely empty) flow set")
 	}
@@ -823,9 +826,9 @@ func (a *App) openFlows(dir string, logger zerolog.Logger) {
 // root elsewhere. So nothing past that point may create root or anything
 // under it: no seed and no Hive workspace. The shared manager can still
 // register the authority because its failed topology scan never creates paths.
-// The store still gets built — its Reload on a missing root is already a valid, empty
-// snapshot — so the rest of the app has something non-nil to read; the
-// Agents area (phase 6) is what surfaces the unavailable root to the user.
+// The store still gets built so the rest of the app has something non-nil to
+// read. Reload reports the unavailable root while retaining its initial empty
+// snapshot; the Agents area (phase 6) surfaces that state to the user.
 func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 	created, err := agentws.EnsureRoot(root)
 	if err != nil {

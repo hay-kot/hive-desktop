@@ -81,3 +81,65 @@ func TestFixedDirectoryIsObservationError(t *testing.T) {
 	_, _, err := fileRevision(t.Context(), path)
 	require.Error(t, err)
 }
+
+type sequentialTopologyAuthority struct {
+	topologies []Topology
+	index      int
+}
+
+func (a *sequentialTopologyAuthority) Topology(context.Context) (Topology, error) {
+	topology := a.topologies[a.index]
+	if a.index < len(a.topologies)-1 {
+		a.index++
+	}
+	return topology, nil
+}
+
+func (a *sequentialTopologyAuthority) Match(Change) Match { return Match{} }
+
+func TestScanRegistersCandidateTopologyBeforeReading(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	require.NoError(t, os.WriteFile(path, []byte("one"), 0o600))
+	authority := fixedAuthority{dir: dir, path: path}
+
+	order := make(chan string, 2)
+	originalOpen := openFile
+	openFile = func(path string) (readFile, error) {
+		order <- "read"
+		return originalOpen(path)
+	}
+	t.Cleanup(func() { openFile = originalOpen })
+	_, err := scanAuthority(t.Context(), authority, func(Topology) { order <- "add" })
+	require.NoError(t, err)
+	require.Equal(t, "add", <-order)
+	require.Equal(t, "read", <-order)
+}
+
+func TestScanRegistersSecondTopologyBeforeSecondRead(t *testing.T) {
+	firstDir := t.TempDir()
+	secondDir := t.TempDir()
+	secondPath := filepath.Join(secondDir, "config.yml")
+	require.NoError(t, os.WriteFile(secondPath, []byte("two"), 0o600))
+	authority := &sequentialTopologyAuthority{topologies: []Topology{
+		{Directories: []string{firstDir}, Files: []AuthorityFile{{Key: "config", Path: filepath.Join(firstDir, "missing.yml")}}},
+		{Directories: []string{secondDir}, Files: []AuthorityFile{{Key: "config", Path: secondPath}}},
+	}}
+
+	originalOpen := openFile
+	secondRegistered := false
+	openFile = func(path string) (readFile, error) {
+		if path == secondPath && !secondRegistered {
+			return nil, errors.New("second topology was not registered before reading")
+		}
+		return originalOpen(path)
+	}
+	t.Cleanup(func() { openFile = originalOpen })
+	_, err := scanAuthority(t.Context(), authority, func(topology Topology) {
+		if topology.Directories[0] == secondDir {
+			secondRegistered = true
+		}
+	})
+	require.NoError(t, err)
+	require.True(t, secondRegistered)
+}

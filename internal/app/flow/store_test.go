@@ -44,6 +44,20 @@ func TestFlowStore_ListGet(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestFlowStore_Reload_RetainsLastGoodOnUnavailableRoot(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "flows")
+	require.NoError(t, os.Mkdir(dir, 0o700))
+	writeFlow(t, dir, "triage.yaml", minimalValidFlowYAML())
+
+	store := NewFlowStore(dir, minimalRefs())
+	require.Len(t, store.List(), 1)
+	require.NoError(t, os.Rename(dir, dir+".gone"))
+	require.Error(t, store.Reload())
+	assert.Equal(t, []string{"triage"}, listIDs(store))
+	_, err := os.Stat(dir)
+	assert.True(t, os.IsNotExist(err), "runtime reload must not recreate a missing authority root")
+}
+
 func TestFlowStore_SetOrder_ConfiguredIdsFirstThenAlphabetical(t *testing.T) {
 	dir := t.TempDir()
 	for _, id := range []string{"hive", "personal", "recipinned", "work"} {

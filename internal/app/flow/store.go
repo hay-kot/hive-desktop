@@ -37,12 +37,11 @@ type FlowStatus struct {
 	Warnings []string
 }
 
-// FlowStore holds the flows loaded from a flows/*.yaml directory, reloading
-// on demand (Reload) or from a fsnotify FlowsWatcher. It is the backend
-// half of Deploy: a flows-dir change reaches here via Reload, and the app
-// emits "flows:updated" so the frontend knows to re-fetch and reconcile its
-// running graph snapshots. This store only ever swaps its own in-memory
-// snapshot; it does not touch a running graph.
+// FlowStore holds the flows loaded from a flows/*.yaml directory. It is the
+// backend half of Deploy: a configuration change reaches here via Reload, and
+// the app emits "flows:updated" so the frontend knows to re-fetch and
+// reconcile its running graph snapshots. This store only ever swaps its own
+// in-memory snapshot; it does not touch a running graph.
 //
 // Thread-safe: every method takes the same mutex.
 type FlowStore struct {
@@ -386,10 +385,9 @@ func (s *FlowStore) SaveSidebar(id string, layout SidebarLayout) error {
 	return SaveSidebar(s.sidebarPath(id), layout)
 }
 
-// Reload re-reads every flow file in the directory. It only returns an
-// error when the directory itself can't be created/read (rare — the flows
-// dir is created on demand); a broken individual flow file is never a
-// Reload error, it just shows up in Statuses/Errors.
+// Reload re-reads every flow file in the directory. It returns an error when
+// the directory cannot be read and retains the last-good snapshot. A broken
+// individual flow file is not a Reload error; it shows up in Statuses/Errors.
 func (s *FlowStore) Reload() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -397,8 +395,8 @@ func (s *FlowStore) Reload() error {
 }
 
 func (s *FlowStore) reloadLocked() error {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return fmt.Errorf("flow: create flows dir: %w", err)
+	if _, err := os.ReadDir(s.dir); err != nil {
+		return fmt.Errorf("flow: read flows dir: %w", err)
 	}
 	flows, perFileErrors, warnings := LoadFlows(s.dir, s.refs)
 

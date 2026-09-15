@@ -41,8 +41,9 @@ func scanAuthority(ctx context.Context, authority Authority, synchronize topolog
 				return scanResult{}, fmt.Errorf("authority directory %q is not a directory", dir)
 			}
 		}
+		// Register this validated candidate before reading files. A write between
+		// the read and watch registration would otherwise be missed.
 		synchronize(topology)
-
 		files := append([]AuthorityFile(nil), topology.Files...)
 		sort.Slice(files, func(i, j int) bool { return files[i].Key < files[j].Key })
 		parts := make([]configstate.RevisionPart, 0, len(files))

@@ -18,10 +18,18 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
+type configurationDetector interface {
+	Start(context.Context) error
+	Next(context.Context) (configwatch.Batch, error)
+	Ack(context.Context, configwatch.Batch)
+	Status(context.Context) []configwatch.Status
+	Stop(context.Context) error
+}
+
 type configuration struct {
-	app     *App
-	manager *configwatch.Manager
-	logger  zerolog.Logger
+	app      *App
+	detector configurationDetector
+	logger   zerolog.Logger
 
 	cancel      context.CancelFunc
 	done        chan struct{}
@@ -47,7 +55,7 @@ func newConfiguration(app *App) (*configuration, error) {
 			return nil, fmt.Errorf("register %s configuration authority: %w", registration.Source, err)
 		}
 	}
-	return &configuration{app: app, manager: manager, logger: app.logger, done: make(chan struct{})}, nil
+	return &configuration{app: app, detector: manager, logger: app.logger, done: make(chan struct{})}, nil
 }
 
 func (c *configuration) begin(ctx context.Context, cancel context.CancelFunc) error {
@@ -56,7 +64,7 @@ func (c *configuration) begin(ctx context.Context, cancel context.CancelFunc) er
 		return err
 	}
 	c.cancel = cancel
-	if err := c.manager.Start(ctx); err != nil {
+	if err := c.detector.Start(ctx); err != nil {
 		cancel()
 		return err
 	}
@@ -83,7 +91,7 @@ func (c *configuration) stop(ctx context.Context) error {
 	})
 
 	managerDone := make(chan error, 1)
-	go func() { managerDone <- c.manager.Stop(ctx) }()
+	go func() { managerDone <- c.detector.Stop(ctx) }()
 	var loopDone <-chan struct{}
 	if c.loopStarted {
 		loopDone = c.done
@@ -104,9 +112,13 @@ func (c *configuration) stop(ctx context.Context) error {
 	return nil
 }
 
+func (c *configuration) status(ctx context.Context) []configwatch.Status {
+	return c.detector.Status(ctx)
+}
+
 func (c *configuration) run(ctx context.Context) {
 	for {
-		batch, err := c.manager.Next(ctx)
+		batch, err := c.detector.Next(ctx)
 		if err != nil {
 			if !errors.Is(err, configwatch.ErrStopped) && ctx.Err() == nil {
 				c.logger.Warn().Err(err).Msg("configuration reconciliation stopped")
@@ -114,7 +126,7 @@ func (c *configuration) run(ctx context.Context) {
 			return
 		}
 		processed := c.reconcile(ctx, batch)
-		c.manager.Ack(ctx, processed)
+		c.detector.Ack(ctx, processed)
 	}
 }
 

@@ -117,6 +117,9 @@ func (s *ActionStore) Err() error {
 }
 func (s *ActionStore) Reload() error { s.mu.Lock(); defer s.mu.Unlock(); return s.reloadLocked() }
 func (s *ActionStore) reloadLocked() error {
+	if _, err := os.ReadDir(filepath.Dir(s.path)); err != nil {
+		return fmt.Errorf("actions: read parent directory: %w", err)
+	}
 	catalog, err := LoadCatalog(s.path)
 	s.loaded = true
 	if err != nil {
