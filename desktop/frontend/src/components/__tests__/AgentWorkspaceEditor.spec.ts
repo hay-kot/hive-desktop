@@ -151,6 +151,87 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
+  // ── Unsaved work ────────────────────────────────────────────────────────
+  // Every gesture that leaves the sheet used to drop the whole form silently.
+  it('closes straight away when nothing was edited', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    expect(el('agent-workspace-editor-discard-confirm')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('asks before Escape throws an edit away, and keeps the sheet open on Keep editing', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+    typeInto('agent-workspace-editor-name', 'Demo renamed')
+    await wrapper.vm.$nextTick()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(el('agent-workspace-editor-discard-confirm')).not.toBeNull()
+
+    el<HTMLButtonElement>('agent-workspace-editor-discard-confirm-cancel')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-discard-confirm')).toBeNull()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('closes on Discard', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+    typeInto('agent-workspace-editor-name', 'Demo renamed')
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-close')!.click()
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-discard-confirm-confirm')!.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('asks on the backdrop and on the footer Cancel too, not only on Escape', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+    typeInto('agent-workspace-editor-name', 'Demo renamed')
+    await wrapper.vm.$nextTick()
+
+    el<HTMLElement>('agent-workspace-editor-backdrop')!.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(el('agent-workspace-editor-discard-confirm')).not.toBeNull()
+
+    el<HTMLButtonElement>('agent-workspace-editor-discard-confirm-cancel')!.click()
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-cancel')!.click()
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(el('agent-workspace-editor-discard-confirm')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  // The question is what a save would write, not whether anything was typed.
+  it('reads an edit that was typed back to its original as unedited', async () => {
+    const wrapper = mountEditor()
+    await flushPromises()
+    typeInto('agent-workspace-editor-name', 'Demo renamed')
+    await wrapper.vm.$nextTick()
+    typeInto('agent-workspace-editor-name', 'Demo')
+    await wrapper.vm.$nextTick()
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('a pending confirm makes the form inert: no save on Enter, no close on Escape', async () => {
     const wrapper = mountEditor()
     el<HTMLButtonElement>('agent-workspace-editor-delete')!.click()
