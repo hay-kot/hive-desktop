@@ -2,4 +2,4 @@
 kind: changed
 ---
 
-**Clicking a workspace folds it**: a click on a workspace row now opens or closes it, the way a repository row does in the Code view. The row's edit and + buttons swapped places, so edit sits next to the name.
+**Workspace rows fold on a click**: clicking a workspace now opens or closes it, the way a repository row does in the Code view. The edit and + buttons on the row swapped places too, so edit sits next to the name.
