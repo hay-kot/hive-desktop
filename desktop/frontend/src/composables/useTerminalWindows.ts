@@ -24,6 +24,7 @@ import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { interceptPaste } from '../lib/terminalPaste'
 import { silenceDeviceReports } from '../lib/terminalReports'
+import { scrolledOffTail } from '../lib/terminalTail'
 import { paneMayAutoFocus } from '../lib/terminalTree'
 import { commandEscapesPane, commandPiercesPane } from '../keybindings/catalog'
 import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './useKeybindings'
@@ -198,12 +199,6 @@ interface PaneRuntime {
   // refreshScrolledUp.
   scrolledUp?: boolean
 }
-
-// How far off the live tail the viewport has to be before the way back is
-// offered. One wheel notch is about three rows, so a nudge — or the row of
-// drift a trackpad leaves behind — does not flash a pill at anyone; a scroll
-// meant as a scroll does.
-const TAIL_SLACK_ROWS = 5
 
 // The pane box belongs to the app window, not to a session, so one remembered
 // vote serves every session — including one being attached for the first time.
@@ -437,8 +432,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function refreshScrolledUp(paneId: string): void {
     const state = panes.get(paneId)
     if (!state) return
-    const buffer = state.term.buffer.active
-    const scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
+    const scrolledUp = scrolledOffTail(state.term)
     if (scrolledUp === state.scrolledUp) return
     state.scrolledUp = scrolledUp
     const found = findPane(paneId)

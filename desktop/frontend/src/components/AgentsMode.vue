@@ -16,6 +16,7 @@ import { Browser } from '@wailsio/runtime'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
+import IconArrowDown from '~icons/lucide/arrow-down'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import AgentCanvasPane from './AgentCanvasPane.vue'
@@ -39,6 +40,7 @@ import { setAgentsTreeHandles } from '../lib/agentsTree'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { interceptPaste } from '../lib/terminalPaste'
 import { silenceDeviceReports } from '../lib/terminalReports'
+import { watchTailPin } from '../lib/terminalTail'
 import type { AgentSession, AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 import '@xterm/xterm/css/xterm.css'
 
@@ -97,6 +99,7 @@ const paneStatus = ref<'idle' | 'opening' | 'live'>('idle')
 const paneError = ref('')
 const paneWorkspaceDir = ref('')
 const paneActionError = ref('')
+const paneScrolledUp = ref(false)
 
 let socket: WebSocket | null = null
 let fit: FitAddon | null = null
@@ -590,6 +593,7 @@ function attachStream(created: Terminal, terminalId: string, windowId: string, p
   disposers.push(silenceDeviceReports(created))
   disposers.push(created.onData((data) => send(data)))
   disposers.push({ dispose: interceptPaste(paneHost.value, sendPaste) })
+  disposers.push(watchTailPin(created, paneHost.value, (scrolledUp) => { paneScrolledUp.value = scrolledUp }))
 
   const opened = client.value.openStream(terminalId)
   opened.onmessage = (event: MessageEvent<ArrayBuffer>) => {
@@ -690,6 +694,12 @@ function teardownPane(): void {
   paneWindowId = ''
   lastVote = null
   paneError.value = ''
+  paneScrolledUp.value = false
+}
+
+function scrollPaneToBottom(): void {
+  term.value?.scrollToBottom()
+  term.value?.focus()
 }
 
 function openLink(uri: string): void {
@@ -827,6 +837,20 @@ onBeforeUnmount(() => {
           >
             <div ref="paneHost" class="size-full" />
           </div>
+
+          <!-- The Code view's pill, placed and worded identically: new output
+               keeps landing below the fold while the viewport is scrolled up,
+               and this is the way back to the live tail. -->
+          <Transition name="tail-pill">
+            <button
+              v-if="paneScrolledUp && paneStatus === 'live'"
+              type="button"
+              class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
+              data-testid="agents-scroll-to-bottom"
+              @click="scrollPaneToBottom"
+            ><IconArrowDown class="size-3" />Scroll to bottom</button>
+          </Transition>
+
           <!-- Covers the whole launch, not just the beat before xterm exists:
                most of a start is spent waiting on tmux after the grid is
                built, and a bare dark pane there reads as nothing happening. -->

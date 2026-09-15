@@ -28,13 +28,26 @@ const xterm = vi.hoisted(() => {
     dispose = vi.fn()
     resize = vi.fn()
     focus = vi.fn()
+    scrollToBottom = vi.fn()
     parser = {
       registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
       registerDcsHandler: vi.fn(() => ({ dispose: vi.fn() })),
       registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
     }
 
+    // Enough of xterm's buffer for watchTailPin: a mutable viewport position
+    // and the two events that can move it.
+    buffer = {
+      active: { baseY: 0, viewportY: 0 },
+      onBufferChange: (handler: () => void) => {
+        this.bufferChangeHandler = handler
+        return { dispose: vi.fn() }
+      },
+    }
+
     dataHandler: ((data: string) => void) | null = null
+    scrollHandler: (() => void) | null = null
+    bufferChangeHandler: (() => void) | null = null
 
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
@@ -43,6 +56,11 @@ const xterm = vi.hoisted(() => {
 
     onData(handler: (data: string) => void) {
       this.dataHandler = handler
+      return { dispose: vi.fn() }
+    }
+
+    onScroll(handler: () => void) {
+      this.scrollHandler = handler
       return { dispose: vi.fn() }
     }
   }
@@ -472,6 +490,57 @@ describe('AgentsMode', () => {
 
     const created = xterm.FakeTerminal.instances.at(-1)!
     expect(created.focus).toHaveBeenCalled()
+  })
+
+  // Parity with the Code view's pill (#469): a chat that keeps streaming while
+  // the viewport is scrolled up has to offer the way back.
+  it('offers a way back to the live tail while the chat pane is scrolled up', async () => {
+    const { wrapper } = await mountWithOpenChat()
+    expect(wrapper.find('[data-testid="agents-scroll-to-bottom"]').exists()).toBe(false)
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    created.buffer.active.baseY = 200
+    created.buffer.active.viewportY = 100
+    created.scrollHandler?.()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="agents-scroll-to-bottom"]').trigger('click')
+    expect(created.scrollToBottom).toHaveBeenCalled()
+
+    created.buffer.active.viewportY = 200
+    created.scrollHandler?.()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-scroll-to-bottom"]').exists()).toBe(false)
+  })
+
+  it('leaves the pill alone for a nudge inside the tail slack', async () => {
+    const { wrapper } = await mountWithOpenChat()
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    created.buffer.active.baseY = 200
+    created.buffer.active.viewportY = 196
+    created.scrollHandler?.()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="agents-scroll-to-bottom"]').exists()).toBe(false)
+  })
+
+  // The pane is torn down on the way out, so a chat reopened at the tail must
+  // not inherit the last one's pill.
+  it('clears the pill when the pane goes back to the zero state', async () => {
+    const { wrapper, client } = await mountWithOpenChat()
+
+    const created = xterm.FakeTerminal.instances.at(-1)!
+    created.buffer.active.baseY = 200
+    created.buffer.active.viewportY = 100
+    created.scrollHandler?.()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-scroll-to-bottom"]').exists()).toBe(true)
+
+    openedSocket(client).onclose?.()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="agents-scroll-to-bottom"]').exists()).toBe(false)
   })
 
   it('frames keystrokes for the pane the launch named', async () => {
