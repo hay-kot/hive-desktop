@@ -1863,12 +1863,12 @@ untrusted GitHub bodies and stays as strict as they require, which is why an
 html block renders under its own `.hv-html` scope instead.
 
 `agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
-or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is
-nested, so it maintains a watch at two levels — one on the root itself (which
-sees `mcps.yaml` and workspace directories appearing or disappearing) and one
-per workspace directory (which sees its `agent-workspace.yaml`). Nothing
-watches deeper: an agent writing into `docs/`, or the generator rewriting its
-own output on open, is invisible to it by design, not omission.
+flat one: fsnotify is not recursive and the tree is nested, so it maintains a
+watch at two levels — one on the root itself (which sees `mcps.yaml` and
+workspace directories appearing or disappearing) and one per workspace directory
+(which sees its `agent-workspace.yaml`). Nothing watches deeper: an agent
+writing into `docs/`, or the generator rewriting its own output on open, is
+invisible to it by design, not omission.
 
 **The Agents sidebar is one tree, and position is what states a chat's
 workspace.** Workspaces are the parent rows and their chats nest beneath, in a

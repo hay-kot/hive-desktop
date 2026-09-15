@@ -12,17 +12,16 @@ import (
 )
 
 // workspaceWatchDebounce coalesces bursts of edits (an editor's write+rename+
-// chmod, a git checkout touching several files) into one reload. A third
-// copy of the same constant actions/watcher.go and flow/watcher.go each
-// declare — deliberate, not an oversight: a shared debounce helper would
-// couple three packages to save nine lines.
+// chmod, a git checkout touching several files) into one reload. It matches
+// actions/watcher.go deliberately; a shared debounce helper would couple two
+// packages to save a few lines.
 const workspaceWatchDebounce = 250 * time.Millisecond
 
 // Watcher invokes onChange when the workspace root changes on disk: mcps.yaml
 // at the root, or agent-workspace.yaml inside any workspace directory. Unlike
-// ActionsWatcher/FlowsWatcher, which each watch one flat directory, this tree
-// is nested and fsnotify is not recursive, so Watcher maintains two levels of
-// watch: one on root itself (which sees mcps.yaml and workspace directories
+// ActionsWatcher, which watches one flat directory, this tree is nested and
+// fsnotify is not recursive, so Watcher maintains two levels of watch: one on
+// root itself (which sees mcps.yaml and workspace directories
 // appearing or disappearing) and one per workspace directory (which sees its
 // agent-workspace.yaml). Nothing watches deeper — an agent writing into
 // docs/, or the generator rewriting CLAUDE.md/.mcp.json/.codex/ on open, is

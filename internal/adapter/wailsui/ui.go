@@ -135,7 +135,7 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 	u.updater = NewUpdaterService(opts.Build.Version, opts.AutoUpdate, DefaultUpdateCheckInterval, core.Settings.SetUpdatesEnabled, u.logger)
 
 	// The tray refresh is published before the flows subscription can fire it:
-	// the flows watcher calls subscribers from its own goroutine.
+	// flow updates call subscribers from their own goroutine.
 	u.cancelEvents = Subscribe(ctx, core.Events, u.refreshTray)
 
 	u.trayIcon = opts.TrayIcon
@@ -328,7 +328,7 @@ func (u *UI) buildWindow() {
 }
 
 // buildTray is not rooted at Mount's ctx: like attachUpdater above, the tray
-// it builds outlives Mount's call — clicks and flows-watcher-triggered
+// it builds outlives Mount's call -- clicks and flow-update-triggered
 // refreshes fire for the rest of the process's life, long past setup, so
 // FlowsService's calls below root their own context rather than reuse one
 // that is about to go out of scope.
@@ -349,7 +349,7 @@ func (u *UI) buildTray(core *app.App) {
 
 // refreshTray re-renders the tray's checkbox rows from the current flow
 // listing. Not rooted at Subscribe's ctx for the same reason as buildTray:
-// the flows watcher can fire this long after Mount returns.
+// flow updates can fire this long after Mount returns.
 //
 //nolint:contextcheck // see above; the tray's lifetime is Close, not a call
 func (u *UI) refreshTray() {

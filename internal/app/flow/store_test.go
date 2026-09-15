@@ -342,8 +342,9 @@ func TestFlowStore_SetEnabled_PreservesFlowAndPersists(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, loaded.Enabled)
 
-	// A disk edit that has not reached the debounced watcher must survive the
-	// toggle; SetEnabled reads the current file rather than the cached graph.
+	// A disk edit that has not reached the debounced configuration reload must
+	// survive the toggle; SetEnabled reads the current file rather than the
+	// cached graph.
 	loaded.Name = "Externally edited"
 	require.NoError(t, SaveFlow(filepath.Join(dir, created.ID+".yaml"), loaded))
 

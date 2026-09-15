@@ -264,9 +264,9 @@ func main() {
 
 	mountSpan.End()
 
-	// Background work starts after the adapter is mounted: the flows watcher
-	// calls event subscribers from its own goroutine, and the tray subscriber
-	// has to exist before it can fire.
+	// Background work starts after the adapter is mounted: flow updates call
+	// event subscribers from their own goroutine, and the tray subscriber has to
+	// exist before it can fire.
 	_, startSpan := tracer.Start(startupCtx, "app.core.start")
 	err = core.Start(ctx)
 	startSpan.End()

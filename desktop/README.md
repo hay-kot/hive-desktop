@@ -299,10 +299,9 @@ wires:
 Flow parsing is strict and validated by Go on Deploy: node ids are unique,
 known node types decode their own config, source limits match the GitHub API
 caps, action nodes reference actions that exist in `actions.yml`, and wires
-connect valid ports. A `flow.FlowsWatcher` watches the directory (not
-individual files, so atomic editor saves work) and hot-reloads external edits;
-the app's own SaveFlow/SaveLayout writes intentionally trigger the same reload
-and `flows:updated` wake-up.
+connect valid ports. The configuration watcher tracks the flows directory and
+hot-reloads external edits; the app's own SaveFlow/SaveLayout writes
+intentionally trigger the same reload and `flows:updated` wake-up.
 
 `actions.yml` lives at `$XDG_CONFIG_HOME/hive/desktop/actions.yml`
 (`HIVE_DESKTOP_ACTIONS_PATH` overrides the file) and defines detail-pane/output

@@ -35,8 +35,8 @@ func TestFlowsDirIsScratchInTheOnboardingMockMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries, "the onboarding mock mode starts with no workspaces")
 
-	// Resolved once per process: the flow store, the watcher, and the prompts
-	// env all call this and must agree on one directory.
+	// Resolved once per process: the flow store, configuration watcher, and
+	// prompts env all call this and must agree on one directory.
 	assert.Equal(t, dir, FlowsDir())
 }
 

@@ -309,9 +309,10 @@ func (s *FlowStore) SetEnabled(id string, enabled bool) (Flow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Read the file directly instead of mutating the cached snapshot. The flow
-	// watcher is debounced, so an external graph edit may already be on disk but
-	// not yet reflected in s.flows; writing that stale snapshot would revert it.
+	// Read the file directly instead of mutating the cached snapshot. Flow
+	// configuration reloads are debounced, so an external graph edit may already
+	// be on disk but not yet reflected in s.flows; writing that stale snapshot
+	// would revert it.
 	path := filepath.Join(s.dir, id+".yaml")
 	f, _, err := LoadFlow(path, s.refs)
 	if err != nil {

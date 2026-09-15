@@ -94,8 +94,8 @@ func LoadFlows(dir string, refs Refs) (flows []Flow, perFileErrors map[string]er
 
 // isFlowDefinition reports whether name is a flow definition file (not a
 // .ui.yaml / .sidebar.yaml sibling or temporary YAML file), factored from
-// LoadFlows. Deliberately NOT unified with the watcher's isFlowFile
-// (watcher.go), which keeps .ui.yaml on purpose.
+// LoadFlows. Deliberately NOT unified with isFlowFile, which keeps .ui.yaml
+// on purpose for configuration change detection.
 func isFlowDefinition(name string) bool {
 	if strings.HasSuffix(name, ".ui.yaml") || strings.HasSuffix(name, ".ui.yml") {
 		return false
