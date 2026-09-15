@@ -108,7 +108,8 @@ func (w *FlowsWatcher) run() {
 // sidebar, causing a visible flash on every folder toggle or reorder.
 func isFlowFile(name string) bool {
 	base := filepath.Base(name)
-	if strings.HasSuffix(base, ".sidebar.yaml") || strings.HasSuffix(base, ".sidebar.yml") {
+	if strings.HasSuffix(base, ".sidebar.yaml") || strings.HasSuffix(base, ".sidebar.yml") ||
+		strings.HasSuffix(base, ".tmp.yaml") || strings.HasSuffix(base, ".tmp.yml") {
 		return false
 	}
 	ext := filepath.Ext(base)
