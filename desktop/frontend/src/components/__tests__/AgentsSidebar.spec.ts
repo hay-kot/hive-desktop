@@ -572,6 +572,30 @@ describe('AgentsSidebar', () => {
     expect(wrapper.emitted('create-workspace')).toHaveLength(1)
   })
 
+  it('folds and unfolds every workspace from the list menu, filtered-away ones included', async () => {
+    const wrapper = await mountSidebar({}, {})
+    const expanded = () => wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+      .map((row) => row.attributes('data-expanded'))
+    expect(expanded()).toEqual(['false', 'true'])
+
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="agents-sidebar-expand-all"]').trigger('click')
+    expect(expanded()).toEqual(['true', 'true'])
+
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="agents-sidebar-collapse-all"]').trigger('click')
+    expect(expanded()).toEqual(['false', 'false'])
+  })
+
+  // The bar's own control reloads, and it is the one that says a read is
+  // running — a menu entry beside it would be a second way to do one thing.
+  it('keeps reload out of the list menu', async () => {
+    const wrapper = await mountSidebar()
+    await wrapper.get('[data-testid="agents-sidebar-menu-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="agents-sidebar-menu-reload"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agents-sidebar-reload"]').exists()).toBe(true)
+  })
+
   it('re-reads both lists from the bar, and spins while either read is in flight', async () => {
     const wrapper = await mountSidebar()
     let land: (() => void) | undefined

@@ -22,6 +22,8 @@ import { useStorage } from '@vueuse/core'
 import IconCalendarClock from '~icons/lucide/calendar-clock'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconChevronsDownUp from '~icons/lucide/chevrons-down-up'
+import IconChevronsUpDown from '~icons/lucide/chevrons-up-down'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconFolderPlus from '~icons/lucide/folder-plus'
@@ -208,6 +210,13 @@ function toggleExpanded(node: WorkspaceNode): void {
   expansion.value[node.dir] = !expanded(node)
 }
 
+// Every workspace, not the ones the tree happens to be drawing: a bulk fold
+// that the filtered-away workspaces escaped would spring back open the moment
+// the query came off.
+function setAllExpanded(open: boolean): void {
+  for (const node of tree.value) expansion.value[node.dir] = open
+}
+
 function editWorkspace(node: WorkspaceNode): void {
   if (node.workspace) emit('edit-workspace', node.workspace)
 }
@@ -384,19 +393,24 @@ function closeSessionMenu(): void {
 // The bar's fourth control, as in the Code view: what acts on the list rather
 // than on a row. Creating a workspace lives here because it is the rarer of
 // the two creates — a root holds a handful of workspaces and many chats — and
-// the bar's + is the one the user reaches for.
+// the bar's + is the one the user reaches for. Reload is not here: the bar's
+// own control does it, and it doubles as the indicator that says it is
+// running.
 const listMenuOpen = ref(false)
 const listMenuToggle = shallowRef<HTMLElement | null>(null)
 
-const listMenuEntries: MenuEntry[] = [
+const listMenuEntries = computed<MenuEntry[]>(() => [
   { kind: 'action', id: 'new-workspace', label: 'New workspace…', icon: IconFolderPlus, testid: 'agents-sidebar-new-workspace' },
-  { kind: 'action', id: 'reload', label: 'Reload workspaces', icon: IconRotateCw, testid: 'agents-sidebar-menu-reload' },
-]
+  { kind: 'separator' },
+  { kind: 'action', id: 'collapse-all', label: 'Collapse all', icon: IconChevronsDownUp, testid: 'agents-sidebar-collapse-all' },
+  { kind: 'action', id: 'expand-all', label: 'Expand all', icon: IconChevronsUpDown, testid: 'agents-sidebar-expand-all' },
+])
 
 function onListMenuSelect(id: string): void {
   listMenuOpen.value = false
   if (id === 'new-workspace') emit('create-workspace')
-  else if (id === 'reload') reloadAll()
+  else if (id === 'collapse-all') setAllExpanded(false)
+  else if (id === 'expand-all') setAllExpanded(true)
 }
 
 const listLoading = computed(() => workspacesLoading.value || recentsLoading.value)
