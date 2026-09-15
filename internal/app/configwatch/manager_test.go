@@ -261,6 +261,33 @@ func TestManagerSlowScan(t *testing.T) {
 	require.NoError(t, m.Stop(t.Context()))
 }
 
+func TestManagerStopClearsCandidateTopology(t *testing.T) {
+	m := newTestManager(t)
+	watch := newTestWatcher()
+	m.newWatcher = func() (watcher, error) { return watch, nil }
+	dir := t.TempDir()
+	candidatePublished := make(chan struct{})
+	m.scan = func(ctx context.Context, _ Authority, synchronize topologySynchronizer) (scanResult, error) {
+		synchronize(Topology{Directories: []string{dir}})
+		close(candidatePublished)
+		<-ctx.Done()
+		return scanResult{}, ctx.Err()
+	}
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: testAuthority{}}))
+	require.NoError(t, m.Start(t.Context()))
+	<-candidatePublished
+
+	require.NoError(t, m.Stop(t.Context()))
+	m.mu.Lock()
+	candidateDirectories := m.sources[configstate.Actions].candidateDirectories
+	m.mu.Unlock()
+	require.Empty(t, candidateDirectories)
+	m.watchMu.Lock()
+	candidateWatched := m.watched[dir]
+	m.watchMu.Unlock()
+	require.False(t, candidateWatched)
+}
+
 func TestManagerStopCancelsActiveScan(t *testing.T) {
 	m := newTestManager(t)
 	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: testAuthority{}}))
@@ -374,6 +401,101 @@ func TestManagerOverflowRecovery(t *testing.T) {
 	require.NoError(t, m.Stop(t.Context()))
 }
 
+func TestManagerConcurrentInitialScansRetainCandidateWatches(t *testing.T) {
+	actionsDir := t.TempDir()
+	actionsPath := filepath.Join(actionsDir, "actions.yml")
+	require.NoError(t, os.WriteFile(actionsPath, []byte("actions"), 0o600))
+	flowsDir := t.TempDir()
+	flowsPath := filepath.Join(flowsDir, "flows.yml")
+	require.NoError(t, os.WriteFile(flowsPath, []byte("flows"), 0o600))
+
+	var logs bytes.Buffer
+	m, err := New(Options{Logger: zerolog.New(&logs), Debounce: time.Millisecond, ScanInterval: time.Hour})
+	require.NoError(t, err)
+	testWatch := newTestWatcher()
+	watch := &recordingWatcher{testWatcher: testWatch}
+	m.newWatcher = func() (watcher, error) { return watch, nil }
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: fixedAuthority{dir: actionsDir, path: actionsPath}}))
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Flows, Authority: fixedAuthority{dir: flowsDir, path: flowsPath}}))
+
+	actionsReading := make(chan struct{})
+	flowsReading := make(chan struct{})
+	releaseActions := make(chan struct{})
+	releaseFlows := make(chan struct{})
+	originalOpen := openFile
+	openFile = func(path string) (readFile, error) {
+		switch path {
+		case actionsPath:
+			close(actionsReading)
+			<-releaseActions
+		case flowsPath:
+			close(flowsReading)
+			<-releaseFlows
+		}
+		return originalOpen(path)
+	}
+	t.Cleanup(func() { openFile = originalOpen })
+
+	require.NoError(t, m.Start(t.Context()))
+	<-actionsReading
+	<-flowsReading
+	close(releaseActions)
+	first := nextBatch(t, m)
+	require.Equal(t, []Dirty{{Source: configstate.Actions, Trigger: configstate.Startup, Generation: 1, ObservedRevision: fixedRevision([]byte("actions"))}}, first.Dirty)
+	m.Ack(t.Context(), first)
+
+	m.watchMu.Lock()
+	flowsWatched := m.watched[flowsDir]
+	m.watchMu.Unlock()
+	require.True(t, flowsWatched, "an overlapping scan must retain its candidate watch")
+	require.NotContains(t, watch.removeCalls(), flowsDir)
+
+	close(releaseFlows)
+	second := nextBatch(t, m)
+	require.Equal(t, []Dirty{{Source: configstate.Flows, Trigger: configstate.Startup, Generation: 1, ObservedRevision: fixedRevision([]byte("flows"))}}, second.Dirty)
+	m.Ack(t.Context(), second)
+
+	lines := detectionModeLogs(logs.String())
+	require.ElementsMatch(t, []string{
+		`{"level":"info","source":"actions","detection_mode":"notify","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`,
+		`{"level":"info","source":"flows","detection_mode":"notify","consecutive_scan_failures":0,"message":"configuration detection mode changed"}`,
+	}, lines)
+	require.NoError(t, m.Stop(t.Context()))
+}
+
+func TestManagerSecondEnumerationReplacesCandidateTopology(t *testing.T) {
+	firstDir := t.TempDir()
+	secondDir := t.TempDir()
+	secondPath := filepath.Join(secondDir, "config.yml")
+	require.NoError(t, os.WriteFile(secondPath, []byte("two"), 0o600))
+	authority := &sequentialTopologyAuthority{topologies: []Topology{
+		{Directories: []string{firstDir}, Files: []AuthorityFile{{Key: "config", Path: filepath.Join(firstDir, "missing.yml")}}},
+		{Directories: []string{secondDir}, Files: []AuthorityFile{{Key: "config", Path: secondPath}}},
+	}}
+	m := newTestManager(t)
+	m.newWatcher = func() (watcher, error) { return newTestWatcher(), nil }
+	require.NoError(t, m.Register(t.Context(), Registration{Source: configstate.Actions, Authority: authority}))
+
+	var replaced atomic.Bool
+	originalOpen := openFile
+	openFile = func(path string) (readFile, error) {
+		if path == secondPath {
+			m.mu.Lock()
+			candidate := m.sources[configstate.Actions].candidateDirectories
+			replaced.Store(candidate[secondDir] && !candidate[firstDir])
+			m.mu.Unlock()
+		}
+		return originalOpen(path)
+	}
+	t.Cleanup(func() { openFile = originalOpen })
+
+	require.NoError(t, m.Start(t.Context()))
+	initial := nextBatch(t, m)
+	m.Ack(t.Context(), initial)
+	require.True(t, replaced.Load(), "the second candidate topology must replace the missing file topology before reading")
+	require.NoError(t, m.Stop(t.Context()))
+}
+
 func TestManagerScanFailureRetainsTopologyAndRevision(t *testing.T) {
 	m := newTestManager(t)
 	watch := newTestWatcher()
@@ -436,13 +558,17 @@ func TestManagerScanFailureRetainsTopologyAndRevision(t *testing.T) {
 	m.mu.Lock()
 	committedFirst := m.sources[configstate.Actions].directories[firstDir]
 	committedSecond := m.sources[configstate.Actions].directories[secondDir]
+	candidateDirectories := m.sources[configstate.Actions].candidateDirectories
 	m.mu.Unlock()
 	require.True(t, committedFirst, "failed scan must retain the last complete topology")
 	require.False(t, committedSecond, "failed scan must not commit candidate topology")
+	require.Empty(t, candidateDirectories, "failed scan must clear its candidate topology")
 	m.watchMu.Lock()
+	committedWatched := m.watched[firstDir]
 	candidateWatched := m.watched[secondDir]
 	m.watchMu.Unlock()
-	require.True(t, candidateWatched, "candidate watch must remain after a failed scan")
+	require.True(t, committedWatched, "failed scan must retain the committed watch")
+	require.False(t, candidateWatched, "failed scan must release its candidate-only watch")
 	require.NoError(t, m.Stop(t.Context()))
 }
 
@@ -700,6 +826,9 @@ func TestManagerMissingRootRetainsRevisionAndRestoresNotify(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("root removal did not produce an observation failure")
 	}
+	require.Eventually(t, func() bool {
+		return m.Status(t.Context())[0].ConsecutiveScanFailures > 0
+	}, time.Second, time.Millisecond)
 	status := m.Status(t.Context())[0]
 	require.Equal(t, "unavailable", status.Mode)
 	require.Equal(t, fixedRevision([]byte("one")), status.ObservedRevision)

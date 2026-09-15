@@ -129,9 +129,10 @@ func (t standardRetryTimer) C() <-chan time.Time { return t.Timer.C }
 func (t standardScanTicker) C() <-chan time.Time { return t.Ticker.C }
 
 type sourceState struct {
-	registration  Registration
-	directories   map[string]bool
-	watchComplete bool
+	registration         Registration
+	directories          map[string]bool
+	candidateDirectories map[string]bool
+	watchComplete        bool
 
 	observed       configstate.Revision
 	lastObserved   time.Time
@@ -156,15 +157,16 @@ type Manager struct {
 	debounce     time.Duration
 	scanInterval time.Duration
 
-	mu       sync.Mutex
-	sources  map[configstate.Source]*sourceState
-	started  bool
-	stopped  bool
-	cancel   context.CancelFunc
-	done     chan struct{}
-	stopDone chan struct{}
-	stopOnce sync.Once
-	wg       sync.WaitGroup
+	mu         sync.Mutex
+	topologyMu sync.Mutex
+	sources    map[configstate.Source]*sourceState
+	started    bool
+	stopped    bool
+	cancel     context.CancelFunc
+	done       chan struct{}
+	stopDone   chan struct{}
+	stopOnce   sync.Once
+	wg         sync.WaitGroup
 
 	watchMu     sync.Mutex
 	watch       watcher
@@ -356,13 +358,20 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 func (m *Manager) shutdown() {
 	m.stopOnce.Do(func() {
+		m.topologyMu.Lock()
 		m.mu.Lock()
 		m.stopped = true
+		for _, state := range m.sources {
+			state.candidateDirectories = nil
+		}
+		desired := m.desiredDirectoriesLocked()
 		if m.cancel != nil {
 			m.cancel()
 		}
 		close(m.done)
 		m.mu.Unlock()
+		m.removeObsoleteWatches(desired)
+		m.topologyMu.Unlock()
 		go func() { m.wg.Wait(); close(m.stopDone) }()
 	})
 }
@@ -568,27 +577,50 @@ func (m *Manager) addWatch(ctx context.Context, dir string) {
 	}
 }
 
-func (m *Manager) addCandidateTopology(ctx context.Context, topology Topology) {
-	for dir := range topologyDirectories(topology) {
-		m.addWatch(ctx, dir)
-	}
+func (m *Manager) publishCandidateTopology(ctx context.Context, source configstate.Source, topology Topology) {
+	m.replaceTopology(ctx, source, func(state *sourceState) {
+		state.candidateDirectories = topologyDirectories(topology)
+	})
 }
 
 func (m *Manager) commitTopology(ctx context.Context, source configstate.Source, topology Topology) {
 	directories := topologyDirectories(topology)
+	m.replaceTopology(ctx, source, func(state *sourceState) {
+		state.directories = directories
+		state.candidateDirectories = nil
+	})
+}
+
+func (m *Manager) discardCandidateTopology(ctx context.Context, source configstate.Source) {
+	m.topologyMu.Lock()
+	defer m.topologyMu.Unlock()
+
 	m.mu.Lock()
 	state := m.sources[source]
-	if state == nil {
+	if state == nil || m.stopped {
 		m.mu.Unlock()
 		return
 	}
-	state.directories = directories
-	desired := make(map[string]bool)
-	for _, candidate := range m.sources {
-		for dir := range candidate.directories {
-			desired[dir] = true
-		}
+	state.candidateDirectories = nil
+	desired := m.desiredDirectoriesLocked()
+	m.mu.Unlock()
+
+	m.removeObsoleteWatches(desired)
+	m.refreshWatchCoverage(ctx)
+}
+
+func (m *Manager) replaceTopology(ctx context.Context, source configstate.Source, replace func(*sourceState)) {
+	m.topologyMu.Lock()
+	defer m.topologyMu.Unlock()
+
+	m.mu.Lock()
+	state := m.sources[source]
+	if state == nil || m.stopped {
+		m.mu.Unlock()
+		return
 	}
+	replace(state)
+	desired := m.desiredDirectoriesLocked()
 	m.mu.Unlock()
 
 	m.removeObsoleteWatches(desired)
@@ -599,6 +631,19 @@ func (m *Manager) commitTopology(ctx context.Context, source configstate.Source,
 	if m.watchRegistrationComplete() {
 		m.requestWatchRetry()
 	}
+}
+
+func (m *Manager) desiredDirectoriesLocked() map[string]bool {
+	desired := make(map[string]bool)
+	for _, state := range m.sources {
+		for dir := range state.directories {
+			desired[dir] = true
+		}
+		for dir := range state.candidateDirectories {
+			desired[dir] = true
+		}
+	}
+	return desired
 }
 
 func topologyDirectories(topology Topology) map[string]bool {
@@ -707,7 +752,7 @@ func (m *Manager) scheduleScan(ctx context.Context, source configstate.Source, t
 		// Candidate directories must be watched before reading files, but only a
 		// complete scan may replace the source's committed topology.
 		result, err := m.scan(ctx, authority, func(topology Topology) {
-			m.addCandidateTopology(ctx, topology)
+			m.publishCandidateTopology(ctx, source, topology)
 		})
 		now := time.Now()
 		m.mu.Lock()
@@ -739,6 +784,7 @@ func (m *Manager) scheduleScan(ctx context.Context, source configstate.Source, t
 		if err == nil {
 			m.commitTopology(ctx, source, result.topology)
 		} else {
+			m.discardCandidateTopology(ctx, source)
 			m.refreshWatchCoverage(ctx)
 			if !m.watchRegistrationComplete() {
 				m.requestWatchRetry()
