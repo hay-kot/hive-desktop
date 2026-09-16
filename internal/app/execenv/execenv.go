@@ -258,6 +258,11 @@ const probeKillGrace = 2 * time.Second
 // in an interactive startup file (.zshrc) as in a login one.
 func shellEnvironment(ctx context.Context, shell string) (map[string]string, error) {
 	cmd := exec.CommandContext(ctx, shell, "-ilc", probeCommand)
+	// An interactive shell enables job control and can make itself the foreground
+	// process group of an inherited terminal. It would leave that terminal aimed
+	// at a dead group when this one-shot probe exits, so later Ctrl+C presses
+	// never reach the app or its dev supervisor.
+	isolateShellProbe(cmd)
 	cmd.WaitDelay = probeKillGrace
 	out, err := cmd.Output()
 	// ErrWaitDelay means the shell exited cleanly but something it left

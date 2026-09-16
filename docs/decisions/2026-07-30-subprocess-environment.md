@@ -41,7 +41,11 @@ supplies, and the desktop supplies `io.Discard`, so the shell's own
    PATH does not change under a running app, and re-probing would charge every
    later hook command that shell's startup cost. The probe runs on a context
    that outlives the caller's, so cancelling a session creation mid-probe is not
-   recorded as the shell's answer.
+   recorded as the shell's answer. On Unix it also runs in a separate session:
+   an interactive shell enables job control, and sharing the app's controlling
+   terminal lets the probe claim its foreground process group. The probe then
+   exits and leaves Ctrl+C aimed at a dead group instead of the app or its dev
+   supervisor.
 
 3. **A failed probe degrades, it does not fail.** The inherited PATH plus the
    prefixes is what the app could reach before this ADR, so the worst case is
