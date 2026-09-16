@@ -18,10 +18,12 @@ var (
 	// SettingsSet covers settings.yaml. Version 2 drops the `experimental`
 	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental);
 	// version 3 drops `skills`, the retired global installer's configuration
-	// (ADR skills-are-declared-by-a-workspace).
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 3, AllowMissingVersion: true, Migrations: []Migration{
+	// (ADR skills-are-declared-by-a-workspace); version 4 turns the terminal
+	// status bar on in every existing file, once.
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 4, AllowMissingVersion: true, Migrations: []Migration{
 		{To: 2, Migrate: dropExperimentalSection},
 		{To: 3, Migrate: dropSkillsSection},
+		{To: 4, Migrate: showTerminalStatusBar},
 	}}
 	FlowSet    = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet = Set{Name: "actions", Baseline: 1, Current: 1}
@@ -130,6 +132,23 @@ func renameHTTPAPISkill(doc map[string]any) error {
 // Skills would fail startup outright once the struct is gone.
 func dropSkillsSection(doc map[string]any) error {
 	delete(doc, "skills")
+	return nil
+}
+
+// showTerminalStatusBar sets `appearance.terminal_show_status_bar` to true.
+//
+// The bar ships on, but a new default alone reaches nobody who has saved
+// settings: the field marshals without omitempty, so every saved file carries
+// an explicit false from when off was the default. This is a one-time reset,
+// not a schema change -- a user who turns the bar off afterwards is not
+// revisited. A file with no appearance section is left alone: the decoder
+// starts from the defaults, which already say on.
+func showTerminalStatusBar(doc map[string]any) error {
+	appearance, ok := doc["appearance"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	appearance["terminal_show_status_bar"] = true
 	return nil
 }
 

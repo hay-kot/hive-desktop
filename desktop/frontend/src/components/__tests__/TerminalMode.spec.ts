@@ -277,8 +277,8 @@ describe('TerminalMode', () => {
     })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
     mocks.TerminalActionViews.mockResolvedValue([])
-    // Answered even though the bar ships off, so a test that turns it on does
-    // not have to restate the whole set.
+    // The bar ships on, but the fixture keeps it off so tests that do not care
+    // about it see a bare terminal; a test that wants it turns it on.
     mocks.AppearanceSettings.mockResolvedValue({
       theme: '', terminalFontSize: '', terminalShowWindows: true, terminalShowStatusBar: false, terminalPoolSize: 3,
     })

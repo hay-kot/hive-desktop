@@ -186,6 +186,7 @@ func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	require.Empty(t, got.Theme)
 	require.Empty(t, got.TerminalFontSize)
 	require.True(t, got.TerminalShowWindows, "the terminal window listing ships on")
+	require.True(t, got.TerminalShowStatusBar, "the session status bar ships on")
 	require.Equal(t, 3, got.TerminalPoolSize, "the attach pool ships at three sessions")
 }
 

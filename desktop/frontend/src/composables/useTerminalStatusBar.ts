@@ -5,9 +5,9 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
 // A module singleton like useTerminalShowWindows's, shared by SettingsView's
-// toggle and the terminal pane. Ships off: the bar costs a strip of vertical
-// space above every terminal.
-const showStatusBar: Ref<boolean> = ref(false)
+// toggle and the terminal pane; settings.yaml is the only store and ships
+// with the bar on.
+const showStatusBar: Ref<boolean> = ref(true)
 
 let hydrated = false
 // A toggle made while the hydrating read is in flight must not be overwritten
