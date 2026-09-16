@@ -1060,7 +1060,10 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   (ADR a-command-is-a-source). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
   would charge each one the user's version-manager initialization and make a
   slow rc file a randomly-blown timeout. The resolver probes once per run and
-  remembers; that is the whole point of it. Aliases are the deliberate cost —
+  remembers; that is the whole point of it. On Unix the interactive probe runs
+  in its own session, so its job control cannot claim the app's controlling
+  terminal and leave Ctrl+C aimed at a dead process group when the probe exits.
+  Aliases are the deliberate cost —
   they are interactive-shell sugar, and a config file that depends on one is not
   reproducible on another machine.
 
