@@ -25,7 +25,18 @@ The app validates changes before saving them.
 
 ## Configuration files
 
-Hive keeps its user configuration under `~/.config/hive/desktop/` by default.
+Hive Desktop and the hive CLI use separate configuration paths. They share Code sessions and tasks when both use the same Hive data root, which is the default.
+
+| Scope | Common default | Configures |
+| --- | --- | --- |
+| Hive CLI and Code session engine | `~/.config/hive/config.yaml` | Repositories, agent profiles, clone and recycle rules, setup commands, starting tmux windows, and shared session behavior |
+| Hive Desktop | `~/.config/hive/desktop/` | Inbox, Code presentation, Chats, notifications, integrations, shortcuts, and app behavior |
+
+The hive CLI config honors `HIVE_CONFIG` and `XDG_CONFIG_HOME`. The Desktop config honors `HIVE_DESKTOP_CONFIG_DIR` and `XDG_CONFIG_HOME`. Restart Hive Desktop after changing the hive CLI configuration.
+
+Session and task sharing also depends on the data root. The common default is `~/.local/share/hive/`. If you move it, point the hive CLI's `HIVE_DATA_DIR` and Hive Desktop's `HIVE_DESKTOP_HIVE_DATA_DIR` at the same directory. See the hive CLI [configuration reference](https://colonyops.github.io/hive/configuration/) and [repository rules](https://colonyops.github.io/hive/configuration/rules/).
+
+Hive Desktop keeps these files under its config directory by default:
 
 | Content | Path |
 | --- | --- |

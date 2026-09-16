@@ -19,6 +19,20 @@ Hive searches your login shell's `PATH` and common package manager locations. Se
 
 The local HTTP server must also be enabled. It is on by default.
 
+## Hive CLI compatibility
+
+Code uses the same session records, isolated checkouts, and tmux sessions as the hive CLI when both use the same Hive data root. This is the default. Create, start, recycle, or delete a session from either interface and the other sees the same result.
+
+Use the hive CLI config, commonly `~/.config/hive/config.yaml`, to configure the shared session engine:
+
+- repository search paths and agent profiles;
+- repository rules, clone strategies, and recycled checkouts;
+- setup commands and the tmux windows or panes created for a new session.
+
+Hive Desktop reads that file when it starts, so restart the app after changing it. Desktop-only settings such as terminal appearance, shortcuts, quick terminals, Inbox flows, and Chats workspaces remain under the Desktop config root, commonly `~/.config/hive/desktop/`.
+
+See the hive CLI documentation for [sessions](https://colonyops.github.io/hive/getting-started/sessions/), the [configuration reference](https://colonyops.github.io/hive/configuration/), and [repository rules](https://colonyops.github.io/hive/configuration/rules/).
+
 ## Sessions
 
 Code lists active Hive sessions and their tmux windows. Closing Hive leaves those sessions running. You can attach to the same session from another terminal with `tmux attach`.
@@ -27,11 +41,19 @@ If a session has no running terminal, select **Start session**. Hive creates its
 
 **Kill terminal** stops the tmux session and its processes while keeping the checkout and Hive session record. **Recycle** and **Delete** also change or remove the checkout.
 
+For repository sessions, the optional status bar shows the branch, changes against the default branch, uncommitted work, and unpushed commits. Connected GitHub, Gitea, and Forgejo repositories also show pull request, review, and check state. Use the status bar to open the checkout in your editor or file manager.
+
 ## Scratch terminals
 
 The **Terminals** section holds a scratch tmux session for shells that are not tied to a repository. Use its `+` button or <kbd>⌘T</kbd> to add tabs.
 
 Scratch tabs can be selected, renamed, reordered, and closed. The session keeps running when Hive closes. **Kill terminal** stops every scratch tab.
+
+## Pop-up terminal
+
+Press <kbd>⌘`</kbd> on macOS or <kbd>Ctrl+`</kbd> on Linux to open a shell over any area. In Code, it starts in the active pane's directory. Elsewhere, it starts in your home directory.
+
+Hide the panel to keep its shell running, or use **End this terminal** to stop it. Quick terminal launchers use the same panel for tools such as `lazygit`, test watchers, and process monitors. See [Actions](../inbox/actions.md#quick-terminals).
 
 ## Working in Code
 
@@ -58,6 +80,12 @@ A window shows every tmux pane where tmux lays it out, including panes split fro
 - <kbd>⌘⇧W</kbd> closes the active pane. Closing the last pane closes the window. Hive asks first when the pane is running something.
 
 On Linux, <kbd>Ctrl+Shift+D</kbd> splits right, <kbd>Ctrl+Shift+O</kbd> splits down, <kbd>Ctrl+Alt</kbd> with the arrow keys moves between panes, <kbd>Ctrl+Shift+M</kbd> zooms, and <kbd>Ctrl+Shift+Q</kbd> closes the pane.
+
+## Tasks
+
+Open **Tasks** from the Code status bar, the command palette, or its configured shortcut. It reads the same `hive hc` task tree used by coding agents and the CLI. See the hive CLI [task tracking guide](https://colonyops.github.io/hive/getting-started/task-tracking/) for the shared task model.
+
+Filter by status or repository, search by title or ID, and inspect epics, subtasks, blockers, comments, checkpoints, and linked sessions. You can change task status, follow blocker links, and prune completed work from the Tasks toolbar.
 
 ## Appearance
 

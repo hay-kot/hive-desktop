@@ -2,6 +2,16 @@
   color: var(--md-accent-fg-color) !important;
 }
 
+.md-typeset .hive-feature-grid > ul > li > p:first-child {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.md-typeset .hive-feature-grid > ul > li > p:first-child .twemoji {
+  flex: 0 0 auto;
+}
+
 .md-main__inner:has(.hive-hero) {
   max-width: min(94vw, 86rem);
 }
@@ -11,8 +21,10 @@ html:has(.hive-hero) .md-tabs .md-grid {
   max-width: min(94vw, 86rem);
 }
 
-.md-main__inner:has(.hive-hero) > .md-sidebar {
-  display: none;
+@media screen and (min-width: 76.25em) {
+  .md-main__inner:has(.hive-hero) > .md-sidebar {
+    display: none;
+  }
 }
 
 .md-main__inner:has(.hive-hero) > .md-content {

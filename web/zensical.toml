@@ -18,6 +18,7 @@ nav = [
   { "Home" = "index.md" },
   { "Getting Started" = [
     "getting-started/index.md",
+    "getting-started/features.md",
     { "First run" = [
       "getting-started/sign-in.md",
       "getting-started/notifications.md",

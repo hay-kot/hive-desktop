@@ -20,9 +20,7 @@ Hive stores item history and read state locally. Changing a flow recalculates fe
 
 ## The app areas
 
-- **Inbox** contains workspaces, feeds, and item details.
-- **Code** attaches to tmux sessions started by Hive.
-- **Chats** runs coding agents in named workspaces with selected skills and MCP servers.
+Inbox is one of Hive's three main areas. See the [feature overview](../getting-started/features.md) for the core Inbox, Code, and Chats capabilities.
 
 ## Configure Hive
 

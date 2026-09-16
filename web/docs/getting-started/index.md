@@ -58,6 +58,7 @@ The built-in **Hive** workspace in **Chats** can create flows, connect generic s
 
 Start with:
 
+- [Feature overview](features.md)
 - [Sources](../inbox/sources.md)
 - [Flows](../inbox/flows.md)
 - [Actions](../inbox/actions.md)
