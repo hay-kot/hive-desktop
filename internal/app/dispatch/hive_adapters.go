@@ -16,13 +16,14 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal/assess"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 )
 
 // AgentActivityStatus is this app's own vocabulary for a captured tmux pane's
-// detected state, projected from hive's vendored terminal.Status at this seam
+// detected state, projected from Hive's vendored assessment engine at this seam
 // so no app signature carries a vendored type (Bounded Context,
-// architecture.md). Values match terminal.Status's own strings.
+// architecture.md).
 type AgentActivityStatus string
 
 const (
@@ -30,20 +31,23 @@ const (
 	AgentActivityReady AgentActivityStatus = AgentActivityStatus(terminal.StatusReady)
 	// AgentActivityActive reports a busy indicator (spinner, "esc to interrupt").
 	AgentActivityActive AgentActivityStatus = AgentActivityStatus(terminal.StatusActive)
-	// AgentActivityApproval reports a permission prompt blocking on the user —
-	// the highest-urgency state, per terminal.Detector's own IsBusy-wins,
-	// NeedsApproval-before-IsReady precedence.
+	// AgentActivityApproval reports an approval or question blocking on the user.
 	AgentActivityApproval AgentActivityStatus = AgentActivityStatus(terminal.StatusApproval)
 )
 
-// ClassifyAgentScreen classifies a captured tmux pane's screen for the named
-// agent CLI using terminal.NewDetector(agent).DetectStatus — the same
-// capture-pane -> Detector path SessionStatuses/FetchBatch below already runs
-// for hive's own sessions, so this is the input the detector was tuned
-// against rather than a raw PTY ring tail (hc-alqns469 spiked the latter and
-// found it does not classify).
+// ClassifyAgentScreen classifies a captured tmux pane with Hive's stateless
+// assessment engine. Questions project onto approval because the desktop's
+// activity vocabulary has one user-blocked state.
 func ClassifyAgentScreen(agent, screen string) AgentActivityStatus {
-	return AgentActivityStatus(terminal.NewDetector(agent).DetectStatus(screen))
+	assessment := assess.NewEngine().Assess(assess.Snapshot{Content: screen, Tool: strings.ToLower(agent)})
+	switch assessment.State {
+	case assess.StateWorking:
+		return AgentActivityActive
+	case assess.StateApproval, assess.StateQuestion:
+		return AgentActivityApproval
+	default:
+		return AgentActivityReady
+	}
 }
 
 // ErrDuplicateSessionName is the seam-local translation of Hive's
@@ -81,6 +85,18 @@ const SessionStateActive = string(session.StateActive)
 type sessionStatusSource interface {
 	Available() bool
 	FetchBatch(context.Context, []*session.Session, []hive.RootRepoTarget) map[string]hive.TerminalStatus
+}
+
+// SessionWindowRef joins Hive's index-based activity result to the stable tmux
+// window id every desktop operation uses.
+type SessionWindowRef struct {
+	ID    string
+	Index string
+	Name  string
+}
+
+type sessionWindowSource interface {
+	ListSessionWindows(context.Context, []string) (map[string][]SessionWindowRef, error)
 }
 
 // SessionSummary is one session as the desktop's session list sees it. Slug is
@@ -327,6 +343,7 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 type HiveSessionManager struct {
 	sessions           SessionManagement
 	statuses           sessionStatusSource
+	windows            sessionWindowSource
 	git                sessionGit
 	statusPollInterval time.Duration
 }
@@ -343,8 +360,8 @@ type sessionGit interface {
 
 var _ sessionGit = git.Git(nil)
 
-func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, gitExec sessionGit, statusPollInterval time.Duration) *HiveSessionManager {
-	return &HiveSessionManager{sessions: sessions, statuses: statuses, git: gitExec, statusPollInterval: statusPollInterval}
+func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, windows sessionWindowSource, gitExec sessionGit, statusPollInterval time.Duration) *HiveSessionManager {
+	return &HiveSessionManager{sessions: sessions, statuses: statuses, windows: windows, git: gitExec, statusPollInterval: statusPollInterval}
 }
 
 // ListSessions returns every session, recycled and corrupted included: an
@@ -384,29 +401,88 @@ func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatus
 		}
 	}
 	statuses := m.statuses.FetchBatch(ctx, active, nil)
+	windowSets, err := m.sessionWindows(ctx, active)
+	if err != nil {
+		return SessionStatusSnapshot{}, fmt.Errorf("list tmux windows for status: %w", err)
+	}
 	for _, s := range active {
 		status, ok := statuses[s.ID]
 		if !ok {
 			continue
 		}
-		item := SessionStatus{SessionID: s.ID, Running: status.Running, Windows: []SessionWindowStatus{}}
-		if len(status.Windows) == 0 && status.WindowID != "" {
-			item.Windows = append(item.Windows, SessionWindowStatus{
-				WindowID: status.WindowID,
-				Status:   string(status.Status),
-				Tool:     status.Tool,
-			})
+		refs := windowSets[s.Slug]
+		item := SessionStatus{SessionID: s.ID, Running: len(refs) > 0, Windows: []SessionWindowStatus{}}
+		if m.windows == nil {
+			item.Running = status.Status != terminal.StatusMissing
+		}
+		if len(status.Windows) == 0 {
+			if windowID := stableWindowID("", status.WindowName, refs); windowID != "" {
+				item.Windows = append(item.Windows, SessionWindowStatus{
+					WindowID: windowID,
+					Status:   desktopAgentStatus(status.Status),
+					Tool:     status.Tool,
+				})
+			}
 		}
 		for _, window := range status.Windows {
+			windowID := stableWindowID(window.WindowIndex, window.WindowName, refs)
+			if windowID == "" {
+				continue
+			}
 			item.Windows = append(item.Windows, SessionWindowStatus{
-				WindowID: window.WindowID,
-				Status:   string(window.Status),
+				WindowID: windowID,
+				Status:   desktopAgentStatus(window.Status),
 				Tool:     window.Tool,
 			})
 		}
 		snapshot.Items = append(snapshot.Items, item)
 	}
 	return snapshot, nil
+}
+
+func (m *HiveSessionManager) sessionWindows(ctx context.Context, sessions []*session.Session) (map[string][]SessionWindowRef, error) {
+	if m.windows == nil {
+		return nil, nil
+	}
+	slugs := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		slugs = append(slugs, s.Slug)
+	}
+	return m.windows.ListSessionWindows(ctx, slugs)
+}
+
+func stableWindowID(index, name string, refs []SessionWindowRef) string {
+	for _, ref := range refs {
+		if index != "" && ref.Index == index && (name == "" || ref.Name == name) {
+			return ref.ID
+		}
+	}
+	if name != "" {
+		match := ""
+		for _, ref := range refs {
+			if ref.Name != name {
+				continue
+			}
+			if match != "" {
+				return ""
+			}
+			match = ref.ID
+		}
+		if match != "" {
+			return match
+		}
+	}
+	if index == "" && len(refs) == 1 {
+		return refs[0].ID
+	}
+	return ""
+}
+
+func desktopAgentStatus(status terminal.Status) string {
+	if status == terminal.StatusQuestion {
+		return string(terminal.StatusApproval)
+	}
+	return string(status)
 }
 
 // RunningSessions reports which of ids currently have a live tmux session. It
@@ -436,8 +512,20 @@ func (m *HiveSessionManager) RunningSessions(ctx context.Context, ids []string) 
 		}
 		subset = append(subset, &sessions[i])
 	}
+	windowSets, err := m.sessionWindows(ctx, subset)
+	if err != nil {
+		return nil, fmt.Errorf("list tmux windows for liveness: %w", err)
+	}
+	if m.windows != nil {
+		for _, s := range subset {
+			if len(windowSets[s.Slug]) > 0 {
+				running[s.ID] = true
+			}
+		}
+		return running, nil
+	}
 	for id, status := range m.statuses.FetchBatch(ctx, subset, nil) {
-		running[id] = status.Running
+		running[id] = status.Status != terminal.StatusMissing
 	}
 	return running, nil
 }

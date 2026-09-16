@@ -1,6 +1,6 @@
 module github.com/hay-kot/hive-desktop
 
-go 1.26.0
+go 1.27.1
 
 require (
 	charm.land/glamour/v2 v2.0.1
@@ -9,7 +9,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/coder/websocket v1.8.15
-	github.com/colonyops/hive v0.58.1-0.20260730204015-0e40f753012d
+	github.com/colonyops/hive v0.59.0
 	github.com/creack/pty v1.1.24
 	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
 	github.com/fsnotify/fsnotify v1.10.1
@@ -54,8 +54,8 @@ require (
 )
 
 require (
-	charm.land/bubbles/v2 v2.1.1 // indirect
-	charm.land/bubbletea/v2 v2.0.8 // indirect
+	charm.land/bubbles/v2 v2.2.1 // indirect
+	charm.land/bubbletea/v2 v2.0.9 // indirect
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/alecthomas/chroma/v2 v2.23.1 // indirect
@@ -97,7 +97,7 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mattn/go-runewidth v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/mmcdole/goxpp/v2 v2.0.0 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect

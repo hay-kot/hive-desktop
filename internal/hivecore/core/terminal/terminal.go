@@ -9,6 +9,7 @@ type Status string
 const (
 	StatusActive   Status = "active"   // agent is actively working (spinner/busy indicator)
 	StatusApproval Status = "approval" // agent needs permission (Yes/No dialog)
+	StatusQuestion Status = "question" // agent asked the user a question (AskUserQuestion etc.)
 	StatusReady    Status = "ready"    // agent finished, waiting for next input (❯ prompt)
 	StatusMissing  Status = "missing"  // terminal session not found
 )
@@ -16,7 +17,6 @@ const (
 // SessionInfo holds information about a discovered terminal session.
 type SessionInfo struct {
 	Name         string // terminal session name (e.g., tmux session name)
-	WindowID     string // stable tmux window ID in @N format
 	WindowIndex  string // tmux window index (e.g., "0", "1")
 	PaneID       string // tmux pane ID in %N format
 	WindowName   string // window name (for display and template data)

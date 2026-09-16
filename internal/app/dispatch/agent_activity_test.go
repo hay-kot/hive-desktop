@@ -10,7 +10,7 @@ import (
 // These are synthetic capture-pane fixtures, not the raw-pty ring tails
 // hc-alqns469 spiked and falsified — ClassifyAgentScreen's input is a tmux
 // capture-pane -p -J screen (see tmuxcc.Manager.CapturePane), which is what
-// terminal.Detector was tuned against. Real capture-pane fixtures need a live
+// Hive's assessment engine is tuned against. Real capture-pane fixtures need a live
 // tmux session and are out of scope here (see hc-ou4o02zx).
 
 func TestClassifyAgentScreenReady(t *testing.T) {
@@ -78,8 +78,8 @@ func TestClassifyAgentScreenApprovalDoesNotStickAfterAnAnswer(t *testing.T) {
 	assert.Equal(t, AgentActivityReady, ClassifyAgentScreen("claude", screen))
 }
 
-// TestClassifyAgentScreenBusyOutranksApproval asserts terminal.Detector's own
-// IsBusy-wins precedence: a screen carrying both a busy indicator and
+// TestClassifyAgentScreenBusyOutranksApproval asserts the assessment engine's
+// priority: a screen carrying both a busy indicator and
 // leftover approval-shaped text (e.g. mid-scroll) classifies as active, never
 // approval.
 func TestClassifyAgentScreenBusyOutranksApproval(t *testing.T) {

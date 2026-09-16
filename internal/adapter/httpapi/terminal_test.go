@@ -255,8 +255,8 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 	var window windowEventPayload
 	require.NoError(t, json.Unmarshal(frame[1:], &window))
 	assert.Equal(t,
-		windowEventPayload{Kind: "renamed", terminalWindow: terminalWindow{
-			WindowID: "@3", Name: "shell", Active: true, ActivePane: "%4", Width: 213, Height: 55,
+		windowEventPayload{
+			Kind: "renamed", WindowID: "@3", Name: "shell", Active: true, ActivePane: "%4", Width: 213, Height: 55,
 			Layout: &terminalLayout{
 				Split: "leftright", Width: 213, Height: 55,
 				Cells: []terminalLayout{
@@ -264,7 +264,7 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 					{PaneID: "%4", Width: 106, Height: 55, X: 107},
 				},
 			},
-		}},
+		},
 		window,
 		"every window event carries tmux's size and layout, not only the layout-changed one")
 

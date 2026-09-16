@@ -101,7 +101,7 @@ func (c *Control) Push(w http.ResponseWriter, r *http.Request) error {
 			// A 502, matching an unknown target: both are the delivery failing
 			// rather than a malformed request.
 			return server.JSON(w, http.StatusBadGateway, deliveryError{
-				ErrorBody: web.ErrorBody{Kind: "unavailable", Message: fmt.Sprintf("no payload named %q", req.Payload)},
+				Kind: "unavailable", Message: fmt.Sprintf("no payload named %q", req.Payload),
 			})
 		}
 		payload, label = named, req.Payload
@@ -116,8 +116,8 @@ func (c *Control) Push(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err != nil {
 		return server.JSON(w, http.StatusBadGateway, deliveryError{
-			ErrorBody: web.ErrorBody{Kind: "unavailable", Message: err.Error()},
-			Result:    &result,
+			Kind: "unavailable", Message: err.Error(),
+			Result: &result,
 		})
 	}
 	return server.JSON(w, http.StatusOK, pushResponse{Result: result})

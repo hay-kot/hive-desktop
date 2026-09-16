@@ -56,7 +56,7 @@ func activeSession() session.Session {
 func TestSessionGitStatusReportsTheCheckoutAndItsRemoteCoordinates(t *testing.T) {
 	t.Parallel()
 
-	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, stubGit{
+	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, nil, stubGit{
 		branch: "feat/bar", clean: false, unpushed: true, additions: 42, deletions: 7,
 	}, 0)
 
@@ -74,7 +74,7 @@ func TestSessionGitStatusReportsTheCheckoutAndItsRemoteCoordinates(t *testing.T)
 func TestSessionGitStatusReportsAFailedReadInsteadOfAssumingDirty(t *testing.T) {
 	t.Parallel()
 
-	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, stubGit{
+	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, nil, stubGit{
 		branch: "feat/bar", cleanErr: errors.New("git status: exit 128"),
 	}, 0)
 
@@ -90,7 +90,7 @@ func TestSessionGitStatusReportsAFailedReadInsteadOfAssumingDirty(t *testing.T) 
 func TestSessionGitStatusReportsNothingResolvedWhenBranchFails(t *testing.T) {
 	t.Parallel()
 
-	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, stubGit{
+	manager := NewHiveSessionManager(oneSessionManagement{session: activeSession()}, nil, nil, stubGit{
 		branchErr: errors.New("git branch: not a repository"),
 	}, 0)
 
@@ -108,7 +108,7 @@ func TestSessionGitStatusIsEmptyForASessionWithNoCheckout(t *testing.T) {
 
 	recycled := activeSession()
 	recycled.State = session.StateRecycled
-	manager := NewHiveSessionManager(oneSessionManagement{session: recycled}, nil, stubGit{branch: "feat/bar"}, 0)
+	manager := NewHiveSessionManager(oneSessionManagement{session: recycled}, nil, nil, stubGit{branch: "feat/bar"}, 0)
 
 	got, err := manager.SessionGitStatus(t.Context(), "s1")
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestSessionGitStatusReportsCoordinatesForAnyHostedRemote(t *testing.T) {
 	// Cased, because the host is what the forge match and the pull-request
 	// cache are keyed on and a remote may be written any way.
 	elsewhere.Remote = "git@Gitea.Example.Test:acme/site.git"
-	manager := NewHiveSessionManager(oneSessionManagement{session: elsewhere}, nil, stubGit{branch: "feat/bar"}, 0)
+	manager := NewHiveSessionManager(oneSessionManagement{session: elsewhere}, nil, nil, stubGit{branch: "feat/bar"}, 0)
 
 	got, err := manager.SessionGitStatus(t.Context(), "s1")
 	require.NoError(t, err)
@@ -142,7 +142,7 @@ func TestSessionGitStatusLeavesCoordinatesEmptyForAHostlessRemote(t *testing.T) 
 
 	local := activeSession()
 	local.Remote = "/srv/git/acme/site.git"
-	manager := NewHiveSessionManager(oneSessionManagement{session: local}, nil, stubGit{branch: "feat/bar"}, 0)
+	manager := NewHiveSessionManager(oneSessionManagement{session: local}, nil, nil, stubGit{branch: "feat/bar"}, 0)
 
 	got, err := manager.SessionGitStatus(t.Context(), "s1")
 	require.NoError(t, err)
@@ -180,6 +180,7 @@ func TestSessionGitStatusAgainstARealCheckout(t *testing.T) {
 		oneSessionManagement{session: session.Session{
 			ID: "s1", Path: dir, Remote: "https://github.com/acme/site", State: session.StateActive,
 		}},
+		nil,
 		nil,
 		git.NewExecutor("git", &executil.RealExecutor{}),
 		0,
