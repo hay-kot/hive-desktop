@@ -50,8 +50,9 @@ hide:
   <div class="hive-showcase__copy">
     <div class="hive-eyebrow"><svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>Code</div>
     <h2>Run several streams of work at once.</h2>
-    <p>Code is built on the hive CLI's session engine and tmux. Each session gets its own checkout and windows, keeps running when Hive closes, and stays visible to an existing hive install and to <code>tmux attach</code>.</p>
+    <p>Code is built on the <a href="https://colonyops.github.io/hive/getting-started/sessions/">hive CLI session engine</a> and tmux. Each session gets its own checkout and windows, keeps running when Hive closes, and stays visible to an existing hive install and to <code>tmux attach</code>.</p>
     <ul>
+      <li><strong>One shared session model.</strong> By default, sessions created in Hive Desktop or the hive CLI appear in both. Agent profiles, clone strategies, setup commands, and starting windows come from <a href="https://colonyops.github.io/hive/configuration/">hive CLI configuration</a>.</li>
       <li><strong>A sidebar for every session.</strong> Attach to any window, switch with <kbd>⌘1</kbd> through <kbd>⌘9</kbd>, filter sessions, and search scrollback.</li>
       <li><strong>Your commands in the menus.</strong> Actions add commands to session and window menus. Quick terminals open tools such as lazygit in the active checkout.</li>
       <li><strong>Scratch terminals.</strong> A tmux session for shells that belong to no repository, with tabs you can rename and reorder.</li>

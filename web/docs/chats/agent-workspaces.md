@@ -1,57 +1,59 @@
 ---
 icon: lucide/bot
-description: Run coding agents in named workspaces with selected skills and MCP servers.
+description: Run persistent coding agents, scheduled jobs, skills, and MCP servers in named workspaces.
 ---
 
 # Agent workspaces
 
-The **Chats** area runs a coding agent in a persistent workspace. Open it with <kbd>g</kbd> then <kbd>a</kbd>.
+The **Chats** area runs coding agents in persistent workspaces. Open it with <kbd>g</kbd> then <kbd>a</kbd>.
 
-Chats run in tmux, so they can continue when you switch views or restart Hive.
+A workspace contains its instructions, chats, launch command, skill packages, MCP servers, schedules, and canvases. Chats run in tmux, so they can continue when you switch views or restart Hive.
 
 ## Requirements
 
 - tmux 3.2 or newer;
-- a supported agent CLI on your `PATH`.
+- an agent CLI or custom launch command available on Hive's `PATH`.
 
-Hive currently supports Claude Code and Codex. See [Troubleshooting](../getting-started/troubleshooting.md#a-coding-agent-is-not-found) if Hive cannot find one.
+Hive includes command presets for Claude Code and Codex. A custom command can start another agent CLI or wrap a preset with model flags, environment variables, or other tools. See [Troubleshooting](../getting-started/troubleshooting.md#a-coding-agent-is-not-found) if Hive cannot find a command.
 
 ## The Hive workspace
 
-Hive creates a built-in workspace named **Hive**. Use it to configure flows, sources, actions, settings, shortcuts, and other workspaces.
+Hive creates a built-in workspace named **Hive**. Use it to configure flows, sources, actions, settings, shortcuts, webhook sources, and other workspaces.
 
-Open the workspace and describe the change you want. Its shipped skills know the local config paths and the app's current schemas. The default approval mode asks before running changes.
+Open the workspace and describe the change you want. Its shipped skills know the local config paths and the app's current schemas. Its default command asks before making changes.
 
 ## Create a workspace
 
 Use **New workspace** in Chats. A workspace chooses:
 
-- a name;
-- Claude Code or Codex;
-- an approval mode;
+- a name and directory;
+- a launch command;
 - skill packages;
-- MCP servers.
+- MCP servers;
+- optional schedules.
 
-The matching manifest looks like this:
+The command picker includes **Ask**, **Auto**, and **Full** presets for Claude Code and Codex. **Custom** lets you edit the complete command template. Add model or provider flags to the command itself.
 
-```yaml
-version: 3
-name: Home Assistant
-agent: claude
-autonomy: ask
-mcps:
-  - home-assistant
-skills:
-  - hive
-```
+**Full** presets bypass the agent's approval checks. Use them only when you trust the workspace instructions and every enabled tool.
 
-Approval modes are:
+## Work with chats
 
-- `ask` uses the agent's normal prompts;
-- `auto` accepts edits and asks for higher-risk operations;
-- `full` skips approval prompts.
+Create several named chats inside a workspace and use the sidebar to see whether each agent is working, needs approval, is running, or is stopped.
 
-Use `full` only for a workspace whose tools and instructions you trust.
+Stopping an agent keeps its chat record. Restarting a stopped chat resumes the conversation when its command and agent support it. You can also rename or delete a chat, filter the sidebar, and open recent chats from the command palette.
+
+## Scheduled jobs
+
+Add a schedule from the workspace editor to start a chat automatically. Schedules can run hourly, daily, weekly, monthly, or from a five-field cron expression in your local time.
+
+Each schedule has its own prompt and controls to:
+
+- pause or resume future runs;
+- run it immediately without changing the next scheduled time;
+- launch once after Hive reopens or skip a run missed while the app was closed;
+- preview upcoming times and inspect recent launched, skipped, or failed runs.
+
+Scheduled chats run unattended. If the previous scheduled chat is still active, Hive skips the next occurrence instead of starting overlapping work. Ask the agent to save durable output to a canvas or workspace file.
 
 ## Workspace files
 
@@ -69,19 +71,25 @@ The built-in Hive package covers:
 - actions and quick terminals;
 - settings and keybindings;
 - agent workspaces;
-- the Hive MCP server.
+- the Hive Desktop MCP server.
 
 ## MCP servers
 
 Hive includes these MCP entries:
 
 - **Hive Desktop** for reading and configuring the running app. It requires the local HTTP server, which is enabled by default.
-- **Hive Canvas** for markdown and HTML output beside a chat.
+- **Hive Canvas** for durable Markdown, HTML, and links beside a chat.
 - **Playwright** for browser automation. It requires Node.js and a Playwright browser.
 - **Chrome DevTools** for a running Chrome browser. It requires Node.js 20.19 or newer and Chrome.
 
-You can add HTTP, SSE, and stdio servers in the workspace MCP library. Secrets in custom server configuration can use `env:`, `file:`, or `op://` references.
+You can add HTTP, SSE, and stdio servers to the shared MCP library, then enable them per workspace. Secrets in custom server configuration can use `env:`, `file:`, or `op://` references.
+
+## Canvases
+
+An agent with **Hive Canvas** enabled can publish named output beside its chat. Canvases remain available after the chat ends and can contain Markdown, sanitized HTML, and links.
+
+Use the canvas pane to search previous output, copy a canvas as Markdown, save it to a file, or open its links.
 
 ## Use a chat in Code
 
-Pin a chat to the Code session tree when you want it beside repository terminals. It attaches like any other tmux session.
+Pin a chat to the Code session tree when you want it beside repository terminals. It attaches to the same tmux session from either area. Unpinning it does not stop the agent.
