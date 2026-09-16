@@ -46,8 +46,10 @@ export interface AppearanceSettings {
     "monoFontFamily": string;
 
     /**
-     * TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
-     * pixel count — the frontend owns the mapping.
+     * TerminalFontSize is a pixel count as digits, carried as text because it
+     * used to be a preset name (small/medium/large/xl/xxl) and a settings.yaml
+     * written then still has to load. The frontend owns both readings, and the
+     * bounds it clamps to.
      */
     "terminalFontSize": string;
 

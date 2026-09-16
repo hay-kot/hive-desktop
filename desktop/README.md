@@ -184,7 +184,7 @@ notifications:
   sound: true
 appearance:
   theme: ""
-  terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
+  terminal_font_size: "" # text size in pixels, 8-40 in steps of 2; empty means 13
   terminal_font_family: "" # any installed monospace family; empty is the bundled JetBrains Mono (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font)
   terminal_font_weight: 0 # 300, 350, 400, 600, or 700; 0 means the default, 350
   terminal_font_weight_bold: 0 # the weight bold cells draw at; 0 means the default, 700

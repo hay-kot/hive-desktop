@@ -10,7 +10,7 @@ import {
   setTerminalFontSize,
   setTerminalLetterSpacing,
   setTerminalLineHeight,
-  terminalFontSizePx,
+  defaultTerminalFontSizePx,
 } from '../../composables/useTerminalFont'
 import { terminalFontStack } from '../../lib/terminalFaces'
 
@@ -101,7 +101,7 @@ describe('TerminalPreview', () => {
     const [term] = xterm.FakeTerminal.instances
     expect(term.options).toMatchObject({
       fontFamily: terminalFontStack(''),
-      fontSize: terminalFontSizePx.medium,
+      fontSize: defaultTerminalFontSizePx,
       fontWeight: defaultTerminalFontWeight,
       fontWeightBold: defaultTerminalFontWeightBold,
       lineHeight: defaultTerminalLineHeight,
@@ -128,7 +128,7 @@ describe('TerminalPreview', () => {
 
     const [term] = xterm.FakeTerminal.instances
     expect(mocks.loadTerminalFaces).toHaveBeenCalledWith(
-      '', terminalFontSizePx.medium, defaultTerminalFontWeight, defaultTerminalFontWeightBold,
+      '', defaultTerminalFontSizePx, defaultTerminalFontWeight, defaultTerminalFontWeightBold,
     )
     expect(mocks.loadTerminalFaces.mock.invocationCallOrder[0])
       .toBeLessThan(term.open.mock.invocationCallOrder[0])
@@ -139,14 +139,14 @@ describe('TerminalPreview', () => {
 
     setTerminalLineHeight(1.5)
     setTerminalLetterSpacing(2)
-    setTerminalFontSize('xl')
+    setTerminalFontSize(16)
     await flushPromises()
 
     expect(xterm.FakeTerminal.instances).toHaveLength(1)
     expect(xterm.FakeTerminal.instances[0].options).toMatchObject({
       lineHeight: 1.5,
       letterSpacing: 2,
-      fontSize: terminalFontSizePx.xl,
+      fontSize: 16,
     })
   })
 

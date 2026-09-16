@@ -44,6 +44,7 @@ import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { useTasks } from './composables/useTasks'
 import { sessionRepository } from './composables/useTerminalSessions'
+import { resetTerminalFontSize, stepTerminalFontSize } from './composables/useTerminalFont'
 import {
   closeTerminalPane, closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalPaneDirection, focusTerminalTree,
   newTerminalWindow, selectTerminalWindow, splitTerminalPane, stepTerminalWindow, zoomTerminalPane,
@@ -971,6 +972,9 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'terminal.split-down': () => splitTerminalPane('vertical'),
   'terminal.close-pane': closeTerminalPane,
   'terminal.zoom-pane': zoomTerminalPane,
+  'terminal.text-size-increase': () => stepTerminalFontSize(1),
+  'terminal.text-size-decrease': () => stepTerminalFontSize(-1),
+  'terminal.text-size-reset': resetTerminalFontSize,
   'terminal.focus-pane-left': () => focusTerminalPaneDirection('left'),
   'terminal.focus-pane-right': () => focusTerminalPaneDirection('right'),
   'terminal.focus-pane-up': () => focusTerminalPaneDirection('up'),
@@ -1026,6 +1030,9 @@ function contextActive(context: CommandContext): boolean {
     // on the feed. Any attached slug qualifies, hive session or not.
     case 'terminal-session': return terminalActive.value && !!onScreenSessionSlug.value
     case 'agents': return agentsActive.value
+    // Wherever an emulator is on screen, including the pop-up over a view that
+    // has none of its own — what these act on is the terminal, not the view.
+    case 'terminals': return terminalActive.value || agentsActive.value || popupTerminal.visible.value
     case 'global': return true
   }
 }

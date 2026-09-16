@@ -25,6 +25,8 @@ The command palette at <kbd>⌘K</kbd> can run commands with or without a shortc
 | Move through feed items | <kbd>j</kbd>/<kbd>k</kbd> |
 | Open an item | <kbd>o</kbd> or <kbd>Enter</kbd> |
 | Archive an item | <kbd>e</kbd> |
+| Increase or decrease terminal text size | <kbd>⌘+</kbd>/<kbd>⌘-</kbd> (Windows/Linux: <kbd>Ctrl++</kbd>/<kbd>Ctrl+-</kbd>) |
+| Reset terminal text size | <kbd>⌘0</kbd> |
 
 Use <kbd>?</kbd> for the full list because it always matches the installed version.
 
@@ -47,6 +49,8 @@ Use lower-case key names and join modifiers with `+`, such as `mod+shift+t`. `mo
 ## Terminal shortcuts
 
 A focused terminal sends most keys to the running program. Global app shortcuts use Command on macOS or Control+Shift on other platforms so they can still leave the terminal pane.
+
+**Text size** (`terminal.text-size-increase`, `-decrease`, `-reset`) changes the terminal font wherever a terminal is on screen — Code, Chats, or the pop-up panel — and writes the same setting the **Settings ▸ Terminal** font size does, so it persists. These chords do not zoom the rest of the app: window zoom stays in the **View** menu, without a shortcut, because it scales the window instead of reflowing the terminal grid.
 
 **Toggle Code sidebar** (`terminal.toggle-sidebar`) uses <kbd>⌘B</kbd> on macOS and <kbd>Ctrl+B</kbd> on Windows and Linux, including inside a focused terminal. On macOS, <kbd>Ctrl+B</kbd> still reaches the terminal. On Windows and Linux, rebind this command in **Settings ▸ Keyboard** if you need <kbd>Ctrl+B</kbd> for tmux.
 

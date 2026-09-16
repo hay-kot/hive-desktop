@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { commandCatalog, defaultCombosFor } from '../catalog'
+import { comboFromEvent } from '../../composables/useKeybindings'
 
 // Where `mod` is Ctrl, Ctrl+Shift is the pane escape and terminalEscapeCombo
 // drops the Shift before resolving, so a shifted default on an escapesPane
@@ -11,6 +12,24 @@ describe('commandCatalog defaults', () => {
       for (const combo of defaultCombosFor(command, false)) {
         expect(combo.split('+'), `${command.id}: ${combo}`).not.toContain('shift')
       }
+    }
+  })
+
+  // ⌘+ is Shift+= on most layouts, and `plus` is a named key, so the event
+  // spells itself `mod+shift+plus` rather than folding the Shift into the
+  // character. The chord a user means by "bigger" has to match whichever
+  // spelling their layout produces.
+  it('binds every spelling of the increase chord on macOS', () => {
+    const increase = commandCatalog.find((c) => c.id === 'terminal.text-size-increase')
+    const combos = defaultCombosFor(increase!, true)
+    const presses = [
+      new KeyboardEvent('keydown', { key: '=', metaKey: true }),
+      new KeyboardEvent('keydown', { key: '+', metaKey: true, shiftKey: true }),
+      new KeyboardEvent('keydown', { key: '+', metaKey: true }),
+    ]
+
+    for (const press of presses) {
+      expect(combos, `${press.key} (shift: ${press.shiftKey})`).toContain(comboFromEvent(press))
     }
   })
 

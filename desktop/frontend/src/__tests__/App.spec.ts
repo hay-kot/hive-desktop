@@ -11,6 +11,7 @@ import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/use
 import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { formatCombo, SEQUENCE_TIMEOUT_MS, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
+import { defaultTerminalFontSizePx, resetTerminalFontForTests, useTerminalFont } from '../composables/useTerminalFont'
 import { resetTerminalSessionsForTests, useTerminalSessions } from '../composables/useTerminalSessions'
 import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
@@ -315,6 +316,7 @@ describe('App', () => {
     useKeybindings().clearPendingSequence()
     requestedEditorFilter.value = null
     resetTerminalAvailabilityForTests()
+    resetTerminalFontForTests()
     resetTerminalSessionsForTests()
     resetAttachedTerminalWindowsForTests()
     resetTerminalPinnedChatsForTests()
@@ -1012,6 +1014,47 @@ describe('App', () => {
       await flushPromises()
       expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull() // the chord does close it
 
+      wrapper.unmount()
+    })
+
+    // The chords the platform menu used to eat: an accelerator is consumed
+    // before the webview sees the keydown, so this path only exists because the
+    // app strips them (ADR cmd-and-cmd-step-the-terminal-font-size-instead-of-magnifying-the-webview).
+    it('steps the terminal text size from a focused pane, and resets it', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      const { px } = useTerminalFont()
+      const pane = focusedPane()
+
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: '=', metaKey: true, bubbles: true }))
+      expect(px.value).toBe(defaultTerminalFontSizePx + 2)
+
+      // The bare plus a layout with its own plus key sends. The shifted
+      // spelling ⌘+ produces is macOS-only, so catalog.spec pins that one.
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: '+', metaKey: true, bubbles: true }))
+      expect(px.value).toBe(defaultTerminalFontSizePx + 4)
+
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: '-', metaKey: true, bubbles: true }))
+      expect(px.value).toBe(defaultTerminalFontSizePx + 2)
+
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: '0', metaKey: true, bubbles: true }))
+      expect(px.value).toBe(defaultTerminalFontSizePx)
+
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    // The context is "a terminal is drawn", and the feed draws none: the chord
+    // does nothing there rather than resizing a terminal off screen.
+    it('leaves the text size alone on the feed', async () => {
+      const { wrapper } = await mountAppWithRouter()
+
+      const { px } = useTerminalFont()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', metaKey: true }))
+
+      expect(px.value).toBe(defaultTerminalFontSizePx)
       wrapper.unmount()
     })
 

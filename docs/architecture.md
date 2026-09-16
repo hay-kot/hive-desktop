@@ -1224,7 +1224,11 @@ keep across a trip to the hub can now simply live in the component.
 **Terminal style is a setting, not pane chrome.** Text size, family, weights,
 line height and tracking are all `appearance.terminal_*` settings written from
 Settings ▸ Terminal, and the pane carries no duplicate control for
-any of them (ADR the-sidebar-tree-is-the-only-window-list). A new style option takes the same route. The chrome's own
+any of them (ADR the-sidebar-tree-is-the-only-window-list). A new style option takes the same route. Text size
+also has a keyboard ladder — <kbd>⌘+</kbd>/<kbd>⌘-</kbd>/<kbd>⌘0</kbd>, taken
+back from the platform menu's webview magnification, which scales the window
+instead of reflowing the grid (ADR cmd-and-cmd-step-the-terminal-font-size-instead-of-magnifying-the-webview)
+— and it writes that same setting rather than a second piece of state. The chrome's own
 faces are a separate pair of settings on a separate pane — `appearance.
 font_family` and `mono_font_family`, written from Settings ▸ Appearance — and a
 terminal takes nothing from them (ADR the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set).

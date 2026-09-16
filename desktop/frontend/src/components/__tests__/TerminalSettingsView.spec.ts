@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import TerminalSettingsView from '../TerminalSettingsView.vue'
 import {
+  defaultTerminalFontSizePx,
   defaultTerminalFontWeight,
   defaultTerminalFontWeightBold,
   setTerminalFontSize,
@@ -42,18 +43,20 @@ beforeEach(() => {
 })
 
 describe('TerminalSettingsView', () => {
-  it('reflects and changes the terminal font size preset', async () => {
+  it('nudges the terminal font size in whole steps', async () => {
     const wrapper = mount(TerminalSettingsView)
+    const value = (): string => wrapper.find('[data-testid="settings-terminal-font-size-value"]').text()
 
-    expect(wrapper.find('[data-testid="settings-terminal-font-size-medium"]').attributes('aria-selected')).toBe('true')
+    expect(value()).toBe(`${defaultTerminalFontSizePx}px`)
 
-    await wrapper.find('[data-testid="settings-terminal-font-size-xl"]').trigger('click')
+    await wrapper.find('[data-testid="settings-terminal-font-size-increase"]').trigger('click')
+    expect(value()).toBe(`${defaultTerminalFontSizePx + 2}px`)
 
-    expect(wrapper.find('[data-testid="settings-terminal-font-size-xl"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.find('[data-testid="settings-terminal-font-size-medium"]').attributes('aria-selected')).toBe('false')
+    await wrapper.find('[data-testid="settings-terminal-font-size-decrease"]').trigger('click')
+    expect(value()).toBe(`${defaultTerminalFontSizePx}px`)
 
     // The size is a module singleton; put the default back for later tests.
-    setTerminalFontSize('medium')
+    setTerminalFontSize(defaultTerminalFontSizePx)
   })
 
   // #181: the terminal shipped with no weight control at all, so normal cells

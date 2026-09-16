@@ -22,6 +22,7 @@ import IconPanelLeft from '~icons/lucide/panel-left'
 import IconPanelRight from '~icons/lucide/panel-right'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconSearch from '~icons/lucide/search'
 import IconSettings from '~icons/lucide/settings'
 import IconSquarePlus from '~icons/lucide/square-plus'
@@ -46,8 +47,10 @@ import type { CommandScope } from '../palette/scopes'
 // `context` gates where a bare (modifier-less) binding fires: `feed` commands
 // only run when the feed is actually on screen, `terminal` commands only inside
 // terminal mode, `terminal-session` commands only while a session is attached
-// there, `agents` commands only inside the Agents area; `global` commands run
-// anywhere.
+// there, `agents` commands only inside the Agents area, `terminals` commands
+// wherever a terminal is drawn — terminal mode, the Agents area, or the pop-up
+// panel over either, since what they act on is the emulator rather than the
+// view around it; `global` commands run anywhere.
 // `defaultCombos` are canonical combo strings (see useKeybindings.comboFromEvent)
 // — an empty array means "bindable, but unbound by default".
 //
@@ -63,7 +66,7 @@ import type { CommandScope } from '../palette/scopes'
 // quick-terminal-launchers-are-session-scoped, ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
 // Any slug the Code view attaches counts, including the scratch terminal and a
 // pinned chat — what the launcher needs is a pane, not a hive record.
-export type CommandContext = 'global' | 'feed' | 'terminal' | 'terminal-session' | 'agents'
+export type CommandContext = 'global' | 'feed' | 'terminal' | 'terminal-session' | 'terminals' | 'agents'
 
 export interface BindableCommand {
   id: string
@@ -419,6 +422,47 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['mod+shift+enter'],
     ctrlDefaultCombos: ['mod+m'],
     context: 'terminal',
+    escapesPane: true,
+  },
+  // The chords the platform menu spends on webview magnification, taken back to
+  // step the one text size the app can reflow (ADR
+  // cmd-and-cmd-step-the-terminal-font-size-instead-of-magnifying-the-webview).
+  // Increase carries every spelling of the same physical key: `=`, the shifted
+  // `+` a ⌘+ press sends (`plus` is a named key, so its Shift survives), and
+  // the bare `+` of a layout with its own plus key. The Ctrl defaults are the
+  // pane-reachable spellings: the escape there is Ctrl+Shift and it drops the
+  // Shift, not the character it produced — `_` and `)`.
+  {
+    id: 'terminal.text-size-increase',
+    title: 'Increase text size',
+    group: 'Code',
+    keywords: ['terminal', 'font', 'text', 'size', 'bigger', 'larger', 'zoom', 'in'],
+    icon: IconPlus,
+    defaultCombos: ['mod+=', 'mod+shift+plus', 'mod+plus'],
+    ctrlDefaultCombos: ['mod+=', 'mod+plus'],
+    context: 'terminals',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.text-size-decrease',
+    title: 'Decrease text size',
+    group: 'Code',
+    keywords: ['terminal', 'font', 'text', 'size', 'smaller', 'zoom', 'out'],
+    icon: IconMinus,
+    defaultCombos: ['mod+-'],
+    ctrlDefaultCombos: ['mod+-', 'mod+_'],
+    context: 'terminals',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.text-size-reset',
+    title: 'Reset text size',
+    group: 'Code',
+    keywords: ['terminal', 'font', 'text', 'size', 'reset', 'default', 'actual'],
+    icon: IconRotateCcw,
+    defaultCombos: ['mod+0'],
+    ctrlDefaultCombos: ['mod+0', 'mod+)'],
+    context: 'terminals',
     escapesPane: true,
   },
   // Alt-arrow cannot use terminal escape normalization, so these bindings pierce

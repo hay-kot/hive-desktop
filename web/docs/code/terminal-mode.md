@@ -89,7 +89,7 @@ Filter by status or repository, search by title or ID, and inspect epics, subtas
 
 ## Appearance
 
-**Settings ▸ Terminal** controls the terminal font, size, weight, line height, letter spacing, visible windows, and status bar.
+**Settings ▸ Terminal** controls the terminal font, size, weight, line height, letter spacing, visible windows, and status bar. <kbd>⌘+</kbd> and <kbd>⌘-</kbd> step the text size from a terminal without opening Settings, and <kbd>⌘0</kbd> puts it back.
 
 ## Shared tmux sizing
 
