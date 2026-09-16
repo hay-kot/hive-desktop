@@ -137,7 +137,7 @@ func dropSkillsSection(doc map[string]any) error {
 
 // showTerminalStatusBar sets `appearance.terminal_show_status_bar` to true.
 //
-// The bar now ships on, but a new default alone reaches nobody who has saved
+// The bar ships on, but a new default alone reaches nobody who has saved
 // settings: the field marshals without omitempty, so every saved file carries
 // an explicit false from when off was the default. This is a one-time reset,
 // not a schema change -- a user who turns the bar off afterwards is not

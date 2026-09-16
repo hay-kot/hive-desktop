@@ -329,8 +329,8 @@ func TestSettings_TurnsTheTerminalStatusBarOn(t *testing.T) {
 	assert.Equal(t, "midnight", appearance["theme"])
 }
 
-// A file with no appearance section decodes onto the defaults, which now say
-// on, so the step has nothing to add and must not invent the section.
+// A file with no appearance section decodes onto the defaults, which say on,
+// so the step has nothing to add and must not invent the section.
 func TestSettings_TerminalStatusBarStepLeavesAMissingAppearanceSectionAlone(t *testing.T) {
 	t.Parallel()
 
