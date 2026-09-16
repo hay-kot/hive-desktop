@@ -31,7 +31,7 @@ import (
 
 // seedRef is the account a seeded starter graph fetches as; seededCreds is a
 // credential store holding it, which is what makes FlowsService.Create seed a
-// workspace rather than leave it empty.
+// profile rather than leave it empty.
 const seedRef = "github/octocat"
 
 func seededCreds(t *testing.T) credentials.Store {
@@ -399,7 +399,7 @@ func TestFlowsServiceCreateSeedsWithTheOneConnectedAccount(t *testing.T) {
 	assert.NotEmpty(t, flows.GetLayout(created.ID).Nodes, "the seeded nodes need canvas positions")
 }
 
-// A workspace is the thing that exists without any credential: first run
+// A profile is the thing that exists without any credential: first run
 // creates it before it offers to connect anything, so an unseeded create is
 // the expected path there rather than a failure.
 func TestFlowsServiceCreateWithoutAnUnambiguousAccountMakesAnEmptyWorkspace(t *testing.T) {
@@ -433,7 +433,7 @@ func TestFlowsServiceSeedStarterFillsAnEmptyWorkspace(t *testing.T) {
 	ch := subscribeEvents[events.FlowsUpdated](t, bus)
 	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: creds, Images: testImages(t), Marks: testMarks(t), Scripts: testScripts(), Events: bus})
 
-	// The first-run order: the workspace exists before the account does.
+	// The first-run order: the profile exists before the account does.
 	created, err := service.Create(t.Context(), "Triage")
 	require.NoError(t, err)
 	require.Empty(t, created.Nodes)
@@ -453,7 +453,7 @@ func TestFlowsServiceSeedStarterFillsAnEmptyWorkspace(t *testing.T) {
 	requireEvents(t, ch, 2)
 
 	// Appending a second starter graph onto a graph someone has since edited
-	// is not a mistake they can undo, so a populated workspace is refused.
+	// is not a mistake they can undo, so a populated profile is refused.
 	_, err = service.SeedStarter(t.Context(), created.ID)
 	require.ErrorContains(t, err, "already has nodes")
 

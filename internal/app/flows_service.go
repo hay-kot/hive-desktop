@@ -59,9 +59,9 @@ func newFlowsService(d FlowsDeps) *FlowsService {
 // is no unambiguous one.
 //
 // Exactly one connected account is the case this resolves. Zero has nothing
-// to seed with; several is not guessed at, because seeding a whole workspace
+// to seed with; several is not guessed at, because seeding a whole profile
 // against the wrong account is not something a user would notice until the
-// feed was already wrong. Neither is an error — a workspace is the thing that
+// feed was already wrong. Neither is an error — a profile is the thing that
 // exists without any credential, so both simply mean "unseeded".
 func (s *FlowsService) seedCredential() (string, error) {
 	refs, err := credentials.ListProvider(s.creds, ghsource.Provider)
@@ -127,7 +127,7 @@ func (s *FlowsService) Statuses(context.Context) []flow.FlowStatus {
 // exactly one GitHub account is connected and empty otherwise.
 //
 // Creating is never refused for want of a credential. First run creates the
-// workspace before it offers to connect anything, so the unseeded case is the
+// profile before it offers to connect anything, so the unseeded case is the
 // expected one there, not a failure — SeedStarter is what fills it in once
 // the account exists.
 func (s *FlowsService) Create(ctx context.Context, name string) (flow.Flow, error) {
@@ -147,12 +147,12 @@ func (s *FlowsService) Create(ctx context.Context, name string) (flow.Flow, erro
 	return f, nil
 }
 
-// SeedStarter fills an empty workspace with the starter graph, fetching as
+// SeedStarter fills an empty profile with the starter graph, fetching as
 // the one connected GitHub account. First run calls it when the account it
-// offered to connect finally exists: the workspace was created a step
+// offered to connect finally exists: the profile was created a step
 // earlier, before there was anything to seed it with.
 //
-// A workspace that already has nodes is refused rather than appended to.
+// A profile that already has nodes is refused rather than appended to.
 // Appending a second starter graph onto a graph someone has since edited is
 // not a mistake they can undo.
 func (s *FlowsService) SeedStarter(ctx context.Context, id string) (flow.Flow, error) {
@@ -161,7 +161,7 @@ func (s *FlowsService) SeedStarter(ctx context.Context, id string) (flow.Flow, e
 		return flow.Flow{}, err
 	}
 	if len(f.Nodes) > 0 {
-		return flow.Flow{}, Errorf(KindInvalid, "workspace %q already has nodes", id)
+		return flow.Flow{}, Errorf(KindInvalid, "profile %q already has nodes", id)
 	}
 	credential, err := s.seedCredential()
 	if err != nil {

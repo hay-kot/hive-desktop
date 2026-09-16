@@ -33,11 +33,14 @@ Installing the hooks sets this clone's `core.hooksPath` to its own `.git/hooks`,
 
 ```sh
 mise run dev                       # the app, against this worktree's isolated instance
+mise run dev:onboarding            # live onboarding against a separate blank instance
 mise run build                     # a local app build
 ```
 
 Each worktree gets its own desktop instance and generated `launch.env`, so two
 checkouts never share state. `mise run dev:fresh` recreates one.
+`mise run dev:onboarding` recreates a separate blank instance and keychain
+namespace, then runs the real GitHub connection flow without mock providers.
 
 ## Quality gates
 

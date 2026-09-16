@@ -64,6 +64,9 @@ type Config struct {
 	MockMode      string
 	Logger        zerolog.Logger
 
+	// CredentialKeyringService isolates development credentials from the installed app.
+	CredentialKeyringService string
+
 	// Notifier and Gate are driven ports the adapter fills. They are the one
 	// place a GUI-owned dependency legitimately enters the core, and they
 	// enter as interfaces defined by their consumer.
@@ -278,7 +281,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
-	a.credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath)
+	a.credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath, cfg.CredentialKeyringService)
 
 	// One client template backs both the fetch layer and the connect flow, so a
 	// development instance pointed at cmd/devserver never splits its traffic
@@ -747,11 +750,11 @@ func buildGitHubConnection(mock string, client *ghclient.Client, creds credentia
 // buildCredentialStore picks the credential backing. Mock modes never touch
 // the OS keychain: reading one can prompt, and the e2e harness has no way to
 // answer.
-func buildCredentialStore(mock, indexPath string) credentials.Store {
+func buildCredentialStore(mock, indexPath, keyringService string) credentials.Store {
 	if mock != "" {
 		return credentials.NewMemoryStore()
 	}
-	return credentials.NewKeychainStore(indexPath)
+	return credentials.NewKeychainStoreWithService(indexPath, keyringService)
 }
 
 // openActions loads actions.yml eagerly — rather than waiting for the first

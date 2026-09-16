@@ -16,35 +16,62 @@ function mountScreen(props: Partial<InstanceType<typeof OnboardingScreen>['$prop
       deviceFlow: null,
       error: null,
       busy: false,
+      githubConnected: false,
       ...props,
     },
   })
 }
 
 describe('OnboardingScreen', () => {
-  // Three steps, because there are three screens. A step the walk can never
-  // make active reads as a step that got skipped.
+  // The disconnected first-run path has three screens. A step the walk can
+  // never make active reads as a step that got skipped.
   it('lists exactly the steps onboarding has', () => {
     const wrapper = mountScreen()
     expect(wrapper.findAll('ol li').map((li) => li.text())).toHaveLength(3)
-    expect(wrapper.text()).toContain('Create your first workspace')
+    expect(wrapper.text()).toContain('Create your first profile')
     expect(wrapper.text()).toContain('Connect GitHub')
     expect(wrapper.text()).toContain('Turn on notifications')
     expect(wrapper.text()).toContain('Tokens are stored in your OS keychain.')
   })
 
-  // The workspace is the one step that needs no credential, so it goes first
+  // The profile is the one step that needs no credential, so it goes first
   // and the connect cards are step 2.
-  it('orders the workspace step ahead of connecting, and marks it done once past', () => {
-    const workspace = mountScreen({ card: 'workspace' }).findAll('ol li').map((li) => li.text())
-    expect(workspace[0]).toContain('Create your first workspace')
-    expect(workspace[1]).toContain('Connect GitHub')
+  it('orders the profile step ahead of connecting, and marks it done once past', () => {
+    const profile = mountScreen({ card: 'profile' }).findAll('ol li').map((li) => li.text())
+    expect(profile[0]).toContain('Create your first profile')
+    expect(profile[1]).toContain('Connect GitHub')
     // The active step shows its number; steps before it show a check icon.
-    expect(workspace[0]).toContain('1')
+    expect(profile[0]).toContain('1')
 
-    const connecting = mountScreen({ card: 'idle' }).findAll('ol li').map((li) => li.text())
-    expect(connecting[0]).not.toContain('1')
-    expect(connecting[1]).toContain('2')
+    const connecting = mountScreen({ card: 'idle' }).findAll('ol li')
+    expect(connecting[0].text()).not.toContain('1')
+    expect(connecting[0].attributes('aria-current')).toBeUndefined()
+    expect(connecting[0].text()).toContain('complete')
+    expect(connecting[1].text()).toContain('2')
+    expect(connecting[1].attributes('aria-current')).toBe('step')
+  })
+
+  it('asks for a profile name and emits the trimmed value', async () => {
+    const wrapper = mountScreen({ card: 'profile' })
+    expect(wrapper.text()).toContain('Profiles separate feeds, sources, and rules.')
+    expect(wrapper.text()).toContain('Work, Open Source, or Personal')
+    expect(wrapper.text()).toContain('Create profile')
+    expect(wrapper.text()).not.toContain('workspace')
+
+    const input = wrapper.get('[data-testid="onboarding-profile-input"]')
+    expect(wrapper.get('label[for="onboarding-profile-name"]').text()).toBe('Profile name')
+    expect(input.attributes('placeholder')).toBe('Personal')
+    expect(input.attributes('aria-describedby')).toBe('onboarding-profile-description')
+    await input.setValue('  Frontend Triage  ')
+    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
+    expect(wrapper.emitted('createProfile')).toEqual([['Frontend Triage']])
+  })
+
+  it('omits the already-completed connection step for a connected account', () => {
+    const wrapper = mountScreen({ card: 'profile', githubConnected: true })
+    expect(wrapper.findAll('ol li')).toHaveLength(1)
+    expect(wrapper.text()).toContain('Name a profile to organize its feeds, sources, and rules.')
+    expect(wrapper.text()).not.toContain('Connect GitHub')
   })
 
   it('emits startDeviceFlow from the idle card', async () => {
@@ -88,11 +115,15 @@ describe('OnboardingScreen', () => {
     expect(wrapper.get('[data-testid="onboarding-error"]').text()).toContain('Could not reach GitHub')
   })
 
-  it('ignores Enter on the workspace card while busy', async () => {
-    const wrapper = mountScreen({ card: 'workspace', busy: true })
-    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-workspace-input"]').trigger('keydown.enter')
-    expect(wrapper.emitted('createWorkspace')).toBeUndefined()
+  it('ignores Enter on the profile card while busy', async () => {
+    const wrapper = mountScreen({ card: 'profile' })
+    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
+    await wrapper.setProps({ busy: true })
+    const input = wrapper.get('[data-testid="onboarding-profile-input"]')
+    expect(input.attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="onboarding-profile-submit"]').text()).toContain('Creating')
+    await input.trigger('keydown.enter')
+    expect(wrapper.emitted('createProfile')).toBeUndefined()
   })
 
   it('ignores Enter on the token card while busy', async () => {
@@ -107,6 +138,7 @@ describe('OnboardingScreen', () => {
   it('warns before skipping the connect step, and can back out of the warning', async () => {
     const wrapper = mountScreen({ card: 'idle' })
 
+    expect(wrapper.get('[data-testid="onboarding-skip"]').text()).toBe('Continue without GitHub')
     await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
     expect(wrapper.text()).toContain('Skip connecting GitHub?')
     expect(wrapper.text()).toContain('Settings ▸ Integrations')
@@ -121,12 +153,12 @@ describe('OnboardingScreen', () => {
     expect(wrapper.emitted('skipConnect')).toHaveLength(1)
   })
 
-  it('offers the skip on every connect card but never on the workspace step', () => {
+  it('offers the skip on every connect card but never on the profile step', () => {
     for (const card of ['idle', 'device', 'token'] as const) {
       expect(mountScreen({ card }).find('[data-testid="onboarding-skip"]').exists()).toBe(true)
     }
-    // Nothing to skip past yet — the workspace is what first run is creating.
-    expect(mountScreen({ card: 'workspace' }).find('[data-testid="onboarding-skip"]').exists()).toBe(false)
+    // Nothing to skip past yet — the profile is what first run is creating.
+    expect(mountScreen({ card: 'profile' }).find('[data-testid="onboarding-skip"]').exists()).toBe(false)
   })
 
   it('emits on Enter when not busy and text is present', async () => {
@@ -155,6 +187,7 @@ describe('OnboardingScreen', () => {
     expect(wrapper.emitted('requestPermission')).toHaveLength(1)
 
     expect(wrapper.text()).toContain('Activity')
+    expect(wrapper.get('[data-testid="onboarding-permissions-skip"]').text()).toBe('Not now')
     await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
     expect(wrapper.emitted('finishPermissions')).toHaveLength(1)
   })

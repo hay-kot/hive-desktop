@@ -249,7 +249,7 @@ watch(() => props.selectedId, async (id) => {
           <template v-else-if="unreadOnly">
             <div class="state-icon text-kind-pr"><IconCheck class="size-5" /></div>
             <div class="text-[13.5px] font-semibold">You're all caught up</div>
-            <div class="max-w-[240px] text-xs leading-relaxed text-text-3">No unread items in {{ title === 'Unread' ? 'this workspace' : title }}. New items will show up here as they arrive.</div>
+            <div class="max-w-[240px] text-xs leading-relaxed text-text-3">No unread items in {{ title === 'Unread' ? 'this profile' : title }}. New items will show up here as they arrive.</div>
           </template>
           <template v-else>
             <div class="state-icon text-text-3"><IconGitBranch class="size-5" /></div>

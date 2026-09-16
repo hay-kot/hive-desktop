@@ -358,8 +358,9 @@ mise run build       # Build the desktop app; on macOS emits desktop/bin/hive-de
 mise run serve       # Build and run the headless server build.
 mise run dev         # Run Wails directly with the generated launch.env.
 mise run dev:prepare # Create/reuse the isolated instance and launch.env.
-mise run dev:fresh   # Safely reseed the instance and regenerate launch.env.
-mise run dev:reset   # Safely remove the marked instance and launch.env.
+mise run dev:fresh      # Safely reseed the instance and regenerate launch.env.
+mise run dev:onboarding # Launch real onboarding against a separate blank instance.
+mise run dev:reset      # Safely remove the marked instance and launch.env.
 ```
 
 `dev` runs `wails3 dev -config ./build/config.yml` from the desktop application
@@ -381,6 +382,16 @@ as links to installed state. The configured agent-workspace root is copied to
 root is in iCloud Drive or another File Provider. Separate worktrees therefore
 have separate config, workspaces, data, databases and logs. Explicit
 `HIVE_DESKTOP_DATA_DIR` / `HIVE_DESKTOP_CONFIG_DIR` values still win.
+
+`mise run dev:onboarding` recreates `.hive-desktop-onboarding/` with blank data
+and config, then launches the live providers with `launch.onboarding.env`. It
+talks directly to GitHub and does not load `overrides.env`, so normal development
+overrides cannot escape the isolated paths. Its OS keychain service is scoped
+to the worktree and cleared before the next launch, so connecting or
+disconnecting a real GitHub account cannot change the installed app's
+credential. The regular `.hive-desktop/` instance is not changed. macOS
+notification authorization is still shared because the development build keeps
+the app's bundle identity.
 
 `development.vite` uses the required `127.0.0.1` host because Wails constructs
 its frontend URL with localhost; its port defaults to `0`. `development.wails`

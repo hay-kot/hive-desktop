@@ -708,8 +708,8 @@ OS keychain — is not observed until the cache's own TTL (one poll interval, by
 default) elapses on its own.
 
 **GitHub is a connector, not a login.** Nothing in the app is gated on being
-connected to it. First run is create workspace → connect GitHub → feed: the
-workspace is the one thing that exists without a credential, so it goes first,
+connected to it. First run is create profile → connect GitHub → feed: the
+profile is the one thing that exists without a credential, so it goes first,
 and connecting is what seeds its starter graph. Bypassing that step is possible
 past a warning, and lands on a feed whose empty state points at Settings ▸
 Integrations — itself a projection of the connector registry, joined to what
@@ -805,7 +805,13 @@ while either configured development server is active. `cmd/devtools prepare`
 writes the resolved paths and ports to a gitignored, non-secret `launch.env`.
 The `dev` mise task loads it followed by optional gitignored
 `overrides.env`, then starts Wails through `cmd/devtools run`. Devtools itself
-does not interpret developer overrides.
+does not interpret developer overrides. `dev:onboarding` recreates a separate
+`.hive-desktop-onboarding/` instance with blank config and data, then launches
+live providers from `launch.onboarding.env`. It bypasses the development GitHub
+proxy and does not load `overrides.env`, so it cannot inherit normal-development
+paths. A worktree-specific OS keychain service keeps its real OAuth credentials
+separate from the installed app and the normal development instance; recreation
+deletes every indexed credential before it removes the instance.
 
 `devtools run` supervises the dev runner because the runner does not supervise
 itself on the way out (ADR shutdown-is-signalled-and-bounded): it puts the app and Vite in process groups of
@@ -818,8 +824,9 @@ Wails and Vite need ports before Go starts, so devtools resolves
 `development.wails` and `development.vite` and bridges them to `WAILS_*`.
 Wails hard-codes localhost in its frontend URL, so the Vite host is fixed to
 `127.0.0.1`; the Wails server host may be any validated loopback address.
-The OS keychain and fixed bootstrap pointer remain shared; use mock mode when
-credential isolation matters.
+Normal development shares the OS keychain and fixed bootstrap pointer with the
+installed app. The onboarding launch uses its isolated keychain service; other
+tests that need credential isolation use mock mode.
 
 Two databases remain separate on purpose: `hive.db` is shared with the
 external `hive` CLI, and `desktop-pipeline.db` isolates desktop write traffic
@@ -1103,7 +1110,7 @@ mode it collided with. `TitleBar` carries the same closed union for its
 switch, and `router.ts`'s routes each render a null `ShellPage` component
 because `App.vue`, not the router, owns what is on screen. A mode remembers
 the last route it was on (`lastTerminalPath`, `lastAgentsPath`) so returning
-to it resumes rather than resetting. Every segment renders once a workspace
+to it resumes rather than resetting. Every segment renders once a profile
 exists; an unavailable mode explains itself inside the mode rather than
 disabling its segment (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental).
 
@@ -2226,7 +2233,7 @@ The target is reached in this order; each step is independently shippable.
    keychain-backed store and its ref index, one fetcher per account, and
    GitHub demoted from a login to a connector. A source node's `credential:`
    is required, which breaks any existing `flows/*.yaml` a second time.
-   First run creates the workspace before it offers to connect anything, and
+   First run creates the profile before it offers to connect anything, and
    `flow` no longer names a connector: `FlowStore.Create` takes its starter
    graph from its caller.
 7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle

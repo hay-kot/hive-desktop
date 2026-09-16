@@ -17,11 +17,15 @@ web/.cache/
 # Local env
 .env
 launch.env
+launch.onboarding.env
 overrides.env
 .data/
 .hive-desktop/
+.hive-desktop-onboarding/
 .hive-desktop.lock/
 .hive-desktop.lock.stale.*/
+.hive-desktop-onboarding.lock/
+.hive-desktop-onboarding.lock.stale.*/
 
 # Binaries `go build ./cmd/<name>` drops in the repo root. Keep this above the
 # negation below, which has to stay last.

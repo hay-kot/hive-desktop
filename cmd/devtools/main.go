@@ -72,6 +72,22 @@ func main() {
 				}),
 			},
 			{
+				Name:        "onboarding",
+				Usage:       "prepare a blank instance for live onboarding",
+				Description: "Recreates an onboarding-only instance with empty data and config and a worktree-specific keychain namespace.",
+				Action: func(_ context.Context, cmd *cli.Command) error {
+					if cmd.NArg() != 0 {
+						return cli.Exit(cmd.Name+" does not accept positional arguments", 2)
+					}
+					worktree, err := findWorktree()
+					if err != nil {
+						return err
+					}
+					tools := newOnboardingDevtools(worktree, logger)
+					return tools.withLock(func() error { return tools.prepare(true) })
+				},
+			},
+			{
 				Name:      "run",
 				Usage:     "run the Wails dev runner and own the session's teardown",
 				ArgsUsage: "-- <runner> [args...]",

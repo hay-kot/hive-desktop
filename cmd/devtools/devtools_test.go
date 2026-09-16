@@ -11,10 +11,12 @@ import (
 	"testing"
 
 	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/zalando/go-keyring"
 )
 
 func testDevtools(t *testing.T) (*devtools, string, string) {
@@ -89,6 +91,48 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	require.NoError(t, tools.withLock(tools.reset))
 	assert.NoDirExists(t, tools.instanceDir)
 	assert.NoFileExists(t, tools.launchPath)
+}
+
+func TestPrepareOnboardingUsesBlankIsolatedState(t *testing.T) {
+	keyring.MockInit()
+	normal, sourceData, sourceConfig := testDevtools(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceData, "desktop"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceData, "desktop", "desktop-pipeline.db"), []byte("installed"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(sourceConfig, "flows"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceConfig, "flows", "work.yaml"), []byte("installed"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceConfig, "actions.yml"), []byte("installed"), 0o600))
+	require.NoError(t, normal.withLock(func() error { return normal.prepare(false) }))
+	normalSentinel := filepath.Join(normal.instanceDir, "keep")
+	require.NoError(t, os.WriteFile(normalSentinel, []byte("keep"), 0o600))
+
+	tools := newOnboardingDevtools(normal.worktree, zerolog.Nop())
+	tools.stderr = &bytes.Buffer{}
+	tools.stdout = &bytes.Buffer{}
+	require.NoError(t, tools.withLock(func() error { return tools.prepare(true) }))
+
+	launch, err := tools.readLaunchIfPresent()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(tools.instanceDir, "data"), launch[settings.EnvDataDir])
+	assert.Equal(t, filepath.Join(tools.instanceDir, "data"), launch[settings.EnvHiveDataDir])
+	assert.Equal(t, filepath.Join(tools.instanceDir, "config"), launch[settings.EnvConfigDir])
+	assert.Empty(t, launch[settings.EnvGitHubAPIBase])
+	assert.NotEmpty(t, launch[credentials.EnvKeyringService])
+	assert.FileExists(t, normalSentinel)
+	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "data", "desktop", "desktop-pipeline.db"))
+	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "config", "flows", "work.yaml"))
+	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "config", "actions.yml"))
+	assert.DirExists(t, filepath.Join(tools.instanceDir, "config", "workspaces"))
+
+	ref := credentials.Ref{Provider: "github", Account: "octocat"}
+	store := credentials.NewKeychainStoreWithService(
+		filepath.Join(tools.instanceDir, "data", "desktop", "credentials.json"),
+		launch[credentials.EnvKeyringService],
+	)
+	require.NoError(t, store.Set(ref, "token-value"))
+	require.NoError(t, tools.withLock(func() error { return tools.prepare(true) }))
+	_, err = store.Get(ref)
+	require.ErrorIs(t, err, credentials.ErrNotFound)
+	assert.FileExists(t, normalSentinel)
 }
 
 func TestPrepareMaterializesConfigSymlinks(t *testing.T) {

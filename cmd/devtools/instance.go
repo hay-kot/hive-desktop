@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/rs/zerolog"
 )
@@ -28,6 +30,7 @@ const launchMarkerEnv = "HIVE_DESKTOP_LAUNCH_ENV"
 // without it, and the feature it gates silently stays off in exactly the
 // worktrees that have been around longest.
 var launchKeys = []string{
+	credentials.EnvKeyringService,
 	settings.EnvDataDir,
 	settings.EnvConfigDir,
 	settings.EnvAgentWorkspacesDir,
@@ -62,21 +65,44 @@ type devtools struct {
 	lookPath    func(string) (string, error)
 	runCommand  func(string, ...string) error
 	logger      zerolog.Logger
+	blank       bool
+	keyring     string
 }
 
 func newDevtools(worktree string, logger zerolog.Logger) *devtools {
+	return newDevtoolsInstance(worktree, logger, false)
+}
+
+func newOnboardingDevtools(worktree string, logger zerolog.Logger) *devtools {
+	return newDevtoolsInstance(worktree, logger, true)
+}
+
+func newDevtoolsInstance(worktree string, logger zerolog.Logger, blank bool) *devtools {
 	worktree = filepath.Clean(worktree)
+	instanceName := ".hive-desktop"
+	launchName := "launch.env"
+	lockName := ".hive-desktop.lock"
+	keyring := ""
+	if blank {
+		instanceName = ".hive-desktop-onboarding"
+		launchName = "launch.onboarding.env"
+		lockName = ".hive-desktop-onboarding.lock"
+		sum := sha256.Sum256([]byte(worktree))
+		keyring = fmt.Sprintf("sh.hive.desktop.development.onboarding.%x", sum[:8])
+	}
 	d := &devtools{
 		worktree:    worktree,
-		instanceDir: filepath.Join(worktree, ".hive-desktop"),
-		launchPath:  filepath.Join(worktree, "launch.env"),
-		lockPath:    filepath.Join(worktree, ".hive-desktop.lock"),
+		instanceDir: filepath.Join(worktree, instanceName),
+		launchPath:  filepath.Join(worktree, launchName),
+		lockPath:    filepath.Join(worktree, lockName),
 		stdout:      os.Stdout,
 		stderr:      os.Stderr,
 		pid:         os.Getpid(),
 		alive:       processAlive,
 		lookPath:    exec.LookPath,
 		logger:      logger,
+		blank:       blank,
+		keyring:     keyring,
 	}
 	d.markerPath = filepath.Join(d.instanceDir, ".instance")
 	d.runCommand = func(name string, args ...string) error {
@@ -109,9 +135,17 @@ func (d *devtools) validatePaths() error {
 	if filepath.Clean(d.worktree) != root {
 		return fmt.Errorf("worktree path must be absolute: %s", d.worktree)
 	}
-	wantInstance := filepath.Join(root, ".hive-desktop")
-	wantLaunch := filepath.Join(root, "launch.env")
-	wantLock := filepath.Join(root, ".hive-desktop.lock")
+	instanceName := ".hive-desktop"
+	launchName := "launch.env"
+	lockName := ".hive-desktop.lock"
+	if d.blank {
+		instanceName = ".hive-desktop-onboarding"
+		launchName = "launch.onboarding.env"
+		lockName = ".hive-desktop-onboarding.lock"
+	}
+	wantInstance := filepath.Join(root, instanceName)
+	wantLaunch := filepath.Join(root, launchName)
+	wantLock := filepath.Join(root, lockName)
 	if d.instanceDir != wantInstance || d.launchPath != wantLaunch || d.lockPath != wantLock {
 		return errors.New("development paths escaped the worktree")
 	}
@@ -154,26 +188,34 @@ func (d *devtools) prepare(fresh bool) error {
 	if err != nil {
 		return err
 	}
-	sourcePaths, err := installedPaths()
-	if err != nil {
-		return err
-	}
 
 	dataDir := filepath.Join(d.instanceDir, "data")
 	configDir := filepath.Join(d.instanceDir, "config")
 	agentWorkspacesDir := filepath.Join(configDir, "workspaces")
-	if created {
-		if err := d.seedData(sourcePaths.DataDir, dataDir); err != nil {
+	hiveDataDir := dataDir
+	if d.blank {
+		if err := os.MkdirAll(agentWorkspacesDir, 0o755); err != nil {
 			return err
 		}
-		if err := d.seedConfig(sourcePaths.ConfigDir, configDir); err != nil {
+	} else {
+		sourcePaths, err := installedPaths()
+		if err != nil {
 			return err
 		}
-	}
-	defaultInstalledWorkspaces := filepath.Join(sourcePaths.ConfigDir, "workspaces")
-	replaceAgentWorkspaces := created && filepath.Clean(sourcePaths.AgentWorkspacesDir) != filepath.Clean(defaultInstalledWorkspaces)
-	if err := d.seedAgentWorkspaces(sourcePaths.AgentWorkspacesDir, agentWorkspacesDir, replaceAgentWorkspaces); err != nil {
-		return err
+		hiveDataDir = sourcePaths.DataDir
+		if created {
+			if err := d.seedData(sourcePaths.DataDir, dataDir); err != nil {
+				return err
+			}
+			if err := d.seedConfig(sourcePaths.ConfigDir, configDir); err != nil {
+				return err
+			}
+		}
+		defaultInstalledWorkspaces := filepath.Join(sourcePaths.ConfigDir, "workspaces")
+		replaceAgentWorkspaces := created && filepath.Clean(sourcePaths.AgentWorkspacesDir) != filepath.Clean(defaultInstalledWorkspaces)
+		if err := d.seedAgentWorkspaces(sourcePaths.AgentWorkspacesDir, agentWorkspacesDir, replaceAgentWorkspaces); err != nil {
+			return err
+		}
 	}
 
 	cfg, err := settings.NewStore(filepath.Join(configDir, "settings.yaml")).Persisted()
@@ -201,14 +243,18 @@ func (d *devtools) prepare(fresh bool) error {
 	// there reaches every worktree without editing this. Opting out is setting
 	// the same variable empty in the gitignored overrides.env, which mise loads
 	// after launch.env.
-	proxyListen := devproxy.ListenFromConfig(d.worktree)
+	githubAPIBase := ""
+	if !d.blank {
+		githubAPIBase = devproxy.BaseURL(devproxy.ListenFromConfig(d.worktree))
+	}
 
 	env := map[string]string{
+		credentials.EnvKeyringService:  d.keyring,
 		settings.EnvDataDir:            dataDir,
-		settings.EnvHiveDataDir:        sourcePaths.DataDir,
+		settings.EnvHiveDataDir:        hiveDataDir,
 		settings.EnvConfigDir:          configDir,
 		settings.EnvAgentWorkspacesDir: agentWorkspacesDir,
-		settings.EnvGitHubAPIBase:      devproxy.BaseURL(proxyListen),
+		settings.EnvGitHubAPIBase:      githubAPIBase,
 		settings.EnvLogLevel:           "debug",
 		settings.EnvHTTPEnabled:        "true",
 		settings.EnvHTTPPort:           strconv.Itoa(webhookPort),
@@ -259,10 +305,31 @@ func (d *devtools) teardown() error {
 	if err := d.ensureLaunchInactive(existing); err != nil {
 		return err
 	}
+	if err := d.removeOnboardingCredentials(); err != nil {
+		return err
+	}
 	if err := d.removeInstance(); err != nil {
 		return err
 	}
 	return removeRegularFile(d.launchPath)
+}
+
+func (d *devtools) removeOnboardingCredentials() error {
+	if !d.blank {
+		return nil
+	}
+	indexPath := filepath.Join(d.instanceDir, "data", "desktop", "credentials.json")
+	store := credentials.NewKeychainStoreWithService(indexPath, d.keyring)
+	refs, err := store.List()
+	if err != nil {
+		return fmt.Errorf("list onboarding credentials: %w", err)
+	}
+	for _, ref := range refs {
+		if err := store.Delete(ref); err != nil {
+			return fmt.Errorf("delete onboarding credential %s: %w", ref, err)
+		}
+	}
+	return nil
 }
 
 // ensureLaunchInactive keeps fresh/reset from deleting files beneath a Wails

@@ -60,7 +60,7 @@ describe('useFeedState', () => {
     expect(get().activeProfileId.value).toBe('triage')
     expect(get().activeProfile.value?.feeds).toEqual([{ id: 'triage/my-prs', name: 'My PRs', count: 3, newCount: 2, archivedCount: 1, icon: undefined, description: undefined }])
     expect(get().activeProfile.value?.tree).toMatchObject([{ kind: 'feed', feed: { id: 'triage/my-prs' } }])
-    // Workspace rollups derive from feed counts; there is no aggregate inbox query.
+    // Profile rollups derive from feed counts; there is no aggregate inbox query.
     expect(get().activeProfile.value).toMatchObject({ totalCount: 3, unreadCount: 2 })
     expect(get().selection.value).toEqual({ type: 'feed', feedId: 'triage/my-prs' })
     expect(mocks.ListByFeed).toHaveBeenCalledWith('triage', 'triage/my-prs', 500)
@@ -115,7 +115,7 @@ describe('useFeedState', () => {
     expect(get().activeProfile.value?.feeds[0]?.name).toBe('New name')
   })
 
-  // A workspace whose flow has no feed nodes has to be distinguishable from
+  // A profile whose flow has no feed nodes has to be distinguishable from
   // one whose feeds simply have not been read yet — App.vue's empty state
   // hangs off that difference, and a stub mid-reload must not trip it.
   it('leaves a reloading profile without a tree until its feeds are read', async () => {
@@ -133,7 +133,7 @@ describe('useFeedState', () => {
     expect(get().activeProfile.value?.feeds).toHaveLength(0)
   })
 
-  it('seeds the starter flow into a workspace and re-reads its feeds', async () => {
+  it('seeds the starter flow into a profile and re-reads its feeds', async () => {
     mocks.SeedStarterFlow.mockResolvedValue({ id: 'triage', name: 'Frontend Triage', enabled: true, valid: true })
     const get = mountState(); await flushPromises()
     const flowReads = mocks.GetFlow.mock.calls.length
@@ -210,7 +210,7 @@ describe('useFeedState', () => {
     expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Marked 2 items as read'])
   })
 
-  it('marks every feed in the workspace when no feed is named, and reports an empty clear', async () => {
+  it('marks every feed in the profile when no feed is named, and reports an empty clear', async () => {
     mocks.MarkRead.mockResolvedValue(0)
     const get = mountState(); await flushPromises()
     await get().markAllRead(null)

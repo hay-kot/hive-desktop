@@ -44,7 +44,7 @@ export function useFeedState() {
   const refreshingSources = ref(false)
   const feedSort = useStorage<FeedSort>(feedSortStorageKey, 'newest')
 
-  // Last-selected sidebar destination per profile: reopening a workspace
+  // Last-selected sidebar destination per profile: reopening a profile
   // returns to where the user left off, else the first feed. Plain
   // localStorage (not useStorage) — it is read once per profile switch and
   // needs no reactivity or cross-instance cache.
@@ -236,7 +236,7 @@ export function useFeedState() {
   // A flow summary maps to a profile; feeds are filled in by loadFeeds once
   // the profile is selected (the rail only needs the letter/name). An
   // undefined tree is therefore "feeds not read yet", which is distinct from
-  // a workspace whose flow genuinely has no feed nodes.
+  // a profile whose flow genuinely has no feed nodes.
   function toProfileStub(flow: { id: string; name: string; enabled: boolean; image?: string }): Profile {
     const name = flow.name || flow.id
     return { id: flow.id, letter: letter(name), image: flow.image || undefined, name, enabled: flow.enabled, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
@@ -258,7 +258,7 @@ export function useFeedState() {
     } catch (error) {
       if (seq !== profilesSeq) return
       console.warn('Unable to load flows', error)
-      profilesError.value = 'Could not load your workspaces.'
+      profilesError.value = 'Could not load your profiles.'
     }
   }
 
@@ -347,8 +347,8 @@ export function useFeedState() {
         // load so counts stay fresh and added/removed feeds reconcile in.
         profile.tree = buildFeedTree(feeds, sidebar, flowId)
         profile.sourceSummary = sourceSummary(countByKind)
-        // Workspace rollups derive from feed counts: without an aggregate
-        // inbox there is no workspace-wide query to consult.
+        // Profile rollups derive from feed counts: without an aggregate inbox
+        // there is no profile-wide query to consult.
         profile.totalCount = feeds.reduce((sum, f) => sum + f.count, 0)
         profile.unreadCount = feeds.reduce((sum, f) => sum + f.newCount, 0)
       }
@@ -403,8 +403,8 @@ export function useFeedState() {
     }
   }
 
-  // Returns the new workspace's id, or null if it could not be created —
-  // onboarding needs it to seed the workspace it just made once GitHub is
+  // Returns the new profile's id, or null if it could not be created —
+  // onboarding needs it to seed the profile it just made once GitHub is
   // connected, and reading it back off activeProfileId would depend on a
   // selection a concurrent reload could have moved.
   async function createProfile(name: string): Promise<string | null> {
@@ -418,14 +418,14 @@ export function useFeedState() {
       return created.id
     } catch (error) {
       console.warn('Unable to create flow', error)
-      createProfileError.value = error instanceof Error && error.message ? error.message : 'Could not create the workspace.'
+      createProfileError.value = error instanceof Error && error.message ? error.message : 'Could not create the profile.'
       return null
     } finally {
       creatingProfile.value = false
     }
   }
 
-  // seedStarterFlow fills an empty workspace with the starter graph. The
+  // seedStarterFlow fills an empty profile with the starter graph. The
   // backend also publishes flows:updated, but this reload is what makes the
   // sidebar's feeds readable by the time the caller continues, rather than
   // whenever the event lands.
@@ -703,7 +703,7 @@ export function useFeedState() {
   }
 
   // Bulk read-state clear for a whole scope: one feed, or every feed in the
-  // workspace when feedID is null. One backend write, not N revision-guarded
+  // profile when feedID is null. One backend write, not N revision-guarded
   // per-item calls — so the loaded rows and the sidebar counts are re-read
   // afterwards rather than patched.
   //

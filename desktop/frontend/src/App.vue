@@ -211,7 +211,7 @@ watch([profilesLoaded, () => route.fullPath], async ([loaded]) => {
   const wantsUnread = route.query.unread === '1'
   if (feedId) await selectSidebar({ type: 'feed', feedId })
   else if (route.query.view === 'trash') await selectSidebar({ type: 'trash' })
-  // A bare feed route means "the workspace default": last-selected feed,
+  // A bare feed route means "the profile default": last-selected feed,
   // else the first feed in sidebar order. Defaults are never persisted as
   // the remembered selection.
   else await selectSidebar(defaultSelection(rawProfileId), { persist: false })
@@ -395,7 +395,7 @@ async function openJobRun(commandID: number): Promise<void> {
   if (!job || !activeProfileId.value) return
   await router.push({ name: 'feed', params: { profileId: activeProfileId.value } })
   if (route.name !== 'feed') return
-  // The route watcher applied the workspace default selection; the run opens
+  // The route watcher applied the profile default selection; the run opens
   // only if its item is present in that list.
   await openActionRun(Number(job.target), job.actionId, commandID)
 }
@@ -446,7 +446,7 @@ async function confirmUpdate(): Promise<void> {
 
 // ── Mark all as read ─────────────────────────────────────────────────────────
 // Clearing one feed is scoped, visible in the sidebar, and the thing the user
-// just asked for, so it runs straight away. The workspace variant reaches every
+// just asked for, so it runs straight away. The profile variant reaches every
 // feed at once with no undo, so it confirms and names the count first.
 const markWorkspaceReadOpen = ref(false)
 const workspaceUnreadCount = computed(() => unreadInScope(null))
@@ -499,10 +499,10 @@ function openErrorNode(): void {
   if (firstErrorNodeId.value) openFlows(firstErrorNodeId.value)
 }
 
-// A clicked notification arrives with the workspace and item it was sent
+// A clicked notification arrives with the profile and item it was sent
 // about (see the notify node). The window is already raised by the time this
 // fires; routing to a feed route that reveals the item is all that is left.
-// An item id of 0 means the notification had none — land on the workspace.
+// An item id of 0 means the notification had none — land on the profile.
 async function revealNotification(activation: NotificationActivation): Promise<void> {
   const profileId = activation.profileId
   if (!profileId) return
@@ -647,17 +647,17 @@ watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (k
 })
 
 // ── First run ────────────────────────────────────────────────────────────────
-// create workspace -> connect GitHub -> feed. The workspace goes first because
+// create profile -> connect GitHub -> feed. The profile goes first because
 // it is the one thing that exists without a credential; connecting is the
 // expected next step but can be skipped past a warning, and skipping lands on
 // a feed whose empty state points at Integrations.
 
-// Step 1: no workspace exists yet. This is also where deleting the last
-// workspace lands.
-const needsWorkspace = computed(() => profilesLoaded.value && profiles.value.length === 0)
+// Step 1: no profile exists yet. This is also where deleting the last profile
+// lands.
+const needsProfile = computed(() => profilesLoaded.value && profiles.value.length === 0)
 
 // Step 2. It is the tail of one continuous first run rather than a state the
-// app persists: set when the first workspace is created with nothing
+// app persists: set when the first profile is created with nothing
 // connected, cleared by connecting or skipping. Disconnecting later never
 // sets it — Settings ▸ Integrations is where that is repaired.
 const firstRunConnect = ref(false)
@@ -668,7 +668,7 @@ const firstRunConnect = ref(false)
 // only place onboarding pops the OS prompt; a returning user whose permission
 // is already resolved never sees this step (advanceToPermissions gates on it).
 const firstRunPermissions = ref(false)
-const onboardingActive = computed(() => needsWorkspace.value || firstRunConnect.value || firstRunPermissions.value)
+const onboardingActive = computed(() => needsProfile.value || firstRunConnect.value || firstRunPermissions.value)
 
 // Move off the connect step onto the permissions step, unless the OS decision
 // is already made — a grant or a denial has nothing left to ask, so first run
@@ -682,15 +682,15 @@ function skipConnectStep(): void {
   advanceToPermissions()
 }
 
-async function submitOnboardingWorkspace(name: string): Promise<void> {
+async function submitOnboardingProfile(name: string): Promise<void> {
   // Claim the connect step before creating: the profiles list gains the new
-  // workspace partway through createProfile, and without this the feed would
+  // profile partway through createProfile, and without this the feed would
   // render for a frame in between.
   firstRunConnect.value = !githubConnected.value
   if (!(await createProfile(name))) firstRunConnect.value = false
 }
 
-// Connecting during first run seeds the workspace made a step earlier. It was
+// Connecting during first run seeds the profile made a step earlier. It was
 // made empty because a source node names the account it fetches as and there
 // was none; this is the moment there is one. The connect card stays up until
 // the seed lands, so the feed is never rendered sourceless on the way through.
@@ -702,7 +702,7 @@ watch(githubConnected, async (connected) => {
   } catch (error) {
     console.warn('Unable to seed the starter flow', error)
     showToast('Starter feeds were not added', {
-      body: 'This workspace has no sources yet — add one in the flow editor.',
+      body: 'This profile has no sources yet — add one in the flow editor.',
       severity: 'error',
     })
   } finally {
@@ -1306,22 +1306,23 @@ onUnmounted(() => {
         @open-palette="togglePalette"
         @toggle-maximise="toggleMaximise"
       />
-      <!-- Hold an empty frame until the workspaces resolve so a returning user
+      <!-- Hold an empty frame until the profiles resolve so a returning user
            never sees onboarding flash by. A load failure falls through to the
            shell below, which renders the error with a retry. -->
       <div v-if="!shellLoaded" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
         v-else-if="onboardingActive"
-        :card="needsWorkspace ? 'workspace' : firstRunConnect ? connectCard : 'permissions'"
+        :card="needsProfile ? 'profile' : firstRunConnect ? connectCard : 'permissions'"
         :device-flow="deviceFlow"
-        :error="needsWorkspace ? createProfileError : firstRunConnect ? connectError : notificationError"
-        :busy="needsWorkspace ? creatingProfile : firstRunConnect ? connectBusy : requestingPermission"
+        :error="needsProfile ? createProfileError : firstRunConnect ? connectError : notificationError"
+        :busy="needsProfile ? creatingProfile : firstRunConnect ? connectBusy : requestingPermission"
+        :github-connected="githubConnected"
         :permission="notificationPermission"
         @start-device-flow="startDeviceFlow"
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"
         @submit-token="submitToken"
-        @create-workspace="submitOnboardingWorkspace"
+        @create-profile="submitOnboardingProfile"
         @skip-connect="skipConnectStep"
         @request-permission="requestPermission"
         @finish-permissions="firstRunPermissions = false"
@@ -1400,7 +1401,7 @@ onUnmounted(() => {
             @mark-read="markFeedRead"
             @reorder="(t) => activeProfile && reorderFeeds(activeProfile.id, t)"
           />
-          <!-- A workspace created before an account was connected has no
+          <!-- A profile created before an account was connected has no
                graph at all, so there is no feed to render. Say what is
                missing and where to fix it rather than showing an empty Trash
                view, which is where a feedless flow otherwise lands.
@@ -1415,8 +1416,8 @@ onUnmounted(() => {
             <div class="text-[13.5px] font-semibold">No sources yet</div>
             <p class="max-w-[400px] text-xs leading-relaxed text-text-3">
               {{ githubConnected
-                ? 'This workspace has no feeds. Open the flow editor to wire a source into one.'
-                : 'This workspace has no feeds, and no account is connected to fetch as. Connect one under Integrations, then wire a source into a feed.' }}
+                ? 'This profile has no feeds. Open the flow editor to wire a source into one.'
+                : 'This profile has no feeds, and no account is connected to fetch as. Connect one under Integrations, then wire a source into a feed.' }}
             </p>
             <div class="mt-1 flex items-center gap-2">
               <button
@@ -1537,8 +1538,8 @@ onUnmounted(() => {
       v-if="markWorkspaceReadOpen"
       title="Mark all feeds as read?"
       :description="workspaceUnreadCount === 1
-        ? `Clear the unread item in every feed of ${activeProfile?.name ?? 'this workspace'}. This can't be undone.`
-        : `Clear all ${workspaceUnreadCount} unread items in every feed of ${activeProfile?.name ?? 'this workspace'}. This can't be undone.`"
+        ? `Clear the unread item in every feed of ${activeProfile?.name ?? 'this profile'}. This can't be undone.`
+        : `Clear all ${workspaceUnreadCount} unread items in every feed of ${activeProfile?.name ?? 'this profile'}. This can't be undone.`"
       confirm-label="Mark all as read"
       :busy="markingAllRead"
       testid="mark-workspace-read-confirmation"

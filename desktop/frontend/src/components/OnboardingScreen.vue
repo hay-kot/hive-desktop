@@ -9,17 +9,19 @@ import IconLayoutGrid from '~icons/lucide/layout-grid'
 import type { DeviceFlowInfo } from '../types/github'
 import type { ConnectCard } from '../composables/useGitHubConnection'
 import type { NotificationPermission } from '../composables/useNotificationSettings'
+import { useAutofocus } from '../composables/useAutofocus'
 import { useClipboard } from '../composables/useClipboard'
 
 const props = defineProps<{
-  // 'workspace' is step 1: the workspace is the thing that exists before any
+  // 'profile' is step 1: the profile is the thing that exists before any
   // credential does. The connect cards are step 2, and are skippable.
   // 'permissions' is step 3: the OS notification grant, asked once the account
   // is settled so the prompt lands with context instead of mid-usage.
-  card: ConnectCard | 'workspace' | 'permissions'
+  card: ConnectCard | 'profile' | 'permissions'
   deviceFlow: DeviceFlowInfo | null
   error: string | null
   busy: boolean
+  githubConnected: boolean
   // The live OS permission state; only read on the 'permissions' card.
   permission?: NotificationPermission
 }>()
@@ -29,42 +31,49 @@ const emit = defineEmits<{
   useTokenInstead: []
   backToStart: []
   submitToken: [token: string]
-  createWorkspace: [name: string]
+  createProfile: [name: string]
   skipConnect: []
   requestPermission: []
   finishPermissions: []
 }>()
 
 const tokenInput = ref('')
-const workspaceInput = ref('')
+const profileInput = ref('')
+const profileInputEl = ref<HTMLInputElement | null>(null)
 const { copy, copied } = useClipboard({ resetDelay: 1600 })
+useAutofocus(profileInputEl)
 
 // Confirming the skip is local to this screen: it is a warning to read, not a
 // state the app has to hold. Leaving the connect step at all drops it.
 const confirmingSkip = ref(false)
 watch(() => props.card, () => { confirmingSkip.value = false })
 
-// Three steps, one screen each: name a workspace, connect the account, grant
-// notifications. Connecting seeds the workspace's feeds, so "add feeds & tasks"
+// Three steps, one screen each: name a profile, connect the account, grant
+// notifications. Connecting seeds the profile's feeds, so "add feeds & tasks"
 // is not a user task and never was a step of its own.
 const activeStep = computed(() => {
-  if (props.card === 'workspace') return 1
+  if (props.card === 'profile') return 1
   if (props.card === 'permissions') return 3
   return 2
 })
-const steps = [
-  { label: 'Create your first workspace', step: 1 },
+const firstRunSteps = [
+  { label: 'Create your first profile', step: 1 },
   { label: 'Connect GitHub', step: 2 },
   { label: 'Turn on notifications', step: 3 },
 ]
+// Deleting the last profile can return a connected user here. Do not present
+// account setup as unfinished when creating the replacement is all they need.
+const steps = computed(() => props.card === 'profile' && props.githubConnected
+  ? firstRunSteps.slice(0, 1)
+  : firstRunSteps)
 
-// The GitHub skip link belongs to the connect cards only — the workspace step
+// The GitHub skip link belongs to the connect cards only — the profile step
 // has nothing to skip past, and the permissions card carries its own skip.
 const isConnectCard = computed(() => props.card === 'idle' || props.card === 'device' || props.card === 'token')
 
 const heading = computed(() => {
   if (confirmingSkip.value) return 'Skip connecting GitHub?'
-  if (props.card === 'workspace') return 'Create your first workspace'
+  if (props.card === 'profile') return 'Create your first profile'
   if (props.card === 'permissions') return 'Turn on notifications'
   return 'Connect to GitHub'
 })
@@ -90,9 +99,9 @@ function submit() {
   if (tokenInput.value.trim()) emit('submitToken', tokenInput.value.trim())
 }
 
-function submitWorkspace() {
+function submitProfile() {
   if (props.busy) return
-  if (workspaceInput.value.trim()) emit('createWorkspace', workspaceInput.value.trim())
+  if (profileInput.value.trim()) emit('createProfile', profileInput.value.trim())
 }
 </script>
 
@@ -105,14 +114,24 @@ function submitWorkspace() {
         <span class="font-mono text-[17px] font-semibold">hive</span>
       </div>
       <h1 class="mb-3 text-[26px] font-semibold leading-[1.25] tracking-[-.02em]">Triage GitHub and<br>spin up sessions.</h1>
-      <p class="mb-11 max-w-[330px] text-sm leading-relaxed text-text-3">Name a workspace, then connect the account it pulls PRs, issues, and notifications from.</p>
+      <p class="mb-11 max-w-[330px] text-sm leading-relaxed text-text-3">{{ githubConnected
+        ? 'Name a profile to organize its feeds, sources, and rules.'
+        : 'Name a profile, then connect the account it pulls PRs, issues, and notifications from.' }}</p>
       <ol class="flex flex-col gap-5">
-        <li v-for="step in steps" :key="step.label" class="flex items-center gap-3.5">
+        <li
+          v-for="step in steps"
+          :key="step.label"
+          class="flex items-center gap-3.5"
+          :aria-current="step.step === activeStep ? 'step' : undefined"
+        >
           <span
+            aria-hidden="true"
             class="flex size-[30px] shrink-0 items-center justify-center rounded-full text-[13px] font-semibold"
             :class="step.step === activeStep ? 'bg-accent text-accent-contrast' : step.step < activeStep ? 'border border-accent-tint bg-chip text-accent' : 'border border-strong bg-chip text-text-3'"
           ><IconCheck v-if="step.step < activeStep" class="size-3.5" /><template v-else>{{ step.step }}</template></span>
-          <span class="text-sm" :class="step.step === activeStep ? 'font-medium text-text' : 'text-text-3'">{{ step.label }}</span>
+          <span class="text-sm" :class="step.step === activeStep ? 'font-medium text-text' : 'text-text-3'">
+            {{ step.label }}<span v-if="step.step < activeStep" class="sr-only">, complete</span>
+          </span>
         </li>
       </ol>
       <div class="flex-1" />
@@ -124,7 +143,7 @@ function submitWorkspace() {
       <div class="w-[420px] text-center">
         <div class="mx-auto mb-5 flex size-[60px] items-center justify-center rounded-[15px] border border-strong bg-chip text-text">
           <IconAlertTriangle v-if="confirmingSkip" class="size-[30px]" />
-          <IconLayoutGrid v-else-if="card === 'workspace'" class="size-[30px]" />
+          <IconLayoutGrid v-else-if="card === 'profile'" class="size-[30px]" />
           <IconBell v-else-if="card === 'permissions'" class="size-[30px]" />
           <IconGithub v-else class="size-[30px]" />
         </div>
@@ -132,7 +151,7 @@ function submitWorkspace() {
 
         <!-- skip: the warning the bypass goes past, not a gate -->
         <template v-if="confirmingSkip">
-          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">This workspace will have no sources, so your feed stays empty until you connect an account under Settings ▸ Integrations.</p>
+          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">This profile will have no sources, so your feed stays empty until you connect an account under Settings ▸ Integrations.</p>
           <button
             class="primary-button"
             data-testid="onboarding-skip-confirm"
@@ -143,23 +162,29 @@ function submitWorkspace() {
           </p>
         </template>
 
-        <!-- workspace: step 1, the one step that needs no credential -->
-        <template v-else-if="card === 'workspace'">
-          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">A workspace groups your feeds. Connect an account next and it starts with your open PRs, the notifications inbox, and cross-repo assignments.</p>
+        <!-- profile: step 1, the one step that needs no credential -->
+        <template v-else-if="card === 'profile'">
+          <p id="onboarding-profile-description" class="mb-6 text-[13.5px] leading-relaxed text-text-3">Profiles separate feeds, sources, and rules. Try Work, Open Source, or Personal.</p>
+          <label for="onboarding-profile-name" class="mb-1.5 block text-left text-xs font-medium text-text-3">Profile name</label>
           <input
-            v-model="workspaceInput"
+            id="onboarding-profile-name"
+            ref="profileInputEl"
+            v-model="profileInput"
             type="text"
-            placeholder="Frontend Triage"
-            class="mb-3 w-full rounded-lg border border-strong bg-app px-3.5 py-2.5 text-[13.5px] text-text outline-none placeholder:text-text-4 focus:border-accent"
-            data-testid="onboarding-workspace-input"
-            @keydown.enter="submitWorkspace"
+            placeholder="Personal"
+            autocomplete="off"
+            :disabled="busy"
+            aria-describedby="onboarding-profile-description"
+            class="mb-3 w-full rounded-lg border border-strong bg-app px-3.5 py-2.5 text-[13.5px] text-text outline-none placeholder:text-text-4 focus:border-accent disabled:opacity-55"
+            data-testid="onboarding-profile-input"
+            @keydown.enter="submitProfile"
           >
           <button
             class="primary-button"
-            :disabled="busy || !workspaceInput.trim()"
-            data-testid="onboarding-workspace-submit"
-            @click="submitWorkspace"
-          >Create workspace</button>
+            :disabled="busy || !profileInput.trim()"
+            data-testid="onboarding-profile-submit"
+            @click="submitProfile"
+          >{{ busy ? 'Creating…' : 'Create profile' }}</button>
           <p v-if="error" class="mt-4 text-xs text-kind-issue" data-testid="onboarding-error">{{ error }}</p>
         </template>
 
@@ -191,14 +216,14 @@ function submitWorkspace() {
             >{{ busy ? 'Requesting…' : 'Allow notifications' }}</button>
             <p v-if="error" class="mt-4 text-xs text-kind-issue" data-testid="onboarding-error">{{ error }}</p>
             <p class="mt-4 text-xs leading-relaxed text-text-4">
-              Prefer to decide later? <button class="link-quiet underline" data-testid="onboarding-permissions-skip" @click="emit('finishPermissions')">Skip for now</button> — activity still shows in Activity and as in-app alerts, just without background banners until you enable them in Settings.
+              Prefer to decide later? <button class="link-quiet underline" data-testid="onboarding-permissions-skip" @click="emit('finishPermissions')">Not now</button> — activity still shows in Activity and as in-app alerts, just without background banners until you enable them in Settings.
             </p>
           </template>
         </template>
 
         <!-- idle: not started -->
         <template v-else-if="card === 'idle'">
-          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Sign in from this device. Hive fills your workspace with your open PRs, your assignments, and the notifications inbox.</p>
+          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Sign in from this device. Hive fills your profile with your open PRs, your assignments, and the notifications inbox.</p>
           <button
             class="primary-button"
             :disabled="busy"
@@ -254,7 +279,7 @@ function submitWorkspace() {
         <!-- Bypassing GitHub is expected to be rare, so it sits below every
              connect card rather than beside the action that is the point. -->
         <p v-if="isConnectCard && !confirmingSkip" class="mt-2.5 text-xs text-text-4">
-          <button class="link-quiet" data-testid="onboarding-skip" @click="confirmingSkip = true">Skip for now</button>
+          <button class="link-quiet" data-testid="onboarding-skip" @click="confirmingSkip = true">Continue without GitHub</button>
         </p>
       </div>
     </section>
