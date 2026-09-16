@@ -42,6 +42,20 @@ func TestIndexHoldsRefsAndNeverValues(t *testing.T) {
 // from a backup that carried the index but not the keychain — must read as
 // absent. Reporting it as present is a "Connected" badge over nothing, and
 // the user's only clue would be an empty feed.
+func TestKeychainServicesAreIsolated(t *testing.T) {
+	keyring.MockInit()
+	ref := Ref{Provider: "github", Account: "octocat"}
+	first := NewKeychainStoreWithService(filepath.Join(t.TempDir(), "first.json"), "sh.hive.desktop.test.first")
+	second := NewKeychainStoreWithService(filepath.Join(t.TempDir(), "second.json"), "sh.hive.desktop.test.second")
+	require.NoError(t, first.Set(ref, "token-value"))
+
+	_, err := second.Get(ref)
+	require.ErrorIs(t, err, ErrNotFound)
+	value, err := first.Get(ref)
+	require.NoError(t, err)
+	assert.Equal(t, "token-value", value)
+}
+
 func TestGetPrunesTheIndexWhenTheKeychainEntryIsGone(t *testing.T) {
 	store := newTestKeychainStore(t)
 	ref := Ref{Provider: "github", Account: "octocat"}

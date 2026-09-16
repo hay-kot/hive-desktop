@@ -192,7 +192,7 @@ export const commandCatalog: BindableCommand[] = [
   { id: 'feed.toggle-archive', title: 'Archive / unarchive item', group: 'Feeds', keywords: ['archive', 'done', 'complete', 'dismiss'], defaultCombos: ['e'], context: 'feed' },
   { id: 'feed.mark-unread', title: 'Mark unread', group: 'Feeds', keywords: ['read', 'seen', 'unseen'], defaultCombos: ['shift+u'], context: 'feed' },
   // Scoped to the selected feed; a no-op in Trash, which carries no unread
-  // semantics. The workspace variant stays unbound by default: it clears every
+  // semantics. The profile variant stays unbound by default: it clears every
   // feed at once and there is no undo, so it should be asked for by name.
   {
     id: 'feed.mark-all-read',
@@ -207,7 +207,7 @@ export const commandCatalog: BindableCommand[] = [
     id: 'feed.mark-workspace-read',
     title: 'Mark all feeds as read',
     group: 'Feeds',
-    keywords: ['read', 'unread', 'clear', 'catch up', 'bulk', 'workspace', 'everything'],
+    keywords: ['read', 'unread', 'clear', 'catch up', 'bulk', 'profile', 'everything'],
     icon: IconMailCheck,
     defaultCombos: [],
     context: 'feed',

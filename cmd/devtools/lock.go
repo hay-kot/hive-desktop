@@ -33,7 +33,9 @@ func (d *devtools) withLock(operation func() error) error {
 }
 
 func (l *instanceLock) acquire() error {
-	if filepath.Clean(l.path) != filepath.Join(filepath.Clean(l.worktree), ".hive-desktop.lock") {
+	path := filepath.Clean(l.path)
+	root := filepath.Clean(l.worktree)
+	if path != filepath.Join(root, ".hive-desktop.lock") && path != filepath.Join(root, ".hive-desktop-onboarding.lock") {
 		return errors.New("development lock escaped the worktree")
 	}
 	if info, err := os.Lstat(l.path); err == nil && info.Mode()&os.ModeSymlink != 0 {

@@ -295,6 +295,19 @@ run = "go run ./cmd/devtools prepare"
 description = "Safely recreate this worktree's desktop instance and regenerate launch.env"
 run = "go run ./cmd/devtools fresh"
 
+[tasks."dev:onboarding"]
+description = "Launch live onboarding with fresh isolated data, config, and credentials"
+run = [
+  "go run ./cmd/devtools onboarding",
+  "mise run dev:onboarding:launch",
+]
+
+[tasks."dev:onboarding:launch"]
+hide = true
+dir = "desktop"
+env = { _.file = ["launch.onboarding.env"], VITE_HIVE_DEV_BRANCH = "{{ exec(command='git branch --show-current') }}", HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE = "" }
+run = "unset HIVE_DEFAULT_AGENT; go run ../cmd/devtools run -- wails3 dev -config ./build/config.yml"
+
 [tasks."dev:reset"]
 description = "Safely delete this worktree's marked desktop instance and launch.env"
 run = "go run ./cmd/devtools reset"

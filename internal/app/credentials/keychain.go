@@ -13,11 +13,11 @@ import (
 	"github.com/zalando/go-keyring"
 )
 
-// keyringService is the keychain service every desktop credential is filed
-// under. The account within it is the Ref's string form, which is what gives
-// the store the provider and account dimensions a single-slot token store
-// cannot represent — the shape ADR credential-store replaced.
-const keyringService = "sh.hive.desktop"
+const (
+	// EnvKeyringService gives development launches an isolated OS keychain namespace.
+	EnvKeyringService = "HIVE_DESKTOP_DEVELOPMENT_KEYRING_SERVICE"
+	keyringService    = "sh.hive.desktop"
+)
 
 // KeychainStore keeps values in the OS keychain and refs in a JSON index
 // beside the app's other state.
@@ -29,13 +29,22 @@ const keyringService = "sh.hive.desktop"
 type KeychainStore struct {
 	mu        sync.Mutex
 	indexPath string
+	service   string
 }
 
 // NewKeychainStore builds a store whose ref index lives at indexPath. The
 // path is a parameter rather than derived from internal/app/settings so this
 // package stays a leaf and a test can point it at a temp dir.
 func NewKeychainStore(indexPath string) *KeychainStore {
-	return &KeychainStore{indexPath: indexPath}
+	return NewKeychainStoreWithService(indexPath, keyringService)
+}
+
+// NewKeychainStoreWithService builds a store in a specific OS keychain namespace.
+func NewKeychainStoreWithService(indexPath, service string) *KeychainStore {
+	if service == "" {
+		service = keyringService
+	}
+	return &KeychainStore{indexPath: indexPath, service: service}
 }
 
 // Get reads one credential. A ref listed in the index whose keychain entry is
@@ -50,7 +59,7 @@ func (s *KeychainStore) Get(ref Ref) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	value, err := keyring.Get(keyringService, ref.String())
+	value, err := keyring.Get(s.service, ref.String())
 	if errors.Is(err, keyring.ErrNotFound) {
 		// Best-effort: failing to prune must not turn a missing credential
 		// into an error the caller has to distinguish from ErrNotFound.
@@ -78,7 +87,7 @@ func (s *KeychainStore) Set(ref Ref, value string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := keyring.Set(keyringService, ref.String(), value); err != nil {
+	if err := keyring.Set(s.service, ref.String(), value); err != nil {
 		return fmt.Errorf("credentials: write %s to keychain: %w", ref, err)
 	}
 	return s.addToIndex(ref)
@@ -95,7 +104,7 @@ func (s *KeychainStore) Delete(ref Ref) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	err := keyring.Delete(keyringService, ref.String())
+	err := keyring.Delete(s.service, ref.String())
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return fmt.Errorf("credentials: delete %s from keychain: %w", ref, err)
 	}

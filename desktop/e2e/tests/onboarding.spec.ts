@@ -16,9 +16,9 @@ const onboardingPorts: Record<string, number> = {
 }
 
 // The first-run story is one ordered walk on a per-browser onboarding server:
-// create a workspace, then connect the account that fills it, then the feed.
+// create a profile, then connect the account that fills it, then the feed.
 // Splitting it into named steps that share one page pins any failure to a
-// specific step (workspace-create vs. connect vs. flow-edit vs. delete)
+// specific step (profile-create vs. connect vs. flow-edit vs. delete)
 // instead of a line deep inside one giant test.
 //
 // The steps share a page and run serially because the device-flow grant is a
@@ -34,7 +34,7 @@ const onboardingPorts: Record<string, number> = {
 // reload/bind ordering this flow exercises is covered deterministically by
 // unit tests (useFeedState, useFlowsSession); this suite is the real-stack
 // integration smoke on top.
-test.describe.serial('first-run onboarding, then workspace and flow management', () => {
+test.describe.serial('first-run onboarding, then profile and flow management', () => {
   test.describe.configure({ retries: 0 })
 
   let page: Page
@@ -54,29 +54,31 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await page.close()
   })
 
-  test('starts at the workspace step, which needs no account', async () => {
+  test('starts at the profile step, which needs no account', async () => {
     await page.goto('/')
 
-    // The workspace is the one thing that exists without a credential, so it
+    // The profile is the one thing that exists without a credential, so it
     // is step 1 — the connect cards are not on screen yet.
     const onboarding = page.getByTestId('onboarding')
     await expect(onboarding).toBeVisible()
     await expect(onboarding).toContainText('Triage GitHub and')
-    await expect(onboarding).toContainText('Create your first workspace')
+    await expect(onboarding).toContainText('Create your first profile')
     await expect(onboarding).toContainText('Tokens are stored in your OS keychain.')
     await expect(page.getByTestId('onboarding-connect')).toBeHidden()
     // No profile chrome in the title bar while onboarding (gated on profileName).
     await expect(page.getByTestId('titlebar-activity')).toBeHidden()
 
-    const workspaceInput = page.getByTestId('onboarding-workspace-input')
-    await expect(page.getByTestId('onboarding-workspace-submit')).toBeDisabled()
+    const profileInput = page.getByTestId('onboarding-profile-input')
+    await expect(page.getByText('Profile name', { exact: true })).toBeVisible()
+    await expect(profileInput).toBeFocused()
+    await expect(page.getByTestId('onboarding-profile-submit')).toBeDisabled()
     await mkdir(screenshotsDir, { recursive: true })
-    await page.screenshot({ path: join(screenshotsDir, `onboarding-workspace-${projectName}.png`), fullPage: true })
+    await page.screenshot({ path: join(screenshotsDir, `onboarding-profile-${projectName}.png`), fullPage: true })
 
-    await workspaceInput.fill('Frontend Triage')
-    await page.getByTestId('onboarding-workspace-submit').click()
+    await profileInput.fill('Frontend Triage')
+    await page.getByTestId('onboarding-profile-submit').click()
 
-    // Step 2, not the feed: the workspace exists but has no sources yet.
+    // Step 2, not the feed: the profile exists but has no sources yet.
     await expect(page.getByTestId('onboarding-connect')).toBeVisible({ timeout: 15_000 })
     await expect(onboarding).toContainText('Connect to GitHub')
   })
@@ -96,6 +98,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     // the later deploy step race its own flows:updated under load. The
     // skip-through, and the empty state it lands on, are pinned deterministically
     // in App.spec.ts instead.
+    await expect(page.getByTestId('onboarding-skip')).toHaveText('Continue without GitHub')
     await page.getByTestId('onboarding-skip').click()
     await expect(page.getByTestId('onboarding')).toContainText('Skip connecting GitHub?')
     await expect(page.getByTestId('onboarding')).toContainText('Settings ▸ Integrations')
@@ -103,7 +106,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await expect(page.getByTestId('onboarding-connect')).toBeVisible()
   })
 
-  test('grants through the device flow, which seeds the workspace it made', async () => {
+  test('grants through the device flow, which seeds the profile it made', async () => {
     // Device flow: the mock backend grants after ~1.5s.
     await page.getByTestId('onboarding-connect').click()
     await expect(page.getByTestId('onboarding-user-code')).toHaveText('7B4C-Q22F')
@@ -113,9 +116,10 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     // Step 3 stands between the grant and the feed: the OS notification
     // prompt. Skipping is the path that needs no OS grant, so it is the one a
     // headless run can take.
+    await expect(page.getByTestId('onboarding-permissions-skip')).toHaveText('Not now')
     await page.getByTestId('onboarding-permissions-skip').click()
 
-    // Connecting is what fills the workspace: it was created empty because a
+    // Connecting is what fills the profile: it was created empty because a
     // source node names the account it fetches as. The starter graph is three
     // sources.github -> feed pairs plus a "Review requests" feed and notify
     // node behind a filter. Nothing has polled GitHub yet in mock mode

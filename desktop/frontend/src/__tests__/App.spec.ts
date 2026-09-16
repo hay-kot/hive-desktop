@@ -376,8 +376,8 @@ describe('App', () => {
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
-  // create workspace -> connect GitHub -> feed. Nothing in the app is gated on
-  // GitHub, so the only step that can hold the app back is having no workspace.
+  // create profile -> connect GitHub -> feed. Nothing in the app is gated on
+  // GitHub, so the only step that can hold the app back is having no profile.
 
   it('opens the feed with GitHub disconnected — the app is not gated on it', async () => {
     mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
@@ -389,21 +389,21 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('walks first run: workspace first, then connect, which seeds the workspace it made', async () => {
+  it('walks first run: profile first, then connect, which seeds the profile it made', async () => {
     mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
     mocks.ListFlows.mockResolvedValue([])
     mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
     mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
     const wrapper = await mountApp()
 
-    // Step 1 is the workspace: it is the thing that exists without a credential.
+    // Step 1 is the profile: it is the thing that exists without a credential.
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="onboarding-workspace-input"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-profile-input"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
 
     mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
-    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
     await flushPromises()
 
     // Step 2 is connecting, and the app has not fallen through to the feed.
@@ -438,8 +438,8 @@ describe('App', () => {
     const wrapper = await mountApp()
 
     mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
-    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
     await flushPromises()
 
     mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
@@ -465,13 +465,13 @@ describe('App', () => {
     mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
     mocks.ListFlows.mockResolvedValue([])
     mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
-    // A workspace created before an account was connected has no graph at all.
+    // A profile created before an account was connected has no graph at all.
     mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, nodes: [], wires: [] })
     const { wrapper, router } = await mountAppWithRouter()
 
     mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
-    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
     await flushPromises()
 
     await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
@@ -1758,7 +1758,7 @@ describe('App', () => {
     router.back()
     await flushPromises()
     expect(router.currentRoute.value.query).toEqual({})
-    // A bare feed route selects the workspace default: the last-selected feed.
+    // A bare feed route selects the profile default: the last-selected feed.
     expect(wrapper.find('[data-testid="sidebar-feed"][data-id="personal/desktop"]').classes()).toContain('sidebar-entry-selected')
 
     router.forward()
@@ -1844,7 +1844,9 @@ describe('App', () => {
 
     expect(mocks.DeleteFlow).toHaveBeenCalledWith('personal')
     expect(document.querySelector('[data-testid="delete-profile-modal"]')).toBeNull()
-    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(true)
+    const onboarding = wrapper.get('[data-testid="onboarding"]')
+    expect(onboarding.text()).toContain('Name a profile to organize its feeds, sources, and rules.')
+    expect(onboarding.text()).not.toContain('Connect GitHub')
 
     wrapper.unmount()
   })
@@ -2586,7 +2588,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('renders all three mode segments once a workspace exists', async () => {
+  it('renders all three mode segments once a profile exists', async () => {
     const wrapper = await mountApp()
 
     expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(true)

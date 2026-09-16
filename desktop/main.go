@@ -25,6 +25,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/observe"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
@@ -170,14 +171,15 @@ func main() {
 
 	_, coreSpan := tracer.Start(startupCtx, "app.core.new")
 	core, err := app.New(ctx, app.Config{
-		Settings:      cfg,
-		SettingsStore: settingsStore,
-		Paths:         paths,
-		MockMode:      cfg.MockMode(),
-		Logger:        logger,
-		Notifier:      ui.Notifier(),
-		Gate:          ui.Gate(),
-		Build:         report.Build{Version: version, Commit: commit, Date: date},
+		Settings:                 cfg,
+		SettingsStore:            settingsStore,
+		Paths:                    paths,
+		MockMode:                 cfg.MockMode(),
+		Logger:                   logger,
+		CredentialKeyringService: os.Getenv(credentials.EnvKeyringService),
+		Notifier:                 ui.Notifier(),
+		Gate:                     ui.Gate(),
+		Build:                    report.Build{Version: version, Commit: commit, Date: date},
 	})
 	coreSpan.End()
 	if err != nil {
