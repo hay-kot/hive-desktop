@@ -865,7 +865,9 @@ const {
 onMounted(() => { void checkReleaseNotes() })
 const {
   open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, busy: newSessionBusy, error: newSessionError,
+  failure: newSessionFailure, formKey: newSessionFormKey,
   openBlank: openNewSession, openFromItem: openNewSessionFromItem, cancel: cancelNewSession, submit: submitNewSession,
+  dismissFailure: dismissNewSessionFailure, onCreateFailed: onNewSessionFailed,
 } = useNewSession()
 const kb = useKeybindings()
 
@@ -911,6 +913,8 @@ useWailsEvent('actions:updated', () => { void launchers.refresh() })
 const { sessions: itemSessions, load: loadItemSessions, refresh: refreshItemSessions } = useItemSessions()
 watch(() => selectedItem.value?.id ?? null, (itemID) => { void loadItemSessions(itemID) }, { immediate: true })
 useWailsEvent('jobs:updated', () => { void refreshItemSessions() })
+// The dialog closed on submit, so the failure has to come to the user.
+useWailsEvent('sessions:create-failed', () => { void onNewSessionFailed() })
 
 // Attaching is terminal mode's job; the route is the attach state (ADR terminal-transport),
 // so linking through is a navigation and nothing here touches tmux.
@@ -1505,12 +1509,15 @@ onUnmounted(() => {
     />
     <NewSessionDialog
       v-if="newSessionOpen && newSessionOptions"
+      :key="newSessionFormKey"
       :options="newSessionOptions"
       :initial="newSessionInitial"
       :busy="newSessionBusy"
       :error="newSessionError"
+      :failure="newSessionFailure"
       @close="cancelNewSession"
       @submit="submitNewSession"
+      @dismiss-failure="dismissNewSessionFailure"
     />
     <ConfirmationDialog
       v-if="updateConfirmOpen"

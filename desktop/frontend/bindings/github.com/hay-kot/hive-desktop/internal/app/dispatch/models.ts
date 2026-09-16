@@ -99,6 +99,41 @@ export enum PullRequestStatus {
 };
 
 /**
+ * SessionCreateFailure is why one session creation attempt failed.
+ */
+export interface SessionCreateFailure {
+    /**
+     * Reason is the wrapped error, a chain like
+     * "clone repository: git clone: exec git: exit status 1".
+     */
+    "reason": string;
+
+    /**
+     * Step is the last thing creation reported: "Cloning repository...",
+     * "Executing rules...".
+     */
+    "step": string;
+
+    /**
+     * Output is the tail of the attempt's progress output, hook output included.
+     */
+    "output": string;
+
+    /**
+     * CloneStrategy is "full" or "worktree".
+     */
+    "cloneStrategy": string;
+
+    /**
+     * Destination is the checkout hive resolved for the attempt. A clone that
+     * fails in a post-checkout hook leaves it complete on disk, and no session
+     * record points at it.
+     */
+    "destination": string;
+    "at": string;
+}
+
+/**
  * SessionDetail is one session read in full, for a detail view.
  */
 export interface SessionDetail {
@@ -116,12 +151,23 @@ export interface SessionDetail {
 }
 
 /**
- * SessionDraft is a New Session form prefilled from an inbox item.
+ * SessionDraft is a New Session form the app prefills: from an inbox item, or
+ * from a creation attempt that failed and is being handed back. Agent and
+ * ItemID are only meaningful for the second, which has to restore both because
+ * the form they came from is gone.
  */
 export interface SessionDraft {
     "repository": string;
     "name": string;
     "prompt": string;
+    "agent"?: string;
+    "itemId"?: number;
+
+    /**
+     * nil on a draft that is not a retry, which is also what "no attempt is
+     * waiting" looks like to a caller.
+     */
+    "failure"?: SessionCreateFailure | null;
 }
 
 export interface SessionExecutionOutcome {

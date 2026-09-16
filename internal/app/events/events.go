@@ -29,6 +29,11 @@ type JobsUpdated struct {
 	JobID int64
 }
 
+// SessionCreateFailed reports that a New Session form was accepted and the
+// session it asked for was not created. The failure is state the reader
+// re-reads, so the payload names the attempt rather than carrying the reason.
+type SessionCreateFailed struct{ Name string }
+
 // FlowsUpdated reports that the flow set was reloaded. Reason names what
 // caused it — an external edit, or the app's own save.
 type FlowsUpdated struct{ Reason string }
@@ -86,6 +91,7 @@ func (LogAppended) eventName() string            { return "log.appended" }
 func (InboxUpdated) eventName() string           { return "inbox.updated" }
 func (ActivityAppended) eventName() string       { return "activity.appended" }
 func (JobsUpdated) eventName() string            { return "jobs.updated" }
+func (SessionCreateFailed) eventName() string    { return "session.create-failed" }
 func (FlowsUpdated) eventName() string           { return "flows.updated" }
 func (ActionsUpdated) eventName() string         { return "actions.updated" }
 func (AgentWorkspacesUpdated) eventName() string { return "agent-workspaces.updated" }

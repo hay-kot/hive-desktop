@@ -76,8 +76,8 @@ github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJ
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=
 github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
-github.com/colonyops/hive v0.59.0 h1:ScwpJVzI16idEtw3qPgUwq8ms245cHKkt5Tax7jmaVM=
-github.com/colonyops/hive v0.59.0/go.mod h1:61MJ+RMwGqRhs1Kd356x5qNdXdQJgRcro7Rf0yoSnzQ=
+github.com/colonyops/hive v0.59.1-0.20260916195824-197dd7325689 h1:T1um8pO5phPzqC9uk0JD4VUX5If1Pak2Nju0S1QaRtk=
+github.com/colonyops/hive v0.59.1-0.20260916195824-197dd7325689/go.mod h1:61MJ+RMwGqRhs1Kd356x5qNdXdQJgRcro7Rf0yoSnzQ=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/creack/pty v1.1.24 h1:bJrF4RRfyJnbTJqzRLHzcGaZK1NeM5kTC9jGgovnR1s=
 github.com/creack/pty v1.1.24/go.mod h1:08sCNb52WyoAwi2QDyzUCTgcvVFhUzewun7wtTfvcwE=

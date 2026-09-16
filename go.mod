@@ -9,7 +9,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/coder/websocket v1.8.15
-	github.com/colonyops/hive v0.59.0
+	github.com/colonyops/hive v0.59.1-0.20260916195824-197dd7325689
 	github.com/creack/pty v1.1.24
 	github.com/dop251/goja v0.0.0-20260806115107-493f22071ef6
 	github.com/fsnotify/fsnotify v1.10.1

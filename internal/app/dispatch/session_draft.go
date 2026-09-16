@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/colonyops/hive/pkg/tmpl"
 )
@@ -21,11 +23,105 @@ type CreateSessionRequest struct {
 	ItemID     int64  `json:"itemId,omitempty"`
 }
 
-// SessionDraft is a New Session form prefilled from an inbox item.
+// SessionDraft is a New Session form the app prefills: from an inbox item, or
+// from a creation attempt that failed and is being handed back. Agent and
+// ItemID are only meaningful for the second, which has to restore both because
+// the form they came from is gone.
 type SessionDraft struct {
 	Repository string `json:"repository"`
 	Name       string `json:"name"`
 	Prompt     string `json:"prompt"`
+	Agent      string `json:"agent,omitempty"`
+	ItemID     int64  `json:"itemId,omitempty"`
+	// nil on a draft that is not a retry, which is also what "no attempt is
+	// waiting" looks like to a caller.
+	Failure *SessionCreateFailure `json:"failure,omitempty"`
+}
+
+// SessionCreateFailure is why one session creation attempt failed.
+type SessionCreateFailure struct {
+	// Reason is the wrapped error, a chain like
+	// "clone repository: git clone: exec git: exit status 1".
+	Reason string `json:"reason"`
+	// Step is the last thing creation reported: "Cloning repository...",
+	// "Executing rules...".
+	Step string `json:"step"`
+	// Output is the tail of the attempt's progress output, hook output included.
+	Output string `json:"output"`
+	// CloneStrategy is "full" or "worktree".
+	CloneStrategy string `json:"cloneStrategy"`
+	// Destination is the checkout hive resolved for the attempt. A clone that
+	// fails in a post-checkout hook leaves it complete on disk, and no session
+	// record points at it.
+	Destination string    `json:"destination"`
+	At          time.Time `json:"at"`
+}
+
+// Activity-metadata keys for a retryable failed form, the persisted half of
+// the retry. RetryKindSessionCreate marks the bag so the Activity view can
+// offer the button without interpreting the rest of it; nothing outside this
+// file knows these strings.
+const (
+	RetryMetadataKey       = "retry"
+	RetryKindSessionCreate = "session-create"
+
+	metaRepository  = "repository"
+	metaName        = "name"
+	metaPrompt      = "prompt"
+	metaAgent       = "agent"
+	metaItemID      = "itemId"
+	metaStep        = "step"
+	metaReason      = "reason"
+	metaDestination = "destination"
+)
+
+// SessionDraftMetadata encodes a failed form onto an activity row. The
+// progress tail is left out: an audit row is not the place for a hook's
+// output, and the ERR line has it.
+func SessionDraftMetadata(draft SessionDraft) map[string]string {
+	meta := map[string]string{
+		RetryMetadataKey: RetryKindSessionCreate,
+		metaRepository:   draft.Repository,
+		metaName:         draft.Name,
+		metaPrompt:       draft.Prompt,
+		metaAgent:        draft.Agent,
+	}
+	if draft.ItemID != 0 {
+		meta[metaItemID] = strconv.FormatInt(draft.ItemID, 10)
+	}
+	if draft.Failure != nil {
+		meta[metaStep] = draft.Failure.Step
+		meta[metaReason] = draft.Failure.Reason
+		meta[metaDestination] = draft.Failure.Destination
+	}
+	return meta
+}
+
+// SessionDraftFromMetadata decodes what SessionDraftMetadata wrote. It reports
+// false for a bag that is not a session-create retry or that names no
+// repository, so a forged or truncated row prefills nothing.
+func SessionDraftFromMetadata(meta map[string]string) (SessionDraft, bool) {
+	if meta[RetryMetadataKey] != RetryKindSessionCreate {
+		return SessionDraft{}, false
+	}
+	draft := SessionDraft{
+		Repository: meta[metaRepository],
+		Name:       meta[metaName],
+		Prompt:     meta[metaPrompt],
+		Agent:      meta[metaAgent],
+	}
+	if draft.Repository == "" {
+		return SessionDraft{}, false
+	}
+	draft.ItemID, _ = strconv.ParseInt(meta[metaItemID], 10, 64)
+	if meta[metaReason] != "" || meta[metaStep] != "" {
+		draft.Failure = &SessionCreateFailure{
+			Reason:      meta[metaReason],
+			Step:        meta[metaStep],
+			Destination: meta[metaDestination],
+		}
+	}
+	return draft, true
 }
 
 // DefaultSessionPromptTemplate renders an inbox item into the starting prompt

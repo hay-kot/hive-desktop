@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -78,12 +81,18 @@ func newHiveSessions(t *testing.T) (*HiveSessionManager, session.Store) {
 
 func newHiveSessionsWith(t *testing.T, cfg *config.Config, exec executil.Executor) (*HiveSessionManager, session.Store) {
 	t.Helper()
-	database, err := coredb.Open(t.TempDir(), coredb.DefaultOpenOptions())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	store := stores.NewSessionStore(openCoreDB(t))
+	return NewHiveSessionManager(newHiveSessionServiceOver(t, store, cfg, exec), nil, nil, nil, 0), store
+}
 
-	store := stores.NewSessionStore(database)
-	svc := hivesvc.NewSessionService(
+func newHiveSessionService(t *testing.T, cfg *config.Config, exec executil.Executor) *hivesvc.SessionService {
+	t.Helper()
+	return newHiveSessionServiceOver(t, stores.NewSessionStore(openCoreDB(t)), cfg, exec)
+}
+
+func newHiveSessionServiceOver(t *testing.T, store session.Store, cfg *config.Config, exec executil.Executor) *hivesvc.SessionService {
+	t.Helper()
+	return hivesvc.NewSessionService(
 		store,
 		git.NewExecutor("git", exec),
 		cfg,
@@ -94,7 +103,14 @@ func newHiveSessionsWith(t *testing.T, cfg *config.Config, exec executil.Executo
 		io.Discard,
 		io.Discard,
 	)
-	return NewHiveSessionManager(svc, nil, nil, nil, 0), store
+}
+
+func openCoreDB(t *testing.T) *coredb.DB {
+	t.Helper()
+	database, err := coredb.Open(t.TempDir(), coredb.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	return database
 }
 
 type listingSessionManagement struct {
@@ -375,4 +391,83 @@ func TestHiveSessionManagerRiskIsEmptyForANonActiveSession(t *testing.T) {
 	// No live clone left to hold unsaved work — but recycling a worktree
 	// session still deletes it, which the confirmation has to say.
 	assert.Equal(t, SessionRisk{RecycleDeletes: true}, risk)
+}
+
+// newHiveLauncher builds the launcher over the real vendored session service,
+// for the same reason newHiveSessions does: a fake shaped to fit the seam would
+// report whatever the test wanted to hear.
+func newHiveLauncher(t *testing.T, cfg *config.Config) *HiveSessionLauncher {
+	t.Helper()
+	return NewHiveSessionLauncher(newHiveSessionService(t, cfg, &executil.RealExecutor{}))
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+}
+
+// failingPostCheckoutRepo is the shape of the incident: a clonable remote plus
+// a global post-checkout hook that exits non-zero. git propagates the hook's
+// exit code, so the checkout is complete and the clone still failed.
+func failingPostCheckoutRepo(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	src := filepath.Join(root, "site")
+	require.NoError(t, os.MkdirAll(src, 0o755))
+	runGit(t, src, "init", "-q")
+	require.NoError(t, os.WriteFile(filepath.Join(src, "a.txt"), []byte("hi"), 0o644))
+	runGit(t, src, "add", ".")
+	runGit(t, src, "-c", "user.email=a@b.c", "-c", "user.name=a", "commit", "-qm", "init")
+
+	hooks := filepath.Join(root, "hooks")
+	require.NoError(t, os.MkdirAll(hooks, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(hooks, "post-checkout"), []byte("#!/bin/sh\nexit 1\n"), 0o755))
+	// GIT_CONFIG_* reaches the clone the way a global hook would, without
+	// touching the machine.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
+	t.Setenv("GIT_CONFIG_VALUE_0", hooks)
+	return src
+}
+
+func TestHiveSessionLauncherReportsTheFailedOperationAndItsCheckout(t *testing.T) {
+	cfg := &config.Config{DataDir: t.TempDir()}
+	remote := failingPostCheckoutRepo(t)
+
+	_, err := newHiveLauncher(t, cfg).LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-81", Repo: remote})
+
+	var failure *SessionCreateError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "review-81", failure.Name)
+	assert.Equal(t, remote, failure.Remote)
+
+	// Off hive's own CreateSessionError, not derived here.
+	assert.Equal(t, "clone repository", failure.Step)
+	assert.Equal(t, "full", failure.CloneStrategy)
+	assert.Equal(t, cfg.ReposDir(), filepath.Dir(failure.Destination))
+	assert.DirExists(t, failure.Destination, "the complete checkout the failed clone left behind")
+
+	// The progress tail is still the desktop's own: hive's error names one
+	// operation, the tail names the sequence that led to it.
+	assert.Contains(t, failure.Output, "Clone strategy: full")
+	assert.Contains(t, failure.Output, "Cloning repository...")
+	assert.Contains(t, err.Error(), "clone repository", "the step travels in the surfaced error")
+}
+
+// git's own reason now survives hive's wrapping, which is the whole point of
+// the upstream change this vendors.
+func TestHiveSessionLauncherReportsWhyACloneWasRefused(t *testing.T) {
+	cfg := &config.Config{DataDir: t.TempDir()}
+	missing := filepath.Join(t.TempDir(), "no-such-repo")
+
+	_, err := newHiveLauncher(t, cfg).LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-81", Repo: missing})
+
+	var failure *SessionCreateError
+	require.ErrorAs(t, err, &failure)
+	assert.Equal(t, "clone repository", failure.Step)
+	assert.Equal(t, "full", failure.CloneStrategy)
+	assert.Contains(t, err.Error(), "does not exist", "git's words, not just its exit status")
 }

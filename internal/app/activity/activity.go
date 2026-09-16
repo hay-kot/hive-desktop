@@ -67,6 +67,21 @@ func SessionCreated(name, agent, repo string) Event {
 	}
 }
 
+// SessionCreateFailed records a session the app accepted and could not create.
+// Unlike ActionFailed there is nothing to show afterwards, so retry carries
+// the submitted form and makes the row the way back to it
+// (ADR a-failed-session-creation-is-a-retryable-draft).
+func SessionCreateFailed(name, repo, step, reason string, retry map[string]string) Event {
+	return Event{
+		Category: CategorySession,
+		Severity: SeverityError,
+		Title:    fmt.Sprintf("Could not create session %s", name),
+		Body:     joinMeta(repo, step, reason),
+		Source:   name,
+		Metadata: retry,
+	}
+}
+
 // AutoAction records an automatic action applied without confirmation. rule is
 // the action/rule id and target the item it acted on.
 func AutoAction(label, rule, target string) Event {

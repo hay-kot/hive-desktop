@@ -165,9 +165,18 @@ func TestHiveSessionLauncher_MapsRequestToSessionService(t *testing.T) {
 		Name: "review-pr-1", Prompt: "Review this", Agent: "claude", Repo: "https://example.test/repo.git",
 	})
 	require.NoError(t, err)
-	require.Equal(t, []hive.CreateOptions{{
+	require.Len(t, creator.calls, 1)
+	require.NotNil(t, creator.calls[0].Progress, "every attempt gets its own progress writer, so a failure can name the step it died on")
+	require.Equal(t, hive.CreateOptions{
 		Name: "review-pr-1", Prompt: "Review this", AgentKey: "claude", Remote: "https://example.test/repo.git", Background: true,
-	}}, creator.calls)
+	}, withoutProgress(creator.calls[0]))
+}
+
+// The per-attempt writer has no comparable identity, so drop it to compare the
+// rest by value.
+func withoutProgress(opts hive.CreateOptions) hive.CreateOptions {
+	opts.Progress = nil
+	return opts
 }
 
 func TestHiveSessionLauncher_PrefersEquivalentConfiguredCheckout(t *testing.T) {
@@ -180,7 +189,7 @@ func TestHiveSessionLauncher_PrefersEquivalentConfiguredCheckout(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, hive.CreateOptions{
 		Name: "review-pr-1", Prompt: "Review this", AgentKey: "claude", Remote: "git@github.com:colonyops/hive.git", Source: "/work/hive", Background: true,
-	}, creator.calls[0])
+	}, withoutProgress(creator.calls[0]))
 }
 
 func TestHiveSessionLauncher_PropagatesServiceFailure(t *testing.T) {

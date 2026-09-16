@@ -395,7 +395,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Sessions = newSessionsService(SessionsDeps{
 		Launcher: a.launcher, Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
 		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
-		Recorder: a.Activity, Logger: cfg.Logger,
+		Recorder: a.Activity, Events: a.Events, Logger: cfg.Logger,
 		PullRequests: newSessionPullRequests(
 			newGitHubForge(gitHubClient, a.credentials),
 			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),

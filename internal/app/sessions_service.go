@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/colonyops/hive/pkg/osopen"
@@ -17,6 +18,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 )
 
@@ -106,7 +108,15 @@ type SessionsService struct {
 	// defaultAgentEnv is never nil: newSessionsService substitutes
 	// NopDefaultAgentReader, so withEnvironmentDefaultAgent never guards it.
 	defaultAgentEnv DefaultAgentReader
+	events          *events.Bus
 	logger          zerolog.Logger
+
+	// The last failed New Session form, so reopening restores what was typed.
+	// One slot, because the form has one instance; not persisted, because the
+	// activity row recordFailedCreate writes is the durable half
+	// (ADR a-failed-session-creation-is-a-retryable-draft).
+	failedCreateMu sync.Mutex
+	failedCreate   *dispatch.SessionDraft
 }
 
 // DefaultAgentReader reads HIVE_DEFAULT_AGENT from the user's resolved
@@ -145,6 +155,7 @@ type SessionsDeps struct {
 	// DefaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
 	// would. nil means NopDefaultAgentReader.
 	DefaultAgentEnv DefaultAgentReader
+	Events          *events.Bus
 	Logger          zerolog.Logger
 }
 
@@ -171,6 +182,7 @@ func newSessionsService(d SessionsDeps) *SessionsService {
 		execEnv:         d.ExecEnv,
 		editorCommand:   d.EditorCommand,
 		defaultAgentEnv: d.DefaultAgentEnv,
+		events:          d.Events,
 		logger:          d.Logger,
 	}
 }
@@ -456,16 +468,125 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 		Repo:   repo,
 		Origin: origin,
 	}
+	// The anchor for the failure. hive logs "cloning repository" with dest= and
+	// strategy= but names no session, so without a line either side of it a log
+	// holding several creates cannot say whose path that was.
+	s.logger.Info().
+		Str("session_name", name).
+		Str("repository", repo).
+		Str("agent", launch.Agent).
+		Int64("item_id", req.ItemID).
+		Msg("creating session")
+
+	// Submitting retires the previous failure: leaving it pending would hand the
+	// old attempt back over the session just asked for.
+	s.setFailedCreate(nil)
 	jobID := s.jobs.Track(ctx, "Create session", newSessionJobActionID, name, func(bg context.Context) error {
 		if _, err := s.launcher.LaunchSession(bg, launch); err != nil {
 			if errors.Is(err, dispatch.ErrDuplicateSessionName) {
 				return fmt.Errorf("a session named %q already exists", name)
 			}
-			return err
+			return s.recordFailedCreate(bg, req, err)
 		}
 		return nil
 	})
 	return jobID, nil
+}
+
+// recordFailedCreate returns the error the job records.
+//
+// A name collision never reaches here: CreateSession answers that itself,
+// because a duplicate name is a form error fixed in the field, not a failure
+// to report against the whole attempt.
+func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.CreateSessionRequest, err error) error {
+	failure := dispatch.SessionCreateFailure{Reason: err.Error(), At: time.Now()}
+	var detail *dispatch.SessionCreateError
+	if errors.As(err, &detail) {
+		failure = dispatch.SessionCreateFailure{
+			Reason:        detail.Err.Error(),
+			Step:          detail.Step,
+			Output:        detail.Output,
+			CloneStrategy: detail.CloneStrategy,
+			Destination:   detail.Destination,
+			At:            time.Now(),
+		}
+	}
+
+	// One flat chain, every field present even when empty: a line whose shape
+	// depends on what was known is one a log query cannot rely on.
+	var remote string
+	if detail != nil {
+		remote = detail.Remote
+	}
+	s.logger.Error().
+		Str("session_name", strings.TrimSpace(req.Name)).
+		Str("repository", strings.TrimSpace(req.Repository)).
+		Str("remote", remote).
+		Str("clone_strategy", failure.CloneStrategy).
+		Str("destination", failure.Destination).
+		Str("step", failure.Step).
+		Str("progress", failure.Output).
+		Err(err).
+		Msg("creating session failed")
+
+	draft := dispatch.SessionDraft{
+		Repository: strings.TrimSpace(req.Repository),
+		Name:       strings.TrimSpace(req.Name),
+		Prompt:     strings.TrimSpace(req.Prompt),
+		Agent:      req.Agent,
+		ItemID:     req.ItemID,
+		Failure:    &failure,
+	}
+	s.setFailedCreate(&draft)
+	// The durable half: the toast and the slot die with the process, the row
+	// does not, and it carries the form to come back to.
+	if s.recorder != nil {
+		s.recorder.Record(ctx, activity.SessionCreateFailed(
+			draft.Name, draft.Repository, failure.Step, failure.Reason,
+			dispatch.SessionDraftMetadata(draft),
+		))
+	}
+	if s.events != nil {
+		s.events.Publish(ctx, events.SessionCreateFailed{Name: draft.Name})
+	}
+	return err
+}
+
+// FailedSessionDraft returns the last failed New Session form. A nil Failure
+// is what says there is no attempt waiting.
+func (s *SessionsService) FailedSessionDraft(context.Context) (dispatch.SessionDraft, error) {
+	s.failedCreateMu.Lock()
+	defer s.failedCreateMu.Unlock()
+	if s.failedCreate == nil {
+		return dispatch.SessionDraft{}, nil
+	}
+	return *s.failedCreate, nil
+}
+
+// SessionDraftFromActivity decodes the form an activity row carries. It takes
+// the row's metadata rather than its id because the caller already holds the
+// row it rendered, and forwarding an opaque bag keeps the encoding in Go.
+//
+// A bag carrying no retry is KindInvalid rather than an empty draft: a form
+// silently prefilled with nothing is worse than a refused one.
+func (s *SessionsService) SessionDraftFromActivity(_ context.Context, metadata map[string]string) (dispatch.SessionDraft, error) {
+	draft, ok := dispatch.SessionDraftFromMetadata(metadata)
+	if !ok {
+		return dispatch.SessionDraft{}, Errorf(KindInvalid, "this activity event carries no session to retry")
+	}
+	return draft, nil
+}
+
+// DismissFailedSession drops the pending failed attempt.
+func (s *SessionsService) DismissFailedSession(context.Context) error {
+	s.setFailedCreate(nil)
+	return nil
+}
+
+func (s *SessionsService) setFailedCreate(draft *dispatch.SessionDraft) {
+	s.failedCreateMu.Lock()
+	defer s.failedCreateMu.Unlock()
+	s.failedCreate = draft
 }
 
 // RenameSession renames a session and returns its new summary.

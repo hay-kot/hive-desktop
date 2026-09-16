@@ -119,3 +119,9 @@ function dayLabel(key: string, date: Date, today: string, yesterday: string): st
   if (key === yesterday) return 'Yesterday'
   return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
 }
+
+// The marker is the backend's (dispatch.RetryKindSessionCreate). Nothing here
+// reads the rest of the bag, which is what keeps the encoding in Go.
+export function retryableSessionDraft(event: ActivityEvent): boolean {
+  return event.metadata?.retry === 'session-create'
+}

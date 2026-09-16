@@ -288,12 +288,33 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	if linked {
 		tags = []string{req.Origin.ExternalID}
 	}
-	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags})
+	// One progress writer per attempt: hive's error names the operation that
+	// failed but not the step, so without this a clone failure arrives as
+	// "clone repository: git clone: exec git: exit status 1" and nothing else.
+	progress := &sessionProgress{}
+	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags, Progress: progress})
 	if err != nil {
 		if errors.Is(err, session.ErrDuplicateName) {
 			return SessionExecutionOutcome{}, fmt.Errorf("%w: %w", ErrDuplicateSessionName, err)
 		}
-		return SessionExecutionOutcome{}, fmt.Errorf("create hive session: %w", err)
+		failure := &SessionCreateError{
+			Name:   req.Name,
+			Remote: remote,
+			Step:   progress.LastLine(),
+			Output: progress.Tail(),
+			Err:    err,
+		}
+		// hive names the operation, the checkout and the strategy on its own
+		// error for every step that runs after it resolved a destination. Its
+		// Operation beats the derived progress line: it is the authority on
+		// which step failed, not a guess at the last thing that printed.
+		if created, ok := errors.AsType[*hive.CreateSessionError](err); ok {
+			failure.Destination, failure.CloneStrategy = created.Destination, created.CloneStrategy
+			if created.Operation != "" {
+				failure.Step = created.Operation
+			}
+		}
+		return SessionExecutionOutcome{}, failure
 	}
 	// The session exists either way, so a failed link is logged rather than
 	// returned: reporting the launch as failed would be a lie, and would

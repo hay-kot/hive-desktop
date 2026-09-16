@@ -9,7 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 )
 
 type defaultAgentFunc func(context.Context) string
@@ -161,6 +164,13 @@ func (f *fakeJobRunner) Track(ctx context.Context, label, actionID, target strin
 	f.label, f.actionID, f.target = label, actionID, target
 	f.err = fn(ctx)
 	return 7
+}
+
+// Record never fails by contract, so there is nothing to simulate.
+type fakeActivityRecorder struct{ events []activity.Event }
+
+func (r *fakeActivityRecorder) Record(_ context.Context, e activity.Event) {
+	r.events = append(r.events, e)
 }
 
 func activeSession() (*fakeSessionManager, dispatch.SessionDetail) {
@@ -548,4 +558,197 @@ func TestNopEditorCommandReaderAnswersNoConfiguredEditor(t *testing.T) {
 	command, err := NopEditorCommandReader{}.Editor(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, command)
+}
+
+func TestSessionsService_CreateSessionKeepsTheFormWhenCreationFails(t *testing.T) {
+	failure := &dispatch.SessionCreateError{
+		Name:          "review-81",
+		Remote:        "https://github.com/acme/site.git",
+		CloneStrategy: "full",
+		Step:          "Cloning repository...",
+		Output:        "Clone strategy: full\nCloning repository...",
+		Err:           errors.New("clone repository: git clone: exec git: exit status 1"),
+	}
+	manager, _ := activeSession()
+	bus := newTestBus(t)
+	failed := subscribeEvents[events.SessionCreateFailed](t, bus)
+	items := &fakeItemSessionStore{refs: map[int64]models.ItemRef{42: {ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}}}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{err: failure}, Manager: manager, Statuses: manager,
+		Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Items: items, Links: items, Events: bus,
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{
+		Repository: " https://github.com/acme/site.git ",
+		Name:       " review-81 ",
+		Prompt:     " fix the clone ",
+		Agent:      "claude",
+		ItemID:     42,
+	})
+	require.NoError(t, err, "the create is a job, so its failure is not a validation error")
+
+	assert.Equal(t, []events.SessionCreateFailed{{Name: "review-81"}}, requireEvents(t, failed, 1))
+
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, draft.Failure)
+	assert.Equal(t, "https://github.com/acme/site.git", draft.Repository)
+	assert.Equal(t, "review-81", draft.Name)
+	assert.Equal(t, "fix the clone", draft.Prompt)
+	assert.Equal(t, "claude", draft.Agent)
+	assert.Equal(t, int64(42), draft.ItemID, "a retry re-links to the item the form was drafted from")
+	assert.Equal(t, "clone repository: git clone: exec git: exit status 1", draft.Failure.Reason)
+	assert.Equal(t, "Cloning repository...", draft.Failure.Step)
+	assert.Equal(t, "Clone strategy: full\nCloning repository...", draft.Failure.Output)
+	assert.Equal(t, "full", draft.Failure.CloneStrategy)
+	assert.False(t, draft.Failure.At.IsZero())
+}
+
+// An untyped error is the reason, and the rest is absent rather than invented.
+func TestSessionsService_CreateSessionKeepsTheFormForAnUntypedFailure(t *testing.T) {
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{err: errors.New("tmux unavailable")}, Manager: manager,
+		Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, draft.Failure)
+	assert.Equal(t, "tmux unavailable", draft.Failure.Reason)
+	assert.Empty(t, draft.Failure.Step)
+}
+
+func TestSessionsService_FailedSessionDraftIsEmptyUntilSomethingFails(t *testing.T) {
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{}, Manager: manager, Statuses: manager,
+		Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+	})
+
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, draft.Failure, "nothing has failed, so there is nothing to restore")
+
+	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+	draft, err = svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, draft.Failure, "a create that worked leaves nothing pending")
+}
+
+func TestSessionsService_SubmittingAgainRetiresThePendingFailure(t *testing.T) {
+	launcher := &fakeSessionLauncher{err: errors.New("clone repository: git clone: exec git: exit status 1")}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: launcher, Manager: manager, Statuses: manager,
+		Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, draft.Failure)
+
+	launcher.err = nil
+	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+	draft, err = svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, draft.Failure, "the retry worked, so the form has nothing left to restore")
+}
+
+func TestSessionsService_DismissFailedSessionClearsIt(t *testing.T) {
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{err: errors.New("nope")}, Manager: manager, Statuses: manager,
+		Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+	})
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81"})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.DismissFailedSession(t.Context()))
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, draft.Failure)
+}
+
+// The form is still open and the field is what is wrong, so handing the whole
+// attempt back would replace an editable error with a retry.
+func TestSessionsService_DuplicateNameIsNotAPendingFailure(t *testing.T) {
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{err: dispatch.ErrDuplicateSessionName}, Manager: manager,
+		Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "dupe"})
+	require.NoError(t, err)
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, draft.Failure)
+}
+
+// The row is the half that survives a restart, so it carries the form.
+func TestSessionsService_CreateSessionRecordsARetryableActivityRow(t *testing.T) {
+	manager, _ := activeSession()
+	recorder := &fakeActivityRecorder{}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{err: &dispatch.SessionCreateError{
+			Step: "Cloning repository...",
+			Err:  errors.New("clone repository: git clone: exec git: exit status 1"),
+		}},
+		Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+		Recorder: recorder,
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{
+		Repository: "https://github.com/acme/site.git", Name: "fix-crash", Prompt: "Fix the crash", Agent: "claude",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, recorder.events, 1)
+	row := recorder.events[0]
+	assert.Equal(t, activity.CategorySession, row.Category)
+	assert.Equal(t, activity.SeverityError, row.Severity)
+	assert.Contains(t, row.Title, "fix-crash")
+	assert.Contains(t, row.Body, "Cloning repository...")
+	assert.Contains(t, row.Body, "exit status 1")
+
+	restored, err := svc.SessionDraftFromActivity(t.Context(), row.Metadata)
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/site.git", restored.Repository)
+	assert.Equal(t, "fix-crash", restored.Name)
+	assert.Equal(t, "Fix the crash", restored.Prompt)
+	assert.Equal(t, "claude", restored.Agent)
+	require.NotNil(t, restored.Failure)
+	assert.Equal(t, "Cloning repository...", restored.Failure.Step)
+}
+
+func TestSessionsService_CreateSessionRecordsNoFailureRowWhenItWorks(t *testing.T) {
+	manager, _ := activeSession()
+	recorder := &fakeActivityRecorder{}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{}, Manager: manager, Statuses: manager,
+		Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Recorder: recorder,
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "fix-crash"})
+	require.NoError(t, err)
+	assert.Empty(t, recorder.events, "the launcher records the success; this path records only failures")
+}
+
+func TestSessionsService_SessionDraftFromActivityRefusesAnUnrelatedRow(t *testing.T) {
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{}, Manager: manager, Statuses: manager,
+		Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{},
+	})
+
+	_, err := svc.SessionDraftFromActivity(t.Context(), map[string]string{"rule": "auto-triage"})
+	assert.Equal(t, KindInvalid, KindOf(err), "a row with nothing to retry is refused, not silently empty")
 }

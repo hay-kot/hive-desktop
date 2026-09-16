@@ -92,3 +92,46 @@ func TestHeadBufferDrainsEverythingItDoesNotKeep(t *testing.T) {
 	assert.Equal(t, len(stream), n, "a noisy child must never block on the pipe")
 	assert.Len(t, buf.String(), 8)
 }
+
+// hive clones with `_, err := e.exec.Run(...)`, so git's own reason sat in a
+// return value nobody read.
+func TestEnvExecutorCarriesAFailedCommandsOutputInTheError(t *testing.T) {
+	exec := newEnvExecutor(resolverFor(t.TempDir()))
+
+	_, err := exec.Run(t.Context(), "sh", "-c", "echo 'Repository not found' >&2; exit 128")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Repository not found")
+	assert.Contains(t, err.Error(), "exit status 128")
+
+	_, err = exec.RunDir(t.Context(), t.TempDir(), "sh", "-c", "echo 'fatal: not a git repository' >&2; exit 1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fatal: not a git repository")
+}
+
+func TestEnvExecutorLeavesTheErrorAloneWhenACommandSaidNothing(t *testing.T) {
+	exec := newEnvExecutor(resolverFor(t.TempDir()))
+
+	_, err := exec.Run(t.Context(), "sh", "-c", "exit 1")
+	require.Error(t, err)
+	assert.Equal(t, "exec sh: exit status 1", err.Error(), "a silent failure gains no trailing colon")
+}
+
+func TestEnvExecutorBoundsTheOutputItCarries(t *testing.T) {
+	exec := newEnvExecutor(resolverFor(t.TempDir()))
+
+	_, err := exec.Run(t.Context(), "sh", "-c", "head -c 100000 /dev/zero | tr '\\0' 'x'; exit 1")
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), maxDiagnosticBytes*2, "a wall of output must not become the job record")
+}
+
+// The incident's actual command, against real git. A local path keeps the test
+// off the network.
+func TestEnvExecutorCarriesGitsOwnReasonForARefusedClone(t *testing.T) {
+	exec := newEnvExecutor(resolverFor(t.TempDir()))
+	missing := filepath.Join(t.TempDir(), "no-such-repo")
+
+	_, err := exec.Run(t.Context(), "git", "clone", missing, filepath.Join(t.TempDir(), "dest"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist", "git's own words, not just its exit status")
+	assert.Contains(t, err.Error(), missing)
+}

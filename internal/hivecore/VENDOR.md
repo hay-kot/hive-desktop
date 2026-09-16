@@ -1,6 +1,6 @@
 # Vendored hive core
 
-Vendored from `github.com/colonyops/hive` at `c16db52735f85aa9304c87a5aa7d44a956e8d16c` by `cmd/vendorhive`.
+Vendored from `github.com/colonyops/hive` at `197dd7325689ad5ddadbf25c22c79a928929d11d` by `cmd/vendorhive`.
 
 **Do not edit anything in this tree.** Change hive first, then re-run
 `mise run vendor`. CI fails on drift. License: see LICENSE (MIT, upstream).

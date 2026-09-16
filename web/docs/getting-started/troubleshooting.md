@@ -66,6 +66,22 @@ Open Activity and read the error. The usual cause is a URL that points at a page
 
 Hive also fails the fetch when the feed asks for credentials, answers a non-2xx status, or is larger than 8 MiB. A failed fetch changes nothing, so the entries already in the feed stay where they are.
 
+## A session was not created
+
+The New Session form closes as soon as Hive accepts it, because the clone runs in the background. If that clone or a session hook fails, Hive raises an error toast that stays until you dismiss it, and keeps the form.
+
+Select **Retry** on the toast, or open the form again with ⌘N. It comes back with the repository, name, prompt, and agent you submitted, and shows the step creation stopped on together with the last lines it printed.
+
+The failure is also recorded in **Activity**, with its own **Retry** button. That row is stored, so it survives a restart: fix the cause first, then come back and retry the same form.
+
+A clone that fails after the checkout is complete leaves the directory behind, and no session list shows it. The failure names the path, so you can delete it:
+
+```sh
+rm -rf ~/.local/share/hive/repos/<repo>-<id>
+```
+
+A global git hook is a common cause. `git clone` returns the exit code of its `post-checkout` hook, so a hook that fails turns a finished clone into a failed session. Run the same clone in a terminal to see the hook's own output.
+
 ## The terminal does not fill its pane
 
 Another tmux client may be setting the shared window size. Detach or resize that client, or add this to `tmux.conf`:

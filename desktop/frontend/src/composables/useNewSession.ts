@@ -1,11 +1,14 @@
 import { ref } from 'vue'
-import { CreateSession, SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import { CreateSession, DismissFailedSession, FailedSessionDraft, SessionDraftFromActivity, SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import { NewSessionDraft } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
-import type { SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
+import type { SessionCreateFailure, SessionDraft, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { InboxItem } from '../types/feed'
 import { useToasts } from './useToasts'
 
-interface Draft { repository: string; name: string; prompt: string }
+interface Draft { repository: string; name: string; prompt: string; agent: string }
+
+// An activity row's metadata as the bindings give it. Forwarded, never read.
+type ActivityMetadata = { [_ in string]?: string } | null
 
 // Module-scoped so the global command, the per-item menu, and the mounted-once
 // dialog all drive the same form (mirrors useReportDialog).
@@ -14,7 +17,15 @@ const loading = ref(false)
 const busy = ref(false)
 const error = ref<string | null>(null)
 const options = ref<SessionLaunchOptionsView | null>(null)
-const initial = ref<Draft>({ repository: '', name: '', prompt: '' })
+const initial = ref<Draft>({ repository: '', name: '', prompt: '', agent: '' })
+
+// The render copy of the failure shown against the form. The backend holds the
+// authority, and this is re-read rather than remembered so a reload keeps it.
+const failure = ref<SessionCreateFailure | null>(null)
+
+// The dialog's fields are refs seeded from props at setup, so reopening a
+// restored draft over an open form needs a remount to reach the inputs.
+const formKey = ref(0)
 
 // The item the open form was drafted from, so the session it creates is
 // recorded against that item. 0 for a blank form. It is not a form field: the
@@ -39,6 +50,16 @@ function resolveOptions(): Promise<SessionLaunchOptionsView> {
   return Promise.resolve(cachedOptions)
 }
 
+// A read failure and an empty answer are the same thing to a caller.
+async function pendingDraft(): Promise<SessionDraft | null> {
+  try {
+    const draft = await FailedSessionDraft()
+    return draft?.failure ? draft : null
+  } catch {
+    return null
+  }
+}
+
 export function resetNewSessionForTests(): void {
   cachedOptions = null
   open.value = false
@@ -46,11 +67,17 @@ export function resetNewSessionForTests(): void {
   busy.value = false
   error.value = null
   options.value = null
+  failure.value = null
+  formKey.value = 0
   itemID.value = 0
 }
 
 function message(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
+}
+
+function failureSummary(detail: SessionCreateFailure): string {
+  return detail.step ? `${detail.step} ${detail.reason}` : detail.reason
 }
 
 export function useNewSession() {
@@ -60,19 +87,42 @@ export function useNewSession() {
     if (!cachedOptions) void fetchOptions().catch(() => {})
   }
 
+  function show(draft: Draft, opts: SessionLaunchOptionsView, item: number, detail: SessionCreateFailure | null): void {
+    options.value = opts
+    initial.value = draft
+    itemID.value = item
+    failure.value = detail
+    formKey.value += 1
+    open.value = true
+  }
+
+  function restored(draft: SessionDraft, opts: SessionLaunchOptionsView): Draft {
+    return {
+      repository: draft.repository || opts.defaultRepository || '',
+      name: draft.name,
+      prompt: draft.prompt,
+      // Empty included: "" is the form's own "Default agent", not an absent
+      // value to fill in.
+      agent: draft.agent ?? '',
+    }
+  }
+
   // `preferred` is the repository of whatever session is on screen. Starting a
   // second session on the repo you are already in is the common case, and the
   // backend default — the first configured workspace — is almost never it.
+  //
+  // A failed attempt outranks both: it is the only copy of what was typed.
   async function openBlank(preferred = ''): Promise<void> {
     if (open.value || loading.value) return
     error.value = null
     loading.value = true
     try {
-      const opts = await resolveOptions()
-      options.value = opts
-      initial.value = { repository: preferred || opts.defaultRepository || '', name: '', prompt: '' }
-      itemID.value = 0
-      open.value = true
+      const [opts, pending] = await Promise.all([resolveOptions(), pendingDraft()])
+      if (pending?.failure) {
+        show(restored(pending, opts), opts, pending.itemId ?? 0, pending.failure)
+        return
+      }
+      show({ repository: preferred || opts.defaultRepository || '', name: '', prompt: '', agent: opts.defaultAgent }, opts, 0, null)
     } catch (e) {
       showToast(message(e, 'Could not load session options.'), { severity: 'error' })
     } finally {
@@ -85,20 +135,80 @@ export function useNewSession() {
     error.value = null
     loading.value = true
     try {
-      const [opts, draft] = await Promise.all([resolveOptions(), NewSessionDraft(item.id)])
-      options.value = opts
-      initial.value = {
-        repository: draft.repository || opts.defaultRepository || '',
-        name: draft.name,
-        prompt: draft.prompt,
+      const [opts, draft, pending] = await Promise.all([resolveOptions(), NewSessionDraft(item.id), pendingDraft()])
+      // Another item's failed attempt belongs to the form that item opens.
+      if (pending?.failure && pending.itemId === item.id) {
+        show(restored(pending, opts), opts, item.id, pending.failure)
+        return
       }
-      itemID.value = item.id
-      open.value = true
+      show(restored({ ...draft, agent: opts.defaultAgent }, opts), opts, item.id, null)
     } catch (e) {
       showToast(message(e, 'Could not prepare the session.'), { severity: 'error' })
     } finally {
       loading.value = false
     }
+  }
+
+  // Unlike openBlank this replaces a form that is already open: the user asked
+  // for this one by name, from the toast.
+  async function openFailure(): Promise<void> {
+    if (busy.value || loading.value) return
+    error.value = null
+    loading.value = true
+    try {
+      const [opts, pending] = await Promise.all([resolveOptions(), pendingDraft()])
+      if (!pending?.failure) return
+      show(restored(pending, opts), opts, pending.itemId ?? 0, pending.failure)
+    } catch (e) {
+      showToast(message(e, 'Could not reopen the session form.'), { severity: 'error' })
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // The path that still works tomorrow: the toast is gone and the slot died
+  // with the process, but the row and the draft on it are persisted.
+  async function openFromActivity(metadata: ActivityMetadata): Promise<void> {
+    if (busy.value || loading.value) return
+    error.value = null
+    loading.value = true
+    try {
+      const [opts, draft] = await Promise.all([resolveOptions(), SessionDraftFromActivity(metadata)])
+      show(restored(draft, opts), opts, draft.itemId ?? 0, draft.failure ?? null)
+    } catch (e) {
+      showToast(message(e, 'Could not reopen the session form.'), { severity: 'error' })
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function dismissFailure(): Promise<void> {
+    failure.value = null
+    try {
+      await DismissFailedSession()
+    } catch {
+      // The pending attempt is a convenience, so failing to drop it is not
+      // worth a second error on top of the one the user just dismissed.
+    }
+  }
+
+  // The dialog is long closed by the time this fires, so a toast that does not
+  // time out is the surface that has to reach the user.
+  //
+  // It deliberately leaves `failure` alone: that accompanies a restored draft,
+  // and a form since opened on something else must not show this one.
+  async function onCreateFailed(): Promise<void> {
+    const pending = await pendingDraft()
+    if (!pending?.failure) return
+    showToast(`Could not create session ${pending.name || ''}`.trim(), {
+      severity: 'error',
+      body: failureSummary(pending.failure),
+      duration: 0,
+      actions: [
+        { label: 'Retry', onClick: () => { void openFailure() } },
+        { label: 'Dismiss', onClick: () => { void dismissFailure() } },
+      ],
+    })
   }
 
   function cancel(): void {
@@ -114,12 +224,14 @@ export function useNewSession() {
     busy.value = true
     error.value = null
     try {
-      // Creation (including any clone) runs as a background job; its outcome
-      // shows in the titlebar jobs chip. Only validation errors reject here.
+      // Creation (including any clone) runs as a background job. A failure
+      // arrives later through sessions:create-failed, which is what hands the
+      // form back; only validation errors reject here.
       await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemId: itemID.value })
       showToast(`Creating session ${input.name}…`, { severity: 'info' })
       open.value = false
       options.value = null
+      failure.value = null
       itemID.value = 0
     } catch (e) {
       error.value = message(e, 'Could not start the session.')
@@ -128,5 +240,8 @@ export function useNewSession() {
     }
   }
 
-  return { open, options, initial, busy, loading, error, prefetch, openBlank, openFromItem, cancel, submit }
+  return {
+    open, options, initial, busy, loading, error, failure, formKey,
+    prefetch, openBlank, openFromItem, openFailure, openFromActivity, dismissFailure, onCreateFailed, cancel, submit,
+  }
 }

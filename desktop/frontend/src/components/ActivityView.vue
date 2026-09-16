@@ -11,6 +11,7 @@ import { computed, onMounted, ref } from 'vue'
 import IconSearch from '~icons/lucide/search'
 import IconX from '~icons/lucide/x'
 import { useActivity } from '../composables/useActivity'
+import { useNewSession } from '../composables/useNewSession'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import ViewHeader from './settings/ViewHeader.vue'
 import {
@@ -20,12 +21,22 @@ import {
   groupEventsByDay,
   matchesFilter,
   matchesSearch,
+  retryableSessionDraft,
   timeLabel,
   type ActivityFilterId,
   type ActivityStyleKey,
 } from '../lib/activityPresentation'
 
 const emit = defineEmits<{ close: [] }>()
+
+// Closing the overlay is part of the retry: the form it opens is a modal over
+// the view behind this one.
+const { openFromActivity: retrySession } = useNewSession()
+
+function retry(metadata: { [_ in string]?: string } | null): void {
+  emit('close')
+  void retrySession(metadata)
+}
 
 const { events, loading, error, load, markSeen } = useActivity()
 
@@ -168,6 +179,14 @@ onMounted(() => {
                 <span v-if="event.source" class="font-mono text-text-4">{{ event.source }}</span>
               </div>
             </div>
+            <button
+              v-if="retryableSessionDraft(event)"
+              type="button"
+              class="ml-3 shrink-0 cursor-pointer self-start rounded border border-strong px-2 py-1 text-[11.5px] text-text-2 hover:border-text-3 hover:text-text"
+              :aria-label="`Retry ${event.title}`"
+              :data-testid="`activity-retry-${event.id}`"
+              @click="retry(event.metadata ?? null)"
+            >Retry</button>
           </div>
         </div>
       </template>

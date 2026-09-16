@@ -37,6 +37,11 @@ func registerEvents() struct{} {
 	application.RegisterEvent[string]("flows:updated")
 	application.RegisterEvent[string]("actions:updated")
 	application.RegisterEvent[string]("jobs:updated")
+	// sessions:create-failed names the session a create job failed to produce.
+	// A wake-up like the rest: the frontend re-reads the failed draft to
+	// restore the form. It exists because a create that fails minutes after
+	// the dialog closed has to arrive at the user, not wait in a list.
+	application.RegisterEvent[string]("sessions:create-failed")
 	// window:focus and window:blur carry the current focus state. Consumers use
 	// them to update focus-sensitive UI without querying the native window.
 	application.RegisterEvent[bool]("window:focus")
@@ -102,6 +107,9 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 			// The core carries the job id; the frontend re-reads the job list,
 			// so this is the degradation the wake-up contract asks for.
 			emitJobsUpdated()
+		}),
+		events.Subscribe(ctx, bus, "wailsui.session-create-failed", events.Coalesce(), func(_ context.Context, e events.SessionCreateFailed) {
+			emitSessionCreateFailed(e.Name)
 		}),
 		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
 			emitActionsUpdated()
@@ -209,6 +217,13 @@ func emitSchedulesUpdated(workspace string) {
 func emitJobsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("jobs:updated", "changed")
+	}
+}
+
+// emitSessionCreateFailed wakes the New Session flow after a create failed.
+func emitSessionCreateFailed(name string) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("sessions:create-failed", name)
 	}
 }
 

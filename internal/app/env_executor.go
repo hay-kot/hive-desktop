@@ -29,7 +29,7 @@ func newEnvExecutor(env *execenv.Resolver) executil.Executor { return envExecuto
 func (e envExecutor) Run(ctx context.Context, cmd string, args ...string) ([]byte, error) {
 	out, err := e.command(ctx, "", cmd, args...).CombinedOutput()
 	if err != nil {
-		return out, fmt.Errorf("exec %s: %w", cmd, err)
+		return out, executil.NewCommandError(cmd, "", out, err)
 	}
 	return out, nil
 }
@@ -37,7 +37,7 @@ func (e envExecutor) Run(ctx context.Context, cmd string, args ...string) ([]byt
 func (e envExecutor) RunDir(ctx context.Context, dir, cmd string, args ...string) ([]byte, error) {
 	out, err := e.command(ctx, dir, cmd, args...).CombinedOutput()
 	if err != nil {
-		return out, fmt.Errorf("exec %s in %s: %w", cmd, dir, err)
+		return out, executil.NewCommandError(cmd, dir, out, err)
 	}
 	return out, nil
 }

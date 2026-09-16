@@ -84,6 +84,7 @@ function runAction(action: ToastActionDef) {
       </button>
     </div>
     <div
+      v-if="toast.duration > 0"
       class="h-0.5 transition-[width] ease-linear"
       :class="style.bar"
       :style="{ width: progressStarted ? '0%' : '100%', transitionDuration: `${toast.duration}ms` }"
