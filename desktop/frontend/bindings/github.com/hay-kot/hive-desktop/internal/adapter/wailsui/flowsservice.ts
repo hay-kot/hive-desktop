@@ -78,7 +78,7 @@ export function SaveSidebar(id: string, layout: flow$0.SidebarLayout): $Cancella
 }
 
 /**
- * SeedStarterFlow fills an empty workspace with the starter graph. First run
+ * SeedStarterFlow fills an empty profile with the starter graph. First run
  * calls it once the GitHub account the graph fetches as has been connected.
  */
 export function SeedStarterFlow(id: string): $CancellablePromise<$models.FlowSummary> {
