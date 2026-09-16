@@ -190,17 +190,17 @@ broken link fails the PR rather than the deploy.
 - These pages are product documentation for users. Internal shape belongs in
   `docs/architecture.md`, and a decision belongs in an ADR under
   `docs/decisions/`.
-- Old URLs are redirected by the Worker (`worker/index.ts`), with 301s, and
-  two of them are load-bearing: the installed app's About pane links
-  `https://hivedesktop.com/docs` and `https://hivedesktop.com/docs/help/updates`
-  (`desktop/frontend/src/composables/useAboutSettings.ts`). The table:
-  `/docs` to `/getting-started/`; `/install` to `/getting-started/#install`;
-  `/compare` and `/compare/*` to `/`; the moved pages `/docs/concepts/*` to
-  `/inbox/*`, `/code/*`, or `/chats/*`, `/docs/help/troubleshooting` to
-  `/getting-started/troubleshooting/`, `/docs/help/reporting-a-problem` to
-  `/getting-started/troubleshooting/#report-a-problem`, and
-  `/docs/help/updates` to `/configuration/settings/#updates`; any other
-  `/docs/<path>` to `/<path>/`. Moving or renaming a page, or the `## Install`,
-  `## updates`, or `## Report a problem` heading, means updating that table.
+- Old URLs are redirected by the Worker (`worker/index.ts`) with 301s so old
+  app builds and saved links keep working. The table maps `/docs` to
+  `/getting-started/`; `/install` to `/getting-started/#install`; `/compare`
+  and `/compare/*` to `/`; the moved pages `/docs/concepts/*` to `/inbox/*`,
+  `/code/*`, or `/chats/*`; `/docs/help/troubleshooting` to
+  `/getting-started/troubleshooting/`; `/docs/help/reporting-a-problem` to
+  `/getting-started/troubleshooting/#report-a-problem`; and
+  `/docs/help/updates` to `/configuration/settings/#updates`. Any other
+  `/docs/<path>` redirects to `/<path>/`. The current app links directly to
+  `/getting-started/` and `/configuration/settings/#updates`. Moving or
+  renaming a page, or the `## Install`, `## Updates`, or `## Report a problem`
+  heading, means updating the redirects and app links.
 - Zensical is pinned in `pyproject.toml` and resolved into `uv.lock`. A
   version bump is an edit to `pyproject.toml` followed by `mise run lock`.
