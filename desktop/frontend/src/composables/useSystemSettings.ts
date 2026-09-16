@@ -4,6 +4,7 @@ import {
   ClearConfigDir,
   ClearDataDir,
   Info,
+  OpenHiveConfig,
   OpenPath,
   Quit,
   RevealPath,
@@ -59,6 +60,18 @@ export function useSystemSettings() {
     }
   }
 
+  async function createOrOpenHiveConfig(): Promise<void> {
+    error.value = ''
+    let openError = ''
+    try {
+      await OpenHiveConfig()
+    } catch (err) {
+      openError = errText(err)
+    }
+    await refresh()
+    if (openError) error.value = openError
+  }
+
   async function changeDir(title: string, setter: (path: string) => Promise<void>): Promise<void> {
     error.value = ''
     try {
@@ -91,6 +104,7 @@ export function useSystemSettings() {
     refresh,
     openPath,
     revealPath,
+    createOrOpenHiveConfig,
     changeDataDir: () => changeDir('Choose data directory', SetDataDir),
     changeConfigDir: () => changeDir('Choose config directory', SetConfigDir),
     resetDataDir: () => resetDir(ClearDataDir),

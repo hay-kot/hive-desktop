@@ -845,13 +845,16 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 | --- | --- |
 | Preferences | General · Appearance · Notifications · Keyboard |
 | Inbox | Integrations · Actions |
-| Code | Terminal · Quick terminals |
+| Code | Terminal · Quick terminals · Hive CLI |
 | Chats | Chats |
 | Advanced | System · About |
 
 A value one surface uses lives on that surface's pane; a value several use lives
 in **General** (the editor command); **System** is this install — storage,
-diagnostics, the problem reporter; **About** is the running build. There is no
+diagnostics, the problem reporter; **About** is the running build. **Hive CLI**
+is the compatibility boundary for the included Hive runtime: it shows the exact
+external Hive config loaded at startup and creates or opens that file without
+making it required. Changes to that file require a Desktop restart. There is no
 leftover group — a section that fits nowhere means the grouping is wrong. A
 ships-dark opt-in, if one is ever reintroduced, is a posture rather than a
 category: it renders on the pane for the feature it gates

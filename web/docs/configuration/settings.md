@@ -19,6 +19,7 @@ Settings shows or changes:
 - connected source accounts and the local webhook listener;
 - actions and quick terminals;
 - the agent workspace folder location;
+- the optional Hive CLI compatibility config;
 - diagnostics, updates, and release channels.
 
 The app validates changes before saving them.
@@ -51,6 +52,16 @@ Set `HIVE_DESKTOP_CONFIG_DIR` or `HIVE_DESKTOP_DATA_DIR` to move the config or d
 
 !!! tip "Ask the Hive workspace"
     The **Hive** workspace in **Chats** can update settings with the `hive-settings` skill. For example, ask it to change the polling interval or terminal font.
+
+## Hive CLI compatibility config
+
+Hive Desktop includes the Hive runtime it needs. A separately installed Hive CLI is not required.
+
+If you use the Hive CLI, Desktop also reads its optional configuration file at startup. It checks `HIVE_CONFIG` first, then looks for `config.yaml`, `config.yml`, `hive.yaml`, or `hive.yml` under `$XDG_CONFIG_HOME/hive/` with `~/.config/hive/` as the fallback. No file is required. Hive uses built-in defaults when none exists.
+
+**Settings ▸ Hive CLI** shows the exact path selected at startup. From there you can copy the path, open or reveal an existing file, or create a missing file and open it. Restart Hive Desktop after editing the file.
+
+To choose a default agent, set `agents.default` to a configured agent profile. `HIVE_DEFAULT_AGENT` takes precedence when it names a configured profile.
 
 ## Advanced configuration
 

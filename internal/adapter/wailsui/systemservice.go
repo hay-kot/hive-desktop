@@ -45,17 +45,17 @@ type PathInfo struct {
 	// Exists reports whether the path is present on disk right now (a log file
 	// or database may not exist until first written).
 	Exists bool `json:"exists"`
-	// Overridden reports whether a stored override backs this location. Only
-	// meaningful for the data and config directories; always false otherwise.
+	// Overridden reports whether an explicit override selected this location.
 	Overridden bool `json:"overridden"`
 }
 
 // SystemInfo is the full set of locations the settings screens show.
 type SystemInfo struct {
-	DataDir   PathInfo `json:"dataDir"`
-	ConfigDir PathInfo `json:"configDir"`
-	LogFile   PathInfo `json:"logFile"`
-	Database  PathInfo `json:"database"`
+	DataDir    PathInfo `json:"dataDir"`
+	ConfigDir  PathInfo `json:"configDir"`
+	LogFile    PathInfo `json:"logFile"`
+	Database   PathInfo `json:"database"`
+	HiveConfig PathInfo `json:"hiveConfig"`
 	// AgentWorkspaces is the agent-workspace root, shown on the Agents pane
 	// rather than with the other locations: it is where the Agents area keeps
 	// its workspaces, not part of the install.
@@ -72,6 +72,7 @@ func (s *SystemService) Info(ctx context.Context) SystemInfo {
 		LogFile:         pathInfo(info.LogFile),
 		Database:        pathInfo(info.Database),
 		AgentWorkspaces: pathInfo(info.AgentWorkspaces),
+		HiveConfig:      pathInfo(info.HiveConfig),
 	}
 }
 
@@ -113,6 +114,12 @@ func (s *SystemService) OpenPath(ctx context.Context, path string) error {
 // RevealPath reveals one of the known system locations in the OS file manager.
 func (s *SystemService) RevealPath(ctx context.Context, path string) error {
 	return s.system.RevealPath(ctx, path)
+}
+
+// OpenHiveConfig creates the resolved Hive config when it does not exist and
+// opens it in the OS default application.
+func (s *SystemService) OpenHiveConfig(ctx context.Context) error {
+	return s.system.OpenHiveConfig(ctx)
 }
 
 // ChooseDirectory opens a native directory picker and returns the chosen path,

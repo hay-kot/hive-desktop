@@ -103,12 +103,13 @@ match:
   `/getting-started/troubleshooting/`, `/docs/help/reporting-a-problem` to
   `/getting-started/troubleshooting/#report-a-problem`, and
   `/docs/help/updates` to `/configuration/settings/#updates`; any other
-  `/docs/<path>` to `/<path>/`. The installed app's About pane still links
-  `/docs` and `/docs/help/updates`
+  `/docs/<path>` to `/<path>/`. Old app builds still use those redirects. The
+  current About pane links directly to `/getting-started/` and
+  `/configuration/settings/#updates`
   (`desktop/frontend/src/composables/useAboutSettings.ts`), so a page move,
   or a rename of the `## Install`, `## Updates`, or `## Report a problem`
-  heading, means updating the table (heading ids are lower-cased, so
-  `## Updates` still answers `#updates`).
+  heading, means updating the table and direct links (heading ids are
+  lower-cased, so `## Updates` still answers `#updates`).
 
 ## CI and deploy
 

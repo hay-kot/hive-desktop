@@ -10,6 +10,7 @@ import IconBell from '~icons/lucide/bell'
 import IconInfo from '~icons/lucide/info'
 import IconSliders from '~icons/lucide/sliders-horizontal'
 import IconZap from '~icons/lucide/zap'
+import IconBoxes from '~icons/lucide/boxes'
 import type { ApplicationSettingsSection } from '../../router'
 
 // Keyed by section id and ordered by router.ts's applicationSettingsSections,
@@ -27,6 +28,7 @@ export const applicationSettingsSectionMeta: Record<
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
   launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
+  hive: { label: 'Hive CLI', title: 'Hive CLI', icon: IconBoxes },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   about: { label: 'About', title: 'About', icon: IconInfo },

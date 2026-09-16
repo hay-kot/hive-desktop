@@ -6,12 +6,14 @@ const WORKSPACES = '/home/u/.config/hive/desktop/workspaces'
 
 const mocks = vi.hoisted(() => ({
   Info: vi.fn(),
+  OpenHiveConfig: vi.fn(),
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
   SetText: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
+  OpenHiveConfig: mocks.OpenHiveConfig,
   OpenPath: mocks.OpenPath,
   RevealPath: mocks.RevealPath,
   ChooseDirectory: vi.fn(),
@@ -33,6 +35,7 @@ beforeEach(() => {
     logFile: { path: '/home/u/.local/share/hive/desktop/desktop.log', exists: true, overridden: false },
     database: { path: '/home/u/.local/share/hive/desktop/desktop-pipeline.db', exists: true, overridden: false },
     agentWorkspaces: { path: WORKSPACES, exists: true, overridden: false },
+    hiveConfig: { path: '/home/u/.config/hive/config.yaml', exists: true, overridden: false },
   })
   document.body.innerHTML = ''
 })

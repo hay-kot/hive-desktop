@@ -8,8 +8,8 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import type { BuildInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
-const docsURL = 'https://hivedesktop.com/docs'
-const updatesDocURL = 'https://hivedesktop.com/docs/help/updates'
+const docsURL = 'https://hivedesktop.com/getting-started/'
+const updatesDocURL = 'https://hivedesktop.com/configuration/settings/#updates'
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)

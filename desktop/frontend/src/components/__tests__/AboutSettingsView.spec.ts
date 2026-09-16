@@ -79,10 +79,10 @@ describe('AboutSettingsView', () => {
     expect(wrapper.html()).not.toContain('github.com')
 
     await wrapper.find('[data-testid="about-link-docs"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://hivedesktop.com/docs')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://hivedesktop.com/getting-started/')
 
     await wrapper.find('[data-testid="about-link-updates"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://hivedesktop.com/docs/help/updates')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://hivedesktop.com/configuration/settings/#updates')
   })
 
   it('reads a build with no published release as one that cannot self-update', async () => {

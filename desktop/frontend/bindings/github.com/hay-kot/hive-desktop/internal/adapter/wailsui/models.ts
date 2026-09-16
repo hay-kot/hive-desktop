@@ -287,8 +287,7 @@ export interface PathInfo {
     "exists": boolean;
 
     /**
-     * Overridden reports whether a stored override backs this location. Only
-     * meaningful for the data and config directories; always false otherwise.
+     * Overridden reports whether an explicit override selected this location.
      */
     "overridden": boolean;
 }
@@ -433,6 +432,7 @@ export interface SystemInfo {
     "configDir": PathInfo;
     "logFile": PathInfo;
     "database": PathInfo;
+    "hiveConfig": PathInfo;
 
     /**
      * AgentWorkspaces is the agent-workspace root, shown on the Agents pane

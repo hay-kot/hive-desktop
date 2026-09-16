@@ -136,6 +136,25 @@ are point-only — existing data is not moved — and take effect after a restar
 The pointer remains at its fixed XDG location so the app can find the config
 root after it moves.
 
+## Hive CLI compatibility config
+
+Hive Desktop includes the Hive runtime it needs and does not invoke or require
+an installed Hive CLI. It still reads Hive's optional configuration file for
+compatibility with existing agent profiles, workspace paths, tmux settings,
+and other Hive behavior. Startup uses `HIVE_CONFIG` when set, then probes
+`config.yaml`, `config.yml`, `hive.yaml`, and `hive.yml` under
+`$XDG_CONFIG_HOME/hive/` (`~/.config/hive/` fallback). No file is required;
+Hive's built-in defaults apply when none exists.
+
+Settings ▸ Hive CLI shows the exact path selected at startup. It can create a
+missing file without overwriting one that appears concurrently, open an
+existing file, reveal it, or copy its path. Hive configuration is loaded once;
+restart Hive Desktop after editing it. `agents.default` selects a configured
+agent profile, while `HIVE_DEFAULT_AGENT` takes precedence when it names one.
+Hive Desktop resolves both `HIVE_CONFIG` and `HIVE_DEFAULT_AGENT` through the
+user's login-shell environment so a Dock launch sees the same exported values
+as a terminal.
+
 ## Desktop settings
 
 `settings.yaml` is strictly decoded into a nested typed schema. Resolution is
