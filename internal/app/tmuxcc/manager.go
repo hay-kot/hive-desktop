@@ -394,6 +394,59 @@ func (m *Manager) KillSession(ctx context.Context, slug string) (bool, error) {
 	return true, nil
 }
 
+// IndexedWindow identifies a tmux window by both its stable id and mutable index.
+type IndexedWindow struct {
+	ID    string
+	Index string
+	Name  string
+}
+
+const indexedWindowsFormat = "#{session_name}|||#{window_index}|||#{window_id}|||#{window_name}"
+
+// ListIndexedWindows answers window identities for every requested slug in one
+// tmux call. Status integrations report window indices, while terminal clients
+// address stable window ids, so this is the seam that joins those views.
+func (m *Manager) ListIndexedWindows(ctx context.Context, slugs []string) (map[string][]IndexedWindow, error) {
+	wanted := make(map[string]struct{}, len(slugs))
+	for _, slug := range slugs {
+		if slug != "" {
+			wanted[slug] = struct{}{}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil, nil
+	}
+	if err := m.Available(ctx); err != nil {
+		return nil, err
+	}
+
+	windows := make(map[string][]IndexedWindow, len(wanted))
+	lines, err := m.oneShot(ctx, "list-windows", "-a", "-F", indexedWindowsFormat)
+	if err != nil {
+		// tmux uses exit 1 for both an absent server and real command failures;
+		// stderr is the only distinction it exposes.
+		if strings.Contains(err.Error(), "no server running") {
+			return windows, nil
+		}
+		return nil, fmt.Errorf("tmuxcc: list indexed windows: %w", err)
+	}
+	for _, line := range lines {
+		parts := strings.SplitN(line, "|||", 4)
+		if len(parts) != 4 {
+			continue
+		}
+		if _, ok := wanted[parts[0]]; !ok || !validWindowID(parts[2]) {
+			continue
+		}
+		windows[parts[0]] = append(windows[parts[0]], IndexedWindow{
+			ID:    parts[2],
+			Index: parts[1],
+			Name:  parts[3],
+		})
+	}
+	return windows, nil
+}
+
 // ListAllWindows answers the window sets of every slug in one tmux call.
 //
 // Asking per slug cost two spawns for each unattached session — a has-session

@@ -49,6 +49,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	coreterminal "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
+	terminalstatus "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal/status"
 	terminaltmux "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal/tmux"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
@@ -318,12 +319,12 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.fetchers.SetRecorder(a.Activity)
 	}
 
+	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path, Environ: a.execEnv.Environ})
 	if err := a.openHiveRuntime(runCtx, cfg); err != nil {
 		_ = a.db.Close()
 		cancel()
 		return nil, err
 	}
-	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path, Environ: a.execEnv.Environ})
 	a.popupTerminals = ptyterm.NewManager(ptyterm.ManagerOptions{Environ: a.execEnv.Environ})
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
@@ -1200,7 +1201,11 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 
 	var statusService *hive.StatusService
 	if cfg.MockMode == "" {
-		statusOptions := []terminaltmux.Option{terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path, a.execEnv.Environ))}
+		statusOptions := []terminaltmux.Option{
+			terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path, a.execEnv.Environ)),
+			terminaltmux.WithStatusOptions(terminalstatus.OptionsFromConfig(hiveCfg.Terminal.Status, hiveCfg.Tmux.PollInterval)),
+			terminaltmux.WithMissingTolerance(hiveCfg.Terminal.Status.Confirm.Missing.Polls),
+		}
 		if hiveCfg.Tmux.CaptureRecording.Enabled {
 			recorder, recorderErr := terminaltmux.NewJSONCaptureRecorder(hiveCfg.TmuxCaptureRecordingsDir())
 			if recorderErr != nil {
@@ -1213,7 +1218,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		terminalManager.Register(terminaltmux.NewFromPreviewMatchers(hiveCfg.Tmux.PreviewWindowMatcher, statusOptions...))
 		statusService = hive.NewStatusService(terminalManager, hiveCfg.Git.StatusWorkers)
 	}
-	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, gitExec, hiveCfg.Tmux.PollInterval)
+	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, hiveSessionWindowSource{terminals: a.terminals}, gitExec, hiveCfg.Tmux.PollInterval)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
 }

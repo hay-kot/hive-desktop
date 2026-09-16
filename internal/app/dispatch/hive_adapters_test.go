@@ -94,7 +94,7 @@ func newHiveSessionsWith(t *testing.T, cfg *config.Config, exec executil.Executo
 		io.Discard,
 		io.Discard,
 	)
-	return NewHiveSessionManager(svc, nil, nil, 0), store
+	return NewHiveSessionManager(svc, nil, nil, nil, 0), store
 }
 
 type listingSessionManagement struct {
@@ -117,6 +117,16 @@ func (f *fakeSessionStatusSource) Available() bool { return f.available }
 func (f *fakeSessionStatusSource) FetchBatch(_ context.Context, sessions []*session.Session, _ []hivesvc.RootRepoTarget) map[string]hivesvc.TerminalStatus {
 	f.seen = sessions
 	return f.results
+}
+
+type fakeSessionWindowSource struct {
+	results map[string][]SessionWindowRef
+	seen    []string
+}
+
+func (f *fakeSessionWindowSource) ListSessionWindows(_ context.Context, slugs []string) (map[string][]SessionWindowRef, error) {
+	f.seen = slugs
+	return f.results, nil
 }
 
 // recordingExecutor stands in for the shell hive spawns tmux through, so the
@@ -212,20 +222,25 @@ func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
 	statuses := &fakeSessionStatusSource{
 		available: true,
 		results: map[string]hivesvc.TerminalStatus{
-			"s1": {Running: true, Windows: []hivesvc.WindowStatus{
-				{WindowID: "@1", Status: coreterminal.StatusApproval, Tool: "claude"},
-				{WindowID: "@2", Status: coreterminal.StatusActive, Tool: "pi"},
+			"s1": {Windows: []hivesvc.WindowStatus{
+				{WindowIndex: "0", Status: coreterminal.StatusApproval, Tool: "claude"},
+				{WindowIndex: "2", Status: coreterminal.StatusActive, Tool: "pi"},
+				{WindowIndex: "9", WindowName: "departed", Status: coreterminal.StatusActive, Tool: "codex"},
 			}},
-			"s2": {Running: true, WindowID: "@3", Status: coreterminal.StatusReady, Tool: "codex"},
+			"s2": {WindowName: "codex", Status: coreterminal.StatusQuestion, Tool: "codex"},
 			"s4": {Status: coreterminal.StatusMissing, Error: errors.New("session disappeared")},
 		},
 	}
+	windows := &fakeSessionWindowSource{results: map[string][]SessionWindowRef{
+		"one": {{ID: "@1", Index: "0", Name: "claude"}, {ID: "@2", Index: "2", Name: "pi"}},
+		"two": {{ID: "@3", Index: "1", Name: "codex"}},
+	}}
 	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
-		{ID: "s1", State: session.StateActive},
-		{ID: "s2", State: session.StateActive},
-		{ID: "s3", State: session.StateRecycled},
-		{ID: "s4", State: session.StateActive},
-	}}, statuses, nil, 1750*time.Millisecond)
+		{ID: "s1", Slug: "one", State: session.StateActive},
+		{ID: "s2", Slug: "two", State: session.StateActive},
+		{ID: "s3", Slug: "three", State: session.StateRecycled},
+		{ID: "s4", Slug: "four", State: session.StateActive},
+	}}, statuses, windows, nil, 1750*time.Millisecond)
 
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)
@@ -235,35 +250,52 @@ func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
 			{WindowID: "@1", Status: "approval", Tool: "claude"},
 			{WindowID: "@2", Status: "active", Tool: "pi"},
 		}},
-		{SessionID: "s2", Running: true, Windows: []SessionWindowStatus{{WindowID: "@3", Status: "ready", Tool: "codex"}}},
+		{SessionID: "s2", Running: true, Windows: []SessionWindowStatus{{WindowID: "@3", Status: "approval", Tool: "codex"}}},
 		{SessionID: "s4", Windows: []SessionWindowStatus{}},
 	}, got.Items)
 	require.Len(t, statuses.seen, 3)
 	assert.Equal(t, "s1", statuses.seen[0].ID)
 	assert.Equal(t, "s2", statuses.seen[1].ID)
 	assert.Equal(t, "s4", statuses.seen[2].ID)
+	assert.Equal(t, []string{"one", "two", "four"}, windows.seen)
+}
+
+func TestStableWindowIDFallsBackToNameWhenAnIndexWasReused(t *testing.T) {
+	t.Parallel()
+
+	refs := []SessionWindowRef{
+		{ID: "@shell", Index: "0", Name: "shell"},
+		{ID: "@agent", Index: "2", Name: "agent"},
+	}
+	assert.Equal(t, "@agent", stableWindowID("0", "agent", refs))
+}
+
+func TestStableWindowIDDoesNotMapADepartedIndexedWindowToTheSoleSurvivor(t *testing.T) {
+	t.Parallel()
+
+	refs := []SessionWindowRef{{ID: "@shell", Index: "0", Name: "shell"}}
+	assert.Empty(t, stableWindowID("2", "agent", refs))
 }
 
 // An inbox item asks about the one or two sessions it spawned, so the probe
 // must be scoped to those — a full sweep would pay a tmux round trip for every
 // active session in the install to answer it.
 func TestHiveSessionManagerRunningSessionsProbesOnlyTheNamedActiveSessions(t *testing.T) {
-	statuses := &fakeSessionStatusSource{
-		available: true,
-		results:   map[string]hivesvc.TerminalStatus{"s1": {Running: true}},
-	}
+	statuses := &fakeSessionStatusSource{available: true}
+	windows := &fakeSessionWindowSource{results: map[string][]SessionWindowRef{
+		"one": {{ID: "@1", Index: "0"}},
+	}}
 	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
-		{ID: "s1", State: session.StateActive},
-		{ID: "s2", State: session.StateRecycled},
-		{ID: "s3", State: session.StateActive},
-	}}, statuses, nil, time.Second)
+		{ID: "s1", Slug: "one", State: session.StateActive},
+		{ID: "s2", Slug: "two", State: session.StateRecycled},
+		{ID: "s3", Slug: "three", State: session.StateActive},
+	}}, statuses, windows, nil, time.Second)
 
 	got, err := manager.RunningSessions(t.Context(), []string{"s1", "s2"})
 	require.NoError(t, err)
 	assert.Equal(t, map[string]bool{"s1": true}, got)
 	// s2 is recycled and s3 was not asked about, so neither is probed.
-	require.Len(t, statuses.seen, 1)
-	assert.Equal(t, "s1", statuses.seen[0].ID)
+	assert.Equal(t, []string{"one"}, windows.seen)
 }
 
 // Terminal mode ships dark, so this is the default install: no liveness source
@@ -272,7 +304,7 @@ func TestHiveSessionManagerRunningSessionsProbesOnlyTheNamedActiveSessions(t *te
 func TestHiveSessionManagerRunningSessionsReportsNothingWhenTerminalUnavailable(t *testing.T) {
 	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
 		{ID: "s1", State: session.StateActive},
-	}}, &fakeSessionStatusSource{}, nil, time.Second)
+	}}, &fakeSessionStatusSource{}, nil, nil, time.Second)
 
 	got, err := manager.RunningSessions(t.Context(), []string{"s1"})
 	require.NoError(t, err)
@@ -280,7 +312,7 @@ func TestHiveSessionManagerRunningSessionsReportsNothingWhenTerminalUnavailable(
 }
 
 func TestHiveSessionManagerReturnsEmptyStatusWhenTerminalUnavailable(t *testing.T) {
-	manager := NewHiveSessionManager(listingSessionManagement{}, &fakeSessionStatusSource{}, nil, 1500*time.Millisecond)
+	manager := NewHiveSessionManager(listingSessionManagement{}, &fakeSessionStatusSource{}, nil, nil, 1500*time.Millisecond)
 
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)

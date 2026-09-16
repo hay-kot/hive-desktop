@@ -5,6 +5,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal/status"
 	terminaltmux "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal/tmux"
 )
 
@@ -21,7 +22,10 @@ func newTmuxIntegration(cfg *config.Config) *terminaltmux.Integration {
 		return terminaltmux.NewFromPreviewMatchers(nil)
 	}
 
-	var options []terminaltmux.Option
+	options := []terminaltmux.Option{
+		terminaltmux.WithStatusOptions(status.OptionsFromConfig(cfg.Terminal.Status, cfg.Tmux.PollInterval)),
+		terminaltmux.WithMissingTolerance(cfg.Terminal.Status.Confirm.Missing.Polls),
+	}
 	if cfg.Tmux.CaptureRecording.Enabled {
 		recorder, err := terminaltmux.NewJSONCaptureRecorder(cfg.TmuxCaptureRecordingsDir())
 		if err != nil {

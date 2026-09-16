@@ -467,9 +467,9 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 }
 
 // SessionActivity captures each live session's tmux pane and classifies it
-// with dispatch.ClassifyAgentScreen: capture-pane through terminal.Detector,
-// the same path SessionStatuses/FetchBatch already run for hive's own
-// sessions (hc-ou4o02zx) and the input the detector was tuned against. An
+// with dispatch.ClassifyAgentScreen: capture-pane through Hive's assessment
+// engine, the same input SessionStatuses/FetchBatch use for hive's own
+// sessions (hc-ou4o02zx). An
 // empty dir spans every workspace — the sidebar shows every session at once,
 // so its indicators poll the whole set the way the Code view's do; the work
 // is bounded by maxConcurrentAgentSessions either way. A session with no

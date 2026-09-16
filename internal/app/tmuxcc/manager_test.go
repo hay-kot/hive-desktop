@@ -651,6 +651,50 @@ func TestManagerListAllWindowsAsksTmuxOnceForEverySlug(t *testing.T) {
 	require.Equal(t, []string{"/opt/homebrew/bin/tmux"}, cmds.binaries)
 }
 
+func TestManagerListIndexedWindowsMapsIndicesToStableIDs(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{windows: []string{
+		"hive-demo|||0|||@1|||claude",
+		"hive-demo|||2|||@2|||shell",
+		"hive-other|||1|||@5|||my window",
+		"someone-elses-session|||0|||@9|||vim",
+	}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	windows, err := m.ListIndexedWindows(t.Context(), []string{"hive-demo", "hive-other"})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]IndexedWindow{
+		"hive-demo": {
+			{ID: "@1", Index: "0", Name: "claude"},
+			{ID: "@2", Index: "2", Name: "shell"},
+		},
+		"hive-other": {{ID: "@5", Index: "1", Name: "my window"}},
+	}, windows)
+	require.Equal(t, [][]string{{"list-windows", "-a", "-F", indexedWindowsFormat}}, cmds.calls)
+}
+
+func TestManagerListIndexedWindowsTreatsADeadServerAsNoWindows(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{failure: errors.New("no server running")}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	windows, err := m.ListIndexedWindows(t.Context(), []string{"hive-demo"})
+	require.NoError(t, err)
+	require.Empty(t, windows)
+}
+
+func TestManagerListIndexedWindowsReportsCommandFailures(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{failure: errors.New("permission denied")}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	_, err := m.ListIndexedWindows(t.Context(), []string{"hive-demo"})
+	require.ErrorContains(t, err, "permission denied")
+}
+
 func TestManagerListAllWindowsIgnoresSessionsNobodyAskedFor(t *testing.T) {
 	t.Parallel()
 

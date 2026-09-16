@@ -14,7 +14,7 @@
 #   docker build -t hive-linux-builder -f Dockerfile.linux \
 #     --build-arg WAILS3_VERSION=v3.0.0-alpha2.117 .
 
-ARG GO_IMAGE=golang:1.26-trixie@sha256:4ee9ffa999b4583ce281939cdff828763083610292f252279a0cee77473bd9a7
+ARG GO_IMAGE=golang:1.27-trixie@sha256:9baa6b4187bbb98d240372a8a235ac0bb6b5ddd52bba1431dc2f7c0705862728
 ARG NODE_IMAGE=node:22-bookworm@sha256:5647be709086c696ff32edaaf1c70cd26d1da6ab2b39c32f3c7b4c4a31957e37
 
 FROM ${GO_IMAGE} AS toolchain
