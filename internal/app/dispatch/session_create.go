@@ -2,10 +2,20 @@ package dispatch
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
 )
+
+// leftoverCheckout reports whether a failed attempt's destination survived it.
+func leftoverCheckout(destination string) bool {
+	if destination == "" {
+		return false
+	}
+	info, err := os.Stat(destination)
+	return err == nil && info.IsDir()
+}
 
 // maxProgressTail bounds what travels with the failure: enough for the step
 // lines and a hook's last words, not a build log.
@@ -102,6 +112,11 @@ type SessionCreateError struct {
 	// a duplicate name, an invalid name, a spawn that failed after the clone.
 	Destination   string
 	CloneStrategy string
+	// LeftoverCheckout reports that Destination is still on disk. hive names
+	// the destination whether or not anything survives there: git removes its
+	// own directory when it refuses a clone, and keeps a complete one when a
+	// post-checkout hook fails. Only the second is a directory to go delete.
+	LeftoverCheckout bool
 	// Step is hive's failed operation ("clone repository", "worktree add") when
 	// its typed error carries one, and otherwise the last progress line.
 	Step   string

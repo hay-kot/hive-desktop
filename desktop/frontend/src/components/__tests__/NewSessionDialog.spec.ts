@@ -17,6 +17,8 @@ const failure = {
   step: 'Cloning repository...',
   output: 'Clone strategy: full\nCloning repository...',
   cloneStrategy: 'full',
+  destination: '/home/u/.local/share/hive/repos/site-9fa2',
+  leftoverCheckout: true,
   at: '2026-09-16T10:00:00Z',
 }
 
@@ -92,6 +94,18 @@ describe('NewSessionDialog', () => {
     expect(wrapper.get('[data-testid="new-session-failure-reason"]').text()).toContain('exit status 1')
     expect(wrapper.get('[data-testid="new-session-failure-output"]').text()).toContain('Clone strategy: full')
     expect(wrapper.get('[data-testid="new-session-submit"]').text()).toContain('Try again')
+  })
+
+  it('names the checkout a failure left behind', () => {
+    const wrapper = mountDialog({ failure })
+    expect(wrapper.get('[data-testid="new-session-failure"]').text()).toContain('/home/u/.local/share/hive/repos/site-9fa2')
+  })
+
+  // git removes its own directory when it refuses a clone, so hive names a
+  // destination that is already gone. Claiming it is on disk would be a lie.
+  it('says nothing about a checkout git already removed', () => {
+    const wrapper = mountDialog({ failure: { ...failure, leftoverCheckout: false } })
+    expect(wrapper.get('[data-testid="new-session-failure"]').text()).not.toContain('safe to delete')
   })
 
   it('has no failure panel on a fresh form', () => {

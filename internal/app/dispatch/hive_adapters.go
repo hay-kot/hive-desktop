@@ -310,6 +310,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 		// which step failed, not a guess at the last thing that printed.
 		if created, ok := errors.AsType[*hive.CreateSessionError](err); ok {
 			failure.Destination, failure.CloneStrategy = created.Destination, created.CloneStrategy
+			failure.LeftoverCheckout = leftoverCheckout(created.Destination)
 			if created.Operation != "" {
 				failure.Step = created.Operation
 			}

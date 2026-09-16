@@ -50,11 +50,13 @@ type SessionCreateFailure struct {
 	Output string `json:"output"`
 	// CloneStrategy is "full" or "worktree".
 	CloneStrategy string `json:"cloneStrategy"`
-	// Destination is the checkout hive resolved for the attempt. A clone that
-	// fails in a post-checkout hook leaves it complete on disk, and no session
-	// record points at it.
-	Destination string    `json:"destination"`
-	At          time.Time `json:"at"`
+	// Destination is the checkout hive resolved for the attempt.
+	Destination string `json:"destination"`
+	// LeftoverCheckout reports that Destination survived the failure, which is
+	// what makes it a directory to go and delete. A refused clone names a
+	// destination git already removed.
+	LeftoverCheckout bool      `json:"leftoverCheckout"`
+	At               time.Time `json:"at"`
 }
 
 // Activity-metadata keys for a retryable failed form, the persisted half of
@@ -72,7 +74,7 @@ const (
 	metaItemID      = "itemId"
 	metaStep        = "step"
 	metaReason      = "reason"
-	metaDestination = "destination"
+	metaDestination = "leftover"
 )
 
 // SessionDraftMetadata encodes a failed form onto an activity row. The
@@ -92,7 +94,11 @@ func SessionDraftMetadata(draft SessionDraft) map[string]string {
 	if draft.Failure != nil {
 		meta[metaStep] = draft.Failure.Step
 		meta[metaReason] = draft.Failure.Reason
-		meta[metaDestination] = draft.Failure.Destination
+		// Only a surviving checkout is worth carrying: the row's Retry exists to
+		// get back to the form, and a path git already removed is not actionable.
+		if draft.Failure.LeftoverCheckout {
+			meta[metaDestination] = draft.Failure.Destination
+		}
 	}
 	return meta
 }
@@ -116,9 +122,10 @@ func SessionDraftFromMetadata(meta map[string]string) (SessionDraft, bool) {
 	draft.ItemID, _ = strconv.ParseInt(meta[metaItemID], 10, 64)
 	if meta[metaReason] != "" || meta[metaStep] != "" {
 		draft.Failure = &SessionCreateFailure{
-			Reason:      meta[metaReason],
-			Step:        meta[metaStep],
-			Destination: meta[metaDestination],
+			Reason:           meta[metaReason],
+			Step:             meta[metaStep],
+			Destination:      meta[metaDestination],
+			LeftoverCheckout: meta[metaDestination] != "",
 		}
 	}
 	return draft, true

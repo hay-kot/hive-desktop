@@ -92,7 +92,7 @@ useSubmitShortcut(submit)
             class="mt-2 max-h-28 overflow-auto whitespace-pre-wrap rounded border border-strong bg-app px-2 py-1.5 font-mono text-[10.5px] leading-[1.5] text-text-3"
             data-testid="new-session-failure-output"
           >{{ failure.output }}</pre>
-          <p v-if="failure.destination" class="mt-2 text-[11px] leading-[1.45] text-text-3">
+          <p v-if="failure.leftoverCheckout && failure.destination" class="mt-2 text-[11px] leading-[1.45] text-text-3">
             {{ failure.cloneStrategy === 'worktree' ? 'Worktree' : 'Checkout' }} left on disk, safe to delete:
             <span class="block break-all font-mono text-text-4">{{ failure.destination }}</span>
           </p>

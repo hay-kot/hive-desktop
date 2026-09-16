@@ -23,6 +23,8 @@ const failure = {
   step: 'Cloning repository...',
   output: 'Clone strategy: full\nCloning repository...',
   cloneStrategy: 'full',
+  destination: '/home/u/.local/share/hive/repos/site-9fa2',
+  leftoverCheckout: true,
   at: '2026-09-16T10:00:00Z',
 }
 

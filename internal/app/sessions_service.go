@@ -503,12 +503,13 @@ func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.C
 	var detail *dispatch.SessionCreateError
 	if errors.As(err, &detail) {
 		failure = dispatch.SessionCreateFailure{
-			Reason:        detail.Err.Error(),
-			Step:          detail.Step,
-			Output:        detail.Output,
-			CloneStrategy: detail.CloneStrategy,
-			Destination:   detail.Destination,
-			At:            time.Now(),
+			Reason:           detail.Err.Error(),
+			Step:             detail.Step,
+			Output:           detail.Output,
+			CloneStrategy:    detail.CloneStrategy,
+			Destination:      detail.Destination,
+			LeftoverCheckout: detail.LeftoverCheckout,
+			At:               time.Now(),
 		}
 	}
 
@@ -524,6 +525,7 @@ func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.C
 		Str("remote", remote).
 		Str("clone_strategy", failure.CloneStrategy).
 		Str("destination", failure.Destination).
+		Bool("leftover_checkout", failure.LeftoverCheckout).
 		Str("step", failure.Step).
 		Str("progress", failure.Output).
 		Err(err).

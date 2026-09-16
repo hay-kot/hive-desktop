@@ -448,6 +448,7 @@ func TestHiveSessionLauncherReportsTheFailedOperationAndItsCheckout(t *testing.T
 	assert.Equal(t, "clone repository", failure.Step)
 	assert.Equal(t, "full", failure.CloneStrategy)
 	assert.Equal(t, cfg.ReposDir(), filepath.Dir(failure.Destination))
+	assert.True(t, failure.LeftoverCheckout, "a hook that fails after checkout leaves it complete")
 	assert.DirExists(t, failure.Destination, "the complete checkout the failed clone left behind")
 
 	// The progress tail is still the desktop's own: hive's error names one
@@ -470,4 +471,10 @@ func TestHiveSessionLauncherReportsWhyACloneWasRefused(t *testing.T) {
 	assert.Equal(t, "clone repository", failure.Step)
 	assert.Equal(t, "full", failure.CloneStrategy)
 	assert.Contains(t, err.Error(), "does not exist", "git's words, not just its exit status")
+
+	// hive names a destination either way; git removed this one, so there is
+	// nothing to tell the user to delete.
+	assert.NotEmpty(t, failure.Destination)
+	assert.False(t, failure.LeftoverCheckout)
+	assert.NoDirExists(t, failure.Destination)
 }

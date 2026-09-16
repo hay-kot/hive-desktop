@@ -125,11 +125,16 @@ export interface SessionCreateFailure {
     "cloneStrategy": string;
 
     /**
-     * Destination is the checkout hive resolved for the attempt. A clone that
-     * fails in a post-checkout hook leaves it complete on disk, and no session
-     * record points at it.
+     * Destination is the checkout hive resolved for the attempt.
      */
     "destination": string;
+
+    /**
+     * LeftoverCheckout reports that Destination survived the failure, which is
+     * what makes it a directory to go and delete. A refused clone names a
+     * destination git already removed.
+     */
+    "leftoverCheckout": boolean;
     "at": string;
 }
 
