@@ -72,34 +72,12 @@ Reject missing or unknown channels instead of guessing.
    entry, naming the file it wants. **This is not recoverable inside the release
    run**: the entry has to be committed on `main` before publishing, and step 3
    requires a clean tree identical to `origin/main`, so it cannot be written
-   here. Land it first, with these two commands and **nothing else** — never
-   create the branch, write the commit, or open the pull request by hand:
+   here. Stop and tell the operator to run `/release-prep <version>`.
 
-   ```bash
-   mise run changelog:promote -- <stable|version>   # unreleased/ -> <version>.md
-   #   ... edit the entry ...
-   mise run changelog:pr                            # branch, commit, push, open the PR
-   ```
-
-   `promote` requires a clean `main`, collapses the accumulated fragments into
-   the entry, stamps the version and date, and deletes them. **The result is a
-   draft, not the final entry**: it is the sum of every PR since the last
-   release, so consolidate near-duplicate bullets into one note each, prune
-   anything reverted during the cycle, and write the `summary` line — promotion
-   leaves it empty, and it is what the What's New toast and the channel manifest
-   show (ADR release-notes-accumulate-as-fragments).
-
-   `changelog:pr` refuses an entry whose summary is still empty, and refuses a
-   worktree that holds anything besides the promotion, so the release-notes
-   commit is the same shape every release. Pass `--dry-run` to print the branch,
-   commit and pull request it would create. Restart this procedure from step 2
-   once the pull request is merged.
-
-   `changelog:pr` commits and pushes before it calls `gh`. If only the `gh` step
-   fails, the notes are already on the branch: run the `gh pr create` command the
-   error prints, and do not promote again. Re-running `changelog:pr` cannot
-   finish the job, because the promotion it looks for is on the branch it
-   already made.
+   The `release-prep` skill promotes the accumulated fragments, curates the
+   stable entry, validates it, and runs the repository command that creates the
+   branch, commit, push, and pull request. Never create those by hand. Restart
+   this procedure from step 2 after the pull request merges.
 
    Dev and beta releases never reach this step: they are not gated, and they
    publish the draft as it stands.
