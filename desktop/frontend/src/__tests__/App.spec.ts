@@ -1122,19 +1122,24 @@ describe('App', () => {
       wrapper.unmount()
     })
 
-    it('runs a settings-section row by pushing application-settings with the section param', async () => {
+    it('runs the Hive CLI settings row by pushing application-settings with the section param', async () => {
       const { wrapper, router } = await mountAppWithRouter()
 
       const { results, query } = useCommandPalette()
       query.value = ''
-      const cmd = results.value.find((candidate) => candidate.id === 'settings:appearance')
-      expect(cmd?.title).toBe('Appearance')
+      const cmd = results.value.find((candidate) => candidate.id === 'settings:hive')
+      expect(cmd).toMatchObject({
+        title: 'Hive CLI',
+        group: 'Settings',
+        scope: 'goto',
+        kind: 'settings',
+      })
 
       await cmd!.run()
       await flushPromises()
 
       expect(router.currentRoute.value.name).toBe('application-settings')
-      expect(router.currentRoute.value.params.section).toBe('appearance')
+      expect(router.currentRoute.value.params.section).toBe('hive')
 
       wrapper.unmount()
     })

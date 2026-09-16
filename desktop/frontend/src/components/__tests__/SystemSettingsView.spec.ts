@@ -4,6 +4,7 @@ import SystemSettingsView from '../SystemSettingsView.vue'
 
 const mocks = vi.hoisted(() => ({
   Info: vi.fn(),
+  OpenHiveConfig: vi.fn(),
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
   ChooseDirectory: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
+  OpenHiveConfig: mocks.OpenHiveConfig,
   OpenPath: mocks.OpenPath,
   RevealPath: mocks.RevealPath,
   ChooseDirectory: mocks.ChooseDirectory,
@@ -40,6 +42,7 @@ function info(overrides: Record<string, unknown> = {}) {
     logFile: { path: LOG, exists: false, overridden: false },
     database: { path: DB, exists: true, overridden: false },
     agentWorkspaces: { path: '/home/u/.config/hive/desktop/workspaces', exists: true, overridden: false },
+    hiveConfig: { path: '/home/u/.config/hive/config.yaml', exists: true, overridden: false },
     ...overrides,
   }
 }

@@ -55,6 +55,14 @@ export function Info(): $CancellablePromise<$models.SystemInfo> {
 }
 
 /**
+ * OpenHiveConfig creates the resolved Hive config when it does not exist and
+ * opens it in the OS default application.
+ */
+export function OpenHiveConfig(): $CancellablePromise<void> {
+    return $Call.ByID(1290511174);
+}
+
+/**
  * OpenPath opens one of the known system locations in the OS default
  * application. The core validates the path against the current location set,
  * so this RPC cannot be used to open arbitrary files.

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,8 +13,22 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
+// HiveConfigLocation is the Hive config path this process loaded and whether
+// HIVE_CONFIG selected it.
+type HiveConfigLocation struct {
+	Path                string
+	EnvironmentOverride bool
+}
+
+type systemOptions struct {
+	Paths      settings.Paths
+	HiveConfig HiveConfigLocation
+	OpenPath   func(string) error
+	RevealPath func(string) error
+}
+
 // SystemService owns the app's on-disk locations and the operations the
-// System settings screen offers over them: open, reveal, and the
+// settings screens offer over them: open, reveal, config creation, and the
 // point-only data/config directory overrides.
 //
 // Directory overrides take effect after a restart: they are written to the
@@ -22,14 +37,30 @@ import (
 //
 // The native directory picker and Quit stay in the adapter — both are GUI,
 // not domain.
-type SystemService struct{ paths settings.Paths }
+type SystemService struct {
+	paths      settings.Paths
+	hiveConfig HiveConfigLocation
+	openPath   func(string) error
+	revealPath func(string) error
+}
 
-func newSystemService(paths ...settings.Paths) *SystemService {
-	if len(paths) > 0 {
-		return &SystemService{paths: paths[0]}
+func newSystemService(opts systemOptions) *SystemService {
+	if opts.Paths.SettingsPath == "" {
+		b, _ := settings.LoadBootstrap()
+		opts.Paths = settings.ResolvePaths(b, settings.ResolveOptions{MockMode: settings.MockMode()})
 	}
-	b, _ := settings.LoadBootstrap()
-	return &SystemService{paths: settings.ResolvePaths(b, settings.ResolveOptions{MockMode: settings.MockMode()})}
+	if opts.OpenPath == nil {
+		opts.OpenPath = osopen.Open
+	}
+	if opts.RevealPath == nil {
+		opts.RevealPath = osopen.Reveal
+	}
+	return &SystemService{
+		paths:      opts.Paths,
+		hiveConfig: opts.HiveConfig,
+		openPath:   opts.OpenPath,
+		revealPath: opts.RevealPath,
+	}
 }
 
 // PathInfo describes a single on-disk location.
@@ -38,8 +69,7 @@ type PathInfo struct {
 	// Exists reports whether the path is present right now (a log file or
 	// database may not exist until first written).
 	Exists bool
-	// Overridden reports whether a stored override backs this location. Only
-	// meaningful for the data and config directories.
+	// Overridden reports whether an explicit override selected this location.
 	Overridden bool
 }
 
@@ -50,10 +80,11 @@ type SystemInfo struct {
 	LogFile         PathInfo
 	Database        PathInfo
 	AgentWorkspaces PathInfo
+	HiveConfig      PathInfo
 }
 
-// Info returns the effective locations for this process plus whether the
-// data and config directories are backed by a stored override.
+// Info returns the effective locations for this process and their override
+// state.
 func (s *SystemService) Info(context.Context) SystemInfo {
 	return SystemInfo{
 		DataDir:         pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
@@ -61,6 +92,7 @@ func (s *SystemService) Info(context.Context) SystemInfo {
 		LogFile:         pathInfo(s.paths.LogFile, false),
 		Database:        pathInfo(queries.DatabasePath(s.paths.StateDir), false),
 		AgentWorkspaces: pathInfo(s.paths.AgentWorkspacesDir, false),
+		HiveConfig:      pathInfo(s.hiveConfig.Path, s.hiveConfig.EnvironmentOverride),
 	}
 }
 
@@ -75,7 +107,7 @@ func (s *SystemService) OpenPath(_ context.Context, path string) error {
 	if err := s.checkAllowed(path); err != nil {
 		return err
 	}
-	return Wrap(osopen.Open(path), KindInternal, "opening %s", path)
+	return Wrap(s.openPath(path), KindInternal, "opening %s", path)
 }
 
 // RevealPath reveals one of the known system locations in the OS file
@@ -84,7 +116,38 @@ func (s *SystemService) RevealPath(_ context.Context, path string) error {
 	if err := s.checkAllowed(path); err != nil {
 		return err
 	}
-	return Wrap(osopen.Reveal(path), KindInternal, "revealing %s", path)
+	return Wrap(s.revealPath(path), KindInternal, "revealing %s", path)
+}
+
+const initialHiveConfig = `# Hive configuration
+# Hive Desktop reads this file at startup. Restart Hive Desktop after saving changes.
+`
+
+// OpenHiveConfig creates the resolved Hive config when needed, then opens it
+// in the OS default application. O_EXCL preserves a file created between the
+// settings read and this call.
+func (s *SystemService) OpenHiveConfig(_ context.Context) error {
+	path := s.hiveConfig.Path
+	if path == "" {
+		return Errorf(KindInternal, "Hive config path is unavailable")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return Wrap(err, KindInternal, "creating the Hive config directory")
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err == nil {
+		if _, writeErr := file.WriteString(initialHiveConfig); writeErr != nil {
+			_ = file.Close()
+			_ = os.Remove(path)
+			return Wrap(writeErr, KindInternal, "creating the Hive config")
+		}
+		if closeErr := file.Close(); closeErr != nil {
+			return Wrap(closeErr, KindInternal, "creating the Hive config")
+		}
+	} else if !errors.Is(err, os.ErrExist) {
+		return Wrap(err, KindInternal, "creating the Hive config")
+	}
+	return Wrap(s.openPath(path), KindInternal, "opening %s", path)
 }
 
 // SetDataDir persists a data-directory override. It validates the target and
@@ -146,6 +209,9 @@ func (s *SystemService) checkAllowed(path string) error {
 		filepath.Clean(queries.DatabasePath(s.paths.StateDir)): {},
 		filepath.Clean(s.paths.AgentWorkspacesDir):             {},
 		filepath.Clean(s.paths.ReportsDir):                     {},
+	}
+	if s.hiveConfig.Path != "" {
+		allowed[filepath.Clean(s.hiveConfig.Path)] = struct{}{}
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

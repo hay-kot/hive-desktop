@@ -27,10 +27,22 @@ const props = withDefaults(
     tone?: 'accent' | 'neutral'
     exists?: boolean
     overridden?: boolean
+    overriddenLabel?: string
     editable?: boolean
+    canOpen?: boolean
+    canReveal?: boolean
     testid?: string
   }>(),
-  { icon: 'folder', tone: 'neutral', exists: true, overridden: false, editable: false },
+  {
+    icon: 'folder',
+    tone: 'neutral',
+    exists: true,
+    overridden: false,
+    overriddenLabel: 'Custom',
+    editable: false,
+    canOpen: true,
+    canReveal: true,
+  },
 )
 const emit = defineEmits<{ open: []; reveal: []; change: []; reset: [] }>()
 
@@ -69,7 +81,7 @@ const iconBtnClass =
             variant="pill"
             class="shrink-0 px-2 py-0.5 text-[10.5px] font-semibold"
             :data-testid="props.testid ? `${props.testid}-overridden` : undefined"
-          >Custom</BaseBadge>
+          >{{ props.overriddenLabel }}</BaseBadge>
           <BaseBadge
             v-if="!props.exists"
             tone="muted"
@@ -96,6 +108,7 @@ const iconBtnClass =
         @click="copy(props.path)"
       ><component :is="copyStatus === 'success' ? IconCheck : IconCopy" class="size-[15px]" /></button>
       <button
+        v-if="props.canOpen"
         type="button"
         :class="iconBtnClass"
         title="Open"
@@ -104,6 +117,7 @@ const iconBtnClass =
         @click="emit('open')"
       ><IconExternalLink class="size-[15px]" /></button>
       <button
+        v-if="props.canReveal"
         type="button"
         :class="iconBtnClass"
         title="Reveal"

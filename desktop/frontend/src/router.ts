@@ -23,6 +23,7 @@ export const applicationSettingsSections = [
   'actions',
   'terminal',
   'launchers',
+  'hive',
   'agents',
   'system',
   'about',

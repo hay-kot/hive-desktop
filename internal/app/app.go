@@ -206,6 +206,7 @@ type App struct {
 	// projected onto their bare command, with Flags dropped (ADR a-workspace-declares-its-own-authority). Set
 	// in openHiveRuntime, alongside every other hiveCfg-derived field.
 	agentCommands map[string]string
+	hiveConfig    HiveConfigLocation
 
 	// scheduler launches a workspace's scheduled chats when they come due, and
 	// catches up the ones that fell due while the app was closed.
@@ -415,7 +416,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		Events:   a.Events,
 	})
 	a.Actions = newActionsService(a.actionStore, a.Events)
-	a.System = newSystemService(cfg.Paths)
+	a.System = newSystemService(systemOptions{Paths: cfg.Paths, HiveConfig: a.hiveConfig})
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
 	a.Webhooks = newWebhookService(WebhookDeps{Settings: cfg.SettingsStore, Captures: a.Stores.WebhookCaptures, Listener: a.webhook, Host: a.webhookHost, Port: a.webhookPort})
 	a.GitHub = newGitHubService(a.gitHubConnection)
@@ -1082,6 +1083,31 @@ func (r defaultAgentEnvReader) DefaultAgent(ctx context.Context) string {
 	return r.env.Getenv(ctx, config.EnvDefaultAgent)
 }
 
+type hiveConfigEnvironment interface {
+	Getenv(context.Context, string) string
+}
+
+// Hive keeps this list private. The ACL mirrors it so a Dock launch can honor
+// XDG_CONFIG_HOME from the login shell instead of probing the launcher's home.
+var hiveConfigNames = []string{"config.yaml", "config.yml", "hive.yaml", "hive.yml"}
+
+func resolveHiveConfigLocation(ctx context.Context, env hiveConfigEnvironment) HiveConfigLocation {
+	if path := env.Getenv(ctx, "HIVE_CONFIG"); path != "" {
+		return HiveConfigLocation{Path: path, EnvironmentOverride: true}
+	}
+	configDir := config.DefaultConfigDir()
+	if configHome := env.Getenv(ctx, "XDG_CONFIG_HOME"); configHome != "" {
+		configDir = filepath.Join(configHome, "hive")
+	}
+	for _, name := range hiveConfigNames {
+		path := filepath.Join(configDir, name)
+		if _, err := os.Stat(path); err == nil {
+			return HiveConfigLocation{Path: path}
+		}
+	}
+	return HiveConfigLocation{Path: filepath.Join(configDir, hiveConfigNames[0])}
+}
+
 // openWebhook constructs the optional loopback listener without binding it.
 // Port zero is passed through to net.Listen so the OS allocates without a
 // probe/rebind race. Mock instances only claim a listener through an explicit
@@ -1112,11 +1138,8 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("create hive data directory: %w", err)
 	}
 
-	configPath := os.Getenv("HIVE_CONFIG")
-	if configPath == "" {
-		configPath = config.DefaultConfigPath()
-	}
-	hiveCfg, err := config.Load(configPath, dataDir)
+	a.hiveConfig = resolveHiveConfigLocation(ctx, a.execEnv)
+	hiveCfg, err := config.Load(a.hiveConfig.Path, dataDir)
 	if err != nil {
 		return fmt.Errorf("load hive config for actions: %w", err)
 	}
