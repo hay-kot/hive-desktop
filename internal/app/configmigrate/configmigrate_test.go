@@ -308,6 +308,41 @@ func TestSettings_DropsTheRetiredSkillsSection(t *testing.T) {
 	assert.Contains(t, doc, "polling", "an unrelated section is untouched")
 }
 
+// The status bar ships on, but a saved settings.yaml carries an explicit
+// `terminal_show_status_bar: false` from when off was the default, so the flip
+// only reaches existing files through a one-time migration.
+func TestSettings_TurnsTheTerminalStatusBarOn(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 3\nappearance:\n  theme: midnight\n  terminal_show_windows: false\n  terminal_show_status_bar: false\n")
+
+	migrated, changed, err := SettingsSet.Apply(raw)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, SettingsSet.Current, doc["version"])
+	appearance, ok := doc["appearance"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, appearance["terminal_show_status_bar"])
+	assert.Equal(t, false, appearance["terminal_show_windows"], "an unrelated appearance value is untouched")
+	assert.Equal(t, "midnight", appearance["theme"])
+}
+
+// A file with no appearance section decodes onto the defaults, which now say
+// on, so the step has nothing to add and must not invent the section.
+func TestSettings_TerminalStatusBarStepLeavesAMissingAppearanceSectionAlone(t *testing.T) {
+	t.Parallel()
+
+	migrated, changed, err := SettingsSet.Apply([]byte("version: 3\npolling:\n  interval: 5m\n"))
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, SettingsSet.Current, doc["version"])
+	assert.NotContains(t, doc, "appearance")
+}
+
 // The identity case #309 is about: a manifest listing exactly the shipped set
 // resolves to the same skills through the hive package, so rewriting it is
 // not inference. It is also the case that actually bites — the seeded hive

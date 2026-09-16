@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,7 @@ func TestDefaultSettingsAreSafe(t *testing.T) {
 	assert.Zero(t, cfg.HTTP.Port)
 	assert.Equal(t, MockLive, cfg.Development.Mocks.Mode)
 	assert.False(t, cfg.Development.Pprof.Enabled)
+	assert.True(t, cfg.Appearance.TerminalShowStatusBar, "the session status bar ships on")
 }
 
 // The graduated features' gate is gone from the struct, and the decoder is
@@ -46,6 +48,30 @@ func TestRetiredExperimentalSectionIsMigratedAway(t *testing.T) {
 	cfg, err := LoadSettings()
 	require.NoError(t, err)
 	assert.Equal(t, configmigrate.SettingsSet.Current, cfg.Version)
+}
+
+// Every save wrote an explicit false while the bar shipped off, so the flip to
+// on has to reach a saved file through the migration, not just the default.
+func TestPersistedTerminalStatusBarOffIsMigratedOn(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, os.WriteFile(path, []byte("version: 3\nappearance:\n  terminal_show_windows: true\n  terminal_show_status_bar: false\n  terminal_pool_size: 3\n"), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.True(t, cfg.Appearance.TerminalShowStatusBar)
+	assert.Equal(t, configmigrate.SettingsSet.Current, cfg.Version)
+}
+
+// The flip is a one-time reset: a file already at the current version that
+// says off stays off.
+func TestTerminalStatusBarOffAtCurrentVersionIsKept(t *testing.T) {
+	path := isolateSettings(t)
+	raw := "version: " + strconv.Itoa(configmigrate.SettingsSet.Current) + "\nappearance:\n  terminal_show_status_bar: false\n"
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.False(t, cfg.Appearance.TerminalShowStatusBar)
 }
 
 func TestProfilesOrderRoundTrips(t *testing.T) {

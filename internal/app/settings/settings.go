@@ -111,8 +111,7 @@ type Appearance struct {
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
 	// TerminalShowStatusBar gives the attached session the same status bar a
-	// chat has, plus git and pull-request state. Off by default: it costs a
-	// strip of vertical space above every terminal.
+	// chat has, plus git and pull-request state. On by default.
 	TerminalShowStatusBar bool `yaml:"terminal_show_status_bar" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_STATUS_BAR"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached at
 	// once for instant switching (ADR terminal-attach-pool). Like the other appearance values it
@@ -293,7 +292,7 @@ func DefaultSettings() Settings {
 		Polling:         PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:         UpdateSettings{Enabled: true},
 		Notifications:   NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
-		Appearance:      Appearance{TerminalShowWindows: true, TerminalPoolSize: 3},
+		Appearance:      Appearance{TerminalShowWindows: true, TerminalShowStatusBar: true, TerminalPoolSize: 3},
 		HTTP:            HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
 		Telemetry:       TelemetrySettings{Enabled: false},
 		AgentWorkspaces: AgentWorkspacesSettings{SessionEndDelay: Duration(10 * time.Second)},
