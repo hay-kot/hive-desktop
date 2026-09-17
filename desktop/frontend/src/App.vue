@@ -1052,6 +1052,7 @@ function contextActive(context: CommandContext): boolean {
     // on the feed. Any attached slug qualifies, hive session or not.
     case 'terminal-session': return terminalActive.value && !!onScreenSessionSlug.value
     case 'agents': return agentsActive.value
+    case 'sidebar': return canToggleSidebar.value
     // The Code half excludes the session picker for terminal-session's reason:
     // with no emulator drawn, the chord would change a size nobody can see.
     case 'any-terminal': return (terminalActive.value && !!onScreenSessionSlug.value) || agentsActive.value || popupTerminal.visible.value
@@ -1182,9 +1183,9 @@ function onGlobalKeydown(e: KeyboardEvent): void {
       runCommand(id)
       return
     }
-    // The commands the catalog marks `escapesPane` — the palette, which is the
-    // way back out of a pane, and the window lifecycle — fire over one too, but
-    // only on modifiers a terminal cannot use, which is what terminalEscapeCombo
+    // The commands the catalog marks `escapesPane` — the palette, the sidebar
+    // toggle, and the window lifecycle — fire over a pane too, but only on
+    // modifiers a terminal cannot use, which is what terminalEscapeCombo
     // answers. A bare Ctrl+K stays with the pane; it is readline's
     // kill-to-end-of-line, and Ctrl+T is its transpose.
     const escaped = kb.resolve(terminalEscapeCombo(e) ?? '')

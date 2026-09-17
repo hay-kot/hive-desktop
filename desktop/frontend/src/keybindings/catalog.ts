@@ -48,9 +48,10 @@ import type { CommandScope } from '../palette/scopes'
 // `context` gates where a bare (modifier-less) binding fires: `feed` commands
 // only run when the feed is actually on screen, `terminal` commands only inside
 // terminal mode, `terminal-session` commands only while a session is attached
-// there, `agents` commands only inside the Agents area, `any-terminal` commands
-// wherever an emulator is drawn — an attached Code session, the Agents area, or
-// the pop-up panel over any view; `global` commands run anywhere.
+// there, `agents` commands only inside the Agents area, `sidebar` commands in
+// any view with a left panel, `any-terminal` commands wherever an emulator is
+// drawn — an attached Code session, the Agents area, or the pop-up panel over
+// any view; `global` commands run anywhere.
 // `defaultCombos` are canonical combo strings (see useKeybindings.comboFromEvent)
 // — an empty array means "bindable, but unbound by default".
 //
@@ -66,7 +67,7 @@ import type { CommandScope } from '../palette/scopes'
 // quick-terminal-launchers-are-session-scoped, ADR a-new-tab-and-a-launcher-open-where-the-terminal-s-active-pane-is).
 // Any slug the Code view attaches counts, including the scratch terminal and a
 // pinned chat — what the launcher needs is a pane, not a hive record.
-export type CommandContext = 'global' | 'feed' | 'terminal' | 'terminal-session' | 'any-terminal' | 'agents'
+export type CommandContext = 'global' | 'feed' | 'terminal' | 'terminal-session' | 'any-terminal' | 'agents' | 'sidebar'
 
 export interface BindableCommand {
   id: string
@@ -268,13 +269,15 @@ export const commandCatalog: BindableCommand[] = [
     piercesPane: true,
   },
   {
+    // This id is persisted in settings.yaml. Keep it even though the command
+    // now follows the active sidebar in every app mode.
     id: 'terminal.toggle-sidebar',
-    title: 'Toggle Code sidebar',
-    group: 'Code',
-    keywords: ['terminal', 'sidebar', 'sessions', 'tree', 'show', 'hide', 'collapse'],
+    title: 'Toggle sidebar',
+    group: 'View',
+    keywords: ['sidebar', 'panel', 'inbox', 'code', 'chats', 'show', 'hide', 'collapse'],
     icon: IconPanelLeft,
     defaultCombos: ['mod+b'],
-    context: 'terminal',
+    context: 'sidebar',
     escapesPane: true,
     piercesPane: 'non-mac',
   },

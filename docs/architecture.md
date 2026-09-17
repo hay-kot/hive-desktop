@@ -1697,9 +1697,9 @@ Three rules govern it, and each is a consequence of that:
   A command **escapes** when the catalog marks it `escapesPane`: it is claimed
   through `terminalEscapeCombo`, which takes Command chords and Ctrl+Shift where
   there is no Command, dropping that Shift so one configured combo matches on
-  both. The palette is one, because it is the way back out of a pane, and so is
-  the window lifecycle — `terminal.new-window`, `-close-window`, `-next-window`,
-  `-prev-window`. That is what leaves a bare Ctrl+K as readline's
+  both. The palette and the active-sidebar toggle are two, because they are ways
+  back out of a pane, and so is the window lifecycle — `terminal.new-window`,
+  `-close-window`, `-next-window`, `-prev-window`. That is what leaves a bare Ctrl+K as readline's
   kill-to-end-of-line and Ctrl+T as its transpose-chars while ⌘K and ⌘T are the
   app's. A shifted binding therefore cannot escape where `mod` is Ctrl, so an
   escaping command whose macOS chord is shifted carries `ctrlDefaultCombos`, an
