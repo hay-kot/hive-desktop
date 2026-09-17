@@ -155,7 +155,6 @@ export function setTerminalFontSize(next: TerminalFontSize): void {
 
 // Waits for hydration because the step is relative: taken from the unhydrated
 // default it would write a neighbour of medium over whatever settings.yaml holds.
-// The preset list's ends hold rather than wrap.
 export async function stepTerminalFontSize(delta: 1 | -1): Promise<void> {
   await ensureHydrated()
   const next = terminalFontSizes[terminalFontSizes.indexOf(currentSize.value) + delta]

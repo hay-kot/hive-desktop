@@ -15,9 +15,6 @@ describe('commandCatalog defaults', () => {
     }
   })
 
-  // ⌘+ is Shift+= on most layouts, and `plus` is a named key, so the event
-  // spells itself `mod+shift+plus` rather than folding the Shift into the
-  // character.
   it.each([
     ['=', false],
     ['+', true],
@@ -29,8 +26,6 @@ describe('commandCatalog defaults', () => {
     expect(defaultCombosFor(increase, true)).toContain(comboFromEvent(press))
   })
 
-  // `mod+_` and `mod+)` look like typos and are not: the pane escape drops the
-  // Shift token and keeps the shifted character.
   it.each([
     ['terminal.text-size-increase', '+'],
     ['terminal.text-size-decrease', '_'],

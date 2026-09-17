@@ -66,8 +66,6 @@ describe('useTerminalFont', () => {
     expect(size.value).toBe(defaultTerminalFontSize)
   })
 
-  // The step is relative, so its base has to be the persisted size: taken from
-  // the unhydrated default it would write `large` over a stored `xl`.
   it('steps from the persisted size when nothing has hydrated yet', async () => {
     mocks.AppearanceSettings.mockResolvedValue({ terminalFontSize: 'xl' })
     const { stepTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
