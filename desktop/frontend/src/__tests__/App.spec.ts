@@ -1353,7 +1353,7 @@ describe('App', () => {
     // The stub only seeds recents, so useAgentWorkspaces().workspaces stays
     // empty — the dir → name join has nothing to match, and the group falls
     // back to the raw dir key rather than a display name.
-    it('lists a chat row from a useAgentSessionsAll stub and pushes the agents route on run', async () => {
+    it('lists a chat row, pushes its agents route, and focuses the chat pane', async () => {
       const { wrapper, router } = await mountAppWithRouter()
       useAgentSessionsAll().recents.value = [{
         id: 42, workspace: 'my-workspace', name: 'Chat about the bug', agent: 'claude',
@@ -1361,19 +1361,30 @@ describe('App', () => {
         resumeAttempted: false, notice: '', scheduleId: '',
       }]
 
-      const { results, query } = useCommandPalette()
-      query.value = ''
-      const cmd = results.value.find((candidate) => candidate.id === 'chat:42')
+      // Mount the Chats mode once, then replace its handles while it is hidden.
+      // Returning through the palette reuses that mounted pane.
+      await router.push({ name: 'agents', params: { workspace: 'my-workspace' }, query: { chat: '42' } })
+      await flushPromises()
+      await router.push('/feed')
+      await flushPromises()
+      const focusPane = vi.fn()
+      setAgentsTreeHandles({ focusList: vi.fn(), focusFilter: vi.fn(), focusPane })
+
+      const palette = useCommandPalette()
+      palette.query.value = ''
+      const cmd = palette.results.value.find((candidate) => candidate.id === 'chat:42')
       expect(cmd?.title).toBe('Chat about the bug')
       expect(cmd?.group).toBe('my-workspace')
 
-      await cmd!.run()
+      await palette.run(cmd!)
       await flushPromises()
 
       expect(router.currentRoute.value.name).toBe('agents')
       expect(router.currentRoute.value.params.workspace).toBe('my-workspace')
       expect(router.currentRoute.value.query.chat).toBe('42')
+      expect(focusPane).toHaveBeenCalledTimes(1)
 
+      setAgentsTreeHandles(null)
       wrapper.unmount()
     })
 
