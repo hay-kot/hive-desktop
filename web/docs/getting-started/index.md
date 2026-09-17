@@ -19,7 +19,7 @@ The macOS download is a `.dmg`: open it and drag **Hive** to Applications. The L
 
 ### Install from the terminal
 
-The install script picks the right build, verifies its checksum, installs the app, and adds the `hive` command to your `PATH`.
+The install script picks the right build, verifies its checksum, and installs the app. It leaves the separate `hive` CLI command unchanged.
 
 ```sh
 curl -fsSL https://hivedesktop.com/install.sh | bash
@@ -33,7 +33,7 @@ curl -fsSL https://hivedesktop.com/install.sh | bash
 
     Installs the binary under `~/.local/share/hive`. Set `HIVE_HOME` to choose another directory.
 
-To inspect the installer first, omit `| bash`. Add `-s -- --channel dev` after `bash` to install the dev channel, and set `HIVE_BIN_DIR` to choose where the `hive` symlink goes.
+To inspect the installer first, omit `| bash`. Add `-s -- --channel dev` after `bash` to install the dev channel.
 
 Hive updates itself. You can change the release channel under **Settings ▸ About**. See [Settings](../configuration/settings.md#updates).
 
