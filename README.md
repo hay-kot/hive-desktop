@@ -19,8 +19,9 @@ curl -fsSL https://hivedesktop.com/install.sh | bash
 
 The script detects your OS and CPU, resolves the newest build from the same
 channel manifest the in-app updater reads, verifies its SHA-256 before touching
-disk, installs the app, and symlinks `hive` onto your PATH. Drop the `| bash` to
-read it first. [hivedesktop.com/getting-started](https://hivedesktop.com/getting-started/#install)
+disk, and installs the app. It leaves the separate `hive` CLI command unchanged.
+Drop the `| bash` to read it first.
+[hivedesktop.com/getting-started](https://hivedesktop.com/getting-started/#install)
 has the same command with the per-platform notes.
 
 ## What it does

@@ -7,15 +7,15 @@
 # Drop the `| bash` to read this first.
 #
 # Detects your OS + CPU, pulls the channel's latest build, verifies its SHA-256
-# against the published manifest, installs the app, and symlinks `hive` onto
-# your PATH. macOS is the only published platform; Linux is wired up but only
-# installs once linux builds are published.
+# against the published manifest, and installs the app. macOS is the only
+# published platform; Linux is wired up but only installs once linux builds are
+# published.
 #
 # Channel defaults to stable. Track another by passing the flag through bash:
 #
 #     curl -fsSL <url> | bash -s -- --channel dev
 #
-# or set `HIVE_CHANNEL`. `HIVE_BIN_DIR` sets the `hive` symlink directory.
+# or set `HIVE_CHANNEL`.
 #
 set -euo pipefail
 
@@ -144,32 +144,14 @@ install_linux() {
   APP_PATH="$dir"
 }
 
-link_cli() {
-  local bindir="${HIVE_BIN_DIR:-}"
-  if [ -z "$bindir" ]; then
-    if [ -w /usr/local/bin ]; then bindir="/usr/local/bin"; else bindir="$HOME/.local/bin"; fi
-  fi
-  mkdir -p "$bindir"
-  ln -sf "$EXE_PATH" "$bindir/hive"
-  BIN_DIR="$bindir"
-  case ":$PATH:" in
-    *":$bindir:"*) ON_PATH=1 ;;
-    *) ON_PATH=0 ;;
-  esac
-}
-
 print_next() {
   echo
   ok "installed ${BOLD}Hive $VERSION${RST} → $APP_PATH"
-  ok "linked ${BOLD}$BIN_DIR/hive${RST}"
   echo
-  if [ "$ON_PATH" != 1 ]; then
-    say "add it to your PATH: ${BOLD}export PATH=\"$BIN_DIR:\$PATH\"${RST}"
-  fi
   if [ "$OS" = darwin ]; then
-    say "launch it: ${BOLD}open -a Hive${RST}  ·  or run ${BOLD}hive${RST}"
+    say "launch it: ${BOLD}open -a Hive${RST}"
   else
-    say "launch it: ${BOLD}hive${RST}"
+    say "launch it: ${BOLD}$EXE_PATH${RST}"
   fi
   say "next: connect GitHub, then build your first feed."
 }
@@ -190,7 +172,6 @@ main() {
   verify_sha
   ok "checksum verified"
   if [ "$OS" = darwin ]; then install_darwin; else install_linux; fi
-  link_cli
   print_next
 }
 
