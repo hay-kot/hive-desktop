@@ -256,7 +256,8 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 	require.NoError(t, json.Unmarshal(frame[1:], &window))
 	assert.Equal(t,
 		windowEventPayload{
-			Kind: "renamed", WindowID: "@3", Name: "shell", Active: true, ActivePane: "%4", Width: 213, Height: 55,
+			Kind:     "renamed",
+			WindowID: "@3", Name: "shell", Active: true, ActivePane: "%4", Width: 213, Height: 55,
 			Layout: &terminalLayout{
 				Split: "leftright", Width: 213, Height: 55,
 				Cells: []terminalLayout{

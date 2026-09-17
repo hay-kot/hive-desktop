@@ -10,15 +10,25 @@ const options = {
   defaultAgent: 'claude',
 }
 
-const blank = { repository: '', name: '', prompt: '' }
+const blank = { repository: '', name: '', prompt: '', agent: options.defaultAgent }
+
+const failure = {
+  reason: 'clone repository: git clone: exec git: exit status 1',
+  step: 'Cloning repository...',
+  output: 'Clone strategy: full\nCloning repository...',
+  cloneStrategy: 'full',
+  destination: '/home/u/.local/share/hive/repos/site-9fa2',
+  leftoverCheckout: true,
+  at: '2026-09-16T10:00:00Z',
+}
 
 function mountDialog(overrides: Record<string, unknown> = {}) {
-  return mount(NewSessionDialog, { attachTo: document.body, props: { options, initial: blank, busy: false, error: null, ...overrides }, global: { stubs: { Teleport: true } } })
+  return mount(NewSessionDialog, { attachTo: document.body, props: { options, initial: blank, busy: false, error: null, failure: null, ...overrides }, global: { stubs: { Teleport: true } } })
 }
 
 describe('NewSessionDialog', () => {
   it('prefills from the draft and emits repository, name, prompt, and agent', async () => {
-    const wrapper = mountDialog({ initial: { repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' } })
+    const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' } })
     await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
     expect(wrapper.emitted('submit')).toEqual([[{ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash', agent: 'claude' }]])
   })
@@ -44,7 +54,7 @@ describe('NewSessionDialog', () => {
   })
 
   it('submits on ⌘/Ctrl+Enter from anywhere in the dialog', async () => {
-    const wrapper = mountDialog({ initial: { repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' } })
+    const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' } })
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, cancelable: true }))
     await nextTick()
@@ -53,7 +63,7 @@ describe('NewSessionDialog', () => {
   })
 
   it('ignores a bare Enter outside a field so the prompt keeps its newlines', async () => {
-    const wrapper = mountDialog({ initial: { repository: 'acme/site', name: 'fix-crash', prompt: '' } })
+    const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash', prompt: '' } })
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
     await nextTick()
@@ -70,6 +80,43 @@ describe('NewSessionDialog', () => {
     const button = wrapper.get('[data-testid="new-session-submit"]').element as HTMLButtonElement
     expect(button.type).toBe('submit')
     expect(button.form).toBe(wrapper.get('form').element)
+  })
+
+  it('restores the agent the failed attempt used, empty included', async () => {
+    const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash', agent: '' }, failure })
+    await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
+    expect(wrapper.emitted('submit')).toEqual([[{ repository: 'acme/site', name: 'fix-crash', prompt: '' }]])
+  })
+
+  it('shows the failing step, the reason, and the output tail', () => {
+    const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash' }, failure })
+    expect(wrapper.get('[data-testid="new-session-failure-reason"]').text()).toContain('Cloning repository...')
+    expect(wrapper.get('[data-testid="new-session-failure-reason"]').text()).toContain('exit status 1')
+    expect(wrapper.get('[data-testid="new-session-failure-output"]').text()).toContain('Clone strategy: full')
+    expect(wrapper.get('[data-testid="new-session-submit"]').text()).toContain('Try again')
+  })
+
+  it('names the checkout a failure left behind', () => {
+    const wrapper = mountDialog({ failure })
+    expect(wrapper.get('[data-testid="new-session-failure"]').text()).toContain('/home/u/.local/share/hive/repos/site-9fa2')
+  })
+
+  // git removes its own directory when it refuses a clone, so hive names a
+  // destination that is already gone. Claiming it is on disk would be a lie.
+  it('says nothing about a checkout git already removed', () => {
+    const wrapper = mountDialog({ failure: { ...failure, leftoverCheckout: false } })
+    expect(wrapper.get('[data-testid="new-session-failure"]').text()).not.toContain('safe to delete')
+  })
+
+  it('has no failure panel on a fresh form', () => {
+    expect(mountDialog().find('[data-testid="new-session-failure"]').exists()).toBe(false)
+  })
+
+  it('emits dismissFailure without closing the form', async () => {
+    const wrapper = mountDialog({ failure })
+    await wrapper.get('[data-testid="new-session-failure-dismiss"]').trigger('click')
+    expect(wrapper.emitted('dismissFailure')).toHaveLength(1)
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   it('keeps the dialog open and reports invalid names locally', async () => {

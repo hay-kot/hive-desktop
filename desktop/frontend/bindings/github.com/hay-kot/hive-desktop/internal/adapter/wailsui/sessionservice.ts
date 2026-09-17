@@ -38,6 +38,21 @@ export function DeleteSession(id: string): $CancellablePromise<number> {
 }
 
 /**
+ * DismissFailedSession drops the pending failed attempt.
+ */
+export function DismissFailedSession(): $CancellablePromise<void> {
+    return $Call.ByID(3904276032);
+}
+
+/**
+ * FailedSessionDraft returns the last New Session form whose creation failed,
+ * with the failure on it. A draft whose Failure is null means none is waiting.
+ */
+export function FailedSessionDraft(): $CancellablePromise<dispatch$0.SessionDraft> {
+    return $Call.ByID(13431269);
+}
+
+/**
  * InvokeTerminalAction runs an action against a terminal target as a
  * background job and returns the job id; its outcome surfaces in the jobs UI.
  */
@@ -113,6 +128,15 @@ export function RevealSession(id: string): $CancellablePromise<void> {
  */
 export function SessionDetail(id: string): $CancellablePromise<dispatch$0.SessionDetail> {
     return $Call.ByID(3289077136, id);
+}
+
+/**
+ * SessionDraftFromActivity decodes the New Session form a failed-create
+ * activity row carries. Pass the row's own metadata; the keys in it are the
+ * backend's.
+ */
+export function SessionDraftFromActivity(metadata: { [_ in string]?: string } | null): $CancellablePromise<dispatch$0.SessionDraft> {
+    return $Call.ByID(3785534597, metadata);
 }
 
 /**

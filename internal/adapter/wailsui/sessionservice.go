@@ -99,6 +99,24 @@ func (s *SessionService) CreateSession(ctx context.Context, req dispatch.CreateS
 	return s.sessions.CreateSession(ctx, req)
 }
 
+// FailedSessionDraft returns the last New Session form whose creation failed,
+// with the failure on it. A draft whose Failure is null means none is waiting.
+func (s *SessionService) FailedSessionDraft(ctx context.Context) (dispatch.SessionDraft, error) {
+	return s.sessions.FailedSessionDraft(ctx)
+}
+
+// SessionDraftFromActivity decodes the New Session form a failed-create
+// activity row carries. Pass the row's own metadata; the keys in it are the
+// backend's.
+func (s *SessionService) SessionDraftFromActivity(ctx context.Context, metadata map[string]string) (dispatch.SessionDraft, error) {
+	return s.sessions.SessionDraftFromActivity(ctx, metadata)
+}
+
+// DismissFailedSession drops the pending failed attempt.
+func (s *SessionService) DismissFailedSession(ctx context.Context) error {
+	return s.sessions.DismissFailedSession(ctx)
+}
+
 // RenameSession renames a session and returns its new summary. The slug in it
 // is the new tmux target: renaming re-slugs, so an attached caller has to
 // re-attach under the name that comes back.

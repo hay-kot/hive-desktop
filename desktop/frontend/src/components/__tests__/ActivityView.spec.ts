@@ -7,6 +7,11 @@ const markSeen = vi.fn()
 const load = vi.fn()
 const events = ref<ActivityEvent[]>([])
 
+const openFromActivity = vi.fn()
+vi.mock('../../composables/useNewSession', () => ({
+  useNewSession: () => ({ openFromActivity }),
+}))
+
 vi.mock('../../composables/useActivity', () => ({
   useActivity: () => ({
     events,
@@ -31,6 +36,23 @@ function seed(): ActivityEvent[] {
 
 function rows(wrapper: ReturnType<typeof mount>) {
   return wrapper.findAll('[data-testid="activity-row"]')
+}
+
+// What a failed create records: the reason in the body, the form in metadata.
+const failedCreate: ActivityEvent = {
+  id: 9,
+  createdAt: Date.now(),
+  category: 'session',
+  severity: 'error',
+  title: 'Could not create session fix-crash',
+  body: 'acme/site · Cloning repository... · exit status 1',
+  metadata: {
+    retry: 'session-create',
+    repository: 'https://github.com/acme/site.git',
+    name: 'fix-crash',
+    prompt: 'Fix the crash',
+    agent: 'claude',
+  },
 }
 
 describe('ActivityView', () => {
@@ -135,5 +157,23 @@ describe('ActivityView', () => {
     const wrapper = mount(ActivityView)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('offers Retry only on a row that carries a form, and forwards its metadata untouched', async () => {
+    events.value = [failedCreate, ...seed()]
+    const wrapper = mount(ActivityView)
+
+    expect(wrapper.findAll('[data-testid^="activity-retry-"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="activity-retry-9"]').trigger('click')
+
+    expect(openFromActivity).toHaveBeenCalledWith(failedCreate.metadata)
+    // The form is a modal over the view behind this one, so the overlay closes.
+    expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('offers no Retry on a failure with nothing to retry', () => {
+    events.value = seed()
+    const wrapper = mount(ActivityView)
+    expect(wrapper.find('[data-testid^="activity-retry-"]').exists()).toBe(false)
   })
 })

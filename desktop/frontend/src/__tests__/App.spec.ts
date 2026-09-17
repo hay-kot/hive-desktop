@@ -3,6 +3,8 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
+import { resetNewSessionForTests } from '../composables/useNewSession'
+import { resetToastsForTests } from '../composables/useToasts'
 import { requestedEditorFilter } from '../keybindings/keymapRows'
 import { useReportDialog } from '../composables/useReportDialog'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
@@ -55,6 +57,8 @@ const mocks = vi.hoisted(() => ({
   ActionRun: vi.fn(),
   SessionLaunchOptions: vi.fn(),
   CreateSession: vi.fn(),
+  FailedSessionDraft: vi.fn(),
+  DismissFailedSession: vi.fn(),
   NewSessionDraft: vi.fn(),
   ActionViews: vi.fn(),
   InvokeAction: vi.fn(),
@@ -142,6 +146,8 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   SessionLaunchOptions: mocks.SessionLaunchOptions,
   CreateSession: mocks.CreateSession,
+  FailedSessionDraft: mocks.FailedSessionDraft,
+  DismissFailedSession: mocks.DismissFailedSession,
   ListSessions: vi.fn().mockResolvedValue([]),
   SessionStatuses: vi.fn().mockResolvedValue({ items: [], pollIntervalMs: 60_000 }),
   TerminalActionViews: vi.fn().mockResolvedValue([]),
@@ -348,6 +354,8 @@ describe('App', () => {
     mocks.SetFlowEnabled.mockImplementation(async (id: string, enabled: boolean) => ({ id, name: 'Personal', enabled, valid: true }))
     mocks.DeleteFlow.mockResolvedValue(undefined)
     mocks.On.mockReturnValue(() => {})
+    mocks.FailedSessionDraft.mockResolvedValue({ repository: '', name: '', prompt: '' })
+    mocks.DismissFailedSession.mockResolvedValue(undefined)
     mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: false, currentVersion: 'dev', latestVersion: '', notes: '' })
     mocks.InstallUpdate.mockResolvedValue(undefined)
     mocks.NotificationSettings.mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true })
@@ -372,9 +380,13 @@ describe('App', () => {
   // A test that arms the deferred-sequence timer switches to fake timers; this
   // guarantees the next test always starts on real ones, even if an assertion
   // above throws before a test's own vi.useRealTimers() runs.
+  // The toast stack and the New Session form are app-lifetime module state, so
+  // without this a test hands the next one an overlay that swallows its keys.
   afterEach(() => {
     vi.useRealTimers()
     Reflect.deleteProperty(navigator, 'userAgent')
+    resetToastsForTests()
+    resetNewSessionForTests()
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -533,6 +545,49 @@ describe('App', () => {
     } finally {
       wrapper.unmount()
       consoleError.mockRestore()
+    }
+  })
+
+  // The one seam the composable's own tests cannot cover: the Wails event that
+  // carries a background failure back to a closed dialog.
+  it('turns a failed session create into a toast that reopens the restored form', async () => {
+    mocks.FailedSessionDraft.mockResolvedValue({
+      repository: 'https://github.com/acme/site.git',
+      name: 'fix-crash',
+      prompt: 'Fix the crash',
+      agent: 'claude',
+      itemId: 0,
+      failure: {
+        reason: 'clone repository: git clone: exec git: exit status 1',
+        step: 'Cloning repository...',
+        output: 'Clone strategy: full\nCloning repository...',
+        cloneStrategy: 'full',
+        at: '2026-09-16T10:00:00Z',
+      },
+    })
+    const wrapper = await mountApp()
+
+    try {
+      const failed = mocks.On.mock.calls.find(([event]) => event === 'sessions:create-failed')?.[1] as ((ev: { data: string }) => void) | undefined
+      expect(failed).toBeDefined()
+      failed?.({ data: 'fix-crash' })
+      await flushPromises()
+
+      expect(wrapper.get('[data-testid="toast-title"]').text()).toContain('fix-crash')
+      expect(wrapper.get('[data-testid="toast-body"]').text()).toContain('Cloning repository...')
+      expect(wrapper.find('[data-testid="toast-progress"]').exists()).toBe(false)
+
+      const retry = wrapper.findAll('[data-testid="toast-action"]').find((b) => b.text() === 'Retry')
+      expect(retry).toBeDefined()
+      await retry?.trigger('click')
+      await flushPromises()
+
+      const dialog = document.querySelector('[data-testid="new-session-dialog"]')
+      expect(dialog).not.toBeNull()
+      expect(document.querySelector<HTMLInputElement>('[data-testid="new-session-name"]')?.value).toBe('fix-crash')
+      expect(document.querySelector('[data-testid="new-session-failure-reason"]')?.textContent).toContain('exit status 1')
+    } finally {
+      wrapper.unmount()
     }
   })
 

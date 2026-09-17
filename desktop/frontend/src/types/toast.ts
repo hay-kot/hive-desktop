@@ -16,7 +16,7 @@ export interface ToastOptions {
   body?: string
   /** Up to two inline actions; the first renders as primary (bold, severity-colored), the rest as muted secondary links. */
   actions?: ToastActionDef[]
-  /** Auto-dismiss delay in ms. */
+  /** Auto-dismiss delay in ms. 0 stays until the user dismisses it. */
   duration?: number
 }
 

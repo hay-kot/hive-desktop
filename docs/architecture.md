@@ -1063,9 +1063,14 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   environment of the client that created it; setting `Cmd.Env` on the
   `new-session` command is what puts an agent binary on its PATH, and no
   `new-session -e` plumbing is involved.
-- **A streamed command's failure carries the opening of its stderr.** Hive
-  streams hook output to `io.Discard`, so without it a missing command reaches
-  the jobs list as an exit status naming nothing.
+- **A failed command's error carries its own output, streamed or captured.**
+  Hive streams hook output to `io.Discard`, so a streamed failure repeats the
+  head of its stderr in the error. A captured failure returns
+  `executil.CommandError`, which is the port's own contract: hive's git
+  executor re-wraps only an error that is not already one, so returning it
+  avoids a double wrap and gives the caller the child's output through
+  `errors.As` rather than a string
+  (ADR [a-failed-session-creation-is-a-retryable-draft](decisions/2026-09-16-a-failed-session-creation-is-a-retryable-draft.md)).
 - **A command on a timer takes the resolver's answer, never its own probe**
   (ADR a-command-is-a-source). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
   would charge each one the user's version-manager initialization and make a

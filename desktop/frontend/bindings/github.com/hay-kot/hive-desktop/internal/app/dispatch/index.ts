@@ -13,6 +13,7 @@ export type {
     ExecutionOutcome,
     ItemSessionView,
     MessageExecutionOutcome,
+    SessionCreateFailure,
     SessionDetail,
     SessionDraft,
     SessionExecutionOutcome,
