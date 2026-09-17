@@ -18,10 +18,11 @@ Windows get no default menu and have no such accelerators.
 
 ## Decision
 
-**On macOS the app installs the default menu with the three zoom accelerators
+**On macOS the app installs the default menu with the three zoom items
 removed**, and the keymap binds those chords to `terminal.text-size-increase`,
-`-decrease` and `-reset`. The menu items stay, clickable. No other platform
-installs a menu: setting one on Linux attaches a menu bar to the window and
+`-decrease` and `-reset`. The items go rather than keeping a click-only path to
+the magnification the chords were taken away from. No other platform installs a
+menu: setting one on Linux attaches a menu bar to the window and
 registers every default accelerator with GTK.
 
 **The chords walk the existing size presets** (small to xxl) and reset to
@@ -35,9 +36,10 @@ since a size change nobody can see is a surprise later.
 
 ## Consequences
 
-- **Nothing outside a terminal responds to <kbd>⌘+</kbd> on macOS.** Scaling the
-  chrome means the View menu. If that becomes a complaint the answer is a UI
-  scale setting, not the accelerator back.
+- **Nothing scales the chrome on macOS.** Nothing outside a terminal responds to
+  <kbd>⌘+</kbd>, and the View menu no longer offers zoom. If that becomes a
+  complaint the answer is a UI scale setting that reflows, not magnification
+  back.
 - A relative step needs the persisted size as its base, so
   `stepTerminalFontSize` waits for hydration before it reads the current preset.
 - This supersedes the fourth point of ADR the-sidebar-tree-is-the-only-window-list:

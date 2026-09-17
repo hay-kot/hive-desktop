@@ -50,7 +50,7 @@ Use lower-case key names and join modifiers with `+`, such as `mod+shift+t`. `mo
 
 A focused terminal sends most keys to the running program. Global app shortcuts use Command on macOS or Control+Shift on other platforms so they can still leave the terminal pane.
 
-**Text size** (`terminal.text-size-increase`, `-decrease`, `-reset`) steps through the **Settings ▸ Terminal** font sizes wherever a terminal is on screen (a Code session, Chats, or the pop-up panel) and saves the result to the same setting. On macOS these chords no longer zoom the window: **Zoom In**, **Zoom Out** and **Actual Size** stay in the **View** menu without a shortcut, because window zoom scales the window instead of reflowing the terminal grid.
+**Text size** (`terminal.text-size-increase`, `-decrease`, `-reset`) steps through the **Settings ▸ Terminal** font sizes wherever a terminal is on screen (a Code session, Chats, or the pop-up panel) and saves the result to the same setting. On macOS these chords no longer zoom the window, and **Zoom In**, **Zoom Out** and **Actual Size** are gone from the **View** menu, because window zoom scales the window instead of reflowing the terminal grid.
 
 **Toggle Code sidebar** (`terminal.toggle-sidebar`) uses <kbd>⌘B</kbd> on macOS and <kbd>Ctrl+B</kbd> on Windows and Linux, including inside a focused terminal. On macOS, <kbd>Ctrl+B</kbd> still reaches the terminal. On Windows and Linux, rebind this command in **Settings ▸ Keyboard** if you need <kbd>Ctrl+B</kbd> for tmux.
 
