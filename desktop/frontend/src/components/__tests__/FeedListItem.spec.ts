@@ -43,6 +43,21 @@ describe('FeedListItem', () => {
     expect(wrapper.emitted('select')).toHaveLength(1)
   })
 
+  it('uses an accessible checkbox and toggles instead of opening while selecting', async () => {
+    const wrapper = mount(FeedListItem, { props: { item: baseItem, selected: false, selectionMode: true, checked: true } })
+    const row = wrapper.get('[data-testid="feed-item"]')
+    expect(row.attributes('role')).toBe('checkbox')
+    expect(row.attributes('aria-label')).toBe('Select Add desktop shell')
+    expect(row.attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="feed-item-checkbox"]').attributes('aria-hidden')).toBe('true')
+
+    await row.trigger('click')
+    await row.trigger('keydown', { key: ' ' })
+    expect(wrapper.emitted('toggle-selection')).toHaveLength(2)
+    expect(wrapper.emitted('select')).toBeUndefined()
+    expect(wrapper.find('[data-testid="row-menu-toggle"]').exists()).toBe(false)
+  })
+
   it('offers archive and open-in-browser from the hover pill without selecting the row', async () => {
     const wrapper = mountItem()
     await wrapper.get('[data-testid="row-archive"]').trigger('click')

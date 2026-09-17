@@ -14,8 +14,8 @@ const longAgo = 400 * day
 const aged = (id: number, ageMs: number): InboxItem => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
 const dividerLabels = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="feed-date-label"]').map((label) => label.text())
 
-function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null; refreshing: boolean }> = {}) {
-  return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', sort: 'newest', loadError: null, refreshing: false, ...overrides } })
+function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null; refreshing: boolean; selectionMode: boolean; selectedItemIds: number[] }> = {}) {
+  return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', sort: 'newest', loadError: null, refreshing: false, selectionMode: false, selectedItemIds: [], ...overrides } })
 }
 
 describe('FeedList', () => {
@@ -41,7 +41,13 @@ describe('FeedList', () => {
     expect(wrapper.emitted('set-unread')).toEqual([[true], [false]])
   })
 
-  it('emits sort and refresh choices from the view menu', async () => {
+  it('uses an icon-only horizontal ellipsis for feed options', () => {
+    const toggle = mountList().get('[data-testid="view-menu-toggle"]')
+    expect(toggle.attributes('aria-label')).toBe('Feed options')
+    expect(toggle.text()).toBe('')
+  })
+
+  it('emits sort and refresh choices from the feed options menu', async () => {
     const wrapper = mountList()
     await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
     await wrapper.get('[data-testid="view-sort-oldest"]').trigger('click')
@@ -69,6 +75,26 @@ describe('FeedList', () => {
     await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
     expect(wrapper.find('[data-testid="view-menu-mark-read"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="view-menu-refresh"]').exists()).toBe(true)
+  })
+
+  it('enters selection mode from feed options and emits selection actions', async () => {
+    const wrapper = mountList()
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="view-menu-select-items"]').trigger('click')
+    expect(wrapper.emitted('enter-selection')).toHaveLength(1)
+
+    await wrapper.setProps({ selectionMode: true, selectedItemIds: [1, 2] })
+    expect(wrapper.get('[data-testid="feed-selection-bar"]').text()).toContain('2 selected')
+    await wrapper.get('[data-testid="selection-create-session"]').trigger('click')
+    await wrapper.get('[data-testid="selection-cancel"]').trigger('click')
+    expect(wrapper.emitted('create-session-from-selection')).toHaveLength(1)
+    expect(wrapper.emitted('cancel-selection')).toHaveLength(1)
+  })
+
+  it('shows refresh progress below the search controls', () => {
+    const wrapper = mountList({ refreshing: true })
+    expect(wrapper.get('[data-testid="feed-refreshing"]').text()).toContain('Refreshing')
+    expect(wrapper.find('[data-testid="header-refresh-spinner"]').exists()).toBe(false)
   })
 
   it('relays search input without owning filtering', async () => {

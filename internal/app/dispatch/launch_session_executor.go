@@ -28,9 +28,9 @@ type LaunchSessionRequest struct {
 	Prompt string
 	Agent  string
 	Repo   string
-	// Origin is the inbox item the session is being created for, or a zero ref
-	// for a session that has no item behind it.
-	Origin models.ItemRef
+	// Origins are the inbox items the session is being created for. An empty
+	// slice means the session has no inbox item behind it.
+	Origins []models.ItemRef
 }
 
 // SessionLauncher spawns a hive session for a launch-session action.
@@ -106,7 +106,11 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}
-	outcome, err := e.launch(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origin: data.Origin})
+	var origins []models.ItemRef
+	if data.Origin.Known() {
+		origins = []models.ItemRef{data.Origin}
+	}
+	outcome, err := e.launch(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origins: origins})
 	if err != nil {
 		return ExecutionResult{Attempted: true}, err
 	}

@@ -449,24 +449,39 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 		return 0, Wrap(err, KindInvalid, "session name")
 	}
 
-	// A form drafted from an item links the session back to it. An item that
-	// has gone (pruned between opening the form and submitting it) launches
-	// unlinked rather than refusing the session the user asked for.
-	var origin models.ItemRef
-	if req.ItemID != 0 {
-		resolved, err := s.items.RefByID(ctx, req.ItemID)
-		if err != nil && !stores.IsNotFound(err) {
-			return 0, Wrap(err, KindInternal, "reading inbox item %d", req.ItemID)
+	// Items pruned between opening and submitting the form are omitted rather
+	// than blocking the one session the user asked for.
+	var origins []models.ItemRef
+	seenIDs := make(map[int64]struct{}, len(req.ItemIDs))
+	seenOrigins := make(map[models.ItemRef]struct{}, len(req.ItemIDs))
+	for _, itemID := range req.ItemIDs {
+		if itemID <= 0 {
+			continue
 		}
-		origin = resolved
+		if _, exists := seenIDs[itemID]; exists {
+			continue
+		}
+		seenIDs[itemID] = struct{}{}
+		resolved, err := s.items.RefByID(ctx, itemID)
+		if err != nil {
+			if stores.IsNotFound(err) {
+				continue
+			}
+			return 0, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+		}
+		if _, exists := seenOrigins[resolved]; exists {
+			continue
+		}
+		seenOrigins[resolved] = struct{}{}
+		origins = append(origins, resolved)
 	}
 
 	launch := dispatch.LaunchSessionRequest{
-		Name:   name,
-		Prompt: strings.TrimSpace(req.Prompt),
-		Agent:  s.resolveLaunchAgent(ctx, req.Agent),
-		Repo:   repo,
-		Origin: origin,
+		Name:    name,
+		Prompt:  strings.TrimSpace(req.Prompt),
+		Agent:   s.resolveLaunchAgent(ctx, req.Agent),
+		Repo:    repo,
+		Origins: origins,
 	}
 	// The anchor for the failure. hive logs "cloning repository" with dest= and
 	// strategy= but names no session, so without a line either side of it a log
@@ -475,7 +490,7 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 		Str("session_name", name).
 		Str("repository", repo).
 		Str("agent", launch.Agent).
-		Int64("item_id", req.ItemID).
+		Ints64("item_ids", req.ItemIDs).
 		Msg("creating session")
 
 	// Submitting retires the previous failure: leaving it pending would hand the
@@ -536,7 +551,7 @@ func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.C
 		Name:       strings.TrimSpace(req.Name),
 		Prompt:     strings.TrimSpace(req.Prompt),
 		Agent:      req.Agent,
-		ItemID:     req.ItemID,
+		ItemIDs:    append([]int64(nil), req.ItemIDs...),
 		Failure:    &failure,
 	}
 	s.setFailedCreate(&draft)

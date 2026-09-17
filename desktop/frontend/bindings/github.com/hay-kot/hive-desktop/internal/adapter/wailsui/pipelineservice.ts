@@ -67,8 +67,8 @@ export function MarkRead(profileID: string, feedID: string): $CancellablePromise
     return $Call.ByID(317389540, profileID, feedID);
 }
 
-export function NewSessionDraft(itemID: number): $CancellablePromise<dispatch$0.SessionDraft> {
-    return $Call.ByID(2051065966, itemID);
+export function NewSessionDraft(itemIDs: number[] | null): $CancellablePromise<dispatch$0.SessionDraft> {
+    return $Call.ByID(2051065966, itemIDs);
 }
 
 export function NodeRuns(flowID: string, limit: number): $CancellablePromise<stores$0.NodeRunRecord[] | null> {

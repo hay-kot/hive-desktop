@@ -102,6 +102,7 @@ const {
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, sourceImages, visibleItems, unreadCount, search, loadError,
+  itemSelectionActive, selectedItemIDs, selectedItems, enterItemSelection, toggleItemSelection, cancelItemSelection,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionInputsAction, actionInputsBusy, actionInputsError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
@@ -452,14 +453,10 @@ async function confirmUpdate(): Promise<void> {
 const markWorkspaceReadOpen = ref(false)
 const workspaceUnreadCount = computed(() => unreadInScope(null))
 
-function markFeedRead(feedId: string): void {
-  void markAllRead(feedId)
-}
-
 function markSelectedFeedRead(): void {
   // Trash carries no unread semantics, so there is nothing here to clear.
   if (selection.value.type !== 'feed') return
-  markFeedRead(selection.value.feedId)
+  void markAllRead(selection.value.feedId)
 }
 
 function requestMarkWorkspaceRead(): void {
@@ -867,10 +864,30 @@ onMounted(() => { void checkReleaseNotes() })
 const {
   open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, busy: newSessionBusy, error: newSessionError,
   failure: newSessionFailure, formKey: newSessionFormKey,
-  openBlank: openNewSession, openFromItem: openNewSessionFromItem, cancel: cancelNewSession, submit: submitNewSession,
+  openBlank: openNewSession, openFromItem: openNewSessionFromItem, openFromItems: openNewSessionFromItems, cancel: cancelNewSession, submit: submitNewSession,
   dismissFailure: dismissNewSessionFailure, onCreateFailed: onNewSessionFailed,
 } = useNewSession()
 const kb = useKeybindings()
+const creatingFromSelection = ref(false)
+
+async function openSelectedItemsSession(): Promise<void> {
+  if (selectedItems.value.length === 0) return
+  await openNewSessionFromItems(selectedItems.value)
+  creatingFromSelection.value = newSessionOpen.value
+}
+
+function cancelNewSessionDialog(): void {
+  creatingFromSelection.value = false
+  cancelNewSession()
+}
+
+async function submitNewSessionAndClearSelection(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
+  await submitNewSession(input)
+  if (!newSessionOpen.value && creatingFromSelection.value) {
+    creatingFromSelection.value = false
+    cancelItemSelection()
+  }
+}
 
 // The URL is the attach state, so it is also the answer to "which session is on
 // screen" — the pop-up terminal, the launchers, and a new session all follow it.
@@ -938,6 +955,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.toggle-unread': navigateUnreadToggle,
   'feed.toggle-preview': togglePreview,
   'feed.refresh': refreshSources,
+  'feed.toggle-selection': () => { itemSelectionActive.value ? cancelItemSelection() : enterItemSelection() },
   'feed.toggle-archive': async () => { if (selectedItem.value) await toggleArchive(selectedItem.value) },
   'feed.mark-unread': async () => { if (selectedItem.value) await markItemUnread(selectedItem.value, true) },
   'feed.mark-all-read': markSelectedFeedRead,
@@ -1074,6 +1092,8 @@ useAppPaletteRows({
   requestSelectProfile,
   navigateSidebar,
   selectedItem,
+  selectedItemIDs,
+  openSelectedItemsSession,
   actions,
   invokeAction,
   flowsActive,
@@ -1409,7 +1429,6 @@ onUnmounted(() => {
             @select="navigateSidebar"
             @open-flows="openFlows()"
             @open-settings="requestOpenSettings('profile')"
-            @mark-read="markFeedRead"
             @reorder="(t) => activeProfile && reorderFeeds(activeProfile.id, t)"
           />
           <!-- A profile created before an account was connected has no
@@ -1461,6 +1480,8 @@ onUnmounted(() => {
               :sort="feedSort"
               :load-error="loadError"
               :refreshing="refreshingSources"
+              :selection-mode="itemSelectionActive"
+              :selected-item-ids="selectedItemIDs"
               :source-icons="sourceIcons"
               :source-images="sourceImages"
               @select="selectItem"
@@ -1472,6 +1493,10 @@ onUnmounted(() => {
               @set-trash-filter="setTrashFilter"
               @refresh="refreshSources"
               @mark-all-read="markSelectedFeedRead"
+              @enter-selection="enterItemSelection"
+              @toggle-item-selection="toggleItemSelection"
+              @cancel-selection="cancelItemSelection"
+              @create-session-from-selection="openSelectedItemsSession"
               @item-set-unread="markItemUnread"
               @item-toggle-archive="toggleArchive"
               @item-toggle-ignored="toggleIgnored"
@@ -1522,8 +1547,8 @@ onUnmounted(() => {
       :busy="newSessionBusy"
       :error="newSessionError"
       :failure="newSessionFailure"
-      @close="cancelNewSession"
-      @submit="submitNewSession"
+      @close="cancelNewSessionDialog"
+      @submit="submitNewSessionAndClearSelection"
       @dismiss-failure="dismissNewSessionFailure"
     />
     <ConfirmationDialog

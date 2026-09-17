@@ -66,9 +66,35 @@ describe('useNewSession', () => {
     mocks.NewSessionDraft.mockResolvedValue({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' })
     const s = useNewSession()
     await s.openFromItem(item)
-    expect(mocks.NewSessionDraft).toHaveBeenCalledWith(7)
+    expect(mocks.NewSessionDraft).toHaveBeenCalledWith([7])
     expect(s.open.value).toBe(true)
     expect(s.initial.value).toEqual({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash', agent: 'claude' })
+  })
+
+  it('creates one session for an ordered item selection', async () => {
+    const items = [{ id: 7 }, { id: 11 }] as InboxItem[]
+    mocks.NewSessionDraft.mockResolvedValue({ repository: 'acme/site', name: 'combined', prompt: 'Combined context' })
+    mocks.CreateSession.mockResolvedValue(7)
+    const s = useNewSession()
+
+    await s.openFromItems(items)
+    expect(mocks.NewSessionDraft).toHaveBeenCalledOnce()
+    expect(mocks.NewSessionDraft).toHaveBeenCalledWith([7, 11])
+
+    await s.submit({ repository: 'acme/site', name: 'combined', prompt: 'Combined context' })
+    expect(mocks.CreateSession).toHaveBeenCalledOnce()
+    expect(mocks.CreateSession).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [7, 11] }))
+  })
+
+  it('leaves the repository unselected when a multi-item draft has no shared repository', async () => {
+    mocks.NewSessionDraft.mockResolvedValue({ repository: '', name: 'combined', prompt: 'Combined context' })
+    const s = useNewSession()
+
+    await s.openFromItems([{ id: 7 }, { id: 11 }] as InboxItem[])
+
+    expect(s.initial.value.repository).toBe('')
+    expect(s.options.value?.defaultRepository).toBe('')
+    expect(s.options.value?.repositories).toEqual(options.repositories)
   })
 
   it('reopens instantly from the cached options while the refresh is pending', async () => {
@@ -91,7 +117,7 @@ describe('useNewSession', () => {
     const s = useNewSession()
     await s.openBlank()
     await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude' })
-    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude', itemId: 0 })
+    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude', itemIds: [] })
     expect(s.open.value).toBe(false)
     expect(useToasts().toasts.value.at(-1)?.message).toContain('fix-crash')
   })
@@ -104,11 +130,11 @@ describe('useNewSession', () => {
     const s = useNewSession()
     await s.openFromItem(item)
     await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: 'go' })
-    expect(mocks.CreateSession).toHaveBeenCalledWith(expect.objectContaining({ itemId: 7 }))
+    expect(mocks.CreateSession).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [7] }))
 
     await s.openBlank()
     await s.submit({ repository: 'acme/site', name: 'other', prompt: 'go' })
-    expect(mocks.CreateSession).toHaveBeenLastCalledWith(expect.objectContaining({ itemId: 0 }))
+    expect(mocks.CreateSession).toHaveBeenLastCalledWith(expect.objectContaining({ itemIds: [] }))
   })
 
   it('restores a failed attempt instead of opening blank', async () => {
@@ -231,7 +257,7 @@ describe('useNewSession — retry from an activity row', () => {
     await s.openFromActivity({ retry: 'session-create' })
     await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: '' })
 
-    expect(mocks.CreateSession).toHaveBeenCalledWith(expect.objectContaining({ itemId: 7 }))
+    expect(mocks.CreateSession).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [7] }))
   })
 
   // The backend's own refusal is more use than the generic fallback, so it is

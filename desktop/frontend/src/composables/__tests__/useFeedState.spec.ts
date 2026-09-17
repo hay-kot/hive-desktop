@@ -154,6 +154,61 @@ describe('useFeedState', () => {
     expect(get().unreadCount.value).toBe(1) // selecting rows marks them read
   })
 
+  it('keeps hidden selections and orders selected items by the rendered feed order', async () => {
+    mocks.ListByFeed.mockResolvedValue([
+      item(1, { title: 'Old read', unread: false, lastEventAt: 100 }),
+      item(3, { title: 'Newest match', lastEventAt: 300 }),
+      item(2, { title: 'Middle match', lastEventAt: 200 }),
+    ])
+    const get = mountState(); await flushPromises()
+    get().enterItemSelection()
+    get().toggleItemSelection(1)
+    get().toggleItemSelection(3)
+    get().toggleItemSelection(2)
+    expect(get().selectedItems.value.map((row) => row.id)).toEqual([3, 2, 1])
+
+    get().search.value = 'match'
+    get().unreadOnly.value = true
+    expect(get().visibleItems.value.map((row) => row.id)).toEqual([3, 2])
+    expect(get().selectedItemIDs.value).toEqual([1, 3, 2])
+
+    get().setFeedSort('oldest')
+    expect(get().selectedItems.value.map((row) => row.id)).toEqual([1, 2, 3])
+  })
+
+  it('preserves selection on same-destination reloads and prunes items that disappear', async () => {
+    mocks.ListByFeed.mockResolvedValue([item(2), item(1)])
+    const get = mountState(); await flushPromises()
+    get().enterItemSelection(); get().toggleItemSelection(1); get().toggleItemSelection(2)
+
+    mocks.ListByFeed.mockResolvedValue([item(2)])
+    await get().refresh()
+    expect(get().selectedItemIDs.value).toEqual([2])
+    expect(get().itemSelectionActive.value).toBe(true)
+
+    await get().selectSidebar({ type: 'feed', feedId: 'triage/my-prs' })
+    expect(get().selectedItemIDs.value).toEqual([2])
+    expect(get().itemSelectionActive.value).toBe(true)
+
+    await get().selectSidebar({ type: 'trash' })
+    expect(get().selectedItemIDs.value).toEqual([])
+    expect(get().itemSelectionActive.value).toBe(false)
+  })
+
+  it('keeps a selected item when a reload moves it into archived rows', async () => {
+    mocks.ListByFeed.mockResolvedValue([item(1)])
+    const get = mountState(); await flushPromises()
+    get().enterItemSelection(); get().toggleItemSelection(1)
+
+    mocks.ListByFeed.mockResolvedValue([])
+    mocks.ListArchivedByFeed.mockResolvedValue([item(1, { archivedAt: 10 })])
+    await get().refresh()
+
+    expect(mocks.ListArchivedByFeed).toHaveBeenCalledWith('triage', 'triage/my-prs', 500)
+    expect(get().selectedItemIDs.value).toEqual([1])
+    expect(get().selectedItems.value.map((row) => row.id)).toEqual([1])
+  })
+
   it('sorts feed items by newest, oldest, or unread-first recency and persists the choice', async () => {
     mocks.ListByFeed.mockResolvedValue([
       item(1, { title: 'Oldest', unread: false, lastEventAt: 100 }),

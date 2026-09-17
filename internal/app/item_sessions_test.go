@@ -164,19 +164,18 @@ func TestSessionsService_ItemSessionsRejectsAnUnknownItem(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
-// A New Session form drafted from an item hands the launcher that item, which
-// is what makes the created session findable from it afterwards.
-func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
+func TestSessionsService_CreateSessionCarriesEveryDraftedItemInOneLaunch(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
-	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
-	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{7: ref}}
+	first := models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
+	second := models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#82"}
+	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{7: first, 8: second, 9: first}}
 	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Items: fake, Links: fake, Logger: zerolog.Nop()})
 
-	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 7})
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemIDs: []int64{7, 8, 7, 9}})
 	require.NoError(t, err)
 	require.Len(t, launcher.calls, 1)
-	assert.Equal(t, ref, launcher.calls[0].Origin)
+	assert.Equal(t, []models.ItemRef{first, second}, launcher.calls[0].Origins)
 }
 
 // An item pruned between opening the form and submitting it must not cost the
@@ -187,8 +186,8 @@ func TestSessionsService_CreateSessionLaunchesUnlinkedWhenTheItemHasGone(t *test
 	fake := &fakeItemSessionStore{refs: map[int64]models.ItemRef{}}
 	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Items: fake, Links: fake, Logger: zerolog.Nop()})
 
-	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 404})
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemIDs: []int64{404}})
 	require.NoError(t, err)
 	require.Len(t, launcher.calls, 1)
-	assert.Equal(t, models.ItemRef{}, launcher.calls[0].Origin)
+	assert.Empty(t, launcher.calls[0].Origins)
 }

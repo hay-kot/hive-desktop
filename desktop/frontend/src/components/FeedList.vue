@@ -4,11 +4,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import FeedListItem from './FeedListItem.vue'
 import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconEllipsis from '~icons/lucide/ellipsis'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconMailCheck from '~icons/lucide/mail-check'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
-import IconSlidersHorizontal from '~icons/lucide/sliders-horizontal'
+import IconSquareCheckBig from '~icons/lucide/square-check-big'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconArchive from '~icons/lucide/archive'
 import { groupItemsByDate } from '../lib/dateGroups'
@@ -32,6 +33,8 @@ const props = defineProps<{
   sort: FeedSort
   loadError: string | null
   refreshing: boolean
+  selectionMode: boolean
+  selectedItemIds: number[]
   sourceIcons?: Record<string, string>
   sourceImages?: Record<string, string>
 }>()
@@ -43,6 +46,10 @@ const emit = defineEmits<{
   'set-trash-filter': [value: 'all' | 'ignored']
   refresh: []
   'mark-all-read': []
+  'enter-selection': []
+  'toggle-item-selection': [id: number]
+  'cancel-selection': []
+  'create-session-from-selection': []
   'update:search': [value: string]
   'set-sort': [value: FeedSort]
   // Row-level intents from a FeedListItem's hover pill / "…" menu, re-emitted
@@ -80,13 +87,14 @@ const itemGroups = computed<{ key: string; label: string | null; items: InboxIte
 
 const viewMenu = ref<HTMLElement | null>(null)
 const viewMenuOpen = ref(false)
-const activeViewOptionCount = computed(() => props.sort === 'newest' ? 0 : 1)
+const selectedItemIDSet = computed(() => new Set(props.selectedItemIds))
 
 function closeViewMenu(): void { viewMenuOpen.value = false }
 function chooseSort(value: FeedSort): void { emit('set-sort', value); closeViewMenu() }
 function refreshFromMenu(): void { emit('refresh'); closeViewMenu() }
 // Trash has no unread semantics, so it gets no mark-all-read entry at all.
 function markAllReadFromMenu(): void { emit('mark-all-read'); closeViewMenu() }
+function enterSelectionFromMenu(): void { emit('enter-selection'); closeViewMenu() }
 function onDocumentKeydown(event: KeyboardEvent): void {
   if (viewMenuOpen.value && event.key === 'Escape') closeViewMenu()
 }
@@ -145,15 +153,9 @@ watch(() => props.selectedId, async (id) => {
           Unread<span class="seg-count">{{ unreadCount }}</span>
         </button>
       </div>
-      <!-- The view menu closes on click, so without this a manual refresh has
-           no visible effect until items land. -->
-      <IconRefreshCw v-if="refreshing" class="size-3.5 shrink-0 animate-spin text-text-3" data-testid="feed-refreshing" aria-label="Refreshing" />
       <div ref="viewMenu" class="relative shrink-0">
-        <button type="button" class="view-trigger" data-testid="view-menu-toggle" aria-haspopup="menu" :aria-expanded="viewMenuOpen" @click="viewMenuOpen = !viewMenuOpen">
-          <IconSlidersHorizontal class="size-3.5" />
-          <span>View</span>
-          <span v-if="activeViewOptionCount" class="view-count" data-testid="view-active-count">{{ activeViewOptionCount }}</span>
-          <IconChevronDown class="size-3.5 text-text-3 transition-transform" :class="{ 'rotate-180': viewMenuOpen }" />
+        <button type="button" class="view-trigger" title="Feed options" aria-label="Feed options" data-testid="view-menu-toggle" aria-haspopup="menu" :aria-expanded="viewMenuOpen" @click="viewMenuOpen = !viewMenuOpen">
+          <IconEllipsis class="size-4" />
         </button>
         <div v-if="viewMenuOpen" class="view-menu" role="menu" data-testid="view-menu">
           <div class="view-menu-label">Sort by</div>
@@ -162,6 +164,10 @@ watch(() => props.selectedId, async (id) => {
             <span>{{ option.label }}</span>
           </button>
           <div class="view-menu-divider" />
+          <button type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-select-items" @click="enterSelectionFromMenu">
+            <IconSquareCheckBig class="size-3.5 text-text-3" />
+            <span>Select items</span>
+          </button>
           <button v-if="!trash" type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-mark-read" @click="markAllReadFromMenu">
             <IconMailCheck class="size-3.5 text-text-3" />
             <span>Mark all as read</span>
@@ -173,7 +179,15 @@ watch(() => props.selectedId, async (id) => {
         </div>
       </div>
     </header>
-    <div ref="listContainer" class="hive-scroll min-h-0 flex-1 overflow-y-auto">
+    <div v-if="selectionMode" class="selection-bar" data-testid="feed-selection-bar">
+      <span class="font-medium text-text">{{ selectedItemIds.length }} selected</span>
+      <span class="flex-1" />
+      <button type="button" class="selection-action" :disabled="selectedItemIds.length === 0" data-testid="selection-create-session" @click="emit('create-session-from-selection')">Create session</button>
+      <button type="button" class="selection-action" data-testid="selection-cancel" @click="emit('cancel-selection')">Cancel</button>
+    </div>
+    <div class="relative min-h-0 flex-1">
+      <div v-if="refreshing" class="refresh-banner" role="status" data-testid="feed-refreshing"><IconRefreshCw class="size-3.5 animate-spin" />Refreshing…</div>
+      <div ref="listContainer" class="hive-scroll h-full overflow-y-auto">
       <!-- Load failure: the "GitHub unreachable" design state. -->
       <div v-if="loadError" class="state-frame" data-testid="feed-error">
         <div class="state-icon text-accent"><IconTriangleAlert class="size-5" /></div>
@@ -193,10 +207,13 @@ watch(() => props.selectedId, async (id) => {
             :item="item"
             :trash="trash"
             :selected="item.id === selectedId"
+            :selection-mode="selectionMode"
+            :checked="selectedItemIDSet.has(item.id)"
             :source-icons="sourceIcons"
             :source-images="sourceImages"
             @select="emit('select', item.id)"
             @activate="emit('activate', item.id)"
+            @toggle-selection="emit('toggle-item-selection', item.id)"
             @set-unread="(unread) => emit('item-set-unread', item, unread)"
             @toggle-archive="emit('item-toggle-archive', item)"
             @toggle-ignored="emit('item-toggle-ignored', item)"
@@ -223,10 +240,13 @@ watch(() => props.selectedId, async (id) => {
               :item="item"
               archived
               :selected="item.id === selectedId"
+              :selection-mode="selectionMode"
+              :checked="selectedItemIDSet.has(item.id)"
               :source-icons="sourceIcons"
               :source-images="sourceImages"
               @select="emit('select', item.id)"
               @activate="emit('activate', item.id)"
+              @toggle-selection="emit('toggle-item-selection', item.id)"
               @set-unread="(unread) => emit('item-set-unread', item, unread)"
               @toggle-archive="emit('item-toggle-archive', item)"
               @toggle-ignored="emit('item-toggle-ignored', item)"
@@ -259,6 +279,7 @@ watch(() => props.selectedId, async (id) => {
           <button v-if="!search.trim()" class="state-action" :disabled="refreshing" @click="emit('refresh')">{{ refreshing ? 'Refreshing…' : 'Refresh now' }}</button>
         </div>
       </template>
+      </div>
     </div>
   </section>
 </template>
@@ -274,10 +295,14 @@ watch(() => props.selectedId, async (id) => {
 .seg:hover:not(.active) { color: var(--color-text); }
 .seg.active { background: var(--color-accent); color: var(--color-accent-contrast); }
 .seg-count { font-family: var(--font-mono); font-size: 10px; opacity: .85; }
-.view-trigger { display: inline-flex; height: 32px; align-items: center; gap: 6px; cursor: pointer; border: 1px solid var(--color-strong); border-radius: 8px; padding: 0 9px; color: var(--color-text-2); font-size: 12px; font-weight: 500; }
+.view-trigger { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--color-strong); border-radius: 8px; color: var(--color-text-2); }
 .view-trigger:hover, .view-trigger[aria-expanded="true"] { color: var(--color-text); }
 .view-trigger[aria-expanded="true"] { border-color: var(--color-accent); }
-.view-count { display: inline-flex; min-width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 999px; background: var(--color-accent); padding: 0 4px; color: var(--color-accent-contrast); font-family: var(--font-mono); font-size: 9px; font-weight: 600; }
+.selection-bar { display: flex; flex: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--color-border); background: var(--color-pane); padding: 7px 14px; color: var(--color-text-2); font-size: 12px; }
+.selection-action { cursor: pointer; border-radius: 6px; padding: 4px 8px; color: var(--color-accent); font-weight: 500; }
+.selection-action:hover:not(:disabled) { background: var(--color-hover); }
+.selection-action:disabled { cursor: default; color: var(--color-text-4); }
+.refresh-banner { position: absolute; top: 0; right: 0; left: 0; z-index: 10; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--color-border); background: var(--color-pane); padding: 7px 14px; color: var(--color-text-3); font-size: 12px; pointer-events: none; }
 .view-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: 180px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); padding: 5px; box-shadow: 0 20px 50px -14px rgb(0 0 0 / .5); }
 .view-menu-label { padding: 5px 9px 4px; color: var(--color-text-3); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }

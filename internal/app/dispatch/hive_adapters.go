@@ -281,12 +281,12 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 		}
 		remote, source = repo.Remote, repo.Source
 	}
-	// The tag is presentational, for a reader inside hive, and is never read
-	// back — LinkItemSession below writes the association this app queries.
-	linked := req.Origin.Known()
+	// Tags are presentational, for a reader inside hive, and are never read
+	// back. ItemSessionLinker writes the associations this app queries.
+	origins := uniqueKnownOrigins(req.Origins)
 	var tags []string
-	if linked {
-		tags = []string{req.Origin.ExternalID}
+	for _, origin := range origins {
+		tags = append(tags, origin.ExternalID)
 	}
 	// One progress writer per attempt: hive's error names the operation that
 	// failed but not the step, so without this a clone failure arrives as
@@ -320,9 +320,11 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	// The session exists either way, so a failed link is logged rather than
 	// returned: reporting the launch as failed would be a lie, and would
 	// invite a retry that creates a second session.
-	if l.links != nil && linked {
-		if linkErr := l.links.Link(ctx, s.ID, req.Origin); linkErr != nil {
-			l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Msg("linking session to its inbox item")
+	if l.links != nil {
+		for _, origin := range origins {
+			if linkErr := l.links.Link(ctx, s.ID, origin); linkErr != nil {
+				l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Str("external_id", origin.ExternalID).Msg("linking session to an inbox item")
+			}
 		}
 	}
 	if l.recorder != nil {
@@ -333,6 +335,22 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 		l.recorder.Record(ctx, activity.SessionCreated(name, req.Agent, req.Repo))
 	}
 	return SessionExecutionOutcome{ID: s.ID, Name: s.Name, Slug: s.Slug, Path: s.Path}, nil
+}
+
+func uniqueKnownOrigins(origins []models.ItemRef) []models.ItemRef {
+	seen := make(map[models.ItemRef]struct{}, len(origins))
+	var unique []models.ItemRef
+	for _, origin := range origins {
+		if !origin.Known() {
+			continue
+		}
+		if _, exists := seen[origin]; exists {
+			continue
+		}
+		seen[origin] = struct{}{}
+		unique = append(unique, origin)
+	}
+	return unique
 }
 
 // SessionLaunchOptions exposes only labels, remotes, and configured agent keys

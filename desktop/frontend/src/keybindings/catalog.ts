@@ -25,6 +25,7 @@ import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconSearch from '~icons/lucide/search'
 import IconSettings from '~icons/lucide/settings'
+import IconSquareCheckBig from '~icons/lucide/square-check-big'
 import IconSquarePlus from '~icons/lucide/square-plus'
 import IconSquareSplitHorizontal from '~icons/lucide/square-split-horizontal'
 import IconSquareSplitVertical from '~icons/lucide/square-split-vertical'
@@ -221,6 +222,15 @@ export const commandCatalog: BindableCommand[] = [
     keywords: ['reload', 'sync'],
     icon: IconRefreshCw,
     defaultCombos: ['r'],
+    context: 'feed',
+  },
+  {
+    id: 'feed.toggle-selection',
+    title: 'Toggle item selection',
+    group: 'Feeds',
+    keywords: ['select', 'multiple', 'bulk', 'items'],
+    icon: IconSquareCheckBig,
+    defaultCombos: [],
     context: 'feed',
   },
   {

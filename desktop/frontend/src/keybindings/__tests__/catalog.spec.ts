@@ -37,6 +37,14 @@ describe('commandCatalog defaults', () => {
     expect(defaultCombosFor(command, false)).toContain(terminalEscapeCombo(press))
   })
 
+  it('keeps item selection bindable without claiming a default chord', () => {
+    const selection = commandCatalog.find((command) => command.id === 'feed.toggle-selection')
+
+    expect(selection?.title).toBe('Toggle item selection')
+    expect(selection?.defaultCombos).toEqual([])
+    expect(selection?.context).toBe('feed')
+  })
+
   it.each([
     ['macOS', true],
     ['a Ctrl platform', false],

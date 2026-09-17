@@ -7,6 +7,7 @@ import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconPalette from '~icons/lucide/palette'
 import IconRss from '~icons/lucide/rss'
 import IconSearch from '~icons/lucide/search'
+import IconSquarePlus from '~icons/lucide/square-plus'
 import IconTerminal from '~icons/lucide/terminal'
 import IconWorkflow from '~icons/lucide/workflow'
 import { commandById, commands as bindableCommands, terminalWindowCommandID, type CommandContext } from '../keybindings/catalog'
@@ -59,6 +60,8 @@ export interface AppPaletteDeps {
   requestSelectProfile: (id: string) => Promise<void>
   navigateSidebar: (selection: SidebarSelection) => void
   selectedItem: Ref<InboxItem | null>
+  selectedItemIDs: Ref<number[]>
+  openSelectedItemsSession: () => Promise<void>
   actions: Ref<ActionView[]>
   invokeAction: (id: string) => Promise<void>
   flowsActive: Ref<boolean>
@@ -79,7 +82,7 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
   const {
     runCommand, contextActive, mode, shellLoaded, onboardingActive, hubActive,
     devToolsEnabled, router, profiles, activeProfile, requestSelectProfile, navigateSidebar, selectedItem,
-    actions, invokeAction, flowsActive, openFlows, requestExitFlows, openNewProfile,
+    selectedItemIDs, openSelectedItemsSession, actions, invokeAction, flowsActive, openFlows, requestExitFlows, openNewProfile,
     onScreenSessionSlug,
   } = deps
 
@@ -293,6 +296,18 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
             run: () => void invokeAction(action.id),
           })
         }
+      }
+
+      if (contextActive('feed') && selectedItemIDs.value.length > 0) {
+        cmds.push({
+          id: 'feed:create-session-from-selection',
+          title: 'Create session from selected items…',
+          group: 'Feeds',
+          scope: 'actions',
+          keywords: ['session', 'multiple', 'bulk', 'selected'],
+          icon: IconSquarePlus,
+          run: () => void openSelectedItemsSession(),
+        })
       }
 
       cmds.push({

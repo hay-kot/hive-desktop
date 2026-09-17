@@ -169,16 +169,34 @@ func (s *InboxService) ActionViews(ctx context.Context, itemID int64) ([]actions
 	return views, nil
 }
 
-// NewSessionDraft projects an inbox item into a prefilled New Session form.
-func (s *InboxService) NewSessionDraft(ctx context.Context, itemID int64) (dispatch.SessionDraft, error) {
-	item, err := s.getItem(ctx, itemID)
-	if err != nil {
-		return dispatch.SessionDraft{}, err
+// NewSessionDraft projects ordered inbox items into one prefilled New Session form.
+func (s *InboxService) NewSessionDraft(ctx context.Context, itemIDs []int64) (dispatch.SessionDraft, error) {
+	if len(itemIDs) == 0 {
+		return dispatch.SessionDraft{}, Errorf(KindInvalid, "at least one inbox item is required")
 	}
-	draft, err := dispatch.RenderSessionDraft(item.Title, item.URL, item.Payload)
-	if err != nil {
-		return dispatch.SessionDraft{}, Wrap(err, KindInternal, "rendering session draft for item %d", itemID)
+	seen := make(map[int64]struct{}, len(itemIDs))
+	items := make([]dispatch.SessionDraftItem, 0, len(itemIDs))
+	orderedIDs := make([]int64, 0, len(itemIDs))
+	for _, itemID := range itemIDs {
+		if itemID <= 0 {
+			return dispatch.SessionDraft{}, Errorf(KindInvalid, "inbox item id must be positive")
+		}
+		if _, exists := seen[itemID]; exists {
+			continue
+		}
+		seen[itemID] = struct{}{}
+		item, err := s.getItem(ctx, itemID)
+		if err != nil {
+			return dispatch.SessionDraft{}, err
+		}
+		orderedIDs = append(orderedIDs, itemID)
+		items = append(items, dispatch.SessionDraftItem{Title: item.Title, URL: item.URL, Payload: item.Payload})
 	}
+	draft, err := dispatch.RenderSessionDraftItems(items)
+	if err != nil {
+		return dispatch.SessionDraft{}, Wrap(err, KindInternal, "rendering session draft for %d items", len(items))
+	}
+	draft.ItemIDs = orderedIDs
 	return draft, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -360,7 +361,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	require.NoError(t, err)
 	require.Equal(t, []dispatch.LaunchSessionRequest{{
 		Name: "review-pr-pr-1", Prompt: "Review Fix it", Repo: "git@example/repo.git",
-		Origin: models.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "pr-1"},
+		Origins: []models.ItemRef{{ProfileID: "p", SourceKind: "github", ExternalID: "pr-1"}},
 	}}, launcher.calls)
 
 	var status string
@@ -378,7 +379,7 @@ func TestInboxService_NewSessionDraft(t *testing.T) {
 	itemID := insertActionItemSource(t, db, "github", "pr-1", "PR", "Fix the crash",
 		map[string]any{"repo": "acme/site", "body": "Steps to repro", "url": "https://github.com/acme/site/issues/1"})
 
-	draft, err := service.NewSessionDraft(t.Context(), itemID)
+	draft, err := service.NewSessionDraft(t.Context(), []int64{itemID})
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/acme/site.git", draft.Repository, "owner/name must become a cloneable remote, not a bare path")
 	assert.Equal(t, "fix-the-crash", draft.Name)
@@ -386,7 +387,26 @@ func TestInboxService_NewSessionDraft(t *testing.T) {
 	assert.Contains(t, draft.Prompt, "Steps to repro")
 	assert.Contains(t, draft.Prompt, "https://github.com/acme/site/issues/1")
 
-	_, err = service.NewSessionDraft(t.Context(), 9999)
+	secondID := insertActionItemSource(t, db, "github", "pr-2", "PR", "Fix the timeout",
+		map[string]any{"repo": "acme/site", "body": "Timeout details", "url": "https://github.com/acme/site/issues/2"})
+	combined, err := service.NewSessionDraft(t.Context(), []int64{secondID, itemID, secondID})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{secondID, itemID}, combined.ItemIDs)
+	assert.Equal(t, "https://github.com/acme/site.git", combined.Repository)
+	assert.Regexp(t, `^inbox-selection-[0-9a-f]{8}$`, combined.Name)
+	assert.Less(t, strings.Index(combined.Prompt, "Timeout details"), strings.Index(combined.Prompt, "Steps to repro"))
+
+	otherRepoID := insertActionItemSource(t, db, "github", "pr-3", "PR", "Other repository",
+		map[string]any{"repo": "acme/other", "url": "https://github.com/acme/other/issues/3"})
+	mixed, err := service.NewSessionDraft(t.Context(), []int64{itemID, otherRepoID})
+	require.NoError(t, err)
+	assert.Empty(t, mixed.Repository)
+
+	_, err = service.NewSessionDraft(t.Context(), nil)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	_, err = service.NewSessionDraft(t.Context(), []int64{0})
+	assert.Equal(t, KindInvalid, KindOf(err))
+	_, err = service.NewSessionDraft(t.Context(), []int64{9999})
 	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
