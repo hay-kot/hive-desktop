@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -1109,6 +1111,14 @@ func resolveHiveConfigLocation(ctx context.Context, env hiveConfigEnvironment) H
 	return HiveConfigLocation{Path: filepath.Join(configDir, hiveConfigNames[0])}
 }
 
+func resolveHiveDefaultAgent(ctx context.Context, env hiveConfigEnvironment, configured string, profiles []string) string {
+	preferred := strings.TrimSpace(env.Getenv(ctx, config.EnvDefaultAgent))
+	if slices.Contains(profiles, preferred) {
+		return preferred
+	}
+	return configured
+}
+
 // openWebhook constructs the optional loopback listener without binding it.
 // Port zero is passed through to net.Listen so the OS allocates without a
 // probe/rebind race. Mock instances only claim a listener through an explicit
@@ -1144,6 +1154,11 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("load hive config for actions: %w", err)
 	}
+	agents := make([]string, 0, len(hiveCfg.Agents.Profiles))
+	for agent := range hiveCfg.Agents.Profiles {
+		agents = append(agents, agent)
+	}
+	hiveCfg.Agents.Default = resolveHiveDefaultAgent(ctx, a.execEnv, hiveCfg.Agents.Default, agents)
 	if err := scripts.EnsureExtracted(dataDir, "desktop"); err != nil {
 		cfg.Logger.Warn().Err(err).Msg("extract hive action scripts failed")
 	}
