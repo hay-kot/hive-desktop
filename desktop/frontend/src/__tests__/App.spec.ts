@@ -755,9 +755,9 @@ describe('App', () => {
   // profile-bound flow/action rows drop out of the Code view, while the hub's
   // own Go-to objects (feeds, Trash, profiles, themes, settings) now reach
   // across every mode (#306) — their run()s already land in the hub from
-  // anywhere. The terminal commands still drop out of the hub, and the mode
-  // jumps cover the navigation.
-  it('filters palette rows by mode: hub-only actions vanish in Code view, terminal rows on the feed', async () => {
+  // anywhere. Terminal-only commands still drop out of the hub, while the
+  // sidebar command follows whichever app mode owns the visible left panel.
+  it('filters palette rows by mode while keeping the sidebar command with every app mode', async () => {
     const { wrapper, router } = await mountAppWithRouter()
     const { results, query } = useCommandPalette()
     query.value = ''
@@ -767,7 +767,7 @@ describe('App', () => {
     expect(ids).toContain('feed.refresh')
     expect(ids.filter((id) => id.startsWith('theme:')).length).toBeGreaterThan(0)
     expect(ids).not.toContain('terminal.focus-sidebar')
-    expect(ids).not.toContain('terminal.toggle-sidebar')
+    expect(ids).toContain('terminal.toggle-sidebar')
     expect(ids).toContain('mode:terminal')
     expect(ids).not.toContain('mode:hub')
 
@@ -791,6 +791,11 @@ describe('App', () => {
     expect(ids).toContain('terminal.focus-sidebar')
     expect(ids).toContain('terminal.toggle-sidebar')
     expect(ids).toContain('session.new')
+
+    await router.push('/settings/integrations')
+    await flushPromises()
+    ids = results.value.map((cmd) => cmd.id)
+    expect(ids).not.toContain('terminal.toggle-sidebar')
 
     wrapper.unmount()
   })
@@ -2314,12 +2319,21 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it.each(['metaKey', 'ctrlKey'] as const)('restores and toggles the terminal sidebar from the title bar, keyboard, and palette (%s)', async (modifier) => {
+  it.each(['metaKey', 'ctrlKey'] as const)('toggles the active sidebar from the title bar, keyboard, and palette (%s)', async (modifier) => {
     Object.defineProperty(navigator, 'userAgent', { configurable: true, value: modifier === 'metaKey' ? 'Macintosh' : 'Windows' })
     localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'true')
     mocks.TerminalAvailable.mockResolvedValue({ available: true, reason: '' })
     const { wrapper } = await mountAppWithRouter()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', [modifier]: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(false)
+    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('true')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', [modifier]: true }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(true)
 
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
     await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
@@ -2374,8 +2388,8 @@ describe('App', () => {
     await flushPromises()
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', [modifier]: true }))
     await flushPromises()
-    expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(true)
-    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('false')
+    expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(false)
+    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('true')
 
     wrapper.unmount()
   })
@@ -2415,7 +2429,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('toggles the Chats sidebar on its own key, and brings a hidden one back on the focus chord', async () => {
+  it('toggles the Chats sidebar from the title bar and global shortcut, and restores it on the focus chord', async () => {
     localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'false')
     localStorage.setItem('hive.panel.agents.sidebar.collapsed', 'true')
@@ -2429,9 +2443,11 @@ describe('App', () => {
     expect(toggle.attributes('disabled')).toBeUndefined()
     expect(toggle.attributes('aria-label')).toBe('Show sidebar')
 
-    await toggle.trigger('click')
+    const pane = focusedPane()
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true }))
     await flushPromises()
     expect(localStorage.getItem('hive.panel.agents.sidebar.collapsed')).toBe('false')
+    pane.remove()
 
     await toggle.trigger('click')
     await flushPromises()

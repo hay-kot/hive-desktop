@@ -45,6 +45,15 @@ describe('commandCatalog defaults', () => {
     expect(selection?.context).toBe('feed')
   })
 
+  it('applies the persisted sidebar command to any view with a sidebar', () => {
+    const sidebar = commandCatalog.find((command) => command.id === 'terminal.toggle-sidebar')
+
+    expect(sidebar?.title).toBe('Toggle sidebar')
+    expect(sidebar?.group).toBe('View')
+    expect(sidebar?.context).toBe('sidebar')
+    expect(sidebar?.defaultCombos).toEqual(['mod+b'])
+  })
+
   it.each([
     ['macOS', true],
     ['a Ctrl platform', false],
