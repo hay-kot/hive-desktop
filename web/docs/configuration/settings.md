@@ -105,6 +105,23 @@ Available channels are Stable, Beta, and Dev. An omitted channel follows the cha
 
 ## Telemetry
 
-Telemetry is disabled by default. Advanced users can send traces, metrics, and logs to an OTLP endpoint they operate. Configure `telemetry.endpoint`, `telemetry.instance_id`, and a referenced token in `settings.yaml`.
+Telemetry is disabled by default. You can send traces, metrics, and logs to an OTLP endpoint with `telemetry.enabled`. Continuous profiles use a separate `telemetry.profiles.enabled` gate and push directly to a Pyroscope-compatible endpoint such as Grafana Cloud Profiles.
 
-Token values must use `env:`, `file:`, or `op://` references. Hive rejects literal telemetry tokens in the settings file.
+Grafana Cloud provides different URLs and basic-auth users for OTLP and Profiles. A Cloud Access Policy token can serve both when it includes `profiles:write`, but configure each destination separately:
+
+```yaml
+telemetry:
+  enabled: true
+  endpoint: https://otlp-gateway-prod-us-central-0.grafana.net/otlp
+  instance_id: "123456"
+  token: op://Private/Grafana Cloud/otlp-token
+  profiles:
+    enabled: true
+    endpoint: https://profiles-prod-us-central-0.grafana.net
+    user: "123456"
+    token: op://Private/Grafana Cloud/profiles-token
+```
+
+Profile export collects CPU, allocation, and in-use heap profiles. It does not collect goroutine, mutex, or block profiles. OTLP and profile export can run independently.
+
+Tokens must use `env:`, `file:`, or `op://` references. Hive rejects literal telemetry tokens in the settings file. Endpoints and users may also use these references.

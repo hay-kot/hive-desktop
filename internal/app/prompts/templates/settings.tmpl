@@ -66,8 +66,13 @@ telemetry:
   endpoint: ""             # signal-less OTLP base, https only; no collector needed
   instance_id: ""          # the endpoint's basic-auth username
   token: ""                # a REFERENCE, never a token. A literal is rejected.
-                           # All three accept env:NAME, file:/path, or
+                           # These three accept env:NAME, file:/path, or
                            # op://vault/item/field; only token requires one.
+  profiles:
+    enabled: false         # push CPU and heap profiles directly with Pyroscope
+    endpoint: ""           # Grafana Cloud Profiles base URL, https only
+    user: ""               # the Profiles basic-auth username
+    token: ""              # a REFERENCE, with the same forms and rules above
 
 development:
   mocks:

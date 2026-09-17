@@ -205,6 +205,11 @@ telemetry:
   endpoint: "" # the signal-less OTLP base, https only; may be a secret reference
   instance_id: "" # the endpoint's basic-auth username; may be a secret reference
   token: "" # a reference, never a token: env:NAME, file:/path, or op://vault/item/field
+  profiles:
+    enabled: false # push CPU and standard heap profiles directly with Pyroscope
+    endpoint: "" # the Grafana Cloud Profiles base URL, https only; may be a reference
+    user: "" # the Profiles basic-auth username; may be a secret reference
+    token: "" # a reference, never a token: env:NAME, file:/path, or op://vault/item/field
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults.
                  # A binding is a single combo ("j") or a space-separated
                  # sequence of combos pressed in order ("g i").
@@ -245,10 +250,11 @@ rather than a fallback to a different tmux, and changing it takes a relaunch.
 Installing tmux does not: a failed lookup is retried, so only a successful one
 is remembered.
 
-`telemetry` sends the app's own signals to an OpenTelemetry endpoint with no
-collector in between; `development.metrics` serves the same instruments at
-`/metrics` on the loopback server for a local scrape. The two are independent —
-either, both, or neither — because one MeterProvider feeds both readers.
+`telemetry` sends the app's own metrics, logs, and traces to an OpenTelemetry
+endpoint with no collector in between; `development.metrics` serves the same
+instruments at `/metrics` on the loopback server for a local scrape.
+`telemetry.profiles` sends CPU and standard heap profiles directly to a
+Pyroscope-compatible endpoint. All three gates are independent.
 
 All three of `endpoint`, `instance_id` and `token` accept a **secret
 reference** (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources), so one 1Password item can hold a whole
@@ -275,8 +281,28 @@ token: glc_eyJvIjoi...                                            # rejected
 
 A written-out endpoint is checked for https at load. A reference is not,
 because its target is unknown until launch; the resolved value is checked
-either way. References resolve only when `telemetry.enabled` is true, so a
-disabled section never raises a 1Password prompt.
+either way. OTLP references resolve only when `telemetry.enabled` is true. Profile
+references resolve only when `telemetry.profiles.enabled` is true, so a
+disabled destination never raises a 1Password prompt.
+
+Grafana Cloud Profiles uses a different endpoint and basic-auth user from its
+OTLP endpoint. Configure it independently, even when one Cloud Access Policy
+token has both OTLP and `profiles:write` permissions:
+
+```yaml
+telemetry:
+  profiles:
+    enabled: true
+    endpoint: https://profiles-prod-us-central-0.grafana.net
+    user: "123456"
+    token: op://Private/Grafana Cloud/profiles-token
+```
+
+Profiling collects CPU, allocated objects and bytes, and in-use objects and
+bytes. Heap collection does not force extra garbage collections. Mutex, block,
+and goroutine profiles are not collected. When `development.pprof.enabled` is
+also on, `/debug/pprof/profile` shares the active CPU profiler instead of
+failing because CPU profiling is already in use.
 
 Prefer `file:` or `op://` for an installed app. A launched `.app` inherits
 almost no environment and the app reads no env files, so `env:` resolves only
