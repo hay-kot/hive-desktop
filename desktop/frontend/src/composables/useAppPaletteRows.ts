@@ -1,4 +1,4 @@
-import { computed, watch, type Ref } from 'vue'
+import { computed, nextTick, watch, type Ref } from 'vue'
 import type { Router } from 'vue-router'
 import IconGauge from '~icons/lucide/gauge'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
@@ -402,7 +402,11 @@ export function useAppPaletteRows(deps: AppPaletteDeps): void {
         kind: 'chat',
         keywords: ['chat'],
         icon: IconMessagesSquare,
-        run: () => void router.push({ name: 'agents', params: { workspace: session.workspace }, query: { chat: String(session.id) } }),
+        run: async () => {
+          await router.push({ name: 'agents', params: { workspace: session.workspace }, query: { chat: String(session.id) } })
+          await nextTick()
+          runCommand('agents.focus-pane')
+        },
       })
     }
 
