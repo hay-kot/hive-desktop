@@ -175,6 +175,33 @@ func TestResolveHiveConfigLocation(t *testing.T) {
 	})
 }
 
+func TestResolveHiveDefaultAgent(t *testing.T) {
+	t.Run("configured profile", func(t *testing.T) {
+		got := resolveHiveDefaultAgent(t.Context(), hiveConfigEnvFunc(func(_ context.Context, name string) string {
+			if name == "HIVE_DEFAULT_AGENT" {
+				return " pi "
+			}
+			return ""
+		}), "claude", []string{"claude", "pi"})
+		require.Equal(t, "pi", got)
+	})
+
+	for _, tc := range []struct {
+		name      string
+		preferred string
+	}{
+		{name: "unset"},
+		{name: "unknown", preferred: "missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveHiveDefaultAgent(t.Context(), hiveConfigEnvFunc(func(context.Context, string) string {
+				return tc.preferred
+			}), "claude", []string{"claude", "pi"})
+			require.Equal(t, "claude", got)
+		})
+	}
+}
+
 func TestSystemServiceOpenHiveConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
 	var opened string
