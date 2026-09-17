@@ -15,6 +15,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/uuid v1.6.0
+	github.com/grafana/pyroscope-go v1.4.2
 	github.com/hay-kot/appkit v0.0.0-20260423210245-a7c838e81887
 	github.com/hay-kot/criterio v1.0.0
 	github.com/hay-kot/httpkit v0.0.11
@@ -91,8 +92,10 @@ require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/pprof v0.0.0-20260802141513-ef3492d7dac3 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.11 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

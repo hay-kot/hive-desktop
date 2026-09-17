@@ -175,10 +175,20 @@ type EditorSettings struct {
 // only when it is written out. The resolved value is checked either way, by
 // the telemetry package.
 type TelemetrySettings struct {
-	Enabled    bool   `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
-	Endpoint   string `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
-	InstanceID string `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID"`
-	Token      string `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"`
+	Enabled    bool                     `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
+	Endpoint   string                   `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
+	InstanceID string                   `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID"`
+	Token      string                   `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"`
+	Profiles   ProfileTelemetrySettings `yaml:"profiles,omitempty"`
+}
+
+// ProfileTelemetrySettings configures direct Pyroscope export. Grafana Cloud
+// Profiles has its own endpoint and basic-auth user, independent of OTLP.
+type ProfileTelemetrySettings struct {
+	Enabled  bool   `yaml:"enabled"            env:"HIVE_DESKTOP_TELEMETRY_PROFILES_ENABLED"`
+	Endpoint string `yaml:"endpoint,omitempty" env:"HIVE_DESKTOP_TELEMETRY_PROFILES_ENDPOINT"`
+	User     string `yaml:"user,omitempty"     env:"HIVE_DESKTOP_TELEMETRY_PROFILES_USER"`
+	Token    string `yaml:"token,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_PROFILES_TOKEN"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
@@ -403,16 +413,27 @@ func (s Settings) Validate() error {
 }
 
 // validateTelemetry deliberately does not apply validateGitHubAPIBase's
-// loopback rule: this endpoint is remote by definition, so https is what stops
-// a persisted setting putting the credential on the wire in the clear. The
-// token is not a setting, so its absence is the telemetry package's to report.
+// loopback rule. Telemetry destinations are remote, so HTTPS stops credentials
+// from crossing the network in the clear. Resolved values are checked again by
+// the telemetry package at launch.
 func validateTelemetry(t TelemetrySettings) error {
-	if !t.Enabled {
-		return nil
+	if t.Enabled {
+		if err := validateTelemetryDestination("telemetry", "instance_id", t.Endpoint, t.InstanceID, t.Token); err != nil {
+			return err
+		}
 	}
-	endpoint := strings.TrimSpace(t.Endpoint)
+	if t.Profiles.Enabled {
+		if err := validateTelemetryDestination("telemetry.profiles", "user", t.Profiles.Endpoint, t.Profiles.User, t.Profiles.Token); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateTelemetryDestination(section, userField, endpointValue, userValue, token string) error {
+	endpoint := strings.TrimSpace(endpointValue)
 	if endpoint == "" {
-		return fmt.Errorf("telemetry.endpoint is required when telemetry.enabled is true")
+		return fmt.Errorf("%s.endpoint is required when %s.enabled is true", section, section)
 	}
 	// A reference's target is unknown until launch, so only a written-out
 	// endpoint can be checked here. Resolving during Validate would shell out
@@ -420,23 +441,23 @@ func validateTelemetry(t TelemetrySettings) error {
 	if !secrets.HasKnownPrefix(endpoint) {
 		parsed, err := url.Parse(endpoint)
 		if err != nil {
-			return fmt.Errorf("telemetry.endpoint must be a valid URL: %w", err)
+			return fmt.Errorf("%s.endpoint must be a valid URL: %w", section, err)
 		}
 		if parsed.Scheme != "https" {
-			return fmt.Errorf("telemetry.endpoint must use https")
+			return fmt.Errorf("%s.endpoint must use https", section)
 		}
 		if parsed.Host == "" {
-			return fmt.Errorf("telemetry.endpoint must include a host")
+			return fmt.Errorf("%s.endpoint must include a host", section)
 		}
 	}
-	if strings.TrimSpace(t.InstanceID) == "" {
-		return fmt.Errorf("telemetry.instance_id is required when telemetry.enabled is true")
+	if strings.TrimSpace(userValue) == "" {
+		return fmt.Errorf("%s.%s is required when %s.enabled is true", section, userField, section)
 	}
-	if strings.TrimSpace(t.Token) == "" {
-		return fmt.Errorf("telemetry.token is required when telemetry.enabled is true")
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("%s.token is required when %s.enabled is true", section, section)
 	}
-	if !secrets.HasKnownPrefix(t.Token) {
-		return fmt.Errorf("telemetry.token must be a reference (env:NAME, file:/path, or op://vault/item/field), not a literal secret")
+	if !secrets.HasKnownPrefix(token) {
+		return fmt.Errorf("%s.token must be a reference (env:NAME, file:/path, or op://vault/item/field), not a literal secret", section)
 	}
 	return nil
 }

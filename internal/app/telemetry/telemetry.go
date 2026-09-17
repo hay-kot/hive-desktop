@@ -1,12 +1,12 @@
-// Package telemetry configures the OpenTelemetry SDK: it builds the providers,
-// registers them globally, and owns their shutdown (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape).
-// It is SDK setup, not an instrumentation API — a package that emits reaches
-// the registered providers through internal/app/observe.
+// Package telemetry configures the OpenTelemetry and Pyroscope SDKs, registers
+// the OTel providers globally, and owns their shutdown (ADR
+// continuous-profiles-are-pushed-directly-with-pyroscope). It is SDK setup,
+// not an instrumentation API; a package that emits reaches the registered OTel
+// providers through internal/app/observe.
 //
-// Export and scrape are independent gates over one MeterProvider, so an
-// instrument is declared once and both readers collect it. With neither on,
-// [New] returns what [Off] returns and the globals keep the API's no-op
-// default.
+// OTLP export, profile export, and local scrape are independent gates. With
+// every gate off, [New] returns what [Off] returns and the globals keep the
+// API's no-op default.
 package telemetry
 
 import (
@@ -17,9 +17,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/grafana/pyroscope-go"
+	pyroscopepprof "github.com/grafana/pyroscope-go/http/pprof"
 	promclient "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	runtimemetrics "go.opentelemetry.io/contrib/instrumentation/runtime"
@@ -49,45 +53,67 @@ type Options struct {
 	User     string
 	Token    string
 
-	Scrape bool
+	Profiles ProfilesOptions
+	Scrape   bool
 
 	Version     string
 	Environment string
 	Instance    string
 }
 
+// ProfilesOptions configures direct Pyroscope profile export.
+type ProfilesOptions struct {
+	Enabled     bool
+	Endpoint    string
+	User        string
+	Token       string
+	HTTPTimeout time.Duration
+}
+
 func (o Options) validate() error {
-	if !o.Export {
-		return nil
+	if o.Export {
+		if err := validateDestination("telemetry", o.Endpoint, o.User, o.Token); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(o.Endpoint) == "" {
-		return errors.New("telemetry: endpoint is required to export")
+	if o.Profiles.Enabled {
+		if err := validateDestination("telemetry profiles", o.Profiles.Endpoint, o.Profiles.User, o.Profiles.Token); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(o.User) == "" {
-		return errors.New("telemetry: user is required to export")
+	return nil
+}
+
+func validateDestination(name, endpoint, user, token string) error {
+	if strings.TrimSpace(endpoint) == "" {
+		return fmt.Errorf("%s: endpoint is required to export", name)
 	}
-	if strings.TrimSpace(o.Token) == "" {
-		return errors.New("telemetry: token is required to export")
+	if strings.TrimSpace(user) == "" {
+		return fmt.Errorf("%s: user is required to export", name)
 	}
-	parsed, err := url.Parse(o.Endpoint)
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("%s: token is required to export", name)
+	}
+	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return fmt.Errorf("telemetry: endpoint is not a URL: %w", err)
+		return fmt.Errorf("%s: endpoint is not a URL: %w", name, err)
 	}
 	// https rather than the loopback rule development.github.api_base follows:
-	// this endpoint is remote by definition, so what is left to enforce is that
-	// the credential does not cross the network in the clear.
+	// these endpoints are remote by definition, so what is left to enforce is
+	// that the credentials do not cross the network in the clear.
 	if parsed.Scheme != "https" {
-		return errors.New("telemetry: endpoint must use https")
+		return fmt.Errorf("%s: endpoint must use https", name)
 	}
 	if parsed.Host == "" {
-		return errors.New("telemetry: endpoint has no host")
+		return fmt.Errorf("%s: endpoint has no host", name)
 	}
 	return nil
 }
 
 type Provider struct {
-	handler http.Handler
-	logw    io.Writer
+	metricsHandler    http.Handler
+	cpuProfileHandler http.Handler
+	logw              io.Writer
 
 	// Run in reverse, so a batch processor flushes before its exporter closes.
 	shutdown []func(context.Context) error
@@ -97,19 +123,35 @@ type Provider struct {
 // measurement is safe to take without checking whether telemetry is configured.
 func Off() *Provider { return &Provider{} }
 
-// New returns [Off] when both gates are off, and an error when export is on but
-// misconfigured: a stated endpoint that cannot be used is worth reporting
-// rather than silently dropping telemetry over.
+type profiler interface {
+	Stop() error
+}
+
+type profileStarter func(pyroscope.Config) (profiler, error)
+
+// New returns [Off] when every gate is off, and an error when an enabled
+// destination is misconfigured. A stated endpoint that cannot be used is worth
+// reporting rather than silently dropping telemetry over.
 func New(ctx context.Context, opts Options) (*Provider, error) {
-	if !opts.Export && !opts.Scrape {
+	return newProvider(ctx, opts, startPyroscope)
+}
+
+const pyroscopeAdhocServerAddressEnv = "PYROSCOPE_ADHOC_SERVER_ADDRESS"
+
+func startPyroscope(config pyroscope.Config) (profiler, error) {
+	// The SDK applies this override after our HTTPS validation and retains the
+	// configured basic-auth credentials.
+	if _, exists := os.LookupEnv(pyroscopeAdhocServerAddressEnv); exists {
+		return nil, fmt.Errorf("telemetry profiles: %s is not supported; configure telemetry.profiles.endpoint", pyroscopeAdhocServerAddressEnv)
+	}
+	return pyroscope.Start(config)
+}
+
+func newProvider(ctx context.Context, opts Options, startProfiles profileStarter) (*Provider, error) {
+	if !opts.Export && !opts.Profiles.Enabled && !opts.Scrape {
 		return Off(), nil
 	}
 	if err := opts.validate(); err != nil {
-		return nil, err
-	}
-
-	res, err := newResource(opts)
-	if err != nil {
 		return nil, err
 	}
 
@@ -120,66 +162,83 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 	}
 
 	var (
-		readers []sdkmetric.Option
-		tp      *sdktrace.TracerProvider
+		mp *sdkmetric.MeterProvider
+		tp *sdktrace.TracerProvider
 	)
-	if opts.Scrape {
-		// A private registry, never promclient.DefaultRegisterer — the reason
-		// PprofHandler builds its own mux.
-		reg := promclient.NewRegistry()
-		promReader, err := otelprom.New(otelprom.WithRegisterer(reg))
+	if opts.Export || opts.Scrape {
+		res, err := newResource(opts)
 		if err != nil {
-			return fail(fmt.Errorf("telemetry: prometheus reader: %w", err))
+			return nil, err
 		}
-		readers = append(readers, sdkmetric.WithReader(promReader))
-		p.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+
+		var readers []sdkmetric.Option
+		if opts.Scrape {
+			// A private registry, never promclient.DefaultRegisterer — the reason
+			// PprofHandler builds its own mux.
+			reg := promclient.NewRegistry()
+			promReader, err := otelprom.New(otelprom.WithRegisterer(reg))
+			if err != nil {
+				return fail(fmt.Errorf("telemetry: prometheus reader: %w", err))
+			}
+			readers = append(readers, sdkmetric.WithReader(promReader))
+			p.metricsHandler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
+		}
+
+		if opts.Export {
+			headers := map[string]string{"Authorization": basicAuth(opts.User, opts.Token)}
+
+			metricExp, err := otlpmetrichttp.New(ctx,
+				otlpmetrichttp.WithEndpointURL(signalURL(opts.Endpoint, "metrics")),
+				otlpmetrichttp.WithHeaders(headers),
+				otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression),
+			)
+			if err != nil {
+				return fail(fmt.Errorf("telemetry: metric exporter: %w", err))
+			}
+			readers = append(readers, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp)))
+
+			traceExp, err := otlptracehttp.New(ctx,
+				otlptracehttp.WithEndpointURL(signalURL(opts.Endpoint, "traces")),
+				otlptracehttp.WithHeaders(headers),
+				otlptracehttp.WithCompression(otlptracehttp.GzipCompression),
+			)
+			if err != nil {
+				return fail(fmt.Errorf("telemetry: trace exporter: %w", err))
+			}
+			tp = sdktrace.NewTracerProvider(sdktrace.WithBatcher(traceExp), sdktrace.WithResource(res))
+			p.shutdown = append(p.shutdown, tp.Shutdown)
+
+			logExp, err := otlploghttp.New(ctx,
+				otlploghttp.WithEndpointURL(signalURL(opts.Endpoint, "logs")),
+				otlploghttp.WithHeaders(headers),
+				otlploghttp.WithCompression(otlploghttp.GzipCompression),
+			)
+			if err != nil {
+				return fail(fmt.Errorf("telemetry: log exporter: %w", err))
+			}
+			lp := sdklog.NewLoggerProvider(
+				sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+				sdklog.WithResource(res),
+			)
+			p.logw = newLogWriter(ctx, lp.Logger(ScopeName))
+			p.shutdown = append(p.shutdown, lp.Shutdown)
+		}
+
+		mp = sdkmetric.NewMeterProvider(append(readers, sdkmetric.WithResource(res))...)
+		p.shutdown = append(p.shutdown, mp.Shutdown)
+
+		if err := runtimemetrics.Start(runtimemetrics.WithMeterProvider(mp)); err != nil {
+			return fail(fmt.Errorf("telemetry: runtime metrics: %w", err))
+		}
 	}
 
-	if opts.Export {
-		headers := map[string]string{"Authorization": basicAuth(opts.User, opts.Token)}
-
-		metricExp, err := otlpmetrichttp.New(ctx,
-			otlpmetrichttp.WithEndpointURL(signalURL(opts.Endpoint, "metrics")),
-			otlpmetrichttp.WithHeaders(headers),
-			otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression),
-		)
+	if opts.Profiles.Enabled {
+		profile, err := startProfiles(profileConfig(opts))
 		if err != nil {
-			return fail(fmt.Errorf("telemetry: metric exporter: %w", err))
+			return fail(fmt.Errorf("telemetry: profile exporter: %w", err))
 		}
-		readers = append(readers, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp)))
-
-		traceExp, err := otlptracehttp.New(ctx,
-			otlptracehttp.WithEndpointURL(signalURL(opts.Endpoint, "traces")),
-			otlptracehttp.WithHeaders(headers),
-			otlptracehttp.WithCompression(otlptracehttp.GzipCompression),
-		)
-		if err != nil {
-			return fail(fmt.Errorf("telemetry: trace exporter: %w", err))
-		}
-		tp = sdktrace.NewTracerProvider(sdktrace.WithBatcher(traceExp), sdktrace.WithResource(res))
-		p.shutdown = append(p.shutdown, tp.Shutdown)
-
-		logExp, err := otlploghttp.New(ctx,
-			otlploghttp.WithEndpointURL(signalURL(opts.Endpoint, "logs")),
-			otlploghttp.WithHeaders(headers),
-			otlploghttp.WithCompression(otlploghttp.GzipCompression),
-		)
-		if err != nil {
-			return fail(fmt.Errorf("telemetry: log exporter: %w", err))
-		}
-		lp := sdklog.NewLoggerProvider(
-			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
-			sdklog.WithResource(res),
-		)
-		p.logw = newLogWriter(ctx, lp.Logger(ScopeName))
-		p.shutdown = append(p.shutdown, lp.Shutdown)
-	}
-
-	mp := sdkmetric.NewMeterProvider(append(readers, sdkmetric.WithResource(res))...)
-	p.shutdown = append(p.shutdown, mp.Shutdown)
-
-	if err := runtimemetrics.Start(runtimemetrics.WithMeterProvider(mp)); err != nil {
-		return fail(fmt.Errorf("telemetry: runtime metrics: %w", err))
+		p.cpuProfileHandler = http.HandlerFunc(pyroscopepprof.Profile)
+		p.shutdown = append(p.shutdown, stopProfiler(profile))
 	}
 
 	// Last, so a construction failure never leaves a provider fail() has already
@@ -188,14 +247,17 @@ func New(ctx context.Context, opts Options) (*Provider, error) {
 	if tp != nil {
 		otel.SetTracerProvider(tp)
 	}
-	otel.SetMeterProvider(mp)
+	if mp != nil {
+		otel.SetMeterProvider(mp)
+	}
 
 	return p, nil
 }
 
-func (p *Provider) Enabled() bool                { return len(p.shutdown) > 0 || p.handler != nil }
-func (p *Provider) MetricsHandler() http.Handler { return p.handler }
-func (p *Provider) LogWriter() io.Writer         { return p.logw }
+func (p *Provider) Enabled() bool                   { return len(p.shutdown) > 0 || p.metricsHandler != nil }
+func (p *Provider) MetricsHandler() http.Handler    { return p.metricsHandler }
+func (p *Provider) CPUProfileHandler() http.Handler { return p.cpuProfileHandler }
+func (p *Provider) LogWriter() io.Writer            { return p.logw }
 
 // LogWriters is LogWriter as a variadic-friendly slice for settings.NewLogger.
 func (p *Provider) LogWriters() []io.Writer {
@@ -215,6 +277,70 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	}
 	p.shutdown = nil
 	return errors.Join(errs...)
+}
+
+const defaultProfileHTTPTimeout = 2 * time.Second
+
+func profileConfig(opts Options) pyroscope.Config {
+	timeout := opts.Profiles.HTTPTimeout
+	if timeout <= 0 {
+		timeout = defaultProfileHTTPTimeout
+	}
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		transport = &http.Transport{Proxy: http.ProxyFromEnvironment}
+	}
+	transport = transport.Clone()
+	transport.MaxConnsPerHost = 5
+	return pyroscope.Config{
+		ApplicationName:   ServiceName,
+		ServerAddress:     strings.TrimSpace(opts.Profiles.Endpoint),
+		BasicAuthUser:     opts.Profiles.User,
+		BasicAuthPassword: opts.Profiles.Token,
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileInuseObjects,
+			pyroscope.ProfileInuseSpace,
+		},
+		DisableGCRuns: true,
+		Tags:          profileTags(opts),
+		HTTPClient: &http.Client{
+			Transport: transport,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+			Timeout: timeout,
+		},
+	}
+}
+
+func profileTags(opts Options) map[string]string {
+	tags := make(map[string]string, 3)
+	for key, value := range map[string]string{
+		"service_version":             opts.Version,
+		"service_instance_id":         opts.Instance,
+		"deployment_environment_name": opts.Environment,
+	} {
+		if value != "" {
+			tags[key] = value
+		}
+	}
+	return tags
+}
+
+func stopProfiler(profile profiler) func(context.Context) error {
+	return func(ctx context.Context) error {
+		stopped := make(chan error, 1)
+		go func() { stopped <- profile.Stop() }()
+		select {
+		case err := <-stopped:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func signalURL(base, signal string) string {

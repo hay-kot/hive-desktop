@@ -270,6 +270,24 @@ func TestSettingsValidation(t *testing.T) {
 		{"telemetry unknown token prefix", func(s *Settings) {
 			s.Telemetry = telemetryFixture(func(t *TelemetrySettings) { t.Token = "vault:kv/data/otlp" })
 		}},
+		{"profiles without endpoint", func(s *Settings) {
+			s.Telemetry.Profiles = profileTelemetryFixture(func(t *ProfileTelemetrySettings) { t.Endpoint = "" })
+		}},
+		{"profiles without user", func(s *Settings) {
+			s.Telemetry.Profiles = profileTelemetryFixture(func(t *ProfileTelemetrySettings) { t.User = "" })
+		}},
+		{"profiles plaintext endpoint", func(s *Settings) {
+			s.Telemetry.Profiles = profileTelemetryFixture(func(t *ProfileTelemetrySettings) { t.Endpoint = "http://profiles.example.com" })
+		}},
+		{"profiles endpoint without host", func(s *Settings) {
+			s.Telemetry.Profiles = profileTelemetryFixture(func(t *ProfileTelemetrySettings) { t.Endpoint = "https:///ingest" })
+		}},
+		{"profiles without token", func(s *Settings) {
+			s.Telemetry.Profiles = profileTelemetryFixture(func(t *ProfileTelemetrySettings) { t.Token = "" })
+		}},
+		{"profiles literal token", func(s *Settings) {
+			s.Telemetry.Profiles = profileTelemetryFixture(func(t *ProfileTelemetrySettings) { t.Token = "glc_secret" })
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -286,6 +304,17 @@ func telemetryFixture(edit func(*TelemetrySettings)) TelemetrySettings {
 		Endpoint:   "https://otlp-gateway-prod-us-central-0.grafana.net/otlp",
 		InstanceID: "123456",
 		Token:      "env:HIVE_GRAFANACLOUD_TOKEN",
+	}
+	edit(&t)
+	return t
+}
+
+func profileTelemetryFixture(edit func(*ProfileTelemetrySettings)) ProfileTelemetrySettings {
+	t := ProfileTelemetrySettings{
+		Enabled:  true,
+		Endpoint: "https://profiles-prod-us-central-0.grafana.net",
+		User:     "123456",
+		Token:    "env:HIVE_GRAFANACLOUD_PROFILES_TOKEN",
 	}
 	edit(&t)
 	return t
@@ -340,6 +369,48 @@ func TestTelemetryDisabledSkipsValidation(t *testing.T) {
 	cfg := DefaultSettings()
 	cfg.Telemetry = TelemetrySettings{Enabled: false, Endpoint: "http://not-a-real-endpoint", Token: "pasted-literal"}
 	require.NoError(t, cfg.Validate())
+}
+
+func TestProfileTelemetryIsIndependentOfOTLP(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry.Profiles = profileTelemetryFixture(func(*ProfileTelemetrySettings) {})
+	require.NoError(t, cfg.Validate())
+}
+
+func TestProfileTelemetryAcceptsReferences(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry.Profiles = profileTelemetryFixture(func(s *ProfileTelemetrySettings) {
+		s.Endpoint = "op://Private/Grafana Cloud/profiles-endpoint"
+		s.User = "op://Private/Grafana Cloud/profiles-user"
+		s.Token = "op://Private/Grafana Cloud/profiles-token"
+	})
+	require.NoError(t, cfg.Validate())
+}
+
+func TestProfileTelemetryDisabledSkipsValidation(t *testing.T) {
+	cfg := DefaultSettings()
+	cfg.Telemetry.Profiles = ProfileTelemetrySettings{
+		Endpoint: "http://not-a-real-endpoint",
+		Token:    "pasted-literal",
+	}
+	require.NoError(t, cfg.Validate())
+}
+
+func TestProfileTelemetryEnvironmentOverrides(t *testing.T) {
+	path := isolateSettings(t)
+	t.Setenv("HIVE_DESKTOP_TELEMETRY_PROFILES_ENABLED", "true")
+	t.Setenv("HIVE_DESKTOP_TELEMETRY_PROFILES_ENDPOINT", "https://profiles.example.com")
+	t.Setenv("HIVE_DESKTOP_TELEMETRY_PROFILES_USER", "profiles-user")
+	t.Setenv("HIVE_DESKTOP_TELEMETRY_PROFILES_TOKEN", "env:PROFILES_TOKEN")
+
+	cfg, err := NewStore(path).Effective()
+	require.NoError(t, err)
+	assert.Equal(t, ProfileTelemetrySettings{
+		Enabled:  true,
+		Endpoint: "https://profiles.example.com",
+		User:     "profiles-user",
+		Token:    "env:PROFILES_TOKEN",
+	}, cfg.Telemetry.Profiles)
 }
 
 // A struct tag cannot reference a constant, so the env name is written twice.

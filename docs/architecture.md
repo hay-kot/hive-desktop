@@ -377,10 +377,10 @@ internal/
                                   #   op://) and this resolves it; a literal is
                                   #   rejected (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources)
     telemetry/                    # the app's own metrics, logs and traces over
-                                  #   OTLP, and the local /metrics scrape; the
-                                  #   only package that imports the OTel SDK,
-                                  #   and what registers the global providers
-                                  #   (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape)
+                                  #   OTLP, profiles over Pyroscope, and the local
+                                  #   /metrics scrape; the only package that
+                                  #   imports either telemetry SDK and owns their
+                                  #   process-wide lifecycle
     observe/                      # the OTel API surface every other package
                                   #   calls: scope naming, Must, RecordError,
                                   #   StartConditionalSpan. No SDK, no
@@ -894,7 +894,10 @@ of its own: when enabled, `httpapi.PprofHandler()` mounts on the shared
 loopback HTTP server (ADR agent-http-api) beside the agent API, torn down with it, so
 there is no second listener and no teardown branch in `main` (ADR pprof-debug-endpoint). The
 config is `{ enabled }` only — the address is the shared server's, so pprof
-requires `http.enabled`, and a disabled endpoint has no route at all.
+requires `http.enabled`, and a disabled endpoint has no route at all. When
+continuous profiling is active, the CPU route uses Pyroscope's compatible
+handler so an on-demand profile can share the process-wide CPU profiler (ADR
+continuous-profiles-are-pushed-directly-with-pyroscope).
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware, **adopted** — see below) and `mapx`.
@@ -904,8 +907,11 @@ client with composable middleware, **adopted** — see below) and `mapx`.
 The app's own metrics, logs and traces go out over OTLP with **no collector**
 (ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape). Two independent gates sit over one MeterProvider:
 `telemetry.enabled` pushes to a remote endpoint, `development.metrics.enabled`
-mounts `/metrics` on the shared loopback server exactly as pprof does. Both off
-is the no-op object, so no call site checks whether telemetry is configured.
+mounts `/metrics` on the shared loopback server exactly as pprof does.
+`telemetry.profiles.enabled` is a third independent gate that pushes CPU and
+standard heap profiles directly with Pyroscope (ADR
+continuous-profiles-are-pushed-directly-with-pyroscope). Every gate off is the
+no-op object, so no call site checks whether telemetry is configured.
 
 **The boundary is the API/SDK split, not the package** (ADR a-package-declares-its-own-opentelemetry-instruments-against-the-global-provider). Any
 package may import the OTel **API** — `go.opentelemetry.io/otel`, `/trace`,
@@ -984,6 +990,16 @@ become queryable by being added; slice by a metric label instead.
 The log bridge is a **zerolog writer arm**, not a `zerolog.Hook`: a Hook cannot
 read an event's fields. `settings.NewLogger` takes extra writers for this, and
 an extra arm must never fail a write or block.
+
+Profiles use their own endpoint, basic-auth user, and secret reference because
+Grafana Cloud Profiles is not an OTLP signal. Profile export can run without
+OTLP export. The profiler collects CPU plus allocation and in-use heap data;
+it does not collect goroutine, mutex, or block profiles, and heap snapshots do
+not force a garbage collection. `telemetry.Provider` owns its lifecycle beside
+the OTel providers. Its HTTP client and context-selecting stop adapter keep
+shutdown within the desktop's two-second telemetry budget. Static profile
+labels project the same service version, deployment environment, and instance
+identity as the OTel resource and omit empty values.
 
 ### Source HTTP
 

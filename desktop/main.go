@@ -95,7 +95,11 @@ func main() {
 	// logger's writer arms. A bad configuration disables telemetry rather than
 	// failing startup: nothing else depends on it.
 	telOpts := telemetry.Options{
-		Export:      cfg.Telemetry.Enabled,
+		Export: cfg.Telemetry.Enabled,
+		Profiles: telemetry.ProfilesOptions{
+			Enabled:     cfg.Telemetry.Profiles.Enabled,
+			HTTPTimeout: telemetryFlushGrace,
+		},
 		Scrape:      cfg.Development.Metrics.Enabled,
 		Version:     version,
 		Environment: environment,
@@ -107,6 +111,11 @@ func main() {
 		telOpts.Endpoint = resolveSetting("telemetry.endpoint", cfg.Telemetry.Endpoint, &logger)
 		telOpts.User = resolveSetting("telemetry.instance_id", cfg.Telemetry.InstanceID, &logger)
 		telOpts.Token = resolveSetting("telemetry.token", cfg.Telemetry.Token, &logger)
+	}
+	if cfg.Telemetry.Profiles.Enabled {
+		telOpts.Profiles.Endpoint = resolveSetting("telemetry.profiles.endpoint", cfg.Telemetry.Profiles.Endpoint, &logger)
+		telOpts.Profiles.User = resolveSetting("telemetry.profiles.user", cfg.Telemetry.Profiles.User, &logger)
+		telOpts.Profiles.Token = resolveSetting("telemetry.profiles.token", cfg.Telemetry.Profiles.Token, &logger)
 	}
 	tel, telErr := telemetry.New(ctx, telOpts)
 	if telErr != nil {
@@ -126,6 +135,7 @@ func main() {
 	case tel.Enabled():
 		logger.Info().
 			Bool("export", cfg.Telemetry.Enabled).
+			Bool("profiles", cfg.Telemetry.Profiles.Enabled).
 			Bool("scrape", cfg.Development.Metrics.Enabled).
 			Str("environment", environment).
 			Str("version", version).
@@ -242,7 +252,7 @@ func main() {
 		logger.Info().Str("path", path).Msg("ptyterm WebSocket stream mounted")
 	}
 	// pprof shares the same server when enabled (ADR pprof-debug-endpoint).
-	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
+	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler(tel.CPUProfileHandler())) {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
 	}
 	// The metrics scrape rides the same server on the same terms.
