@@ -41,6 +41,10 @@ Settings ▸ Appearance ▸ Terminal already offers as presets.
    `terminalFontSizeState`) are deleted with it — Settings uses the preset
    picker, not the nudge ladder.
 
+   **Superseded by ADR the-zoom-chords-step-the-terminal-text-size-instead-of-magnifying-the-webview.**
+   The ladder is back as a keybinding over the same presets. The pane still
+   carries no control of its own.
+
 5. **Find keeps its keyboard path and loses its button.** The find bar is
    unchanged; only the way in from the chrome is gone. This is the one capability
    that got narrower rather than moving, and it is deliberate: the shortcut

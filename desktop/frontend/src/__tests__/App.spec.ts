@@ -11,6 +11,7 @@ import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/use
 import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { formatCombo, SEQUENCE_TIMEOUT_MS, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
+import { resetTerminalFontForTests, useTerminalFont } from '../composables/useTerminalFont'
 import { resetTerminalSessionsForTests, useTerminalSessions } from '../composables/useTerminalSessions'
 import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
@@ -315,6 +316,7 @@ describe('App', () => {
     useKeybindings().clearPendingSequence()
     requestedEditorFilter.value = null
     resetTerminalAvailabilityForTests()
+    resetTerminalFontForTests()
     resetTerminalSessionsForTests()
     resetAttachedTerminalWindowsForTests()
     resetTerminalPinnedChatsForTests()
@@ -1012,6 +1014,67 @@ describe('App', () => {
       await flushPromises()
       expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull() // the chord does close it
 
+      wrapper.unmount()
+    })
+
+    it('steps the terminal text size from a focused pane, and resets it', async () => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push('/terminal/hive-fix-parser')
+      await flushPromises()
+
+      const { size } = useTerminalFont()
+      const pane = focusedPane()
+      const press = async (init: KeyboardEventInit): Promise<void> => {
+        pane.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true, bubbles: true, ...init }))
+        await flushPromises()
+      }
+
+      await press({ key: '=' })
+      expect(size.value).toBe('large')
+
+      // The bare plus of a layout with its own plus key. The shifted spelling
+      // ⌘+ produces is macOS-only, so catalog.spec pins that one.
+      await press({ key: '+' })
+      expect(size.value).toBe('xl')
+
+      await press({ key: '-' })
+      expect(size.value).toBe('large')
+
+      await press({ key: '0' })
+      expect(size.value).toBe('medium')
+
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    it('steps the text size from the pop-up terminal over the feed', async () => {
+      const { wrapper } = await mountAppWithRouter()
+      usePopupTerminal().show()
+      await flushPromises()
+
+      const { size } = useTerminalFont()
+      const pane = focusedPane()
+      pane.dispatchEvent(new KeyboardEvent('keydown', { key: '=', metaKey: true, bubbles: true }))
+      await flushPromises()
+
+      expect(size.value).toBe('large')
+      pane.remove()
+      wrapper.unmount()
+    })
+
+    it.each([
+      ['the feed', '/'],
+      ['the session picker', '/terminal'],
+    ])('leaves the text size alone on %s, where no terminal is drawn', async (_where, path) => {
+      const { wrapper, router } = await mountAppWithRouter()
+      await router.push(path)
+      await flushPromises()
+
+      const { size } = useTerminalFont()
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', metaKey: true }))
+      await flushPromises()
+
+      expect(size.value).toBe('medium')
       wrapper.unmount()
     })
 

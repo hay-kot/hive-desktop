@@ -39,6 +39,46 @@ describe('useTerminalFont', () => {
     expect(px.value).toBe(14)
   })
 
+  it('steps through the presets and holds at both ends', async () => {
+    const { stepTerminalFontSize, terminalFontSizes, useTerminalFont } = await import('../useTerminalFont')
+    const { size } = useTerminalFont()
+    await settle()
+
+    await stepTerminalFontSize(1)
+    expect(size.value).toBe('large')
+    expect(mocks.SetTerminalFontSize).toHaveBeenLastCalledWith('large')
+
+    for (let i = 0; i < terminalFontSizes.length; i++) await stepTerminalFontSize(1)
+    expect(size.value).toBe(terminalFontSizes.at(-1))
+
+    for (let i = 0; i < terminalFontSizes.length; i++) await stepTerminalFontSize(-1)
+    expect(size.value).toBe(terminalFontSizes[0])
+  })
+
+  it('resets to the default preset', async () => {
+    const { defaultTerminalFontSize, resetTerminalFontSize, setTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
+    const { size } = useTerminalFont()
+    await settle()
+
+    setTerminalFontSize('xxl')
+    resetTerminalFontSize()
+
+    expect(size.value).toBe(defaultTerminalFontSize)
+  })
+
+  // The step is relative, so its base has to be the persisted size: taken from
+  // the unhydrated default it would write `large` over a stored `xl`.
+  it('steps from the persisted size when nothing has hydrated yet', async () => {
+    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSize: 'xl' })
+    const { stepTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
+
+    await stepTerminalFontSize(1)
+
+    expect(useTerminalFont().size.value).toBe('xxl')
+    expect(mocks.SetTerminalFontSize).toHaveBeenCalledTimes(1)
+    expect(mocks.SetTerminalFontSize).toHaveBeenCalledWith('xxl')
+  })
+
   it('keeps the chosen size when persisting fails', async () => {
     mocks.SetTerminalFontSize.mockRejectedValue(new Error('disk full'))
     const { setTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')

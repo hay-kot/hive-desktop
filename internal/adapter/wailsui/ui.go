@@ -142,6 +142,7 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 	u.trayIconLinux = opts.TrayIconLinux
 	u.app = application.New(u.options(core, opts))
 	u.attachUpdater(opts)
+	u.buildMenu()
 	u.buildWindow()
 	u.buildTray(core)
 }
