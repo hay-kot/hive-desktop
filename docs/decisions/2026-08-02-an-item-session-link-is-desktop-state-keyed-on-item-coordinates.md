@@ -1,6 +1,6 @@
 # An item↔session link is desktop state, keyed on the item's coordinates
 
-- **Status:** accepted
+- **Status:** superseded by [A session can link to many inbox items](2026-09-17-a-session-can-link-to-many-inbox-items.md)
 - **Date:** 2026-08-02
 
 ## Context

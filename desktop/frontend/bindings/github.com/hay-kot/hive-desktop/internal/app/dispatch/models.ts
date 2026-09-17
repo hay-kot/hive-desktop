@@ -38,17 +38,16 @@ export interface ClipboardExecutionOutcome {
 }
 
 /**
- * CreateSessionRequest is a user-submitted New Session form. ItemID is the
- * inbox item the form was drafted from, or 0 for a blank one; it is an id
- * rather than a ref because the core resolves the item's identity itself and
- * never takes it from a client.
+ * CreateSessionRequest is a user-submitted New Session form. ItemIDs are the
+ * inbox items the form was drafted from; the core resolves their identities
+ * and never takes item refs from a client.
  */
 export interface CreateSessionRequest {
     "repository": string;
     "name": string;
     "prompt": string;
     "agent"?: string;
-    "itemId"?: number;
+    "itemIds"?: number[] | null;
 }
 
 /**
@@ -156,17 +155,17 @@ export interface SessionDetail {
 }
 
 /**
- * SessionDraft is a New Session form the app prefills: from an inbox item, or
+ * SessionDraft is a New Session form the app prefills: from inbox items, or
  * from a creation attempt that failed and is being handed back. Agent and
- * ItemID are only meaningful for the second, which has to restore both because
- * the form they came from is gone.
+ * ItemIDs are only meaningful for the second, which has to restore both
+ * because the form they came from is gone.
  */
 export interface SessionDraft {
     "repository": string;
     "name": string;
     "prompt": string;
     "agent"?: string;
-    "itemId"?: number;
+    "itemIds"?: number[] | null;
 
     /**
      * nil on a draft that is not a retry, which is also what "no attempt is

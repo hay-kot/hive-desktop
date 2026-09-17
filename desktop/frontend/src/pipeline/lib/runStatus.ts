@@ -55,9 +55,9 @@ export function statusPulses(status: RunStatus): boolean {
   return status === 'running' || status === 'error'
 }
 
-// endedAt is stored as Go's time.UnixNano() — convert to ms for Date.now() comparisons.
-export function ageLabel(endedAtNano: number): string {
-  const ms = Date.now() - endedAtNano / 1e6
+// endedAt is stored as Unix milliseconds throughout desktop-pipeline.db.
+export function ageLabel(endedAtMillis: number, now = Date.now()): string {
+  const ms = now - endedAtMillis
   if (ms < 1000) return 'just now'
   const s = Math.round(ms / 1000)
   if (s < 60) return `${s}s ago`

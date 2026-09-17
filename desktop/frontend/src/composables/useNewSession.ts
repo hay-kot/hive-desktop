@@ -27,11 +27,9 @@ const failure = ref<SessionCreateFailure | null>(null)
 // restored draft over an open form needs a remount to reach the inputs.
 const formKey = ref(0)
 
-// The item the open form was drafted from, so the session it creates is
-// recorded against that item. 0 for a blank form. It is not a form field: the
-// backend resolves the item's identity from this id and never takes it from
-// the client, and the user cannot retarget a draft at a different item.
-const itemID = ref(0)
+// The items the open form was drafted from. They are not form fields: the
+// backend resolves their identities and the user cannot retarget a draft.
+const itemIDs = ref<number[]>([])
 
 // SessionLaunchOptions scans every configured workspace directory (a git call
 // per repo), slow enough that a click blocked on it visibly lags. The last
@@ -69,7 +67,7 @@ export function resetNewSessionForTests(): void {
   options.value = null
   failure.value = null
   formKey.value = 0
-  itemID.value = 0
+  itemIDs.value = []
 }
 
 function message(e: unknown, fallback: string): string {
@@ -80,6 +78,12 @@ function failureSummary(detail: SessionCreateFailure): string {
   return detail.step ? `${detail.step} ${detail.reason}` : detail.reason
 }
 
+function draftItemIDs(draft: SessionDraft): number[] {
+  if (draft.itemIds?.length) return draft.itemIds
+  const legacyID = (draft as SessionDraft & { itemId?: number }).itemId ?? 0
+  return legacyID > 0 ? [legacyID] : []
+}
+
 export function useNewSession() {
   const { showToast } = useToasts()
 
@@ -87,10 +91,10 @@ export function useNewSession() {
     if (!cachedOptions) void fetchOptions().catch(() => {})
   }
 
-  function show(draft: Draft, opts: SessionLaunchOptionsView, item: number, detail: SessionCreateFailure | null): void {
+  function show(draft: Draft, opts: SessionLaunchOptionsView, items: number[], detail: SessionCreateFailure | null): void {
     options.value = opts
     initial.value = draft
-    itemID.value = item
+    itemIDs.value = [...items]
     failure.value = detail
     formKey.value += 1
     open.value = true
@@ -119,10 +123,10 @@ export function useNewSession() {
     try {
       const [opts, pending] = await Promise.all([resolveOptions(), pendingDraft()])
       if (pending?.failure) {
-        show(restored(pending, opts), opts, pending.itemId ?? 0, pending.failure)
+        show(restored(pending, opts), opts, draftItemIDs(pending), pending.failure)
         return
       }
-      show({ repository: preferred || opts.defaultRepository || '', name: '', prompt: '', agent: opts.defaultAgent }, opts, 0, null)
+      show({ repository: preferred || opts.defaultRepository || '', name: '', prompt: '', agent: opts.defaultAgent }, opts, [], null)
     } catch (e) {
       showToast(message(e, 'Could not load session options.'), { severity: 'error' })
     } finally {
@@ -130,23 +134,30 @@ export function useNewSession() {
     }
   }
 
-  async function openFromItem(item: InboxItem): Promise<void> {
-    if (open.value || loading.value) return
+  async function openFromItems(items: InboxItem[]): Promise<void> {
+    if (open.value || loading.value || items.length === 0) return
     error.value = null
     loading.value = true
+    const ids = items.map((item) => item.id)
     try {
-      const [opts, draft, pending] = await Promise.all([resolveOptions(), NewSessionDraft(item.id), pendingDraft()])
-      // Another item's failed attempt belongs to the form that item opens.
-      if (pending?.failure && pending.itemId === item.id) {
-        show(restored(pending, opts), opts, item.id, pending.failure)
+      const [opts, draft, pending] = await Promise.all([resolveOptions(), NewSessionDraft(ids), pendingDraft()])
+      const pendingItemIDs = pending ? draftItemIDs(pending) : []
+      const sameItems = pendingItemIDs.length === ids.length && pendingItemIDs.every((id, index) => id === ids[index])
+      if (pending?.failure && sameItems) {
+        show(restored(pending, opts), opts, ids, pending.failure)
         return
       }
-      show(restored({ ...draft, agent: opts.defaultAgent }, opts), opts, item.id, null)
+      const draftOptions = items.length > 1 && !draft.repository ? { ...opts, defaultRepository: '' } : opts
+      show(restored({ ...draft, agent: opts.defaultAgent }, draftOptions), draftOptions, ids, null)
     } catch (e) {
       showToast(message(e, 'Could not prepare the session.'), { severity: 'error' })
     } finally {
       loading.value = false
     }
+  }
+
+  async function openFromItem(item: InboxItem): Promise<void> {
+    await openFromItems([item])
   }
 
   // Unlike openBlank this replaces a form that is already open: the user asked
@@ -158,7 +169,7 @@ export function useNewSession() {
     try {
       const [opts, pending] = await Promise.all([resolveOptions(), pendingDraft()])
       if (!pending?.failure) return
-      show(restored(pending, opts), opts, pending.itemId ?? 0, pending.failure)
+      show(restored(pending, opts), opts, draftItemIDs(pending), pending.failure)
     } catch (e) {
       showToast(message(e, 'Could not reopen the session form.'), { severity: 'error' })
     } finally {
@@ -174,7 +185,7 @@ export function useNewSession() {
     loading.value = true
     try {
       const [opts, draft] = await Promise.all([resolveOptions(), SessionDraftFromActivity(metadata)])
-      show(restored(draft, opts), opts, draft.itemId ?? 0, draft.failure ?? null)
+      show(restored(draft, opts), opts, draftItemIDs(draft), draft.failure ?? null)
     } catch (e) {
       showToast(message(e, 'Could not reopen the session form.'), { severity: 'error' })
     } finally {
@@ -216,7 +227,7 @@ export function useNewSession() {
     open.value = false
     options.value = null
     error.value = null
-    itemID.value = 0
+    itemIDs.value = []
   }
 
   async function submit(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
@@ -227,12 +238,12 @@ export function useNewSession() {
       // Creation (including any clone) runs as a background job. A failure
       // arrives later through sessions:create-failed, which is what hands the
       // form back; only validation errors reject here.
-      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemId: itemID.value })
+      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemIds: [...itemIDs.value] })
       showToast(`Creating session ${input.name}…`, { severity: 'info' })
       open.value = false
       options.value = null
       failure.value = null
-      itemID.value = 0
+      itemIDs.value = []
     } catch (e) {
       error.value = message(e, 'Could not start the session.')
     } finally {
@@ -242,6 +253,6 @@ export function useNewSession() {
 
   return {
     open, options, initial, busy, loading, error, failure, formKey,
-    prefetch, openBlank, openFromItem, openFailure, openFromActivity, dismissFailure, onCreateFailed, cancel, submit,
+    prefetch, openBlank, openFromItem, openFromItems, openFailure, openFromActivity, dismissFailure, onCreateFailed, cancel, submit,
   }
 }

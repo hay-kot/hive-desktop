@@ -51,8 +51,6 @@ func TestItemSessions_ScopedToTheItem(t *testing.T) {
 	assert.Equal(t, "mine", links[0].SessionID)
 }
 
-// A session is created once and hive owns its id, so a second link for the same
-// id is the same association rather than a duplicate row.
 func TestLinkItemSession_IsIdempotent(t *testing.T) {
 	st, _ := openTestStores(t)
 	ctx := t.Context()
@@ -68,6 +66,26 @@ func TestLinkItemSession_IsIdempotent(t *testing.T) {
 
 // An action invoked from a surface with no inbox item behind it carries a zero
 // ref, which must not become a link every such action shares.
+func TestItemSessions_OneSessionLinksToMultipleItems(t *testing.T) {
+	st, _ := openTestStores(t)
+	ctx := t.Context()
+	first := itemRef()
+	second := first
+	second.ExternalID = "acme/repo#2"
+
+	require.NoError(t, st.ItemSessions.Link(ctx, "sess-a", first))
+	require.NoError(t, st.ItemSessions.Link(ctx, "sess-a", second))
+
+	firstLinks, err := st.ItemSessions.List(ctx, first)
+	require.NoError(t, err)
+	secondLinks, err := st.ItemSessions.List(ctx, second)
+	require.NoError(t, err)
+	require.Len(t, firstLinks, 1)
+	require.Len(t, secondLinks, 1)
+	assert.Equal(t, "sess-a", firstLinks[0].SessionID)
+	assert.Equal(t, "sess-a", secondLinks[0].SessionID)
+}
+
 func TestLinkItemSession_IgnoresAnUnknownRef(t *testing.T) {
 	st, db := openTestStores(t)
 	ctx := t.Context()
@@ -149,6 +167,27 @@ func TestItemSessions_FollowALegacyRowOntoItsHealedScope(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, links, 1)
 	assert.Equal(t, "sess-a", links[0].SessionID)
+}
+
+func TestItemSessions_RescopeMergesAnExistingTargetLink(t *testing.T) {
+	st, db := openTestStores(t)
+	ctx := t.Context()
+	legacy := itemRef()
+	legacy.SourceScope = ""
+	scoped := itemRef()
+
+	require.NoError(t, st.ItemSessions.Link(ctx, "sess-a", legacy))
+	require.NoError(t, st.ItemSessions.Link(ctx, "sess-a", scoped))
+	require.NoError(t, st.ItemSessions.Rescope(ctx, legacy.ProfileID, legacy.SourceKind, legacy.ExternalID, scoped.SourceScope))
+
+	links, err := st.ItemSessions.List(ctx, scoped)
+	require.NoError(t, err)
+	require.Len(t, links, 1)
+	assert.Equal(t, "sess-a", links[0].SessionID)
+
+	var count int
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT count(*) FROM item_session`).Scan(&count))
+	assert.Equal(t, 1, count)
 }
 
 func TestItemSessionStore_DeleteByProfile(t *testing.T) {

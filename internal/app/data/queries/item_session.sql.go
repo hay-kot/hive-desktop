@@ -27,10 +27,31 @@ func (q *Queries) DeleteItemSessionsByProfile(ctx context.Context, profileID str
 	return err
 }
 
+const deleteUnscopedItemSessions = `-- name: DeleteUnscopedItemSessions :exec
+DELETE FROM item_session
+WHERE profile_id = ?1
+  AND source_kind = ?2
+  AND source_scope = ''
+  AND external_id = ?3
+`
+
+type DeleteUnscopedItemSessionsParams struct {
+	ProfileID  string `json:"profile_id"`
+	SourceKind string `json:"source_kind"`
+	ExternalID string `json:"external_id"`
+}
+
+// Removes old rows that RescopeItemSessions skipped because the target
+// session-item association already existed.
+func (q *Queries) DeleteUnscopedItemSessions(ctx context.Context, arg DeleteUnscopedItemSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteUnscopedItemSessions, arg.ProfileID, arg.SourceKind, arg.ExternalID)
+	return err
+}
+
 const linkItemSession = `-- name: LinkItemSession :exec
 INSERT INTO item_session (session_id, profile_id, source_kind, source_scope, external_id, created_at)
 VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (session_id) DO NOTHING
+ON CONFLICT (session_id, profile_id, source_kind, source_scope, external_id) DO NOTHING
 `
 
 type LinkItemSessionParams struct {
@@ -42,7 +63,7 @@ type LinkItemSessionParams struct {
 	CreatedAt   int64  `json:"created_at"`
 }
 
-// A session hive already minted an id for, so a re-link is the same row.
+// A session/item pair is idempotent; one session can link to several items.
 func (q *Queries) LinkItemSession(ctx context.Context, arg LinkItemSessionParams) error {
 	_, err := q.db.ExecContext(ctx, linkItemSession,
 		arg.SessionID,
@@ -106,7 +127,7 @@ func (q *Queries) ListItemSessions(ctx context.Context, arg ListItemSessionsPara
 }
 
 const rescopeItemSessions = `-- name: RescopeItemSessions :exec
-UPDATE item_session SET source_scope = ?1
+UPDATE OR IGNORE item_session SET source_scope = ?1
 WHERE profile_id = ?2
   AND source_kind = ?3
   AND source_scope = ''
@@ -122,6 +143,7 @@ type RescopeItemSessionsParams struct {
 
 // Follows an inbox row whose source_scope was healed (see
 // resolveInboxItemScoped), so links keyed on the old scope stay reachable.
+// A target link may already exist now that one session can link to many items.
 func (q *Queries) RescopeItemSessions(ctx context.Context, arg RescopeItemSessionsParams) error {
 	_, err := q.db.ExecContext(ctx, rescopeItemSessions,
 		arg.SourceScope,

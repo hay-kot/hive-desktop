@@ -83,27 +83,9 @@ describe('SideBar', () => {
   })
 
 
-  it('marks a feed read from its row menu without selecting the row', async () => {
+  it('does not render per-feed option menus', () => {
     const wrapper = mountSideBar()
-    const row = wrapper.get('[data-testid="sidebar-feed"][data-id="backend"]')
-
-    expect(wrapper.find('[data-testid="sidebar-feed-menu"]').exists()).toBe(false)
-    await row.get('[data-testid="sidebar-feed-menu-toggle"]').trigger('click')
-    await row.get('[data-testid="sidebar-feed-mark-read"]').trigger('click')
-
-    expect(wrapper.emitted('mark-read')).toEqual([['backend']])
-    expect(wrapper.emitted('select')).toBeUndefined()
-    expect(wrapper.find('[data-testid="sidebar-feed-menu"]').exists()).toBe(false)
-  })
-
-  it('opens the same feed menu on right-click', async () => {
-    const wrapper = mountSideBar()
-    const row = wrapper.get('[data-testid="sidebar-feed"][data-id="desktop"]')
-
-    await row.trigger('contextmenu')
-
-    expect(row.find('[data-testid="sidebar-feed-mark-read"]').exists()).toBe(true)
-    expect(wrapper.emitted('select')).toBeUndefined()
+    expect(wrapper.find('[data-testid="sidebar-feed-menu-toggle"]').exists()).toBe(false)
   })
 
   it('shows the un-deployed changes badge only when flowsDirty is true', () => {

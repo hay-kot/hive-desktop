@@ -68,7 +68,15 @@ func (s *ItemSessionStore) DeleteByProfile(ctx context.Context, profileID string
 // Empty-scope links must move with a migrated inbox row or they become
 // unreachable.
 func (s *ItemSessionStore) Rescope(ctx context.Context, profileID, sourceKind, externalID, scope string) error {
-	return wrap("rescoping item sessions", s.q.Ctx(ctx).RescopeItemSessions(ctx, queries.RescopeItemSessionsParams{
-		SourceScope: scope, ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,
-	}))
+	err := s.q.WithinTx(ctx, func(ctx context.Context, q *queries.DB) error {
+		if err := q.RescopeItemSessions(ctx, queries.RescopeItemSessionsParams{
+			SourceScope: scope, ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,
+		}); err != nil {
+			return err
+		}
+		return q.DeleteUnscopedItemSessions(ctx, queries.DeleteUnscopedItemSessionsParams{
+			ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,
+		})
+	})
+	return wrap("rescoping item sessions", err)
 }

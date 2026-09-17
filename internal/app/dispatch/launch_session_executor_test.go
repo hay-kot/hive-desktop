@@ -200,18 +200,20 @@ func TestHiveSessionLauncher_PropagatesServiceFailure(t *testing.T) {
 
 // fakeItemSessionLinker records the association the launcher persists.
 type fakeItemSessionLinker struct {
-	links map[string]models.ItemRef
-	err   error
+	links    map[string][]models.ItemRef
+	attempts []models.ItemRef
+	err      error
 }
 
 func (f *fakeItemSessionLinker) Link(_ context.Context, sessionID string, ref models.ItemRef) error {
+	f.attempts = append(f.attempts, ref)
 	if f.err != nil {
 		return f.err
 	}
 	if f.links == nil {
-		f.links = map[string]models.ItemRef{}
+		f.links = map[string][]models.ItemRef{}
 	}
-	f.links[sessionID] = ref
+	f.links[sessionID] = append(f.links[sessionID], ref)
 	return nil
 }
 
@@ -222,9 +224,9 @@ func TestHiveSessionLauncher_LinksTheCreatedSessionToItsItem(t *testing.T) {
 	launcher.SetItemSessionLinker(linker, zerolog.Nop())
 	ref := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
 
-	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-1", Prompt: "go", Repo: "r", Origin: ref})
+	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-1", Prompt: "go", Repo: "r", Origins: []models.ItemRef{ref}})
 	require.NoError(t, err)
-	assert.Equal(t, map[string]models.ItemRef{"session-1": ref}, linker.links)
+	assert.Equal(t, map[string][]models.ItemRef{"session-1": {ref}}, linker.links)
 	// The item id also goes on the session as a hive tag, for a reader inside
 	// hive. It is presentational and never read back.
 	require.Len(t, creator.calls, 1)
@@ -234,6 +236,21 @@ func TestHiveSessionLauncher_LinksTheCreatedSessionToItsItem(t *testing.T) {
 // A session with no item behind it — the blank New Session form, an action run
 // from a terminal target — must not produce a link, or every such session
 // would share one.
+func TestHiveSessionLauncher_LinksOneCreatedSessionToEveryUniqueOrigin(t *testing.T) {
+	creator := &fakeSessionCreator{}
+	linker := &fakeItemSessionLinker{}
+	launcher := NewHiveSessionLauncher(creator)
+	launcher.SetItemSessionLinker(linker, zerolog.Nop())
+	first := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
+	second := models.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#2"}
+
+	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review", Origins: []models.ItemRef{first, second, first}})
+	require.NoError(t, err)
+	require.Len(t, creator.calls, 1)
+	assert.Equal(t, []string{"acme/repo#1", "acme/repo#2"}, creator.calls[0].Tags)
+	assert.Equal(t, []models.ItemRef{first, second}, linker.links["session-1"])
+}
+
 func TestHiveSessionLauncher_LinksNothingWithoutAnOrigin(t *testing.T) {
 	creator := &fakeSessionCreator{}
 	linker := &fakeItemSessionLinker{}
@@ -251,14 +268,17 @@ func TestHiveSessionLauncher_LinksNothingWithoutAnOrigin(t *testing.T) {
 // lie — and would invite a retry that creates a second session.
 func TestHiveSessionLauncher_ReportsSuccessWhenTheLinkCannotBeWritten(t *testing.T) {
 	launcher := NewHiveSessionLauncher(&fakeSessionCreator{})
-	launcher.SetItemSessionLinker(&fakeItemSessionLinker{err: errors.New("disk full")}, zerolog.Nop())
+	linker := &fakeItemSessionLinker{err: errors.New("disk full")}
+	launcher.SetItemSessionLinker(linker, zerolog.Nop())
+	origins := []models.ItemRef{
+		{ProfileID: "p", SourceKind: "github", ExternalID: "acme/repo#1"},
+		{ProfileID: "p", SourceKind: "github", ExternalID: "acme/repo#2"},
+	}
 
-	outcome, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{
-		Name: "review-1", Prompt: "go", Repo: "r",
-		Origin: models.ItemRef{ProfileID: "p", ExternalID: "acme/repo#1"},
-	})
+	outcome, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-1", Prompt: "go", Repo: "r", Origins: origins})
 	require.NoError(t, err)
 	assert.Equal(t, "session-1", outcome.ID)
+	assert.Equal(t, origins, linker.attempts)
 }
 
 // The flow-fired path: a command the engine enqueued carries the item it was
@@ -276,7 +296,7 @@ func TestLaunchSessionExecutor_CarriesTheCommandsOriginToTheLauncher(t *testing.
 	}, ActionInvocationInput{})
 	require.NoError(t, err)
 	require.Len(t, launcher.calls, 1)
-	assert.Equal(t, ref, launcher.calls[0].Origin)
+	assert.Equal(t, []models.ItemRef{ref}, launcher.calls[0].Origins)
 }
 
 func launchWithPostHook(hook string, timeout actions.Duration) actions.Action {

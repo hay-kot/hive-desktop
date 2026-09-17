@@ -47,7 +47,7 @@ function mountCanvas(props: {
 }
 
 function run(overrides: Partial<NodeRunRecord> = {}): NodeRunRecord {
-  return { flowId: 'flow-1', nodeId: 'source', ok: true, inCount: 3, outCount: 3, dropCount: 0, err: '', durMs: 5, endedAt: Date.now() * 1e6, ...overrides }
+  return { flowId: 'flow-1', nodeId: 'source', ok: true, inCount: 3, outCount: 3, dropCount: 0, err: '', durMs: 5, endedAt: Date.now(), ...overrides }
 }
 
 async function clickNode(wrapper: ReturnType<typeof mountCanvas>, testid: string) {

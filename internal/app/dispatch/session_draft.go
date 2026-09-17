@@ -9,30 +9,30 @@ import (
 	"time"
 
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/google/uuid"
 )
 
-// CreateSessionRequest is a user-submitted New Session form. ItemID is the
-// inbox item the form was drafted from, or 0 for a blank one; it is an id
-// rather than a ref because the core resolves the item's identity itself and
-// never takes it from a client.
+// CreateSessionRequest is a user-submitted New Session form. ItemIDs are the
+// inbox items the form was drafted from; the core resolves their identities
+// and never takes item refs from a client.
 type CreateSessionRequest struct {
-	Repository string `json:"repository"`
-	Name       string `json:"name"`
-	Prompt     string `json:"prompt"`
-	Agent      string `json:"agent,omitempty"`
-	ItemID     int64  `json:"itemId,omitempty"`
+	Repository string  `json:"repository"`
+	Name       string  `json:"name"`
+	Prompt     string  `json:"prompt"`
+	Agent      string  `json:"agent,omitempty"`
+	ItemIDs    []int64 `json:"itemIds,omitempty"`
 }
 
-// SessionDraft is a New Session form the app prefills: from an inbox item, or
+// SessionDraft is a New Session form the app prefills: from inbox items, or
 // from a creation attempt that failed and is being handed back. Agent and
-// ItemID are only meaningful for the second, which has to restore both because
-// the form they came from is gone.
+// ItemIDs are only meaningful for the second, which has to restore both
+// because the form they came from is gone.
 type SessionDraft struct {
-	Repository string `json:"repository"`
-	Name       string `json:"name"`
-	Prompt     string `json:"prompt"`
-	Agent      string `json:"agent,omitempty"`
-	ItemID     int64  `json:"itemId,omitempty"`
+	Repository string  `json:"repository"`
+	Name       string  `json:"name"`
+	Prompt     string  `json:"prompt"`
+	Agent      string  `json:"agent,omitempty"`
+	ItemIDs    []int64 `json:"itemIds,omitempty"`
 	// nil on a draft that is not a retry, which is also what "no attempt is
 	// waiting" looks like to a caller.
 	Failure *SessionCreateFailure `json:"failure,omitempty"`
@@ -72,6 +72,7 @@ const (
 	metaPrompt      = "prompt"
 	metaAgent       = "agent"
 	metaItemID      = "itemId"
+	metaItemIDs     = "itemIds"
 	metaStep        = "step"
 	metaReason      = "reason"
 	metaDestination = "leftover"
@@ -88,8 +89,12 @@ func SessionDraftMetadata(draft SessionDraft) map[string]string {
 		metaPrompt:       draft.Prompt,
 		metaAgent:        draft.Agent,
 	}
-	if draft.ItemID != 0 {
-		meta[metaItemID] = strconv.FormatInt(draft.ItemID, 10)
+	if len(draft.ItemIDs) != 0 {
+		encoded := make([]string, 0, len(draft.ItemIDs))
+		for _, itemID := range draft.ItemIDs {
+			encoded = append(encoded, strconv.FormatInt(itemID, 10))
+		}
+		meta[metaItemIDs] = strings.Join(encoded, ",")
 	}
 	if draft.Failure != nil {
 		meta[metaStep] = draft.Failure.Step
@@ -119,7 +124,17 @@ func SessionDraftFromMetadata(meta map[string]string) (SessionDraft, bool) {
 	if draft.Repository == "" {
 		return SessionDraft{}, false
 	}
-	draft.ItemID, _ = strconv.ParseInt(meta[metaItemID], 10, 64)
+	for encoded := range strings.SplitSeq(meta[metaItemIDs], ",") {
+		itemID, err := strconv.ParseInt(encoded, 10, 64)
+		if err == nil && itemID > 0 {
+			draft.ItemIDs = append(draft.ItemIDs, itemID)
+		}
+	}
+	if len(draft.ItemIDs) == 0 {
+		if itemID, err := strconv.ParseInt(meta[metaItemID], 10, 64); err == nil && itemID > 0 {
+			draft.ItemIDs = []int64{itemID}
+		}
+	}
 	if meta[metaReason] != "" || meta[metaStep] != "" {
 		draft.Failure = &SessionCreateFailure{
 			Reason:           meta[metaReason],
@@ -159,20 +174,54 @@ type SessionPromptData struct {
 	State  string
 }
 
-// RenderSessionDraft projects a persisted inbox item into a New Session draft.
-func RenderSessionDraft(title, url string, payload []byte) (SessionDraft, error) {
-	data := sessionPromptData(title, url, payload)
+// SessionDraftItem is the persisted inbox data needed to build one context
+// section in a New Session draft.
+type SessionDraftItem struct {
+	Title   string
+	URL     string
+	Payload []byte
+}
 
-	prompt, err := tmpl.New(tmpl.Config{}).Render(DefaultSessionPromptTemplate, data)
-	if err != nil {
-		return SessionDraft{}, fmt.Errorf("render session prompt: %w", err)
+// RenderSessionDraft projects one persisted inbox item into a New Session draft.
+func RenderSessionDraft(title, url string, payload []byte) (SessionDraft, error) {
+	return RenderSessionDraftItems([]SessionDraftItem{{Title: title, URL: url, Payload: payload}})
+}
+
+// RenderSessionDraftItems projects ordered inbox items into one New Session
+// draft and one prompt. A single item retains the established draft exactly.
+func RenderSessionDraftItems(items []SessionDraftItem) (SessionDraft, error) {
+	if len(items) == 0 {
+		return SessionDraft{}, fmt.Errorf("render session prompt: no items")
 	}
 
-	return SessionDraft{
-		Repository: draftRepository(data.Repo, data.URL),
-		Name:       SlugifySessionName(data.Title),
-		Prompt:     strings.TrimSpace(prompt),
-	}, nil
+	renderer := tmpl.New(tmpl.Config{})
+	prompts := make([]string, 0, len(items))
+	repository := ""
+	for i, item := range items {
+		data := sessionPromptData(item.Title, item.URL, item.Payload)
+		prompt, err := renderer.Render(DefaultSessionPromptTemplate, data)
+		if err != nil {
+			return SessionDraft{}, fmt.Errorf("render session prompt: %w", err)
+		}
+		prompt = strings.TrimSpace(prompt)
+		if len(items) > 1 {
+			prompt = fmt.Sprintf("## Item %d\n\n%s", i+1, prompt)
+		}
+		prompts = append(prompts, prompt)
+
+		candidate := draftRepository(data.Repo, data.URL)
+		if i == 0 {
+			repository = candidate
+		} else if candidate != repository {
+			repository = ""
+		}
+	}
+
+	name := SlugifySessionName(items[0].Title)
+	if len(items) > 1 {
+		name = "inbox-selection-" + uuid.NewString()[:8]
+	}
+	return SessionDraft{Repository: repository, Name: name, Prompt: strings.Join(prompts, "\n\n")}, nil
 }
 
 // draftRepository turns an item's canonical repo (owner/name — never a clone

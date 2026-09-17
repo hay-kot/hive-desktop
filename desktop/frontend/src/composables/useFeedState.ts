@@ -80,6 +80,8 @@ export function useFeedState() {
   const archivedExpanded = ref(false)
   const loadError = ref<string | null>(null)
   const selectedId = ref<number | null>(null)
+  const itemSelectionActive = ref(false)
+  const selectedItemIDs = ref<number[]>([])
   const actions = ref<ActionView[]>([])
   const pendingActionKeys = ref<Record<string, boolean>>({})
   const actionError = ref<string | null>(null)
@@ -212,6 +214,32 @@ export function useFeedState() {
   const visibleArchivedItems = computed(() =>
     [...archivedItems.value].filter((item) => matchesSearch(item)),
   )
+
+  const selectedItems = computed(() => {
+    const chosen = new Set(selectedItemIDs.value)
+    return [...items.value].sort(compareItems).concat(archivedItems.value).filter((item) => chosen.has(item.id))
+  })
+
+  function enterItemSelection(): void {
+    itemSelectionActive.value = true
+  }
+
+  function cancelItemSelection(): void {
+    itemSelectionActive.value = false
+    selectedItemIDs.value = []
+  }
+
+  function toggleItemSelection(itemID: number): void {
+    if (!itemSelectionActive.value) return
+    selectedItemIDs.value = selectedItemIDs.value.includes(itemID)
+      ? selectedItemIDs.value.filter((id) => id !== itemID)
+      : [...selectedItemIDs.value, itemID]
+  }
+
+  function pruneItemSelection(): void {
+    const available = new Set([...items.value, ...archivedItems.value].map((item) => item.id))
+    selectedItemIDs.value = selectedItemIDs.value.filter((id) => available.has(id))
+  }
 
   function matchesTrashFilter(item: InboxItem): boolean {
     if (selection.value.type !== 'trash' || trashFilter.value === 'all') return true
@@ -569,6 +597,7 @@ export function useFeedState() {
       loadError.value = null
       items.value = loaded.map(asInboxItem)
       archivedItems.value = []
+      pruneItemSelection()
       const first = items.value[0] ?? null
       if (selectedId.value && items.value.some((item) => item.id === selectedId.value)) return
       selectedId.value = first?.id ?? null
@@ -581,15 +610,18 @@ export function useFeedState() {
     const seq = ++loadSeq
     try {
       const loaded = (await ListByFeed(activeProfileId.value, feedID, 500)) ?? []
-      // The archived section reloads with the active list only while expanded;
-      // collapsed sections stay unloaded until the user opens them.
-      const archivedLoaded = archivedExpanded.value
+      // Selection can include archived rows after their section is collapsed.
+      // Reload them while selecting so pruning distinguishes moved rows from
+      // rows that no longer exist.
+      const loadArchived = archivedExpanded.value || itemSelectionActive.value
+      const archivedLoaded = loadArchived
         ? (await ListArchivedByFeed(activeProfileId.value, feedID, 500)) ?? []
         : []
       if (seq !== loadSeq) return
       loadError.value = null
       items.value = loaded.map(asInboxItem)
-      archivedItems.value = archivedLoaded.map(asInboxItem)
+      if (loadArchived) archivedItems.value = archivedLoaded.map(asInboxItem)
+      pruneItemSelection()
       const first = (unreadOnly.value ? items.value.find((item) => item.unread) : items.value[0]) ?? null
       if (selectedId.value && (items.value.some((item) => item.id === selectedId.value) || archivedItems.value.some((item) => item.id === selectedId.value))) return
       selectedId.value = first?.id ?? null
@@ -600,10 +632,7 @@ export function useFeedState() {
   async function toggleArchivedSection(): Promise<void> {
     if (selection.value.type !== 'feed') return
     archivedExpanded.value = !archivedExpanded.value
-    if (!archivedExpanded.value) {
-      archivedItems.value = []
-      return
-    }
+    if (!archivedExpanded.value) return
     await loadFeedItems(selection.value.feedId)
   }
 
@@ -612,6 +641,7 @@ export function useFeedState() {
     console.warn('Unable to load inbox items', error)
     loadError.value = "Can't load inbox items right now."
     items.value = []; archivedItems.value = []; selectedId.value = null; actions.value = []
+    pruneItemSelection()
   }
 
   async function loadEvents(itemID: number): Promise<InboxEvent[]> {
@@ -787,6 +817,7 @@ export function useFeedState() {
   // ── Navigation ──────────────────────────────────────────────────────────────
 
   async function selectProfile(profileID: string) {
+    if (activeProfileId.value !== profileID) cancelItemSelection()
     activeProfileId.value = profileID
     unreadOnly.value = false
     const feeds = await loadFeeds(profileID)
@@ -807,6 +838,9 @@ export function useFeedState() {
   }
 
   async function selectSidebar(nextSelection: SidebarSelection, options: { persist?: boolean } = {}) {
+    const destinationChanged = selection.value.type !== nextSelection.type
+      || (selection.value.type === 'feed' && nextSelection.type === 'feed' && selection.value.feedId !== nextSelection.feedId)
+    if (destinationChanged) cancelItemSelection()
     unreadOnly.value = false
     search.value = '' // a switched feed starts unfiltered
     trashFilter.value = 'all'
@@ -1153,6 +1187,12 @@ export function useFeedState() {
     loadError,
     selectedId,
     selectedItem,
+    itemSelectionActive,
+    selectedItemIDs,
+    selectedItems,
+    enterItemSelection,
+    toggleItemSelection,
+    cancelItemSelection,
     actions,
     pendingAction,
     actionError,

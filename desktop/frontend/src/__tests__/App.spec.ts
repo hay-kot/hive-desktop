@@ -609,6 +609,38 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  it('exposes item selection as a command and selected-item creation as a palette action', async () => {
+    mocks.ListByFeed.mockResolvedValue(inboxItems())
+    mocks.NewSessionDraft.mockResolvedValue({ repository: '', name: 'inbox-selection-a1b2c3d4', prompt: 'Combined context' })
+    const wrapper = await mountApp()
+    const palette = useCommandPalette()
+    palette.query.value = ''
+
+    const toggle = palette.results.value.find((candidate) => candidate.id === 'feed.toggle-selection')
+    expect(toggle?.title).toBe('Toggle item selection')
+    expect(palette.results.value.some((candidate) => candidate.id === 'feed:create-session-from-selection')).toBe(false)
+
+    toggle!.run()
+    await flushPromises()
+    expect(wrapper.find('[data-testid="feed-selection-bar"]').exists()).toBe(true)
+
+    const rows = wrapper.findAll('[data-testid="feed-item"]')
+    await rows[0]!.trigger('click')
+    await rows[1]!.trigger('click')
+    await flushPromises()
+
+    const create = palette.results.value.find((candidate) => candidate.id === 'feed:create-session-from-selection')
+    expect(create?.title).toBe('Create session from selected items…')
+    create!.run()
+    await flushPromises()
+
+    expect(mocks.NewSessionDraft).toHaveBeenCalledWith([1, 2])
+    expect(document.querySelector('[data-testid="new-session-dialog"]')).not.toBeNull()
+
+    palette.query.value = ''
+    wrapper.unmount()
+  })
+
   // A configured action was reachable from the detail pane's cards and the row
   // menu, but never from the palette. It is grouped under the item it acts on,
   // the way Code groups a session's operations under the session.

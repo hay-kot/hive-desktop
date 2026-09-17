@@ -1446,10 +1446,12 @@ destructive is gated on `SessionRisk`, whose payload names the uncommitted or
 unpushed work at stake and whether recycling this session is really a delete (it
 is, for a worktree session).
 
-**A session this app created for an inbox item stays findable from that item**
-(ADR an-item-session-link-is-desktop-state-keyed-on-item-coordinates). The association is `item_session` in `desktop-pipeline.db`, keyed by
-hive's session id — never written into hive's own record, whose model must not
-learn what an inbox item is. Four rules are load-bearing:
+**A session this app created for inbox items stays findable from every one of
+them** ([ADR a-session-can-link-to-many-inbox-items](decisions/2026-09-17-a-session-can-link-to-many-inbox-items.md)). The association is the
+many-to-many `item_session` table in `desktop-pipeline.db`, keyed by hive's
+session id plus the item's coordinates. It is never written into hive's own
+record, whose model must not learn what an inbox item is. Five rules are
+load-bearing:
 
 - **The item is named by its coordinates** (`profile_id`, `source_kind`,
   `source_scope`, `external_id`), not by `inbox_item.id`, and the table has no
@@ -1463,6 +1465,10 @@ learn what an inbox item is. Four rules are load-bearing:
 - **The read is what reconciles.** A link hive cannot account for is dropped —
   but only behind a *successful* listing, because a failed one is not evidence a
   session is gone.
+- **One session may link to many items.** A multi-item draft and its prompt are
+  built in Go from the ordered inbox ids. The create path launches exactly one
+  hive session, then records it against every unique resolved origin. A shared
+  repository is preselected only when every item resolves to the same one.
 - **The item an action ran against travels on the `output_command` row.** Its
   dedup key is the occurrence key, which names no item, so `actionSinks` carries
   the source identity the way `notifySinks` already does and the enqueue records

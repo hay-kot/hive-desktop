@@ -583,7 +583,7 @@ func TestSessionsService_CreateSessionKeepsTheFormWhenCreationFails(t *testing.T
 		Name:       " review-81 ",
 		Prompt:     " fix the clone ",
 		Agent:      "claude",
-		ItemID:     42,
+		ItemIDs:    []int64{42},
 	})
 	require.NoError(t, err, "the create is a job, so its failure is not a validation error")
 
@@ -596,7 +596,7 @@ func TestSessionsService_CreateSessionKeepsTheFormWhenCreationFails(t *testing.T
 	assert.Equal(t, "review-81", draft.Name)
 	assert.Equal(t, "fix the clone", draft.Prompt)
 	assert.Equal(t, "claude", draft.Agent)
-	assert.Equal(t, int64(42), draft.ItemID, "a retry re-links to the item the form was drafted from")
+	assert.Equal(t, []int64{42}, draft.ItemIDs, "a retry re-links to the items the form was drafted from")
 	assert.Equal(t, "clone repository: git clone: exec git: exit status 1", draft.Failure.Reason)
 	assert.Equal(t, "Cloning repository...", draft.Failure.Step)
 	assert.Equal(t, "Clone strategy: full\nCloning repository...", draft.Failure.Output)
