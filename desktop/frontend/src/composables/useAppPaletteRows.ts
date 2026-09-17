@@ -39,6 +39,7 @@ function contextLabel(context: CommandContext): string {
   // The terminal contexts belong to the area the product names Code.
   if (context === 'terminal') return 'Code'
   if (context === 'terminal-session') return 'Code session'
+  if (context === 'any-terminal') return 'Terminal'
   return context.split('-').map((word) => word[0]!.toUpperCase() + word.slice(1)).join(' ')
 }
 

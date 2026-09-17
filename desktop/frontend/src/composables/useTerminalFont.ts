@@ -104,7 +104,7 @@ const currentWeightBold: Ref<TerminalFontWeight> = ref(defaultTerminalFontWeight
 const currentLineHeight: Ref<TerminalLineHeight> = ref(defaultTerminalLineHeight)
 const currentLetterSpacing: Ref<TerminalLetterSpacing> = ref(defaultTerminalLetterSpacing)
 
-let hydrated = false
+let hydration: Promise<void> | null = null
 // Same staleness guard as useTheme: a selection made while the hydrating read
 // is in flight must not be overwritten by its result.
 let version = 0
@@ -135,6 +135,11 @@ async function hydrate(): Promise<void> {
   }
 }
 
+function ensureHydrated(): Promise<void> {
+  hydration ??= hydrate()
+  return hydration
+}
+
 function persist(write: () => Promise<void>): void {
   version++
   // Chained so two quick selections cannot land out of order.
@@ -148,6 +153,17 @@ export function setTerminalFontSize(next: TerminalFontSize): void {
   persist(() => PersistTerminalFontSize(next))
 }
 
+// Waits for hydration because the step is relative: taken from the unhydrated
+// default it would write a neighbour of medium over whatever settings.yaml holds.
+export async function stepTerminalFontSize(delta: 1 | -1): Promise<void> {
+  await ensureHydrated()
+  const next = terminalFontSizes[terminalFontSizes.indexOf(currentSize.value) + delta]
+  if (next) setTerminalFontSize(next)
+}
+
+export function resetTerminalFontSize(): void {
+  setTerminalFontSize(defaultTerminalFontSize)
+}
 
 export function setTerminalFontFamily(next: string): void {
   // The bundled face is stored as empty so it tracks the shipped font rather
@@ -204,10 +220,7 @@ export function useTerminalFont(): {
   lineHeight: Ref<TerminalLineHeight>
   letterSpacing: Ref<TerminalLetterSpacing>
 } {
-  if (!hydrated) {
-    hydrated = true
-    void hydrate()
-  }
+  void ensureHydrated()
   return {
     size: currentSize,
     px: computed(() => terminalFontSizePx[currentSize.value]),
@@ -227,7 +240,7 @@ export function resetTerminalFontForTests(): void {
   currentWeightBold.value = defaultTerminalFontWeightBold
   currentLineHeight.value = defaultTerminalLineHeight
   currentLetterSpacing.value = defaultTerminalLetterSpacing
-  hydrated = false
+  hydration = null
   version = 0
   persistChain = Promise.resolve()
 }

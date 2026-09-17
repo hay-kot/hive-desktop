@@ -134,7 +134,7 @@ onMounted(() => {
       </SettingsRow>
       <SettingsRow
         label="Font size"
-        hint="Applies immediately to open terminals; tmux re-fits their grid."
+        hint="Applies immediately to open terminals; tmux re-fits their grid. The text size shortcuts step through these from a terminal."
       >
         <SettingsSegmented
           :model-value="fontSize"
