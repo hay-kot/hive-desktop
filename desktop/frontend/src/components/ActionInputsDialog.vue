@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import IconCopy from '~icons/lucide/copy'
 import IconPlay from '~icons/lucide/play'
 import ActionInputFields from './ActionInputFields.vue'
 import BaseButton from './BaseButton.vue'
@@ -7,7 +8,7 @@ import BaseModal from './BaseModal.vue'
 import type { InputSpec } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
 import { type ActionInputValues, initialActionInputs, validateActionInputs } from '../lib/actionInputs'
 
-const props = defineProps<{ actionLabel: string; inputs: InputSpec[]; busy: boolean; error: string | null }>()
+const props = withDefaults(defineProps<{ actionLabel: string; inputs: InputSpec[]; busy: boolean; error: string | null; submitLabel?: string }>(), { submitLabel: 'Run' })
 const emit = defineEmits<{ close: []; submit: [values: ActionInputValues] }>()
 
 const values = ref<ActionInputValues>(initialActionInputs(props.inputs))
@@ -28,7 +29,7 @@ function submit(): void {
 <template>
   <BaseModal
     :title="actionLabel"
-    :icon="IconPlay"
+    :icon="submitLabel === 'Copy' ? IconCopy : IconPlay"
     :width="460"
     :busy="busy"
     testid="action-inputs-dialog"
@@ -39,7 +40,7 @@ function submit(): void {
       <p v-if="validationError || error" class="text-xs text-severity-error" data-testid="action-inputs-error">{{ validationError || error }}</p>
     </form>
     <template #footer>
-      <BaseButton class="flex-1" :busy="busy" data-testid="action-inputs-submit" @click="submit">{{ busy ? 'Running…' : 'Run' }}</BaseButton>
+      <BaseButton class="flex-1" :busy="busy" data-testid="action-inputs-submit" @click="submit">{{ busy ? (submitLabel === 'Copy' ? 'Copying…' : 'Running…') : submitLabel }}</BaseButton>
       <BaseButton variant="secondary" :busy="busy" @click="emit('close')">Cancel</BaseButton>
     </template>
   </BaseModal>

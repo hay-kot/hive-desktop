@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { onClickOutside } from '@vueuse/core'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import AppMenu from './AppMenu.vue'
 import FeedListItem from './FeedListItem.vue'
 import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconCopy from '~icons/lucide/copy'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconMailCheck from '~icons/lucide/mail-check'
+import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
 import IconSquareCheckBig from '~icons/lucide/square-check-big'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
+import IconX from '~icons/lucide/x'
 import IconArchive from '~icons/lucide/archive'
 import { groupItemsByDate } from '../lib/dateGroups'
+import type { ActionView } from '../types/action'
 import type { FeedSort, InboxItem } from '../types/feed'
+import type { MenuEntry } from '../types/menu'
 
 // Presentation-only: the store (useFeedState) owns the search text and the
 // filtered `visibleItems`, so keyboard navigation and this list render the
@@ -35,6 +41,7 @@ const props = defineProps<{
   refreshing: boolean
   selectionMode: boolean
   selectedItemIds: number[]
+  selectionActions: ActionView[]
   sourceIcons?: Record<string, string>
   sourceImages?: Record<string, string>
 }>()
@@ -49,6 +56,8 @@ const emit = defineEmits<{
   'enter-selection': []
   'toggle-item-selection': [id: number]
   'cancel-selection': []
+  'copy-selection-contents': []
+  'run-selection-action': [actionId: string]
   'create-session-from-selection': []
   'update:search': [value: string]
   'set-sort': [value: FeedSort]
@@ -87,7 +96,21 @@ const itemGroups = computed<{ key: string; label: string | null; items: InboxIte
 
 const viewMenu = ref<HTMLElement | null>(null)
 const viewMenuOpen = ref(false)
+const selectionActionsToggle = ref<HTMLElement | null>(null)
+const selectionActionsOpen = ref(false)
 const selectedItemIDSet = computed(() => new Set(props.selectedItemIds))
+const selectionActionEntries = computed<MenuEntry[]>(() => props.selectionActions.map((action) => ({
+  kind: 'action',
+  id: action.id,
+  label: action.label,
+  icon: IconCopy,
+  testid: `selection-action-${action.id}`,
+})))
+
+function chooseSelectionAction(actionID: string): void {
+  selectionActionsOpen.value = false
+  emit('run-selection-action', actionID)
+}
 
 function closeViewMenu(): void { viewMenuOpen.value = false }
 function chooseSort(value: FeedSort): void { emit('set-sort', value); closeViewMenu() }
@@ -180,10 +203,18 @@ watch(() => props.selectedId, async (id) => {
       </div>
     </header>
     <div v-if="selectionMode" class="selection-bar" data-testid="feed-selection-bar">
-      <span class="font-medium text-text">{{ selectedItemIds.length }} selected</span>
+      <span class="selection-count" :title="`${selectedItemIds.length} selected`" :aria-label="`${selectedItemIds.length} selected`">
+        <IconSquareCheckBig class="size-3.5" />
+        <span>{{ selectedItemIds.length }}</span>
+      </span>
       <span class="flex-1" />
-      <button type="button" class="selection-action" :disabled="selectedItemIds.length === 0" data-testid="selection-create-session" @click="emit('create-session-from-selection')">Create session</button>
-      <button type="button" class="selection-action" data-testid="selection-cancel" @click="emit('cancel-selection')">Cancel</button>
+      <button type="button" class="selection-action" title="Copy contents" aria-label="Copy contents" :disabled="selectedItemIds.length === 0" data-testid="selection-copy-contents" @click="emit('copy-selection-contents')"><IconCopy class="size-3.5" /></button>
+      <div v-if="selectionActions.length" class="relative">
+        <button ref="selectionActionsToggle" type="button" class="selection-action" title="Copy with action" aria-label="Copy with action" data-testid="selection-actions-toggle" aria-haspopup="menu" :aria-expanded="selectionActionsOpen" @click="selectionActionsOpen = !selectionActionsOpen"><IconChevronDown class="size-3.5" /></button>
+        <AppMenu v-if="selectionActionsOpen" :entries="selectionActionEntries" :ignore="[selectionActionsToggle]" testid="selection-actions-menu" @select="chooseSelectionAction" @close="selectionActionsOpen = false" />
+      </div>
+      <button type="button" class="selection-action" title="Create session" aria-label="Create session" :disabled="selectedItemIds.length === 0" data-testid="selection-create-session" @click="emit('create-session-from-selection')"><IconPlus class="size-3.5" /></button>
+      <button type="button" class="selection-action" title="Cancel selection" aria-label="Cancel selection" data-testid="selection-cancel" @click="emit('cancel-selection')"><IconX class="size-3.5" /></button>
     </div>
     <div class="relative min-h-0 flex-1">
       <div v-if="refreshing" class="refresh-banner" role="status" data-testid="feed-refreshing"><IconRefreshCw class="size-3.5 animate-spin" />Refreshing…</div>
@@ -298,9 +329,10 @@ watch(() => props.selectedId, async (id) => {
 .view-trigger { display: inline-flex; width: 32px; height: 32px; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--color-strong); border-radius: 8px; color: var(--color-text-2); }
 .view-trigger:hover, .view-trigger[aria-expanded="true"] { color: var(--color-text); }
 .view-trigger[aria-expanded="true"] { border-color: var(--color-accent); }
-.selection-bar { display: flex; flex: none; align-items: center; gap: 8px; border-bottom: 1px solid var(--color-border); background: var(--color-pane); padding: 7px 14px; color: var(--color-text-2); font-size: 12px; }
-.selection-action { cursor: pointer; border-radius: 6px; padding: 4px 8px; color: var(--color-accent); font-weight: 500; }
-.selection-action:hover:not(:disabled) { background: var(--color-hover); }
+.selection-bar { display: flex; flex: none; align-items: center; gap: 4px; border-bottom: 1px solid var(--color-border); background: var(--color-pane); padding: 6px 14px; color: var(--color-text-2); font-size: 12px; }
+.selection-count { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-2); font-family: var(--font-mono); }
+.selection-action { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; cursor: pointer; border-radius: 6px; color: var(--color-text-2); }
+.selection-action:hover:not(:disabled), .selection-action[aria-expanded="true"] { background: var(--color-hover); color: var(--color-text); }
 .selection-action:disabled { cursor: default; color: var(--color-text-4); }
 .refresh-banner { position: absolute; top: 0; right: 0; left: 0; z-index: 10; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--color-border); background: var(--color-pane); padding: 7px 14px; color: var(--color-text-3); font-size: 12px; pointer-events: none; }
 .view-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: 180px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); padding: 5px; box-shadow: 0 20px 50px -14px rgb(0 0 0 / .5); }

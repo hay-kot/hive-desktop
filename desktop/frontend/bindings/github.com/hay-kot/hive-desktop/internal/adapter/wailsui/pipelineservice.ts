@@ -80,12 +80,11 @@ export function NodeRuns(flowID: string, limit: number): $CancellablePromise<sto
 }
 
 /**
- * RenderClipboardAction returns the text a clipboard action renders for an
- * item. The frontend writes it to the clipboard through the native Wails
- * clipboard; the core produces the text and never touches the clipboard.
+ * RenderClipboardAction returns one text block rendered across ordered items.
+ * The frontend writes it through the native Wails clipboard.
  */
-export function RenderClipboardAction(actionID: string, itemID: number, inputs: { [_ in string]?: string } | null): $CancellablePromise<string> {
-    return $Call.ByID(3812385739, actionID, itemID, inputs);
+export function RenderClipboardAction(actionID: string, itemIDs: number[] | null, inputs: { [_ in string]?: string } | null): $CancellablePromise<string> {
+    return $Call.ByID(3812385739, actionID, itemIDs, inputs);
 }
 
 export function SetUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<stores$0.InboxItem> {

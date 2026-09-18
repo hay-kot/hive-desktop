@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
@@ -257,21 +258,10 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 	return view, nil
 }
 
-// RenderClipboardAction resolves a clipboard action against an item and
-// returns the rendered text for the desktop adapter to place on the clipboard.
-//
-// It is the render-only sibling of InvokeAction: a clipboard action produces
-// text, not a durable side effect, so it never enqueues an output_command and
-// re-copying the same item just renders again — there is no rerun to confirm.
-// The authorization chain matches InvokeAction (the item must decode, the
-// action must exist, be a clipboard action shown in the detail pane, apply to
-// the item's kind, and the item must have an id); executable configuration is
-// always re-resolved from the catalog rather than taken from the caller.
-func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID string, itemID int64, inputs map[string]string) (string, error) {
-	item, err := s.decodeItem(ctx, itemID)
-	if err != nil {
-		return "", err
-	}
+// RenderClipboardAction renders one clipboard action once per ordered item and
+// joins the entries into the single block the desktop writes to the clipboard.
+// It never enqueues an output command, so copying remains repeatable.
+func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID string, itemIDs []int64, inputs map[string]string) (string, error) {
 	action, ok := s.actions.Get(actionID)
 	if !ok {
 		return "", Errorf(KindNotFound, "unknown action %q", actionID)
@@ -282,21 +272,32 @@ func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID strin
 	if !action.ShowInDetail {
 		return "", Errorf(KindInvalid, "action %q is not available in the detail pane", actionID)
 	}
-	if applicable, reason := dispatch.ActionApplicability(action, item); !applicable {
-		return "", Errorf(KindInvalid, "action %q does not apply to item %d: %s", actionID, itemID, reason)
-	}
-	if item.ID == "" {
-		return "", Errorf(KindInvalid, "action %q: item id is required", actionID)
+	if len(itemIDs) == 0 {
+		return "", Errorf(KindInvalid, "at least one inbox item is required")
 	}
 	resolved, err := action.ResolveInputs(inputs)
 	if err != nil {
 		return "", Wrap(err, KindInvalid, "rendering clipboard action %q", actionID)
 	}
-	text, err := dispatch.RenderClipboardText(action, item.ID, item.Payload, resolved)
-	if err != nil {
-		return "", Wrap(err, KindInvalid, "rendering clipboard action %q", actionID)
+	entries := make([]string, 0, len(itemIDs))
+	for _, itemID := range itemIDs {
+		item, err := s.decodeItem(ctx, itemID)
+		if err != nil {
+			return "", err
+		}
+		if applicable, reason := dispatch.ActionApplicability(action, item); !applicable {
+			return "", Errorf(KindInvalid, "action %q does not apply to item %d: %s", actionID, itemID, reason)
+		}
+		if item.ID == "" {
+			return "", Errorf(KindInvalid, "action %q: item id is required", actionID)
+		}
+		text, err := dispatch.RenderClipboardText(action, item.ID, item.Payload, resolved)
+		if err != nil {
+			return "", Wrap(err, KindInvalid, "rendering clipboard action %q for item %d", actionID, itemID)
+		}
+		entries = append(entries, text)
 	}
-	return text, nil
+	return strings.Join(entries, "\n\n"), nil
 }
 
 // confirmError classifies a refused confirmation. A rerun with no completed

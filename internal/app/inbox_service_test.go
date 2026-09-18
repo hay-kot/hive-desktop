@@ -196,13 +196,13 @@ func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testi
 	service := newTestInboxService(db, actionStore, worker)
 	prID := insertActionItemSource(t, db, "github", "pr-9", "PR", "Title", map[string]any{"num": 9, "repo": "acme/app"})
 
-	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID, nil)
+	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", []int64{prID}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "gh pr checkout 9 -R acme/app", text)
 
 	// Repeatable: no durable command to confirm, so a second copy renders the
 	// same text with no error or rerun prompt.
-	again, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID, nil)
+	again, err := service.RenderClipboardAction(t.Context(), "copy-checkout", []int64{prID}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, text, again)
 
@@ -213,9 +213,31 @@ func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testi
 	require.ErrorContains(t, err, "clipboard action")
 
 	// The render path refuses a non-clipboard action.
-	_, err = service.RenderClipboardAction(t.Context(), "review-pr", prID, nil)
+	_, err = service.RenderClipboardAction(t.Context(), "review-pr", []int64{prID}, nil)
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+func TestPipelineService_RenderClipboardActionAppliesToWholeSelection(t *testing.T) {
+	actionStore := configuredActionStore(t)
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	worker := newTestWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{}), 0, zerolog.Nop())
+	service := newTestInboxService(db, actionStore, worker)
+	firstID := insertActionItemSource(t, db, "github", "pr-1", "PR", "First", map[string]any{"num": 1, "repo": "acme/app"})
+	secondID := insertActionItemSource(t, db, "github", "pr-2", "PR", "Second", map[string]any{"num": 2, "repo": "acme/api"})
+	issueID := insertActionItemSource(t, db, "github", "issue-3", "Issue", "Third", map[string]any{"num": 3, "repo": "acme/app"})
+
+	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", []int64{secondID, firstID}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "gh pr checkout 2 -R acme/api\n\ngh pr checkout 1 -R acme/app", text)
+
+	_, err = service.RenderClipboardAction(t.Context(), "copy-checkout", []int64{firstID, issueID}, nil)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	require.ErrorContains(t, err, "does not apply to item")
 }
 
 // TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated

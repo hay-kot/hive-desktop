@@ -85,11 +85,10 @@ func (s *PipelineService) InvokeAction(ctx context.Context, actionID string, ite
 	})
 }
 
-// RenderClipboardAction returns the text a clipboard action renders for an
-// item. The frontend writes it to the clipboard through the native Wails
-// clipboard; the core produces the text and never touches the clipboard.
-func (s *PipelineService) RenderClipboardAction(ctx context.Context, actionID string, itemID int64, inputs map[string]string) (string, error) {
-	return s.inbox.RenderClipboardAction(ctx, actionID, itemID, inputs)
+// RenderClipboardAction returns one text block rendered across ordered items.
+// The frontend writes it through the native Wails clipboard.
+func (s *PipelineService) RenderClipboardAction(ctx context.Context, actionID string, itemIDs []int64, inputs map[string]string) (string, error) {
+	return s.inbox.RenderClipboardAction(ctx, actionID, itemIDs, inputs)
 }
 
 func (s *PipelineService) NodeRuns(ctx context.Context, flowID string, limit int) ([]stores.NodeRunRecord, error) {

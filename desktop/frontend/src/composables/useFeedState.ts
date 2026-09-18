@@ -82,6 +82,7 @@ export function useFeedState() {
   const selectedId = ref<number | null>(null)
   const itemSelectionActive = ref(false)
   const selectedItemIDs = ref<number[]>([])
+  const selectionActions = ref<ActionView[]>([])
   const actions = ref<ActionView[]>([])
   const pendingActionKeys = ref<Record<string, boolean>>({})
   const actionError = ref<string | null>(null)
@@ -96,7 +97,7 @@ export function useFeedState() {
   const sessionLaunchBusy = ref(false)
   const sessionLaunchError = ref<string | null>(null)
   const actionInputsAction = ref<ActionView | null>(null)
-  const actionInputsItem = ref<InboxItem | null>(null)
+  const actionInputsItems = ref<InboxItem[]>([])
   const actionInputsBusy = ref(false)
   const actionInputsError = ref<string | null>(null)
   const actionRerunConfirmation = ref<{ actionID: string; label: string; item: InboxItem; input: Record<string, unknown> } | null>(null)
@@ -118,6 +119,7 @@ export function useFeedState() {
   let loadSeq = 0
   let feedsSeq = 0
   let profilesSeq = 0
+  let selectionActionsSeq = 0
   let actionLoadSeq = 0
 
   function actionKey(itemID: number, actionID: string): string { return `${itemID}\u0000${actionID}` }
@@ -220,6 +222,23 @@ export function useFeedState() {
     return [...items.value].sort(compareItems).concat(archivedItems.value).filter((item) => chosen.has(item.id))
   })
 
+  async function loadSelectionActions(): Promise<void> {
+    const seq = ++selectionActionsSeq
+    const itemIDs = selectedItems.value.map((item) => item.id)
+    selectionActions.value = []
+    if (!itemSelectionActive.value || itemIDs.length === 0) return
+    try {
+      const actionsByItem = await Promise.all(itemIDs.map(async (itemID) => (await ActionViews(itemID)) ?? []))
+      const [first = [], ...rest] = actionsByItem
+      const common = first.filter((action) => action.type === 'clipboard' && rest.every((itemActions) => itemActions.some((candidate) => candidate.id === action.id)))
+      if (seq === selectionActionsSeq) selectionActions.value = common
+    } catch (error) {
+      if (seq !== selectionActionsSeq) return
+      console.warn('Unable to load clipboard actions for item selection', error)
+      selectionActions.value = []
+    }
+  }
+
   function enterItemSelection(): void {
     itemSelectionActive.value = true
   }
@@ -227,6 +246,8 @@ export function useFeedState() {
   function cancelItemSelection(): void {
     itemSelectionActive.value = false
     selectedItemIDs.value = []
+    selectionActions.value = []
+    selectionActionsSeq++
   }
 
   function toggleItemSelection(itemID: number): void {
@@ -234,11 +255,13 @@ export function useFeedState() {
     selectedItemIDs.value = selectedItemIDs.value.includes(itemID)
       ? selectedItemIDs.value.filter((id) => id !== itemID)
       : [...selectedItemIDs.value, itemID]
+    void loadSelectionActions()
   }
 
   function pruneItemSelection(): void {
     const available = new Set([...items.value, ...archivedItems.value].map((item) => item.id))
     selectedItemIDs.value = selectedItemIDs.value.filter((id) => available.has(id))
+    void loadSelectionActions()
   }
 
   function matchesTrashFilter(item: InboxItem): boolean {
@@ -987,12 +1010,12 @@ export function useFeedState() {
       if (!item) return
       actionInputsError.value = null
       actionInputsAction.value = action
-      actionInputsItem.value = item
+      actionInputsItems.value = [item]
       return
     }
     if (action?.type === 'clipboard') {
       const item = selectedItem.value
-      if (item) await copyActionToClipboard(actionID, item)
+      if (item) await copyActionToClipboard(actionID, [item])
       return
     }
     if (!action?.requiresSessionInput) {
@@ -1042,7 +1065,7 @@ export function useFeedState() {
   function cancelActionInputs() {
     if (actionInputsBusy.value) return
     actionInputsAction.value = null
-    actionInputsItem.value = null
+    actionInputsItems.value = []
     actionInputsError.value = null
   }
 
@@ -1050,12 +1073,13 @@ export function useFeedState() {
   // to the render path instead of an invocation.
   async function submitActionInputs(values: Record<string, string>) {
     const action = actionInputsAction.value
-    const item = actionInputsItem.value
+    const targetItems = actionInputsItems.value
+    const item = targetItems[0]
     if (!action || !item || actionInputsBusy.value) return
     actionInputsBusy.value = true
     actionInputsError.value = null
     const succeeded = action.type === 'clipboard'
-      ? await copyActionToClipboard(action.id, item, values)
+      ? await copyActionToClipboard(action.id, targetItems, values)
       : await runAction(action.id, { inputs: values }, item)
     actionInputsBusy.value = false
     if (succeeded) cancelActionInputs()
@@ -1108,19 +1132,38 @@ export function useFeedState() {
 
   const copyItemContents = (item: InboxItem) => copyToClipboard(clipboardText(item), 'Contents copied')
 
-  // A clipboard action is copied, not run: the Go service renders its
-  // text_template over the item and returns the text (no durable command), and
-  // this writes it through the native Wails clipboard. Re-copying just renders
-  // again, so there is no rerun prompt.
-  async function copyActionToClipboard(actionID: string, item: InboxItem, inputs: Record<string, string> = {}): Promise<boolean> {
-    const key = actionKey(item.id, actionID)
+  async function copySelectedItemContents(): Promise<void> {
+    const targetItems = selectedItems.value
+    if (targetItems.length === 0) return
+    await copyToClipboard(targetItems.map(clipboardText).join('\n\n'), `${targetItems.length} item${targetItems.length === 1 ? '' : 's'} copied`)
+  }
+
+  async function invokeSelectionAction(actionID: string): Promise<void> {
+    const action = selectionActions.value.find((candidate) => candidate.id === actionID)
+    const targetItems = [...selectedItems.value]
+    if (!action || targetItems.length === 0) return
+    if (action.inputs?.length) {
+      actionInputsError.value = null
+      actionInputsAction.value = action
+      actionInputsItems.value = targetItems
+      return
+    }
+    await copyActionToClipboard(actionID, targetItems)
+  }
+
+  async function copyActionToClipboard(actionID: string, targetItems: InboxItem[], inputs: Record<string, string> = {}): Promise<boolean> {
+    const itemIDs = targetItems.map((item) => item.id)
+    if (itemIDs.length === 0) return false
+    const key = actionKey(itemIDs[0]!, actionID)
     if (pendingActionKeys.value[key]) return false
     pendingActionKeys.value = { ...pendingActionKeys.value, [key]: true }
     actionError.value = null
     try {
-      const text = await RenderClipboardAction(actionID, item.id, inputs)
+      const text = await RenderClipboardAction(actionID, itemIDs, inputs)
       await copyToClipboard(text, 'Copied')
-      return true
+      if (clipboard.status.value !== 'error') return true
+      actionError.value = 'Could not copy to the clipboard.'
+      return false
     } catch (error) {
       console.warn('Unable to copy action to clipboard', error)
       const message = error instanceof Error && error.message ? error.message : 'Could not copy to the clipboard.'
@@ -1159,7 +1202,10 @@ export function useFeedState() {
   onMounted(() => {
     // A flows/*.yaml change (create/delete/edit) reshapes the profiles list.
     useWailsEvent('flows:updated', () => { void reloadProfilesQuietly() })
-    useWailsEvent('actions:updated', () => { void loadActions(selectedItem.value) })
+    useWailsEvent('actions:updated', () => {
+      void loadActions(selectedItem.value)
+      void loadSelectionActions()
+    })
     void loadProfiles()
   })
 
@@ -1190,9 +1236,12 @@ export function useFeedState() {
     itemSelectionActive,
     selectedItemIDs,
     selectedItems,
+    selectionActions,
     enterItemSelection,
     toggleItemSelection,
     cancelItemSelection,
+    copySelectedItemContents,
+    invokeSelectionAction,
     actions,
     pendingAction,
     actionError,
