@@ -654,6 +654,12 @@ func (a *App) HiveConn() *sql.DB {
 func (a *App) Close() error {
 	a.cancel()
 
+	if a.DevTools != nil {
+		if err := a.DevTools.close(); err != nil {
+			a.logger.Warn().Err(err).Msg("unregister process metrics")
+		}
+	}
+
 	// Before the terminals: a pass in flight is launching chats through them,
 	// and stopping the transport underneath it would fail a launch that has
 	// already been recorded as made.
