@@ -1,6 +1,6 @@
 # Developer tools are reachable in a shipped build behind a setting
 
-- **Status:** accepted
+- **Status:** accepted; decisions 4 and 5 superseded by [runtime-observability-belongs-in-settings-and-samples-the-ui-while-open](2026-09-18-runtime-observability-belongs-in-settings-and-samples-the-ui-while-open.md)
 - **Date:** 2026-08-10
 
 ## Context

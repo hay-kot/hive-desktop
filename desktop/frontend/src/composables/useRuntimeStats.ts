@@ -1,5 +1,5 @@
 import { onScopeDispose, ref, shallowRef } from 'vue'
-import { Stats } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/devtoolsservice'
+import { Stats } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/observabilityservice'
 import type { RuntimeStats } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 // Samples the sparklines keep. It matches SparkLine's slot count, so the line
@@ -9,7 +9,7 @@ const HISTORY = 40
 
 const DEFAULT_INTERVAL_MS = 2000
 
-// useRuntimeStats polls the process sample the developer-tools pane draws.
+// useRuntimeStats polls the process sample the Observability pane draws.
 //
 // The backend reports CPU as a rate against the previous call, so the cadence
 // here is what that rate is measured over: stopping and restarting the poll

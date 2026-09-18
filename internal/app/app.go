@@ -78,6 +78,10 @@ type Config struct {
 
 	// Build stamps the running binary into report bundles.
 	Build report.Build
+
+	// TelemetryRuntime is the startup result for exporters constructed before
+	// App so their log writer can participate in logger construction.
+	TelemetryRuntime TelemetryRuntime
 }
 
 // App is the headless core. Driving adapters hold *App and the concrete
@@ -113,8 +117,10 @@ type App struct {
 	// Perf records UI spans to a JSONL file when development.perf.enabled is
 	// on. Always non-nil; a disabled recorder is a no-op (ADR ui-performance-spans-are-recorded-to-jsonl).
 	Perf *PerfService
-	// DevTools samples what the install costs the machine, for the in-app
-	// developer tools (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting).
+	// Observability owns runtime sampling and the user-configured telemetry
+	// export projection.
+	Observability *ObservabilityService
+	// DevTools gates the developer-only diagnostic pane.
 	DevTools *DevToolsService
 	// Sources runs ingestion on demand — the refresh a user pressed, and the
 	// one a flow edit earns.
@@ -435,6 +441,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	_ = os.Remove(filepath.Join(cfg.Paths.StateDir, "skills.json"))
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
+	a.Observability = newObservabilityService(cfg.SettingsStore, cfg.Settings.Telemetry, cfg.TelemetryRuntime)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir, Logger: cfg.Logger})
 	a.PopupTerminals = newPopupTerminalsService(PopupTerminalsDeps{Manager: a.popupTerminals, Terminals: a.Terminals, Directory: a.Sessions, Catalog: a.actionStore})
@@ -654,8 +661,8 @@ func (a *App) HiveConn() *sql.DB {
 func (a *App) Close() error {
 	a.cancel()
 
-	if a.DevTools != nil {
-		if err := a.DevTools.close(); err != nil {
+	if a.Observability != nil {
+		if err := a.Observability.close(); err != nil {
 			a.logger.Warn().Err(err).Msg("unregister process metrics")
 		}
 	}

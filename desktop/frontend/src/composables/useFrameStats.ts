@@ -164,12 +164,9 @@ function onVisibility(): void {
 }
 
 /**
- * Start sampling frame times and event-loop lag for the whole app.
- *
- * Started at boot rather than when the developer-tools pane opens: the jank
- * worth catching happens in the terminal or a long feed, and a sampler that
- * only runs on the pane measures the pane. The pane reads the rolling window
- * afterwards.
+ * Start sampling frame times and event-loop lag while Observability is open.
+ * Keeping the requestAnimationFrame loop page-scoped lets the webview idle when
+ * nobody is looking at the dashboard.
  */
 export function startFrameStats(): void {
   if (running.value) return

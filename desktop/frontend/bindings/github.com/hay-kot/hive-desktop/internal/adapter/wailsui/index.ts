@@ -12,6 +12,7 @@ import * as GrafanaService from "./grafanaservice.js";
 import * as IntegrationsService from "./integrationsservice.js";
 import * as JobService from "./jobservice.js";
 import * as NotificationService from "./notificationservice.js";
+import * as ObservabilityService from "./observabilityservice.js";
 import * as PerfService from "./perfservice.js";
 import * as PipelineService from "./pipelineservice.js";
 import * as PopupTerminalService from "./popupterminalservice.js";
@@ -40,6 +41,7 @@ export {
     IntegrationsService,
     JobService,
     NotificationService,
+    ObservabilityService,
     PerfService,
     PipelineService,
     PopupTerminalService,
@@ -67,6 +69,7 @@ export type {
     DevToolsInfo,
     EditorChoice,
     EditorSettings,
+    ExportStatus,
     FlowSummary,
     GithubSettings,
     InstalledFonts,
@@ -76,6 +79,7 @@ export type {
     NotificationSettings,
     NotificationToast,
     NotifyInput,
+    ObservabilitySettings,
     PathInfo,
     PendingReleaseNotes,
     PerfInfo,

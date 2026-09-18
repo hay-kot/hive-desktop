@@ -165,6 +165,16 @@ export interface EditorSettings {
 }
 
 /**
+ * ExportStatus reports one telemetry destination.
+ */
+export interface ExportStatus {
+    "enabled": boolean;
+    "configured": boolean;
+    "running": boolean;
+    "restartRequired": boolean;
+}
+
+/**
  * FlowSummary is one flow file's listing row: identity plus load status, so a
  * broken flow file shows up with its error instead of silently vanishing.
  */
@@ -272,6 +282,15 @@ export interface NotifyInput {
     "severity": string;
     "sound": boolean;
     "data": { [_ in string]?: any } | null;
+}
+
+/**
+ * ObservabilitySettings combines both export destinations with startup errors.
+ */
+export interface ObservabilitySettings {
+    "otlp": ExportStatus;
+    "profiles": ExportStatus;
+    "startError": string;
 }
 
 /**
@@ -401,9 +420,7 @@ export interface ReportResult {
 }
 
 /**
- * RuntimeStats is the frontend-facing sample: the desktop process, the tree
- * below it, and the Go runtime's own accounting, with the tree totals
- * pre-summed so every caller reads the same number.
+ * RuntimeStats is the frontend-facing process-tree and Go runtime sample.
  */
 export interface RuntimeStats {
     "sampledAtUnixMs": number;

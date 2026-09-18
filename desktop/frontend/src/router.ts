@@ -26,6 +26,7 @@ export const applicationSettingsSections = [
   'hive',
   'agents',
   'system',
+  'observability',
   'about',
 ] as const
 export type ApplicationSettingsSection = (typeof applicationSettingsSections)[number]

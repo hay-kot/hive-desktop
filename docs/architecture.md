@@ -767,7 +767,7 @@ picker (`pipeline/fields/MarkImageField.vue`) over one pair of RPCs on
 `FlowsService`.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
-`notifications`, `appearance`, `http`, `keybindings`, and
+`notifications`, `appearance`, `http`, `telemetry`, `keybindings`, and
 `development` sections. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
@@ -847,11 +847,12 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 | Inbox | Integrations · Actions |
 | Code | Terminal · Quick terminals · Hive CLI |
 | Chats | Chats |
-| Advanced | System · About |
+| Advanced | System · Observability · About |
 
 A value one surface uses lives on that surface's pane; a value several use lives
-in **General** (the editor command); **System** is this install — storage,
-diagnostics, the problem reporter; **About** is the running build. **Hive CLI**
+in **General** (the editor command); **Observability** is runtime cost and the
+install's telemetry exports; **System** is this install — storage, diagnostics,
+the problem reporter; **About** is the running build. **Hive CLI**
 is the compatibility boundary for the included Hive runtime: it shows the exact
 external Hive config loaded at startup and creates or opens that file without
 making it required. Changes to that file require a Desktop restart. There is no
@@ -905,7 +906,7 @@ client with composable middleware, **adopted** — see below) and `mapx`.
 ### Telemetry
 
 The app's own metrics, logs and traces go out over OTLP with **no collector**
-(ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape). Two independent gates sit over one MeterProvider:
+(ADR telemetry-is-exported-over-otlp-with-no-collector-and-the-same-instruments-serve-a-local-scrape). Settings ▸ Observability reports whether each destination is enabled, configured, and active, links to its configuration guide, and owns the runtime dashboard (ADR runtime-observability-belongs-in-settings-and-samples-the-ui-while-open). Two independent gates sit over one MeterProvider:
 `telemetry.enabled` pushes to a remote endpoint, `development.metrics.enabled`
 mounts `/metrics` on the shared loopback server exactly as pprof does.
 `telemetry.profiles.enabled` is a third independent gate that pushes CPU and

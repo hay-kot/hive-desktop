@@ -180,6 +180,13 @@ func main() {
 	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
 	_, coreSpan := tracer.Start(startupCtx, "app.core.new")
+	telemetryRuntime := app.TelemetryRuntime{
+		OTLPRunning:     telErr == nil && cfg.Telemetry.Enabled,
+		ProfilesRunning: telErr == nil && cfg.Telemetry.Profiles.Enabled,
+	}
+	if telErr != nil {
+		telemetryRuntime.StartError = telErr.Error()
+	}
 	core, err := app.New(ctx, app.Config{
 		Settings:                 cfg,
 		SettingsStore:            settingsStore,
@@ -190,6 +197,7 @@ func main() {
 		Notifier:                 ui.Notifier(),
 		Gate:                     ui.Gate(),
 		Build:                    report.Build{Version: version, Commit: commit, Date: date},
+		TelemetryRuntime:         telemetryRuntime,
 	})
 	coreSpan.End()
 	if err != nil {

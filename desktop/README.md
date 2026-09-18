@@ -564,38 +564,35 @@ SQLite/action state. Docker must be available; there is no host fallback.
 
 ## Reading what the app costs
 
-The developer-tools pane (`/dev`, "Open developer tools" in the palette) polls
-`internal/app/procstats`: resident memory and CPU for the app **and the process
-tree below it** (a terminal's shell, an agent), plus goroutines, heap, GC, and a
-measured Wails round trip. RSS is what the OS charges for and `runtime.MemStats`
-cannot report it at all, which is what gopsutil is there for. Spans answer "why
-was that click slow"; this answers "what is this build costing, and is it
-growing".
+Settings ▸ Observability polls `internal/app/procstats`: resident memory and CPU
+for the app **and the process tree below it** (a terminal's shell, an agent),
+plus goroutines, heap, and GC. RSS is what the OS charges for and
+`runtime.MemStats` cannot report it at all, which is what gopsutil is there for.
+Spans answer "why was that click slow"; this answers "what is this build
+costing, and is it growing".
 
-Frame rate, dropped frames and event-loop lag come from `useFrameStats`, which
-**starts at boot, not when the pane opens** — the jank worth catching happens in
-the terminal or a long feed, so a sampler scoped to the pane would only measure
-the pane. Go make something stutter, then open `/dev` and read the last ten
-seconds. Frames past twice the display period and lag past 50ms are also
-recorded as `ui` spans, so `perf.jsonl` keeps history beyond that window. The
-sampler pauses while the window is occluded, since `requestAnimationFrame`
-stops there and the gap is the OS declining to draw, not a stall.
+Frame rate, dropped frames and event-loop lag come from `useFrameStats`. It runs
+only while Observability is open, so it measures that page rather than keeping
+the shipped webview active for historical samples. Frames past twice the display
+period and lag past 50ms are also recorded as `ui` spans when `perf.jsonl` is
+enabled. The sampler pauses while the window is occluded, since
+`requestAnimationFrame` stops there and the gap is the OS declining to draw,
+not a stall.
 
 Two things WebKit does not give us, so do not go looking: `longtask` /
 `long-animation-frame` observers (Chromium-only, so no attribution of _which_
 task blocked) and `performance.memory` (no JS heap size to sit beside the Go
-heap). `performance.now()` is also clamped to ~1ms, which is why the round-trip
-figures are timed in batches rather than per call.
+heap).
 
-The webview is **not** in that total: on macOS the WebKit processes are XPC
-services parented to launchd, not children of the app, so they cannot be
+The webview is **not** in the process total: on macOS the WebKit processes are
+XPC services parented to launchd, not children of the app, so they cannot be
 attributed without a private API. The pane states this rather than
 under-reporting silently.
 
-Set `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED=1` to open it on a signed build,
-which is the one worth measuring (ADR
-developer-tools-are-reachable-in-a-shipped-build-behind-a-setting); a Vite dev
-build always has it.
+The developer-tools pane keeps the Wails round-trip measurement and notification
+tests. Set `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED=1` to open it on a signed
+build (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting);
+a Vite dev build always has it.
 
 Recording UI spans to `perf.jsonl` is the `usePerf` hook, on in `dev` via
 `launch.env` and off in a shipped build (ADR
