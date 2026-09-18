@@ -329,6 +329,23 @@ func TestSettings_TurnsTheTerminalStatusBarOn(t *testing.T) {
 	assert.Equal(t, "midnight", appearance["theme"])
 }
 
+func TestSettings_DropsDevelopmentInstanceID(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 4\ndevelopment:\n  instance:\n    id: worktree-a\n  github:\n    api_base: http://127.0.0.1:7777\n")
+
+	migrated, changed, err := SettingsSet.Apply(raw)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, SettingsSet.Current, doc["version"])
+	development, ok := doc["development"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, development, "instance")
+	assert.Contains(t, development, "github", "an unrelated development value is untouched")
+}
+
 // A file with no appearance section decodes onto the defaults, which say on,
 // so the step has nothing to add and must not invent the section.
 func TestSettings_TerminalStatusBarStepLeavesAMissingAppearanceSectionAlone(t *testing.T) {

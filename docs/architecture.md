@@ -979,13 +979,15 @@ spans and semconv HTTP metrics from `otelhttp.NewTransport`; `store` gets a span
 per statement from the sqlc `DBTX` decorator in `store/tracing.go`. Hand-written
 equivalents produce the same numbers under names no dashboard knows.
 
-Four resource attributes carry identity — `service.name`,
-`service.instance.id`, `deployment.environment.name`, `service.version` — and
-they are not a free choice: they are what a backend keeps as a queryable
-dimension rather than filing into `target_info` or structured metadata.
+Five resource attributes carry identity — `service.name`,
+`service.instance.id`, `deployment.environment.name`, `service.version`, and
+`host.id`. The first four identify the app and its running instance;
+`service.instance.id` is a random UUID minted once per launch. The optional
+`host.id` identifies the machine across those launches when the user configures
+`telemetry.host_id` (ADR telemetry-carries-the-opentelemetry-host-identifier-configured-for-the-machine).
 `service.version` is a Prometheus label but **not** a Loki one, which is why
-the release channel separates builds. A fifth resource attribute does not
-become queryable by being added; slice by a metric label instead.
+the release channel separates builds. Resource attributes that a backend does
+not promote remain available through `target_info` or structured metadata.
 
 The log bridge is a **zerolog writer arm**, not a `zerolog.Hook`: a Hook cannot
 read an event's fields. `settings.NewLogger` takes extra writers for this, and
@@ -998,8 +1000,9 @@ it does not collect goroutine, mutex, or block profiles, and heap snapshots do
 not force a garbage collection. `telemetry.Provider` owns its lifecycle beside
 the OTel providers. Its HTTP client and context-selecting stop adapter keep
 shutdown within the desktop's two-second telemetry budget. Static profile
-labels project the same service version, deployment environment, and instance
-identity as the OTel resource and omit empty values.
+labels project the same service version, deployment environment, service
+instance identity, and optional host identity as the OTel resource and omit
+empty values.
 
 ### Source HTTP
 

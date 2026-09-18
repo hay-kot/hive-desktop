@@ -163,8 +163,11 @@ type EditorSettings struct {
 //
 // Endpoint is the signal-less OTLP base; on Grafana Cloud InstanceID is the
 // OTLP instance id from the stack's OpenTelemetry tile, not the stack id.
+// HostID becomes the OpenTelemetry host.id resource attribute. It is optional
+// because it is a stable machine identifier the user must choose to disclose
+// (ADR telemetry-carries-the-opentelemetry-host-identifier-configured-for-the-machine).
 //
-// All three may be an internal/app/secrets reference — "env:NAME",
+// Endpoint, InstanceID, and Token may be an internal/app/secrets reference — "env:NAME",
 // "file:/path", "op://vault/item/field" — so one 1Password item can hold a
 // whole destination. They differ in whether a literal is allowed: Token
 // *requires* a reference, because a literal there is a credential in a
@@ -178,6 +181,7 @@ type TelemetrySettings struct {
 	Enabled    bool                     `yaml:"enabled"               env:"HIVE_DESKTOP_TELEMETRY_ENABLED"`
 	Endpoint   string                   `yaml:"endpoint,omitempty"    env:"HIVE_DESKTOP_TELEMETRY_ENDPOINT"`
 	InstanceID string                   `yaml:"instance_id,omitempty" env:"HIVE_DESKTOP_TELEMETRY_INSTANCE_ID"`
+	HostID     string                   `yaml:"host_id,omitempty"     env:"HIVE_DESKTOP_TELEMETRY_HOST_ID"`
 	Token      string                   `yaml:"token,omitempty"       env:"HIVE_DESKTOP_TELEMETRY_TOKEN"`
 	Profiles   ProfileTelemetrySettings `yaml:"profiles,omitempty"`
 }
@@ -202,10 +206,6 @@ type HTTPSettings struct {
 
 type MockSettings struct {
 	Mode string `yaml:"mode" env:"HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE"`
-}
-
-type InstanceSettings struct {
-	ID string `yaml:"id,omitempty" env:"HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID"`
 }
 
 type ServerSettings struct {
@@ -263,10 +263,9 @@ type GitHubDevSettings struct {
 
 type DevelopmentSettings struct {
 	Mocks    MockSettings      `yaml:"mocks"`
-	Instance InstanceSettings  `yaml:"instance,omitempty"`
 	GitHub   GitHubDevSettings `yaml:"github,omitempty"`
-	Vite     ServerSettings    `yaml:"vite"               envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
-	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
+	Vite     ServerSettings    `yaml:"vite"             envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
+	Wails    ServerSettings    `yaml:"wails"            envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
 	Pprof    PprofSettings     `yaml:"pprof"`
 	Perf     PerfSettings      `yaml:"perf"`
 	Metrics  MetricsSettings   `yaml:"metrics"`
@@ -393,9 +392,6 @@ func (s Settings) Validate() error {
 	}
 	if s.Development.Debug.PauseIngest.Duration() > MaxDebugPause || s.Development.Debug.PauseCommit.Duration() > MaxDebugPause {
 		return fmt.Errorf("development debug pauses must not exceed %s", MaxDebugPause)
-	}
-	if s.Development.Instance.ID != "" && strings.ContainsAny(s.Development.Instance.ID, `/\\`) {
-		return fmt.Errorf("development.instance.id must not contain path separators")
 	}
 	if err := validateTelemetry(s.Telemetry); err != nil {
 		return err

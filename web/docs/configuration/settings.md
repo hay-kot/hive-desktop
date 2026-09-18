@@ -114,6 +114,7 @@ telemetry:
   enabled: true
   endpoint: https://otlp-gateway-prod-us-central-0.grafana.net/otlp
   instance_id: "123456"
+  host_id: "fdbf79e8af94cb7f9e8df36789187052"
   token: op://Private/Grafana Cloud/otlp-token
   profiles:
     enabled: true
@@ -121,6 +122,8 @@ telemetry:
     user: "123456"
     token: op://Private/Grafana Cloud/profiles-token
 ```
+
+`telemetry.host_id` is optional. Set it to the machine id to add the OpenTelemetry `host.id` resource attribute to metrics, logs, and traces. Profiles use the same value as their `host_id` label. Hive does not read a machine id automatically. Each app launch gets a random OpenTelemetry `service.instance.id`. `telemetry.instance_id` has a different purpose: it is the OTLP endpoint's basic-auth username.
 
 Profile export collects CPU, allocation, and in-use heap profiles. It does not collect goroutine, mutex, or block profiles. OTLP and profile export can run independently.
 

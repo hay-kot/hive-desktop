@@ -103,7 +103,7 @@ func main() {
 		Scrape:      cfg.Development.Metrics.Enabled,
 		Version:     version,
 		Environment: environment,
-		Instance:    cfg.Development.Instance.ID,
+		HostID:      cfg.Telemetry.HostID,
 	}
 	// Only when export is on: resolving a reference can prompt for approval,
 	// which a disabled section must never do.

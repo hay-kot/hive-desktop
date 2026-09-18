@@ -24,6 +24,8 @@ Do not add trace-to-profile correlation in this change. It requires another SDK 
 - The stripped production server binary grows from 44,211,266 to 49,365,298 bytes: 4.92 MiB, or 11.7%.
 - Profile credentials follow the existing secret-reference rules and never persist as token values.
 - Static profile labels match the OTel service version, deployment environment, and instance identity. Empty labels are omitted.
+  **Superseded in part by ADR telemetry-carries-the-opentelemetry-host-identifier-configured-for-the-machine:**
+  profiles now carry the optional host identity too.
 - Heap profiles can include objects not yet removed by garbage collection, in exchange for avoiding forced GC work every upload interval.
 - Runtime upload failures do not stop the app. Shutdown can lose the final profile interval instead of holding the process open.
 - OTLP Profiles can replace the Pyroscope-specific transport when the Go SDK provides a stable implementation.
