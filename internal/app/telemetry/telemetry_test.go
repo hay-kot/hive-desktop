@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/grafana/pyroscope-go"
 
 	"github.com/stretchr/testify/assert"
@@ -101,10 +102,11 @@ func TestNewRejectsUnusableExportConfig(t *testing.T) {
 // loop works with no account configured.
 func TestScrapeWithoutExport(t *testing.T) {
 	p, err := New(t.Context(), Options{
-		Scrape:      true,
-		Version:     "1.4.0-dev.3",
-		Environment: "dev",
-		Instance:    "worktree-a",
+		Scrape:            true,
+		Version:           "1.4.0-dev.3",
+		Environment:       "dev",
+		HostID:            "machine-a",
+		serviceInstanceID: "8ae6b36d-442a-4ba2-bad4-99bec9dc8f33",
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = p.Shutdown(context.WithoutCancel(t.Context())) })
@@ -123,23 +125,24 @@ func TestScrapeWithoutExport(t *testing.T) {
 		`service_name="hive-desktop"`,
 		`service_version="1.4.0-dev.3"`,
 		`deployment_environment_name="dev"`,
-		`service_instance_id="worktree-a"`,
+		`service_instance_id="8ae6b36d-442a-4ba2-bad4-99bec9dc8f33"`,
+		`host_id="machine-a"`,
 	} {
 		assert.Contains(t, body, want)
 	}
 }
 
-// An empty `instance` label is worse than no label at all.
-func TestEmptyResourceAttributesAreOmitted(t *testing.T) {
+func TestNewGeneratesServiceInstanceIDAndOmitsEmptyOptionalAttributes(t *testing.T) {
 	p, err := New(t.Context(), Options{Scrape: true})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = p.Shutdown(context.WithoutCancel(t.Context())) })
 
 	body := scrape(t, p.MetricsHandler())
 	assert.Contains(t, body, `service_name="hive-desktop"`)
+	assert.Regexp(t, `service_instance_id="[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"`, body)
 	assert.NotContains(t, body, `service_version=""`)
 	assert.NotContains(t, body, `deployment_environment_name=""`)
-	assert.NotContains(t, body, `service_instance_id=""`)
+	assert.NotContains(t, body, `host_id=""`)
 }
 
 func TestProfileOnlyMode(t *testing.T) {
@@ -170,13 +173,33 @@ func TestProfileOnlyMode(t *testing.T) {
 	assert.Equal(t, map[string]string{
 		"service_version":             "1.4.0-dev.3",
 		"deployment_environment_name": "dev",
-		"service_instance_id":         "worktree-a",
+		"service_instance_id":         "8ae6b36d-442a-4ba2-bad4-99bec9dc8f33",
+		"host_id":                     "machine-a",
 	}, got.Tags)
 
 	require.NoError(t, p.Shutdown(t.Context()))
 	assert.Equal(t, 1, profile.stops)
 	require.NoError(t, p.Shutdown(t.Context()))
 	assert.Equal(t, 1, profile.stops)
+}
+
+func TestNewSharesGeneratedServiceInstanceIDAcrossSignals(t *testing.T) {
+	var got pyroscope.Config
+	opts := profileOptions()
+	opts.Scrape = true
+	opts.serviceInstanceID = ""
+
+	p, err := newProvider(t.Context(), opts, func(config pyroscope.Config) (profiler, error) {
+		got = config
+		return &fakeProfiler{}, nil
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = p.Shutdown(context.WithoutCancel(t.Context())) })
+
+	instanceID := got.Tags["service_instance_id"]
+	_, err = uuid.Parse(instanceID)
+	require.NoError(t, err)
+	assert.Contains(t, scrape(t, p.MetricsHandler()), `service_instance_id="`+instanceID+`"`)
 }
 
 func TestProfileExporterSendsIngestRequest(t *testing.T) {
@@ -219,7 +242,8 @@ func TestProfileExporterSendsIngestRequest(t *testing.T) {
 		assert.Contains(t, got.name, ServiceName)
 		assert.Contains(t, got.name, "service_version=1.4.0-dev.3")
 		assert.Contains(t, got.name, "deployment_environment_name=dev")
-		assert.Contains(t, got.name, "service_instance_id=worktree-a")
+		assert.Contains(t, got.name, "service_instance_id=8ae6b36d-442a-4ba2-bad4-99bec9dc8f33")
+		assert.Contains(t, got.name, "host_id=machine-a")
 	case <-time.After(2 * time.Second):
 		t.Fatal("profile upload did not reach the ingest endpoint")
 	}
@@ -328,9 +352,10 @@ func profileOptions() Options {
 			User:     "profiles-user",
 			Token:    "profiles-token",
 		},
-		Version:     "1.4.0-dev.3",
-		Environment: "dev",
-		Instance:    "worktree-a",
+		Version:           "1.4.0-dev.3",
+		Environment:       "dev",
+		HostID:            "machine-a",
+		serviceInstanceID: "8ae6b36d-442a-4ba2-bad4-99bec9dc8f33",
 	}
 }
 

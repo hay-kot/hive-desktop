@@ -396,6 +396,15 @@ func TestProfileTelemetryDisabledSkipsValidation(t *testing.T) {
 	require.NoError(t, cfg.Validate())
 }
 
+func TestTelemetryHostIDEnvironmentOverride(t *testing.T) {
+	path := isolateSettings(t)
+	t.Setenv("HIVE_DESKTOP_TELEMETRY_HOST_ID", "machine-a")
+
+	cfg, err := NewStore(path).Effective()
+	require.NoError(t, err)
+	assert.Equal(t, "machine-a", cfg.Telemetry.HostID)
+}
+
 func TestProfileTelemetryEnvironmentOverrides(t *testing.T) {
 	path := isolateSettings(t)
 	t.Setenv("HIVE_DESKTOP_TELEMETRY_PROFILES_ENABLED", "true")

@@ -50,6 +50,10 @@ exporters already pulled in.
    Taskfiles, a working tree reports `source` and cannot land in a release's
    series without anyone configuring that.
 
+   **Superseded in part by ADR telemetry-carries-the-opentelemetry-host-identifier-configured-for-the-machine.**
+   An optional fifth resource attribute, `host.id`, now identifies the machine
+   when the user configures it.
+
 4. **The log bridge is a zerolog writer arm, not a `zerolog.Hook`.** A Hook is
    handed only the level and the message; an event's fields are not readable
    from a `*zerolog.Event`. Every arm of a `MultiLevelWriter` receives the

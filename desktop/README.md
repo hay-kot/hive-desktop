@@ -204,6 +204,7 @@ telemetry:
   enabled: false # export this app's own metrics, logs and traces over OTLP
   endpoint: "" # the signal-less OTLP base, https only; may be a secret reference
   instance_id: "" # the endpoint's basic-auth username; may be a secret reference
+  host_id: "" # optional OpenTelemetry host.id for this machine
   token: "" # a reference, never a token: env:NAME, file:/path, or op://vault/item/field
   profiles:
     enabled: false # push CPU and standard heap profiles directly with Pyroscope
@@ -221,8 +222,6 @@ paths:
 development:
   mocks:
     mode: live # live, feed, pipeline, onboarding, or action-smoke
-  instance:
-    id: ""
   github:
     api_base: "" # loopback-only devserver override (ADR devserver-github-proxy)
   vite:
@@ -255,6 +254,14 @@ endpoint with no collector in between; `development.metrics` serves the same
 instruments at `/metrics` on the loopback server for a local scrape.
 `telemetry.profiles` sends CPU and standard heap profiles directly to a
 Pyroscope-compatible endpoint. All three gates are independent.
+
+Set `telemetry.host_id` to a stable unique id for the machine when telemetry
+from several machines needs one identity. Hive exports it as the OpenTelemetry
+`host.id` resource attribute and as the `host_id` profile label. It is distinct
+from `telemetry.instance_id`, which is the OTLP endpoint's basic-auth username.
+Hive never reads the machine id automatically. Each launch gets a random
+`service.instance.id`, so concurrent processes remain distinct while `host.id`
+correlates launches from the same machine.
 
 All three of `endpoint`, `instance_id` and `token` accept a **secret
 reference** (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources), so one 1Password item can hold a whole

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/grafana/pyroscope-go"
 	pyroscopepprof "github.com/grafana/pyroscope-go/http/pprof"
 	promclient "github.com/prometheus/client_golang/prometheus"
@@ -58,7 +59,9 @@ type Options struct {
 
 	Version     string
 	Environment string
-	Instance    string
+	HostID      string
+
+	serviceInstanceID string
 }
 
 // ProfilesOptions configures direct Pyroscope profile export.
@@ -153,6 +156,13 @@ func newProvider(ctx context.Context, opts Options, startProfiles profileStarter
 	}
 	if err := opts.validate(); err != nil {
 		return nil, err
+	}
+	if opts.serviceInstanceID == "" {
+		instanceID, err := uuid.NewRandom()
+		if err != nil {
+			return nil, fmt.Errorf("telemetry: generate service instance id: %w", err)
+		}
+		opts.serviceInstanceID = instanceID.String()
 	}
 
 	p := Off()
@@ -317,11 +327,12 @@ func profileConfig(opts Options) pyroscope.Config {
 }
 
 func profileTags(opts Options) map[string]string {
-	tags := make(map[string]string, 3)
+	tags := make(map[string]string, 4)
 	for key, value := range map[string]string{
 		"service_version":             opts.Version,
-		"service_instance_id":         opts.Instance,
+		"service_instance_id":         opts.serviceInstanceID,
 		"deployment_environment_name": opts.Environment,
+		"host_id":                     opts.HostID,
 	} {
 		if value != "" {
 			tags[key] = value

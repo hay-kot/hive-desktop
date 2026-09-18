@@ -19,11 +19,13 @@ var (
 	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental);
 	// version 3 drops `skills`, the retired global installer's configuration
 	// (ADR skills-are-declared-by-a-workspace); version 4 turns the terminal
-	// status bar on in every existing file, once.
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 4, AllowMissingVersion: true, Migrations: []Migration{
+	// status bar on in every existing file, once; version 5 drops the development
+	// instance id after service.instance.id becomes a per-launch UUID.
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 5, AllowMissingVersion: true, Migrations: []Migration{
 		{To: 2, Migrate: dropExperimentalSection},
 		{To: 3, Migrate: dropSkillsSection},
 		{To: 4, Migrate: showTerminalStatusBar},
+		{To: 5, Migrate: dropDevelopmentInstance},
 	}}
 	FlowSet    = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet = Set{Name: "actions", Baseline: 1, Current: 1}
@@ -149,6 +151,17 @@ func showTerminalStatusBar(doc map[string]any) error {
 		return nil
 	}
 	appearance["terminal_show_status_bar"] = true
+	return nil
+}
+
+// dropDevelopmentInstance removes the stable identifier that was incorrectly
+// exported as the identity of each running service process.
+func dropDevelopmentInstance(doc map[string]any) error {
+	development, ok := doc["development"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	delete(development, "instance")
 	return nil
 }
 
