@@ -117,11 +117,9 @@ type App struct {
 	// Perf records UI spans to a JSONL file when development.perf.enabled is
 	// on. Always non-nil; a disabled recorder is a no-op (ADR ui-performance-spans-are-recorded-to-jsonl).
 	Perf *PerfService
-	// Observability owns runtime sampling and the user-configured telemetry
-	// export projection.
+	// Observability owns process sampling and telemetry startup status.
 	Observability *ObservabilityService
-	// DevTools gates the developer-only diagnostic pane.
-	DevTools *DevToolsService
+	DevTools      *DevToolsService
 	// Sources runs ingestion on demand — the refresh a user pressed, and the
 	// one a flow edit earns.
 	Sources *SourcesService

@@ -18,8 +18,8 @@ type TelemetryRuntime struct {
 	StartError      string
 }
 
-// ExportStatus reports the saved gate, configuration readiness, and this
-// process's startup state for one telemetry destination.
+// ExportStatus distinguishes valid local configuration from exporter startup.
+// Running does not confirm that the backend accepted data.
 type ExportStatus struct {
 	Enabled         bool
 	Configured      bool
@@ -27,14 +27,12 @@ type ExportStatus struct {
 	RestartRequired bool
 }
 
-// ObservabilitySettings reports the two telemetry export destinations.
 type ObservabilitySettings struct {
 	OTLP       ExportStatus
 	Profiles   ExportStatus
 	StartError string
 }
 
-// ObservabilityService owns runtime sampling and telemetry settings status.
 type ObservabilityService struct {
 	store   *settings.Store
 	sampler *procstats.Sampler
@@ -54,12 +52,10 @@ func newObservabilityService(store *settings.Store, startup settings.TelemetrySe
 	}
 }
 
-// Stats samples the app process, its child processes, and the Go runtime.
 func (s *ObservabilityService) Stats(ctx context.Context) (procstats.Stats, error) {
 	return s.sampler.Sample(ctx)
 }
 
-// Settings returns effective telemetry configuration and startup status.
 func (s *ObservabilityService) Settings(context.Context) (ObservabilitySettings, error) {
 	cfg, err := s.store.Effective()
 	if err != nil {

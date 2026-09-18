@@ -165,7 +165,8 @@ export interface EditorSettings {
 }
 
 /**
- * ExportStatus reports one telemetry destination.
+ * ExportStatus distinguishes valid local configuration from exporter startup.
+ * Running does not confirm that the backend accepted data.
  */
 export interface ExportStatus {
     "enabled": boolean;
@@ -284,9 +285,6 @@ export interface NotifyInput {
     "data": { [_ in string]?: any } | null;
 }
 
-/**
- * ObservabilitySettings combines both export destinations with startup errors.
- */
 export interface ObservabilitySettings {
     "otlp": ExportStatus;
     "profiles": ExportStatus;
@@ -419,9 +417,6 @@ export interface ReportResult {
     "dir": string;
 }
 
-/**
- * RuntimeStats is the frontend-facing process-tree and Go runtime sample.
- */
 export interface RuntimeStats {
     "sampledAtUnixMs": number;
     "uptimeMs": number;

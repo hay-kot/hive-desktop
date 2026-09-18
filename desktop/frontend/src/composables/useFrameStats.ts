@@ -163,11 +163,8 @@ function onVisibility(): void {
   document.hidden ? detach() : attach()
 }
 
-/**
- * Start sampling frame times and event-loop lag while Observability is open.
- * Keeping the requestAnimationFrame loop page-scoped lets the webview idle when
- * nobody is looking at the dashboard.
- */
+// The dashboard scopes this requestAnimationFrame loop to its mount lifecycle
+// so the webview can idle after the page closes.
 export function startFrameStats(): void {
   if (running.value) return
   running.value = true
