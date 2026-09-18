@@ -163,14 +163,8 @@ function onVisibility(): void {
   document.hidden ? detach() : attach()
 }
 
-/**
- * Start sampling frame times and event-loop lag for the whole app.
- *
- * Started at boot rather than when the developer-tools pane opens: the jank
- * worth catching happens in the terminal or a long feed, and a sampler that
- * only runs on the pane measures the pane. The pane reads the rolling window
- * afterwards.
- */
+// The dashboard scopes this requestAnimationFrame loop to its mount lifecycle
+// so the webview can idle after the page closes.
 export function startFrameStats(): void {
   if (running.value) return
   running.value = true

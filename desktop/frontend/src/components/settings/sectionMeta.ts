@@ -11,6 +11,7 @@ import IconInfo from '~icons/lucide/info'
 import IconSliders from '~icons/lucide/sliders-horizontal'
 import IconZap from '~icons/lucide/zap'
 import IconBoxes from '~icons/lucide/boxes'
+import IconActivity from '~icons/lucide/activity'
 import type { ApplicationSettingsSection } from '../../router'
 
 // Keyed by section id and ordered by router.ts's applicationSettingsSections,
@@ -31,5 +32,6 @@ export const applicationSettingsSectionMeta: Record<
   hive: { label: 'Hive CLI', title: 'Hive CLI', icon: IconBoxes },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
+  observability: { label: 'Observability', title: 'Observability', icon: IconActivity },
   about: { label: 'About', title: 'About', icon: IconInfo },
 }

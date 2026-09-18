@@ -80,7 +80,8 @@ describe('SettingsView', () => {
     const rendered = wrapper.findAll('[data-testid^="settings-category-"]')
       .map((item) => item.attributes('data-testid')!.replace('settings-category-', ''))
 
-    expect(rendered.sort()).toEqual([...applicationSettingsSections].sort())
+    expect(rendered.slice(-3)).toEqual(['system', 'observability', 'about'])
+    expect([...rendered].sort()).toEqual([...applicationSettingsSections].sort())
     expect(new Set(rendered).size).toBe(rendered.length)
   })
 

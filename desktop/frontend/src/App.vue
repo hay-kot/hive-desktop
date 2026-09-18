@@ -38,7 +38,6 @@ import { useCommandPalette } from './composables/useCommands'
 import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
 import { useDevTools } from './composables/useDevTools'
-import { startFrameStats } from './composables/useFrameStats'
 import { useReleaseNotes } from './composables/useReleaseNotes'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
@@ -557,16 +556,9 @@ function toastSeverity(severity: string): 'info' | 'success' | 'warning' | 'erro
 }
 onMounted(() => {
   // /dev is a real route in every build, so a shipped one that was not asked to
-  // expose the tools sends it back to the feed once the gate answers. The frame
-  // sampler starts with it rather than with the pane: the jank worth catching
-  // happens in the terminal or a long feed, so a sampler scoped to the pane
-  // would only ever measure the pane.
+  // expose the tools sends it back to the feed once the gate answers.
   void resolveDevTools().then((allowed) => {
-    if (!allowed) {
-      if (route.name === 'dev') void router.push({ name: 'feed' })
-      return
-    }
-    startFrameStats()
+    if (!allowed && route.name === 'dev') void router.push({ name: 'feed' })
   })
   // The Go flow engine commits before it announces, so this is the moment
   // membership claims and inbox items are readable — not log:appended, which
