@@ -24,9 +24,9 @@ export interface Event {
     "source"?: string;
 
     /**
-     * Metadata is opaque to storage and reserved for later enrichment (links,
-     * ids, counts). No emit site populates it yet; it round-trips through the
-     * reserved metadata column so a future write path needs no schema change.
+     * Metadata is opaque to storage. Keys under "link." are reserved for the
+     * Activity view's generic destinations; other keys carry event-specific
+     * data such as a retryable session draft.
      */
     "metadata"?: { [_ in string]?: string } | null;
 }

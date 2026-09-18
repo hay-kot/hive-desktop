@@ -350,8 +350,34 @@ func (w *Worker) process(ctx context.Context, row stores.OutputCommand) {
 	// command suppressed by settings or a cooldown) reports Attempted false —
 	// the Activity view records what happened, not what was considered.
 	if a.Type != ActionTypeLaunchSession && result.Attempted {
-		w.record(ctx, activity.AutoAction(actionLabel(a), a.ID, row.Key))
+		w.record(ctx, automaticActionActivity(a, row))
 	}
+}
+
+func automaticActionActivity(action actions.Action, row stores.OutputCommand) activity.Event {
+	target := row.Key
+	link := activity.Link{}
+	if action.Type == ActionTypeNotify {
+		target = ""
+		var command models.NotifyCommand
+		if json.Unmarshal(row.Payload, &command) == nil {
+			target = command.ExternalID
+			var item struct {
+				URL string `json:"url"`
+			}
+			_ = json.Unmarshal(command.Item, &item)
+			link.URL = item.URL
+			if command.ProfileID != "" && command.ExternalID != "" {
+				link.Item = &activity.ItemLink{
+					ProfileID:   command.ProfileID,
+					SourceKind:  command.SourceKind,
+					SourceScope: command.SourceScope,
+					ExternalID:  command.ExternalID,
+				}
+			}
+		}
+	}
+	return activity.AutoAction(actionLabel(action), action.ID, target).WithLink(link)
 }
 
 // actionLabel is the human name for an action in activity copy, falling back

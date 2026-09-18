@@ -37,6 +37,10 @@ func (s *PipelineService) ListTrash(ctx context.Context, profileID string, limit
 	return s.inbox.ListTrash(ctx, profileID, limit)
 }
 
+func (s *PipelineService) FindItems(ctx context.Context, profileID, externalID string) ([]stores.InboxItem, error) {
+	return s.inbox.FindItems(ctx, profileID, externalID)
+}
+
 func (s *PipelineService) Feed(ctx context.Context, profileID string, itemID int64) (string, error) {
 	return s.inbox.Feed(ctx, profileID, itemID)
 }

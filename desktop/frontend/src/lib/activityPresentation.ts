@@ -14,6 +14,37 @@ export interface ActivityFilter {
   label: string
 }
 
+export interface ActivityItemLink {
+  profileId: string
+  sourceKind: string
+  sourceScope: string
+  externalId: string
+}
+
+export interface ActivityLinks {
+  url: string
+  item: ActivityItemLink | null
+}
+
+// The "link." metadata namespace is shared by every activity emit site. A URL
+// opens outside Hive; the four item fields form one stable inbox reference.
+export function activityLinks(event: ActivityEvent): ActivityLinks {
+  const metadata = event.metadata
+  const profileId = metadata?.['link.item.profileId'] ?? ''
+  const externalId = metadata?.['link.item.externalId'] ?? ''
+  return {
+    url: metadata?.['link.url'] ?? '',
+    item: profileId && externalId
+      ? {
+          profileId,
+          sourceKind: metadata?.['link.item.sourceKind'] ?? '',
+          sourceScope: metadata?.['link.item.sourceScope'] ?? '',
+          externalId,
+        }
+      : null,
+  }
+}
+
 // The segmented filter control, in order. Labels stay short so the whole
 // control reads as one object (design 15a).
 export const ACTIVITY_FILTERS: ActivityFilter[] = [

@@ -7,6 +7,7 @@ import { resetNewSessionForTests } from '../composables/useNewSession'
 import { resetToastsForTests } from '../composables/useToasts'
 import { requestedEditorFilter } from '../keybindings/keymapRows'
 import { useReportDialog } from '../composables/useReportDialog'
+import { useActivity } from '../composables/useActivity'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
 import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
 import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/usePopupTerminal'
@@ -49,6 +50,8 @@ const mocks = vi.hoisted(() => ({
   ListByFeed: vi.fn(),
   ListArchivedByFeed: vi.fn(),
   ListTrash: vi.fn(),
+  FindItems: vi.fn(),
+  Feed: vi.fn(),
   FeedCounts: vi.fn(),
   SetUnread: vi.fn(),
   ToggleArchived: vi.fn(),
@@ -132,6 +135,8 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   ListByFeed: mocks.ListByFeed,
   ListArchivedByFeed: mocks.ListArchivedByFeed,
   ListTrash: mocks.ListTrash,
+  FindItems: mocks.FindItems,
+  Feed: mocks.Feed,
   FeedCounts: mocks.FeedCounts,
   SetUnread: mocks.SetUnread,
   ToggleArchived: mocks.ToggleArchived,
@@ -342,6 +347,8 @@ describe('App', () => {
     mocks.ListByFeed.mockResolvedValue([])
     mocks.ListArchivedByFeed.mockResolvedValue([])
     mocks.ListTrash.mockResolvedValue([])
+    mocks.FindItems.mockResolvedValue([])
+    mocks.Feed.mockResolvedValue('')
     mocks.FeedCounts.mockResolvedValue([{ feedId: 'personal/desktop', total: 1, unread: 0, archived: 0 }])
     mocks.Events.mockResolvedValue([])
     mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' })
@@ -2521,6 +2528,46 @@ describe('App', () => {
     await flushPromises()
     expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
     expect(router.currentRoute.value.name).toBe('application-settings')
+
+    wrapper.unmount()
+  })
+
+  it('resolves an Activity item link and reveals the matching inbox row', async () => {
+    const linkedItem = {
+      ...inboxItems()[0],
+      externalId: 'acme/app#1',
+      sourceScope: 'acme/app',
+      url: 'https://github.com/acme/app/pull/1',
+    }
+    mocks.ActivityList.mockResolvedValue([{
+      id: 10,
+      createdAt: Date.now(),
+      category: 'auto_action',
+      severity: 'auto',
+      title: 'Auto-action · My PR approved',
+      metadata: {
+        'link.item.profileId': 'personal',
+        'link.item.sourceKind': 'github',
+        'link.item.sourceScope': 'acme/app',
+        'link.item.externalId': 'acme/app#1',
+      },
+    }])
+    mocks.FindItems.mockResolvedValue([linkedItem])
+    mocks.Feed.mockResolvedValue('personal/desktop')
+    mocks.ListByFeed.mockResolvedValue([linkedItem])
+    await useActivity().load()
+
+    const { wrapper, router } = await mountAppWithRouter()
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="activity-open-item-10"]')?.click()
+    await flushPromises()
+
+    expect(mocks.FindItems).toHaveBeenCalledWith('personal', 'acme/app#1')
+    expect(mocks.Feed).toHaveBeenCalledWith('personal', linkedItem.id)
+    expect(router.currentRoute.value.name).toBe('feed')
+    expect(router.currentRoute.value.query).toEqual({ feed: 'personal/desktop', item: String(linkedItem.id) })
+    expect(document.querySelector('[data-testid="activity-overlay"]')).toBeNull()
 
     wrapper.unmount()
   })

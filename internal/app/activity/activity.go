@@ -11,7 +11,10 @@
 // formatting.
 package activity
 
-import "fmt"
+import (
+	"fmt"
+	"maps"
+)
 
 // Category is the semantic bucket of an event. It drives the Activity view's
 // filter pills and, for non-error events, the row's icon and accent color.
@@ -37,10 +40,56 @@ type Event struct {
 	Title     string   `json:"title"`
 	Body      string   `json:"body,omitempty"`
 	Source    string   `json:"source,omitempty"`
-	// Metadata is opaque to storage and reserved for later enrichment (links,
-	// ids, counts). No emit site populates it yet; it round-trips through the
-	// reserved metadata column so a future write path needs no schema change.
+	// Metadata is opaque to storage. Keys under "link." are reserved for the
+	// Activity view's generic destinations; other keys carry event-specific
+	// data such as a retryable session draft.
 	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+// Link metadata uses link.url for an external destination and the
+// link.item.* group for one internal inbox reference.
+const (
+	MetadataLinkURL             = "link.url"
+	MetadataLinkItemProfileID   = "link.item.profileId"
+	MetadataLinkItemSourceKind  = "link.item.sourceKind"
+	MetadataLinkItemSourceScope = "link.item.sourceScope"
+	MetadataLinkItemExternalID  = "link.item.externalId"
+)
+
+// Link declares the destinations associated with an activity event. URL opens
+// outside the app. Item identifies an inbox row to select inside the app.
+type Link struct {
+	URL  string
+	Item *ItemLink
+}
+
+// ItemLink is the stable source identity of an inbox item. All fields travel
+// together because an external id can be repeated across profiles and sources.
+type ItemLink struct {
+	ProfileID   string
+	SourceKind  string
+	SourceScope string
+	ExternalID  string
+}
+
+// WithLink adds the generic link metadata the Activity view understands.
+func (e Event) WithLink(link Link) Event {
+	if link.URL == "" && link.Item == nil {
+		return e
+	}
+	metadata := make(map[string]string, len(e.Metadata)+5)
+	maps.Copy(metadata, e.Metadata)
+	if link.URL != "" {
+		metadata[MetadataLinkURL] = link.URL
+	}
+	if link.Item != nil {
+		metadata[MetadataLinkItemProfileID] = link.Item.ProfileID
+		metadata[MetadataLinkItemSourceKind] = link.Item.SourceKind
+		metadata[MetadataLinkItemSourceScope] = link.Item.SourceScope
+		metadata[MetadataLinkItemExternalID] = link.Item.ExternalID
+	}
+	e.Metadata = metadata
+	return e
 }
 
 // RefreshFailed records a source refresh that errored, capturing the reason

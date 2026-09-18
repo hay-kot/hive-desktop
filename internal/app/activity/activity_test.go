@@ -29,6 +29,31 @@ func TestConstructors(t *testing.T) {
 	}
 }
 
+func TestEventWithLinkPreservesOtherMetadata(t *testing.T) {
+	event := Event{Metadata: map[string]string{"retry": "session-create"}}.WithLink(Link{
+		URL: "https://github.com/acme/api/pull/12",
+		Item: &ItemLink{
+			ProfileID:   "triage",
+			SourceKind:  "github",
+			SourceScope: "acme/api",
+			ExternalID:  "acme/api#12",
+		},
+	})
+
+	require.Equal(t, map[string]string{
+		"retry":                     "session-create",
+		MetadataLinkURL:             "https://github.com/acme/api/pull/12",
+		MetadataLinkItemProfileID:   "triage",
+		MetadataLinkItemSourceKind:  "github",
+		MetadataLinkItemSourceScope: "acme/api",
+		MetadataLinkItemExternalID:  "acme/api#12",
+	}, event.Metadata)
+}
+
+func TestEventWithEmptyLinkLeavesMetadataNil(t *testing.T) {
+	require.Nil(t, (Event{}).WithLink(Link{}).Metadata)
+}
+
 func TestRecordInputEvent(t *testing.T) {
 	ev, err := RecordInput{Title: "Profile deleted", Severity: "success"}.Event()
 	require.NoError(t, err)

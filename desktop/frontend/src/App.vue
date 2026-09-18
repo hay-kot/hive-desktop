@@ -59,7 +59,7 @@ import { useAppPaletteRows } from './composables/useAppPaletteRows'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
-import { Feed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import { Feed, FindItems } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
   isApplicationSettingsSection,
@@ -69,6 +69,7 @@ import {
 } from './router'
 import type { SidebarSelection } from './types/feed'
 import { kind } from './lib/itemPresentation'
+import type { ActivityItemLink } from './lib/activityPresentation'
 
 // Only true when Vite is serving in dev mode (under `wails3 dev`). The dev
 // strip is that build's own chrome and never ships; the developer tools behind
@@ -497,6 +498,19 @@ function openErrorNode(): void {
   if (firstErrorNodeId.value) openFlows(firstErrorNodeId.value)
 }
 
+async function revealInboxItem(profileId: string, itemId: number): Promise<void> {
+  let feedId = ''
+  try {
+    feedId = (await Feed(profileId, itemId)) ?? ''
+  } catch (error) {
+    console.warn('Unable to locate the inbox item', error)
+  }
+  const query: Record<string, string> = { item: String(itemId) }
+  if (feedId) query.feed = feedId
+  else query.view = 'trash'
+  await router.push({ name: 'feed', params: { profileId }, query })
+}
+
 // A clicked notification arrives with the profile and item it was sent
 // about (see the notify node). The window is already raised by the time this
 // fires; routing to a feed route that reveals the item is all that is left.
@@ -509,16 +523,23 @@ async function revealNotification(activation: NotificationActivation): Promise<v
     openFeed(profileId)
     return
   }
-  let feedId = ''
+  await revealInboxItem(profileId, itemId)
+}
+
+async function openActivityItem(link: ActivityItemLink): Promise<void> {
   try {
-    feedId = (await Feed(profileId, itemId)) ?? ''
+    const candidates = (await FindItems(link.profileId, link.externalId)) ?? []
+    const exact = candidates.find((item) => item.sourceKind === link.sourceKind && item.sourceScope === link.sourceScope)
+    const item = exact ?? (candidates.length === 1 ? candidates[0] : undefined)
+    if (!item) {
+      showToast('Could not find the linked item', { severity: 'error' })
+      return
+    }
+    await revealInboxItem(link.profileId, item.id)
   } catch (error) {
-    console.warn('Unable to locate the notified item', error)
+    console.warn('Unable to open the linked activity item', error)
+    showToast('Could not open the linked item', { severity: 'error' })
   }
-  const query: Record<string, string> = { item: String(itemId) }
-  if (feedId) query.feed = feedId
-  else query.view = 'trash'
-  void router.push({ name: 'feed', params: { profileId }, query })
 }
 
 let unsubscribeInbox: (() => void) | undefined
@@ -1612,7 +1633,7 @@ onUnmounted(() => {
       @confirm="confirmDeleteProfile"
     />
     <TasksOverlay v-if="tasksOpen" @close="tasksOpen = false" />
-    <ActivityOverlay v-if="activityOpen" @close="activityOpen = false" />
+    <ActivityOverlay v-if="activityOpen" @close="activityOpen = false" @open-url="openUrl" @open-item="openActivityItem" />
     <!-- Deploying from this modal can raise the error dialog. Only one is
          rendered at a time: BaseModal closes on any Escape, so stacked
          overlays would both take a single keypress and drop the guard along

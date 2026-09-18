@@ -1,17 +1,27 @@
 package dispatch
 
 import (
+	"context"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/data/models"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 )
+
+type notifyActivityRecorder struct {
+	events []activity.Event
+}
+
+func (r *notifyActivityRecorder) Record(_ context.Context, event activity.Event) {
+	r.events = append(r.events, event)
+}
 
 // The whole notify path, end to end through the production seams a flow
 // actually uses: the graph runtime's commit, the durable queue, the worker's
@@ -25,7 +35,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 
 	item, err := stores.NewSeed(db).InboxItem(ctx, stores.InboxItem{
 		ProfileID: "triage", SourceKind: "github", SourceScope: "src", ExternalID: "acme/api#12",
-		Payload: []byte(`{"repo":"acme/api","title":"Fix the flake"}`), Lifecycle: "active",
+		Payload: []byte(`{"repo":"acme/api","title":"Fix the flake","url":"https://github.com/acme/api/pull/12"}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
 
@@ -41,6 +51,8 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 		ActionTypeNotify: NewNotifyExecutor(notifier, openGate(), stores.New(db, stores.Options{}).InboxItems, zerolog.Nop()),
 	})
 	worker := NewWorker(testOutputCommands(db), NewFlowNotifyActions(flows, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
+	activityRecorder := &notifyActivityRecorder{}
+	worker.SetRecorder(activityRecorder)
 
 	// What the graph runtime (internal/app/runtime) commits for a message
 	// reaching a notify terminal.
@@ -55,7 +67,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 				SourceKind:    "github",
 				SourceScope:   "src",
 				SourceTopic:   "source:triage/src",
-				Payload:       []byte(`{"repo":"acme/api","title":"Fix the flake"}`),
+				Payload:       []byte(`{"repo":"acme/api","title":"Fix the flake","url":"https://github.com/acme/api/pull/12"}`),
 			}},
 		}))
 	}
@@ -68,6 +80,15 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	assert.Equal(t, "Fix the flake", notifier.sent[0].Body)
 	assert.Equal(t, map[string]any{"profileId": "triage", "itemId": item.ID}, notifier.sent[0].Data,
 		"the notification must carry the item a click should reveal")
+	require.Len(t, activityRecorder.events, 1)
+	assert.Equal(t, "rule notify:triage/tell-me · acme/api#12 · no confirmation required", activityRecorder.events[0].Body)
+	assert.Equal(t, map[string]string{
+		activity.MetadataLinkURL:             "https://github.com/acme/api/pull/12",
+		activity.MetadataLinkItemProfileID:   "triage",
+		activity.MetadataLinkItemSourceKind:  "github",
+		activity.MetadataLinkItemSourceScope: "src",
+		activity.MetadataLinkItemExternalID:  "acme/api#12",
+	}, activityRecorder.events[0].Metadata)
 
 	// The command is terminal, so a second tick cannot re-fire it.
 	worker.Tick(ctx)

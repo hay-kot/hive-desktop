@@ -159,6 +159,47 @@ describe('ActivityView', () => {
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 
+  it('offers keyboard-reachable internal and external links from event metadata', async () => {
+    const linked: ActivityEvent = {
+      id: 10,
+      createdAt: Date.now(),
+      category: 'auto_action',
+      severity: 'auto',
+      title: 'Auto-action · My PR approved',
+      metadata: {
+        'link.url': 'https://github.com/grafana/adaptive-telemetry-archive-replay/pull/227',
+        'link.item.profileId': 'triage',
+        'link.item.sourceKind': 'github',
+        'link.item.sourceScope': 'grafana/adaptive-telemetry-archive-replay',
+        'link.item.externalId': 'grafana/adaptive-telemetry-archive-replay#227',
+      },
+    }
+    events.value = [linked]
+    const wrapper = mount(ActivityView)
+
+    const itemButton = wrapper.get('[data-testid="activity-open-item-10"]')
+    const urlButton = wrapper.get('[data-testid="activity-open-url-10"]')
+    expect(itemButton.element.tagName).toBe('BUTTON')
+    expect(urlButton.element.tagName).toBe('BUTTON')
+
+    await itemButton.trigger('click')
+    await urlButton.trigger('click')
+    expect(wrapper.emitted('open-item')).toEqual([[{
+      profileId: 'triage',
+      sourceKind: 'github',
+      sourceScope: 'grafana/adaptive-telemetry-archive-replay',
+      externalId: 'grafana/adaptive-telemetry-archive-replay#227',
+    }]])
+    expect(wrapper.emitted('open-url')).toEqual([['https://github.com/grafana/adaptive-telemetry-archive-replay/pull/227']])
+  })
+
+  it('does not render link controls for an event without link metadata', () => {
+    events.value = seed()
+    const wrapper = mount(ActivityView)
+    expect(wrapper.find('[data-testid^="activity-open-item-"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid^="activity-open-url-"]').exists()).toBe(false)
+  })
+
   it('offers Retry only on a row that carries a form, and forwards its metadata untouched', async () => {
     events.value = [failedCreate, ...seed()]
     const wrapper = mount(ActivityView)
