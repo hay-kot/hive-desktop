@@ -47,6 +47,10 @@ export function FeedCounts(profileID: string): $CancellablePromise<stores$0.Feed
     return $Call.ByID(444584149, profileID);
 }
 
+export function FindItems(profileID: string, externalID: string): $CancellablePromise<stores$0.InboxItem[] | null> {
+    return $Call.ByID(4083469462, profileID, externalID);
+}
+
 export function InvokeAction(actionID: string, itemID: number, input: dispatch$0.ActionInvocationInput): $CancellablePromise<dispatch$0.ActionRunView> {
     return $Call.ByID(1680026695, actionID, itemID, input);
 }

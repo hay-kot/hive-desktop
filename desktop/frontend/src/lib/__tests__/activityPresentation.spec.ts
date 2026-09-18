@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Event as ActivityEvent } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/activity/models'
 import {
+  activityLinks,
   eventStyleKey,
   filterCounts,
   groupEventsByDay,
@@ -18,6 +19,28 @@ function event(partial: Partial<ActivityEvent> & { id: number }): ActivityEvent 
     ...partial,
   }
 }
+
+describe('activityLinks', () => {
+  it('decodes external and internal destinations from the generic metadata namespace', () => {
+    expect(activityLinks(event({
+      id: 1,
+      metadata: {
+        'link.url': 'https://github.com/acme/api/pull/12',
+        'link.item.profileId': 'triage',
+        'link.item.sourceKind': 'github',
+        'link.item.sourceScope': 'acme/api',
+        'link.item.externalId': 'acme/api#12',
+      },
+    }))).toEqual({
+      url: 'https://github.com/acme/api/pull/12',
+      item: { profileId: 'triage', sourceKind: 'github', sourceScope: 'acme/api', externalId: 'acme/api#12' },
+    })
+  })
+
+  it('leaves an event with no link inert', () => {
+    expect(activityLinks(event({ id: 1 }))).toEqual({ url: '', item: null })
+  })
+})
 
 describe('eventStyleKey', () => {
   it('resolves error severity ahead of category', () => {

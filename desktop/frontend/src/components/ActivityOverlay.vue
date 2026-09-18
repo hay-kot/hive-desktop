@@ -17,13 +17,23 @@ import ActivityView from './ActivityView.vue'
 import { useAutofocus } from '../composables/useAutofocus'
 import { useFocusTrap } from '../composables/useFocusTrap'
 import { useReturnFocus } from '../composables/useReturnFocus'
+import type { ActivityItemLink } from '../lib/activityPresentation'
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  'open-url': [url: string]
+  'open-item': [item: ActivityItemLink]
+}>()
 
 const panel = ref<HTMLElement | null>(null)
 
 function close(): void {
   emit('close')
+}
+
+function openItem(item: ActivityItemLink): void {
+  emit('open-item', item)
+  close()
 }
 
 const { onKeydown: trapFocus } = useFocusTrap(panel)
@@ -51,7 +61,7 @@ useAutofocus(panel)
         tabindex="-1"
         @keydown="trapFocus"
       >
-        <ActivityView @close="close" />
+        <ActivityView @close="close" @open-url="emit('open-url', $event)" @open-item="openItem" />
       </div>
     </div>
   </Teleport>

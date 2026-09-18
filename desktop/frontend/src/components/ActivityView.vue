@@ -8,6 +8,7 @@
 // only reads and presents them. Shown in ActivityOverlay, opened from the
 // titlebar Activity icon.
 import { computed, onMounted, ref } from 'vue'
+import IconExternalLink from '~icons/lucide/external-link'
 import IconSearch from '~icons/lucide/search'
 import IconX from '~icons/lucide/x'
 import { useActivity } from '../composables/useActivity'
@@ -16,6 +17,7 @@ import { useEscapeToClose } from '../composables/useEscapeToClose'
 import ViewHeader from './settings/ViewHeader.vue'
 import {
   ACTIVITY_FILTERS,
+  activityLinks,
   eventStyleKey,
   filterCounts,
   groupEventsByDay,
@@ -24,10 +26,15 @@ import {
   retryableSessionDraft,
   timeLabel,
   type ActivityFilterId,
+  type ActivityItemLink,
   type ActivityStyleKey,
 } from '../lib/activityPresentation'
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  'open-url': [url: string]
+  'open-item': [item: ActivityItemLink]
+}>()
 
 // Closing the overlay is part of the retry: the form it opens is a modal over
 // the view behind this one.
@@ -79,7 +86,7 @@ const STYLES: Record<ActivityStyleKey, { dot: string; rail: string }> = {
 const ledger = computed(() =>
   groups.value.map((group) => ({
     ...group,
-    rows: group.events.map((event) => ({ event, style: STYLES[eventStyleKey(event)] })),
+    rows: group.events.map((event) => ({ event, links: activityLinks(event), style: STYLES[eventStyleKey(event)] })),
   })),
 )
 
@@ -164,7 +171,7 @@ onMounted(() => {
         </div>
         <div class="divide-y divide-row">
           <div
-            v-for="{ event, style } in group.rows"
+            v-for="{ event, links, style } in group.rows"
             :key="event.id"
             class="flex px-5 py-2.5 transition-colors"
             :class="style.rail || 'hover:bg-row-hover'"
@@ -179,6 +186,22 @@ onMounted(() => {
                 <span v-if="event.source" class="font-mono text-text-4">{{ event.source }}</span>
               </div>
             </div>
+            <button
+              v-if="links.item"
+              type="button"
+              class="ml-3 shrink-0 cursor-pointer self-start rounded border border-strong px-2 py-1 text-[11.5px] text-text-2 hover:border-text-3 hover:text-text"
+              :aria-label="`View item for ${event.title}`"
+              :data-testid="`activity-open-item-${event.id}`"
+              @click="emit('open-item', links.item)"
+            >View item</button>
+            <button
+              v-if="links.url"
+              type="button"
+              class="ml-2 shrink-0 cursor-pointer self-start rounded border border-strong p-1 text-text-2 hover:border-text-3 hover:text-text"
+              :aria-label="`Open link for ${event.title} in browser`"
+              :data-testid="`activity-open-url-${event.id}`"
+              @click="emit('open-url', links.url)"
+            ><IconExternalLink class="size-3.5" /></button>
             <button
               v-if="retryableSessionDraft(event)"
               type="button"
