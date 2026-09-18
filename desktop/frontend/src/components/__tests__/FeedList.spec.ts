@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import FeedList from '../FeedList.vue'
+import type { ActionView } from '../../types/action'
 import type { InboxItem } from '../../types/feed'
 
 function item(id: number, title: string, unread = false): InboxItem {
@@ -14,8 +15,8 @@ const longAgo = 400 * day
 const aged = (id: number, ageMs: number): InboxItem => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
 const dividerLabels = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="feed-date-label"]').map((label) => label.text())
 
-function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null; refreshing: boolean; selectionMode: boolean; selectedItemIds: number[] }> = {}) {
-  return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', sort: 'newest', loadError: null, refreshing: false, selectionMode: false, selectedItemIds: [], ...overrides } })
+function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null; refreshing: boolean; selectionMode: boolean; selectedItemIds: number[]; selectionActions: ActionView[] }> = {}) {
+  return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', sort: 'newest', loadError: null, refreshing: false, selectionMode: false, selectedItemIds: [], selectionActions: [], ...overrides } })
 }
 
 describe('FeedList', () => {
@@ -84,11 +85,29 @@ describe('FeedList', () => {
     expect(wrapper.emitted('enter-selection')).toHaveLength(1)
 
     await wrapper.setProps({ selectionMode: true, selectedItemIds: [1, 2] })
-    expect(wrapper.get('[data-testid="feed-selection-bar"]').text()).toContain('2 selected')
+    expect(wrapper.get('.selection-count').attributes('aria-label')).toBe('2 selected')
+    expect(wrapper.get('[data-testid="selection-copy-contents"]').attributes('title')).toBe('Copy contents')
+    expect(wrapper.get('[data-testid="selection-create-session"]').attributes('title')).toBe('Create session')
+    await wrapper.get('[data-testid="selection-copy-contents"]').trigger('click')
     await wrapper.get('[data-testid="selection-create-session"]').trigger('click')
     await wrapper.get('[data-testid="selection-cancel"]').trigger('click')
+    expect(wrapper.emitted('copy-selection-contents')).toHaveLength(1)
     expect(wrapper.emitted('create-session-from-selection')).toHaveLength(1)
     expect(wrapper.emitted('cancel-selection')).toHaveLength(1)
+  })
+
+  it('offers clipboard actions that apply to the whole selection', async () => {
+    const wrapper = mountList({
+      selectionMode: true,
+      selectedItemIds: [1, 2],
+      selectionActions: [{ id: 'copy-checkout', label: 'Copy checkout commands', type: 'clipboard', showInDetail: true, requiresSessionInput: false }],
+    })
+
+    await wrapper.get('[data-testid="selection-actions-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="selection-action-copy-checkout"]').trigger('click')
+
+    expect(wrapper.emitted('run-selection-action')).toEqual([['copy-checkout']])
+    expect(wrapper.find('[data-testid="selection-actions-menu"]').exists()).toBe(false)
   })
 
   it('shows refresh progress below the search controls', () => {

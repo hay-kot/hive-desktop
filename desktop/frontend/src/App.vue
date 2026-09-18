@@ -102,7 +102,7 @@ const {
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, sourceImages, visibleItems, unreadCount, search, loadError,
-  itemSelectionActive, selectedItemIDs, selectedItems, enterItemSelection, toggleItemSelection, cancelItemSelection,
+  itemSelectionActive, selectedItemIDs, selectedItems, selectionActions, enterItemSelection, toggleItemSelection, cancelItemSelection, copySelectedItemContents, invokeSelectionAction,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionInputsAction, actionInputsBusy, actionInputsError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
@@ -1496,6 +1496,7 @@ onUnmounted(() => {
               :refreshing="refreshingSources"
               :selection-mode="itemSelectionActive"
               :selected-item-ids="selectedItemIDs"
+              :selection-actions="selectionActions"
               :source-icons="sourceIcons"
               :source-images="sourceImages"
               @select="selectItem"
@@ -1510,6 +1511,8 @@ onUnmounted(() => {
               @enter-selection="enterItemSelection"
               @toggle-item-selection="toggleItemSelection"
               @cancel-selection="cancelItemSelection"
+              @copy-selection-contents="copySelectedItemContents"
+              @run-selection-action="invokeSelectionAction"
               @create-session-from-selection="openSelectedItemsSession"
               @item-set-unread="markItemUnread"
               @item-toggle-archive="toggleArchive"
@@ -1550,6 +1553,7 @@ onUnmounted(() => {
       :inputs="actionInputsAction.inputs ?? []"
       :busy="actionInputsBusy"
       :error="actionInputsError"
+      :submit-label="actionInputsAction.type === 'clipboard' ? 'Copy' : 'Run'"
       @close="cancelActionInputs"
       @submit="submitActionInputs"
     />

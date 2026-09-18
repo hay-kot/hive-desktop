@@ -176,6 +176,54 @@ describe('useFeedState', () => {
     expect(get().selectedItems.value.map((row) => row.id)).toEqual([1, 2, 3])
   })
 
+  it('copies selected item contents as one block in rendered feed order', async () => {
+    mocks.ListByFeed.mockResolvedValue([item(1), item(2)])
+    const get = mountState(); await flushPromises()
+    get().enterItemSelection(); get().toggleItemSelection(1); get().toggleItemSelection(2)
+
+    await get().copySelectedItemContents()
+
+    expect(mocks.SetText).toHaveBeenCalledWith(
+      'Item 2\nacme/app #2 · https://example.test/2\n\nbody 2\n\nItem 1\nacme/app #1 · https://example.test/1\n\nbody 1',
+    )
+    expect(get().toasts.value.at(-1)?.message).toBe('2 items copied')
+  })
+
+  it('loads common clipboard actions and renders one entry per selected item', async () => {
+    mocks.ListByFeed.mockResolvedValue([item(1), item(2)])
+    const copyAction = { id: 'copy-checkout', label: 'Copy checkout commands', type: 'clipboard', showInDetail: true, requiresSessionInput: false }
+    mocks.ActionViews.mockImplementation(async (itemID: number) => itemID === 1 ? [copyAction] : [copyAction, { ...copyAction, id: 'copy-url' }])
+    mocks.RenderClipboardAction.mockResolvedValue('checkout 2\n\ncheckout 1')
+    const get = mountState(); await flushPromises()
+    get().enterItemSelection(); get().toggleItemSelection(1); get().toggleItemSelection(2); await flushPromises()
+
+    expect(mocks.ActionViews).toHaveBeenCalledWith(2)
+    expect(mocks.ActionViews).toHaveBeenCalledWith(1)
+    expect(get().selectionActions.value.map((action) => action.id)).toEqual(['copy-checkout'])
+
+    await get().invokeSelectionAction('copy-checkout')
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('copy-checkout', [2, 1], {})
+    expect(mocks.SetText).toHaveBeenCalledWith('checkout 2\n\ncheckout 1')
+  })
+
+  it('collects clipboard action inputs once for the whole selection', async () => {
+    mocks.ListByFeed.mockResolvedValue([item(1), item(2)])
+    mocks.ActionViews.mockResolvedValue([{
+      id: 'silence', label: 'Silence alerts', type: 'clipboard', showInDetail: true, requiresSessionInput: false,
+      inputs: [{ name: 'reason', label: 'Reason', type: 'text', required: true, default: '', placeholder: '', options: null }],
+    }])
+    mocks.RenderClipboardAction.mockResolvedValue('silence 2\n\nsilence 1')
+    const get = mountState(); await flushPromises()
+    get().enterItemSelection(); get().toggleItemSelection(1); get().toggleItemSelection(2); await flushPromises()
+
+    await get().invokeSelectionAction('silence')
+    expect(mocks.RenderClipboardAction).not.toHaveBeenCalled()
+    expect(get().actionInputsAction.value?.id).toBe('silence')
+
+    await get().submitActionInputs({ reason: 'flapping' })
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('silence', [2, 1], { reason: 'flapping' })
+  })
+
   it('preserves selection on same-destination reloads and prunes items that disappear', async () => {
     mocks.ListByFeed.mockResolvedValue([item(2), item(1)])
     const get = mountState(); await flushPromises()
@@ -397,7 +445,7 @@ describe('useFeedState', () => {
     mocks.RenderClipboardAction.mockResolvedValue('gh pr checkout 7 -R acme/app')
     const get = mountState(); await flushPromises()
     await get().invokeAction('copy-checkout')
-    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('copy-checkout', 7, {})
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('copy-checkout', [7], {})
     expect(mocks.SetText).toHaveBeenCalledWith('gh pr checkout 7 -R acme/app')
     // A clipboard action never enqueues a durable command or records a run.
     expect(mocks.InvokeAction).not.toHaveBeenCalled()
@@ -468,7 +516,7 @@ describe('useFeedState', () => {
     await get().invokeAction('silence')
     expect(mocks.RenderClipboardAction).not.toHaveBeenCalled()
     await get().submitActionInputs({ reason: 'flapping' })
-    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('silence', 7, { reason: 'flapping' })
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('silence', [7], { reason: 'flapping' })
     expect(mocks.SetText).toHaveBeenCalledWith('amtool silence add # flapping')
     expect(mocks.InvokeAction).not.toHaveBeenCalled()
   })

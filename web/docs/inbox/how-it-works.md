@@ -22,9 +22,11 @@ Hive stores item history and read state locally. Changing a flow recalculates fe
 
 Use **Feed options** to sort a feed, refresh its sources, mark its items as read, or select multiple items.
 
-In selection mode, choose items and select **Create session**. Hive opens one editable New Session form with context from every selected item in feed order. Items can come from different repositories; choose the repository in the form when Hive cannot derive one shared repository. After creation, the session appears in each selected item's detail pane.
+In selection mode, choose items and use **Copy contents** to copy one readable block in feed order. **Copy with action** applies a configured clipboard action to every selected item.
 
-Selections remain active while you search, filter, sort, or cancel the New Session form. Select **Cancel** in the selection bar to clear them.
+Select **Create session** to open one editable New Session form with context from every selected item. Items can come from different repositories; choose the repository in the form when Hive cannot derive one shared repository. After creation, the session appears in each selected item's detail pane.
+
+Selections remain active while you search, filter, sort, copy, or cancel the New Session form. Use **Cancel selection** to clear them.
 
 ## The app areas
 
