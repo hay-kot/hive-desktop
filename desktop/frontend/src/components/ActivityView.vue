@@ -189,7 +189,7 @@ onMounted(() => {
             <button
               v-if="links.item"
               type="button"
-              class="ml-3 shrink-0 cursor-pointer self-start rounded border border-strong px-2 py-1 text-[11.5px] text-text-2 hover:border-text-3 hover:text-text"
+              class="ml-3 inline-flex h-7 shrink-0 cursor-pointer items-center rounded border border-strong px-2 text-[11.5px] text-text-2 hover:border-text-3 hover:text-text"
               :aria-label="`View item for ${event.title}`"
               :data-testid="`activity-open-item-${event.id}`"
               @click="emit('open-item', links.item)"
@@ -197,7 +197,7 @@ onMounted(() => {
             <button
               v-if="links.url"
               type="button"
-              class="ml-2 shrink-0 cursor-pointer self-start rounded border border-strong p-1 text-text-2 hover:border-text-3 hover:text-text"
+              class="ml-2 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded border border-strong text-text-2 hover:border-text-3 hover:text-text"
               :aria-label="`Open link for ${event.title} in browser`"
               :data-testid="`activity-open-url-${event.id}`"
               @click="emit('open-url', links.url)"
