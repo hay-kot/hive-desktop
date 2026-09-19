@@ -179,7 +179,8 @@ type Metadata struct {
 // PullSource produces the current state of one source as a sequence of
 // messages, calling emit once per item. Produce is called synchronously from
 // a producer tick and returns once every current item has been emitted, or
-// once fetching or an emit call fails.
+// once fetching or an emit call fails. A tick drains several instances at
+// once, so anything they share must be safe for concurrent use.
 //
 // A successful call is an authoritative snapshot, including an empty one: the
 // producer records the complete emitted key/payload set after it returns, and

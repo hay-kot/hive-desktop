@@ -529,6 +529,12 @@ specified rather than left to grow. ADR source-connector-registry records why.
   Every pull connector's config offers the floor as `interval`; a pull
   connector that does not is a source a user cannot slow down, and a registry
   test fails for it.
+- **A tick drains its due sources concurrently**, capped at
+  `drainConcurrency`, through `appkit/concurrency`, but writes one at a time:
+  SQLite has one writer, and the producer must not hold both pooled
+  connections the UI reads through. Prefetch still runs first and alone. One
+  source's failure never cancels another's drain. Whatever a connector's
+  instances share — a fetcher, a cache — must be safe for concurrent use.
 - **Two things outside the ticker drain the sources**, both through
   `app.SourcesService` and both forced. A user pressing refresh calls `Refresh`,
   which drops the fetch caches first: they asserted that something upstream
@@ -901,7 +907,8 @@ handler so an on-demand profile can share the process-wide CPU profiler (ADR
 continuous-profiles-are-pushed-directly-with-pyroscope).
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
-client with composable middleware, **adopted** — see below) and `mapx`.
+client with composable middleware, **adopted** — see below), `concurrency`
+(bounded fan-out, **adopted** by the producer tick) and `mapx`.
 
 ### Telemetry
 
