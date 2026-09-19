@@ -1012,6 +1012,11 @@ labels project the same service version, deployment environment, service
 instance identity, and optional host identity as the OTel resource and omit
 empty values.
 
+**Every signal has a panel in the reference dashboard.** `grafana/` holds it as
+gcx resources, and its README maps each instrument to the series a backend
+stores. A change that adds, renames, or removes an instrument, a trigger span,
+or a profile type updates the panel that reads it.
+
 ### Source HTTP
 
 **Every source client is built over `sources/sourcehttp`** (ADR source-http-toolkit), which
