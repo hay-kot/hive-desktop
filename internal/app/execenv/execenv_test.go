@@ -197,6 +197,36 @@ func TestEnvironPrefersThisProcessOverTheShell(t *testing.T) {
 	assert.Empty(t, optOut, "an explicit opt-out is not refilled by a startup file")
 }
 
+// The merge is reused across calls, which must not freeze it: the updater
+// redirects TMPDIR while it stages, and a child spawned then or after has to see
+// the environment as it is.
+func TestEnvironFollowsChangesToThisProcess(t *testing.T) {
+	t.Setenv("HIVE_EXECENV_LATER", "before")
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/opt/tools/bin"}, nil
+	}})
+	first := r.Environ(t.Context())
+	assert.Equal(t, "before", environMap(t, first)["HIVE_EXECENV_LATER"])
+
+	t.Setenv("HIVE_EXECENV_LATER", "after")
+
+	assert.Equal(t, "after", environMap(t, r.Environ(t.Context()))["HIVE_EXECENV_LATER"])
+	assert.Equal(t, "before", environMap(t, first)["HIVE_EXECENV_LATER"], "an earlier caller's slice is not rewritten")
+}
+
+// sources/exec appends a node's own variables to what Environ returns, so one
+// caller's append must never land in the next caller's environment.
+func TestEnvironAppendsDoNotLeakBetweenCallers(t *testing.T) {
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/opt/tools/bin"}, nil
+	}})
+
+	_ = append(r.Environ(t.Context()), "HIVE_EXECENV_NODE=one")
+
+	_, leaked := environMap(t, r.Environ(t.Context()))["HIVE_EXECENV_NODE"]
+	assert.False(t, leaked)
+}
+
 // These describe the probe shell's own session, not the child's. TMUX is the
 // one that does damage: it tells a spawned process it is inside a tmux client
 // that it is not.
