@@ -12,6 +12,7 @@
 // framed exactly like a hive one, just not discovered through hive.
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useDocumentVisibility } from '@vueuse/core'
 import { Browser } from '@wailsio/runtime'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -188,16 +189,28 @@ async function pollActivity(generation: number): Promise<void> {
   activityTimer = setTimeout(() => { void pollActivity(generation) }, ACTIVITY_POLL_MS)
 }
 
-function stopActivityPolling(): void {
+function haltActivityPolling(): void {
   ++activityGeneration
   clearTimeout(activityTimer)
   activityTimer = undefined
+}
+
+function stopActivityPolling(): void {
+  haltActivityPolling()
   sessionActivity.value = {}
 }
 
-watch(() => props.active, (active) => {
-  stopActivityPolling()
-  if (active) {
+// A hidden window is off-screen too: the poll parks, and the dots it last drew
+// stay up for the moment the window shows again.
+const visibility = useDocumentVisibility()
+
+watch([() => props.active, visibility], ([active, state]) => {
+  if (!active) {
+    stopActivityPolling()
+    return
+  }
+  haltActivityPolling()
+  if (state === 'visible') {
     const generation = ++activityGeneration
     void pollActivity(generation)
   }

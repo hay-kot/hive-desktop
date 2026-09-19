@@ -246,6 +246,12 @@ async function mountWithOpenChat(client = fakeClient()) {
   return { wrapper, router, client }
 }
 
+function setHidden(hidden: boolean): void {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => (hidden ? 'hidden' : 'visible') })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('AgentsMode', () => {
   beforeEach(() => {
     resetAgentWorkspacesForTests()
@@ -287,6 +293,30 @@ describe('AgentsMode', () => {
     const packages = wrapper.find('[data-testid="agents-missing-packages"]')
     expect(packages.exists()).toBe(true)
     expect(packages.text()).toBe('Missing skill packages: ghost')
+  })
+
+  it('parks the activity poll while the window is hidden and polls again when it shows', async () => {
+    const client = fakeClient()
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await mountAgentsMode()
+      await vi.advanceTimersByTimeAsync(2000)
+      const polled = client.activity.mock.calls.length
+      expect(polled).toBeGreaterThan(0)
+
+      setHidden(true)
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(client.activity).toHaveBeenCalledTimes(polled)
+
+      setHidden(false)
+      await flushPromises()
+      expect(client.activity).toHaveBeenCalledTimes(polled + 1)
+    } finally {
+      vi.useRealTimers()
+      setHidden(false)
+    }
   })
 
   it('keeps the same root and sidebar elements across an active toggle', async () => {

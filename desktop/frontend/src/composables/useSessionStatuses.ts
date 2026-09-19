@@ -15,6 +15,8 @@ let requestSequence = 0
 let pollGeneration = 0
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let activeRequest: ReturnType<typeof SessionStatuses> | undefined
+let pollingRequested = false
+let visibilityWatched = false
 
 function cancelActiveRequest(): void {
   const request = activeRequest
@@ -43,17 +45,33 @@ async function reload(): Promise<void> {
 
 async function poll(generation: number): Promise<void> {
   await reload()
-  if (generation !== pollGeneration) return
+  if (generation !== pollGeneration || document.hidden) return
   pollTimer = setTimeout(() => { void poll(generation) }, pollIntervalMs.value)
 }
 
-function startPolling(): void {
+function restartPoll(): void {
   clearTimeout(pollTimer)
   const generation = ++pollGeneration
   void poll(generation)
 }
 
+// Each poll walks the process table and spawns tmux, and nobody sees the dots
+// of a hidden window, so the loop parks until the window shows again.
+function onVisibilityChange(): void {
+  if (pollingRequested && !document.hidden) restartPoll()
+}
+
+function startPolling(): void {
+  pollingRequested = true
+  if (!visibilityWatched) {
+    visibilityWatched = true
+    document.addEventListener('visibilitychange', onVisibilityChange)
+  }
+  restartPoll()
+}
+
 function stopPolling(): void {
+  pollingRequested = false
   ++pollGeneration
   ++requestSequence
   clearTimeout(pollTimer)

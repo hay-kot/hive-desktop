@@ -7,6 +7,11 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   SessionStatuses: mocks.SessionStatuses,
 }))
 
+function setHidden(hidden: boolean): void {
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
 describe('useSessionStatuses', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -16,6 +21,7 @@ describe('useSessionStatuses', () => {
   afterEach(() => {
     resetSessionStatusesForTests()
     vi.useRealTimers()
+    setHidden(false)
   })
 
   it('indexes a snapshot by session and adopts Hive’s poll interval', async () => {
@@ -106,5 +112,42 @@ describe('useSessionStatuses', () => {
     stopPolling()
     await vi.advanceTimersByTimeAsync(100)
     expect(mocks.SessionStatuses).toHaveBeenCalledTimes(2)
+  })
+
+  it('parks the poll while the window is hidden and resumes at once when it shows', async () => {
+    vi.useFakeTimers()
+    mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 25 })
+    const { startPolling } = useSessionStatuses()
+
+    startPolling()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(1)
+
+    setHidden(true)
+    await vi.advanceTimersByTimeAsync(25)
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(2)
+
+    setHidden(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(3)
+    await vi.advanceTimersByTimeAsync(25)
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not resume on visibility when polling was stopped', async () => {
+    vi.useFakeTimers()
+    mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 25 })
+    const { startPolling, stopPolling } = useSessionStatuses()
+
+    startPolling()
+    await vi.advanceTimersByTimeAsync(0)
+    stopPolling()
+    setHidden(true)
+    setHidden(false)
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(1)
   })
 })
