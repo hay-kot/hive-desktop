@@ -31,6 +31,10 @@ RETURNING *;
 SELECT * FROM inbox_item
 WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?;
 
+-- name: GetInboxItemIDByExternalID :one
+SELECT id FROM inbox_item
+WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?;
+
 -- name: GetInboxItemByID :one
 SELECT * FROM inbox_item WHERE id = ?;
 

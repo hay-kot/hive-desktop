@@ -2,6 +2,7 @@ package stores
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -43,6 +44,34 @@ func TestInboxItemStore_IDByExternalID(t *testing.T) {
 		require.NoError(t, err, missing)
 		assert.Zero(t, got, missing)
 	}
+}
+
+// The commit path resolves ids only, and a pre-#63 unscoped row has to heal
+// onto its scope there exactly as it does through ResolveScoped.
+func TestInboxItemStore_ResolveScopedID(t *testing.T) {
+	st, db := openTestStores(t)
+	ctx := t.Context()
+	want := seedLookupItem(t, db, ctx, "item-1")
+
+	got, err := st.InboxItems.ResolveScopedID(ctx, "flow-1", "github", "source-a", "item-1")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+
+	_, err = st.InboxItems.ResolveScopedID(ctx, "flow-1", "github", "source-a", "item-missing")
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
+	legacy, err := db.InsertInboxItem(ctx, queries.InsertInboxItemParams{
+		ProfileID: "flow-1", SourceKind: "github", SourceScope: "", ExternalID: "item-legacy",
+		Payload: []byte(`{"v":1}`), Lifecycle: "active",
+	})
+	require.NoError(t, err)
+
+	got, err = st.InboxItems.ResolveScopedID(ctx, "flow-1", "github", "source-a", "item-legacy")
+	require.NoError(t, err)
+	assert.Equal(t, legacy.ID, got)
+	ref, err := st.InboxItems.RefByID(ctx, legacy.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "source-a", ref.SourceScope)
 }
 
 func TestInboxItemStore_FindByExternalID(t *testing.T) {

@@ -167,13 +167,26 @@ func (s *InboxItemStore) ResolveScoped(ctx context.Context, profileID, sourceKin
 	return s.mapper(legacy), nil
 }
 
+// ResolveScopedID is ResolveScoped for a caller that needs only the row id, so
+// a commit does not read the payload of every item its outputs name.
+func (s *InboxItemStore) ResolveScopedID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error) {
+	id, err := s.q.Ctx(ctx).GetInboxItemIDByExternalID(ctx, queries.GetInboxItemIDByExternalIDParams{
+		ProfileID: profileID, SourceKind: sourceKind, SourceScope: sourceScope, ExternalID: externalID,
+	})
+	if !errors.Is(err, sql.ErrNoRows) || sourceScope == "" {
+		return id, err
+	}
+	item, err := s.ResolveScoped(ctx, profileID, sourceKind, sourceScope, externalID)
+	return item.ID, err
+}
+
 // A missing identity returns (0, nil), because synthesized outputs may have
 // no inbox row to link.
 func (s *InboxItemStore) IDByExternalID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error) {
 	if externalID == "" {
 		return 0, nil
 	}
-	item, err := s.q.Ctx(ctx).GetInboxItemByExternalID(ctx, queries.GetInboxItemByExternalIDParams{
+	id, err := s.q.Ctx(ctx).GetInboxItemIDByExternalID(ctx, queries.GetInboxItemIDByExternalIDParams{
 		ProfileID: profileID, SourceKind: sourceKind, SourceScope: sourceScope, ExternalID: externalID,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -182,7 +195,7 @@ func (s *InboxItemStore) IDByExternalID(ctx context.Context, profileID, sourceKi
 	if err != nil {
 		return 0, fmt.Errorf("resolving inbox item %s/%s/%s: %w", sourceKind, sourceScope, externalID, err)
 	}
-	return item.ID, nil
+	return id, nil
 }
 
 // Unclaimed items return "". Multiple claims resolve to the lowest feed ID
