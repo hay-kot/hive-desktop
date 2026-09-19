@@ -193,6 +193,30 @@ func (q *Queries) GetInboxItemByID(ctx context.Context, id int64) (InboxItem, er
 	return i, err
 }
 
+const getInboxItemIDByExternalID = `-- name: GetInboxItemIDByExternalID :one
+SELECT id FROM inbox_item
+WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?
+`
+
+type GetInboxItemIDByExternalIDParams struct {
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
+}
+
+func (q *Queries) GetInboxItemIDByExternalID(ctx context.Context, arg GetInboxItemIDByExternalIDParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getInboxItemIDByExternalID,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.ExternalID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getUnarchivedInboxItemByID = `-- name: GetUnarchivedInboxItemByID :one
 SELECT id, profile_id, source_kind, source_scope, external_id, title, url, payload, revision, unread, archived_at, archived_actor, archived_reason, lifecycle, source_state, first_seen_at, last_event_at, ignored_at FROM inbox_item WHERE id = ? AND profile_id = ? AND archived_at IS NULL
 `

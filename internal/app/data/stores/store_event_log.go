@@ -224,7 +224,7 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 		for _, out := range b.Outputs {
 			switch out.Sink.Kind {
 			case models.SinkKindFeed:
-				item, err := s.items.ResolveScoped(ctx, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
+				itemID, err := s.items.ResolveScopedID(ctx, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
 					// Feed outputs may use synthesized keys that never passed through
 					// ingest. Keyless outputs are skipped so the consumer can advance.
@@ -236,18 +236,19 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 							Msg("commit: feed output has no key; skipping so the offset can advance")
 						continue
 					}
-					item, err = s.items.CreateSynthesized(ctx, InboxItemSynthesize{
+					item, err := s.items.CreateSynthesized(ctx, InboxItemSynthesize{
 						ProfileID: b.Consumer, SourceKind: out.SourceKind, SourceScope: out.SourceScope,
 						ExternalID: out.Key, Payload: out.Payload, Now: now,
 					})
 					if err != nil {
 						return fmt.Errorf("minting inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 					}
+					itemID = item.ID
 				} else if err != nil {
 					return fmt.Errorf("resolving inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 				}
 				if err := s.claims.Upsert(ctx, models.FeedClaim{
-					ProfileID: b.Consumer, FeedID: out.Sink.TargetID, ItemID: item.ID, SourceID: out.SourceTopic,
+					ProfileID: b.Consumer, FeedID: out.Sink.TargetID, ItemID: itemID, SourceID: out.SourceTopic,
 				}); err != nil {
 					return fmt.Errorf("claiming feed membership %s/%s: %w", out.Sink.TargetID, out.Key, err)
 				}
@@ -284,7 +285,7 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 				if out.Sink.Kind != models.SinkKindFeed || out.Sink.TargetID != snapshot.FeedID || out.SourceTopic != snapshot.SourceTopic || out.SnapshotID != snapshot.SnapshotID {
 					continue
 				}
-				item, err := s.items.ResolveScoped(ctx, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
+				itemID, err := s.items.ResolveScopedID(ctx, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
 					// A keyless output cannot claim membership.
 					continue
@@ -292,7 +293,7 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 				if err != nil {
 					return fmt.Errorf("resolving snapshot inbox item %s: %w", out.Key, err)
 				}
-				itemIDs = append(itemIDs, item.ID)
+				itemIDs = append(itemIDs, itemID)
 			}
 			if len(itemIDs) == 0 {
 				if err := s.claims.DeleteForSourceAll(ctx, snapshot.FeedID, snapshot.SourceTopic); err != nil {

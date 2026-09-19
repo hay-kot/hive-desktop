@@ -248,6 +248,10 @@ func TestEveryStoreMethodJoinsTheAmbientTransaction(t *testing.T) {
 			_, err := st.InboxItems.ResolveScoped(ctx, "p", "github", "s", "item-1")
 			return err
 		}},
+		{"InboxItemStore.ResolveScopedID", func(ctx context.Context) error {
+			_, err := st.InboxItems.ResolveScopedID(ctx, "p", "github", "s", "item-1")
+			return err
+		}},
 		{"InboxItemStore.IDByExternalID", func(ctx context.Context) error {
 			_, err := st.InboxItems.IDByExternalID(ctx, "p", "github", "s", "item-1")
 			return err

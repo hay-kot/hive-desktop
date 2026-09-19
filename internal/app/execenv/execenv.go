@@ -98,6 +98,12 @@ type Resolver struct {
 	path     string
 	env      map[string]string
 	resolved bool
+
+	// environ is the merge Environ last built, from environFrom. tmux is spawned
+	// on every status poll, so the merge is rebuilt only when this process's
+	// environment changes.
+	environ     []string
+	environFrom []string
 }
 
 func NewResolver(opts Options) *Resolver {
@@ -205,13 +211,21 @@ var shellSessionVars = map[string]bool{
 // this process does not define. A launch that names a variable is more specific
 // than a startup file, so the process wins — which keeps a stale rc file from
 // shadowing a HIVE_DESKTOP_* override the app was started with.
+//
+// The result is shared between callers: append to it, never write into it.
 func (r *Resolver) Environ(ctx context.Context) []string {
-	r.mu.Lock()
-	r.resolveLocked(ctx)
-	shell, path := r.env, r.path
-	r.mu.Unlock()
-
 	current := os.Environ()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.resolveLocked(ctx)
+	if r.environ == nil || !slices.Equal(current, r.environFrom) {
+		r.environ = mergeEnviron(current, r.env, r.path)
+		r.environFrom = current
+	}
+	return slices.Clip(r.environ)
+}
+
+func mergeEnviron(current []string, shell map[string]string, path string) []string {
 	env := make([]string, 0, len(current)+len(shell)+1)
 	// Presence wins, not a non-empty value: setting a variable to nothing is how
 	// overrides.env opts out of a default, and a startup file must not refill it.
