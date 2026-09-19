@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hay-kot/appkit/concurrency"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -60,6 +61,14 @@ type Producer struct {
 	lastRun     map[string]time.Time
 	lastFailure map[string]time.Time
 
+	// writeSlot holds concurrent drains to one write at a time. SQLite admits
+	// one writer anyway; racing for it only parks the losers in the busy
+	// handler, each holding one of the two pooled connections the UI reads
+	// through. It is a channel rather than a sync.Mutex because synctest
+	// counts a goroutine waiting on a channel as durably blocked, and not one
+	// waiting on a mutex.
+	writeSlot chan struct{}
+
 	stopOnce sync.Once
 	stop     chan struct{}
 }
@@ -102,6 +111,7 @@ func NewProducer(d ProducerDeps) *Producer {
 		now:         time.Now,
 		lastRun:     map[string]time.Time{},
 		lastFailure: map[string]time.Time{},
+		writeSlot:   make(chan struct{}, 1),
 		stop:        make(chan struct{}),
 	}
 }
@@ -181,6 +191,10 @@ func (pr *Producer) Tick(ctx context.Context) TickSummary { return pr.tick(ctx, 
 // wanted to run hourly.
 func (pr *Producer) Refresh(ctx context.Context) TickSummary { return pr.tick(ctx, true) }
 
+// drainConcurrency is capped because GitHub penalizes concurrent requests on
+// one token.
+const drainConcurrency = 4
+
 func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	// A trigger, so a root span: everything below hangs off it, which is what
 	// makes an otherwise orphan client span readable.
@@ -193,27 +207,41 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 
 	pr.pruneSchedule(instances)
 
-	summary := TickSummary{Sources: len(instances)}
-	var lastOffset, drained int64
+	due := make([]connector.Instance, 0, len(instances))
 	for _, instance := range instances {
-		if !forced && !pr.claimRun(instance) {
-			continue
+		if forced || pr.claimRun(instance) {
+			due = append(due, instance)
 		}
-		drained++
-		rows, err := pr.drain(ctx, instance)
-		if err != nil {
+	}
+
+	results := make([]drained, len(due))
+	completed := make([]bool, len(due))
+	err := concurrency.ForEach(ctx, len(due), drainConcurrency, func(ctx context.Context, i int) error {
+		rows, err := pr.drain(ctx, due[i])
+		results[i], completed[i] = rows, err == nil
+		// Never returned: ForEach cancels every in-flight drain on the first
+		// error, and one source's failure must not cost the others their tick.
+		return nil
+	})
+	if err != nil {
+		observe.RecordError(span, err)
+	}
+
+	summary := TickSummary{Sources: len(instances)}
+	var lastOffset int64
+	for i, rows := range results {
+		// Includes a source that cancellation skipped before it started.
+		if !completed[i] {
 			summary.Failed++
 			continue
 		}
-		if rows.appended > 0 {
-			summary.Appended += rows.appended
-			lastOffset = rows.lastOffset
-		}
+		summary.Appended += rows.appended
+		lastOffset = max(lastOffset, rows.lastOffset)
 	}
 
 	span.SetAttributes(
 		attribute.Int(attrSources, summary.Sources),
-		attribute.Int64(attrDrained, drained),
+		attribute.Int(attrDrained, len(due)),
 		attribute.Int(attrFailed, summary.Failed),
 		attribute.Int(attrAppended, summary.Appended),
 	)
@@ -346,7 +374,9 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		if msg.SourceKind != "" {
 			kind = msg.SourceKind
 		}
+		pr.writeSlot <- struct{}{}
 		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+		<-pr.writeSlot
 		if err != nil {
 			return err
 		}
@@ -366,7 +396,9 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		pr.confirmAbsent(ctx, instance, meta, classifier, observed, &out)
 	}
 
+	pr.writeSlot <- struct{}{}
 	offset, err := pr.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
+	<-pr.writeSlot
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
 		pr.recordFailure(ctx, id, err)
@@ -424,7 +456,9 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if !ok || v.Current == nil {
 			continue
 		}
+		pr.writeSlot <- struct{}{}
 		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
+		<-pr.writeSlot
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
@@ -437,7 +471,10 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// short-circuit still leaves the head row in place, and deleting
 		// before the ingest would be undone by its UpsertSourceHead.
 		if v.Terminal {
-			if err := pr.heads.Delete(ctx, topic, prev.ExternalID); err != nil {
+			pr.writeSlot <- struct{}{}
+			err := pr.heads.Delete(ctx, topic, prev.ExternalID)
+			<-pr.writeSlot
+			if err != nil {
 				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
 			}
 		}

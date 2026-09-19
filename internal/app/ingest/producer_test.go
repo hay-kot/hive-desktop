@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -147,10 +148,13 @@ func (a *fakeAppender) callCount() int {
 }
 
 type activityRecorder struct {
+	mu     sync.Mutex
 	events []activity.Event
 }
 
 func (r *activityRecorder) Record(_ context.Context, event activity.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, event)
 }
 
@@ -295,6 +299,103 @@ func TestProducer_Tick_SourceErrorDoesNotBlockOthers(t *testing.T) {
 	assert.Equal(t, activity.CategoryRefresh, recorder.events[0].Category)
 	assert.Equal(t, activity.SeverityError, recorder.events[0].Severity)
 	assert.Equal(t, "Refresh failed for flow/failing", recorder.events[0].Title)
+}
+
+type gatedSource struct {
+	inFlight *atomic.Int32
+	gate     <-chan struct{}
+}
+
+func (g gatedSource) Produce(ctx context.Context, _ func(Msg) error) error {
+	g.inFlight.Add(1)
+	defer g.inFlight.Add(-1)
+	select {
+	case <-g.gate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestProducer_Tick_DrainsSourcesConcurrentlyUpToTheCap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		db := openTestPipelineDB(t)
+		var inFlight atomic.Int32
+		gate := make(chan struct{})
+		byID := map[string]connector.PullSource{}
+		for i := range drainConcurrency + 2 {
+			byID[fmt.Sprintf("flow/s%d", i)] = gatedSource{inFlight: &inFlight, gate: gate}
+		}
+		var woke atomic.Int64
+		producer := newTestProducer(db, sourcesOf(byID), time.Hour, func(offset int64) { woke.Store(offset) }, zerolog.Nop())
+
+		done := make(chan TickSummary, 1)
+		go func() { done <- producer.Tick(t.Context()) }()
+
+		synctest.Wait()
+		assert.EqualValues(t, drainConcurrency, inFlight.Load())
+
+		close(gate)
+		summary := <-done
+		assert.Equal(t, drainConcurrency+2, summary.Sources)
+		assert.Zero(t, summary.Failed)
+
+		_, next, err := readFrom(db, t.Context(), 0, 100)
+		require.NoError(t, err)
+		assert.Equal(t, next, woke.Load(), "the wake-up names the highest offset appended, whichever source finished last")
+	})
+}
+
+type gatedWrites struct {
+	*fakeAppender
+	inFlight atomic.Int32
+	release  chan struct{}
+}
+
+func (g *gatedWrites) IngestObservation(ctx context.Context, c models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error) {
+	g.inFlight.Add(1)
+	defer g.inFlight.Add(-1)
+	<-g.release
+	return g.fakeAppender.IngestObservation(ctx, c, p)
+}
+
+func (g *gatedWrites) AppendSnapshot(ctx context.Context, topic, kind, scope string, items []models.SnapshotItem) (int64, error) {
+	g.inFlight.Add(1)
+	defer g.inFlight.Add(-1)
+	<-g.release
+	return g.fakeAppender.AppendSnapshot(ctx, topic, kind, scope, items)
+}
+
+func TestProducer_Tick_ConcurrentDrainsWriteOneAtATime(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		byID := map[string]connector.PullSource{}
+		for i := range drainConcurrency {
+			id := fmt.Sprintf("flow/s%d", i)
+			byID[id] = &fakeSource{batches: [][]Msg{{{Topic: "source:" + id, Key: "a", Payload: []byte(`{}`)}}}}
+		}
+		store := &gatedWrites{fakeAppender: &fakeAppender{}, release: make(chan struct{})}
+		producer := NewProducer(ProducerDeps{
+			Ingester:  store,
+			Snapshots: store,
+			Heads:     store,
+			Sources:   sourcesOf(byID),
+			Interval:  time.Hour,
+			Logger:    zerolog.Nop(),
+		})
+
+		done := make(chan TickSummary, 1)
+		go func() { done <- producer.Tick(t.Context()) }()
+
+		// One item and one snapshot per source.
+		for range 2 * drainConcurrency {
+			synctest.Wait()
+			assert.EqualValues(t, 1, store.inFlight.Load())
+			store.release <- struct{}{}
+		}
+
+		summary := <-done
+		assert.Zero(t, summary.Failed)
+	})
 }
 
 // TestProducer_DedupesUnchangedPayload verifies durable deduplication: an
