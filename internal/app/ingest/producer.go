@@ -61,11 +61,13 @@ type Producer struct {
 	lastRun     map[string]time.Time
 	lastFailure map[string]time.Time
 
-	// writeMu holds concurrent drains to one write at a time. SQLite admits
+	// writeSlot holds concurrent drains to one write at a time. SQLite admits
 	// one writer anyway; racing for it only parks the losers in the busy
 	// handler, each holding one of the two pooled connections the UI reads
-	// through.
-	writeMu sync.Mutex
+	// through. It is a channel rather than a sync.Mutex because synctest
+	// counts a goroutine waiting on a channel as durably blocked, and not one
+	// waiting on a mutex.
+	writeSlot chan struct{}
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -109,6 +111,7 @@ func NewProducer(d ProducerDeps) *Producer {
 		now:         time.Now,
 		lastRun:     map[string]time.Time{},
 		lastFailure: map[string]time.Time{},
+		writeSlot:   make(chan struct{}, 1),
 		stop:        make(chan struct{}),
 	}
 }
@@ -371,9 +374,9 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		if msg.SourceKind != "" {
 			kind = msg.SourceKind
 		}
-		pr.writeMu.Lock()
+		pr.writeSlot <- struct{}{}
 		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
-		pr.writeMu.Unlock()
+		<-pr.writeSlot
 		if err != nil {
 			return err
 		}
@@ -393,9 +396,9 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		pr.confirmAbsent(ctx, instance, meta, classifier, observed, &out)
 	}
 
-	pr.writeMu.Lock()
+	pr.writeSlot <- struct{}{}
 	offset, err := pr.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
-	pr.writeMu.Unlock()
+	<-pr.writeSlot
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
 		pr.recordFailure(ctx, id, err)
@@ -453,9 +456,9 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if !ok || v.Current == nil {
 			continue
 		}
-		pr.writeMu.Lock()
+		pr.writeSlot <- struct{}{}
 		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
-		pr.writeMu.Unlock()
+		<-pr.writeSlot
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
@@ -468,9 +471,9 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// short-circuit still leaves the head row in place, and deleting
 		// before the ingest would be undone by its UpsertSourceHead.
 		if v.Terminal {
-			pr.writeMu.Lock()
+			pr.writeSlot <- struct{}{}
 			err := pr.heads.Delete(ctx, topic, prev.ExternalID)
-			pr.writeMu.Unlock()
+			<-pr.writeSlot
 			if err != nil {
 				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
 			}

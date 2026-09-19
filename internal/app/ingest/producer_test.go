@@ -346,65 +346,56 @@ func TestProducer_Tick_DrainsSourcesConcurrentlyUpToTheCap(t *testing.T) {
 	})
 }
 
-type overlapTracker struct {
+type gatedWrites struct {
 	*fakeAppender
-	mu       sync.Mutex
-	inFlight int
-	peak     int
+	inFlight atomic.Int32
+	release  chan struct{}
 }
 
-func (o *overlapTracker) enter() {
-	o.mu.Lock()
-	o.inFlight++
-	o.peak = max(o.peak, o.inFlight)
-	o.mu.Unlock()
-	// Long enough that unserialized writes from concurrent drains overlap.
-	time.Sleep(time.Millisecond)
+func (g *gatedWrites) IngestObservation(ctx context.Context, c models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error) {
+	g.inFlight.Add(1)
+	defer g.inFlight.Add(-1)
+	<-g.release
+	return g.fakeAppender.IngestObservation(ctx, c, p)
 }
 
-func (o *overlapTracker) exit() {
-	o.mu.Lock()
-	o.inFlight--
-	o.mu.Unlock()
-}
-
-func (o *overlapTracker) IngestObservation(ctx context.Context, c models.Classifier, p stores.IngestObservationParams) (stores.IngestResult, error) {
-	o.enter()
-	defer o.exit()
-	return o.fakeAppender.IngestObservation(ctx, c, p)
-}
-
-func (o *overlapTracker) AppendSnapshot(ctx context.Context, topic, kind, scope string, items []models.SnapshotItem) (int64, error) {
-	o.enter()
-	defer o.exit()
-	return o.fakeAppender.AppendSnapshot(ctx, topic, kind, scope, items)
+func (g *gatedWrites) AppendSnapshot(ctx context.Context, topic, kind, scope string, items []models.SnapshotItem) (int64, error) {
+	g.inFlight.Add(1)
+	defer g.inFlight.Add(-1)
+	<-g.release
+	return g.fakeAppender.AppendSnapshot(ctx, topic, kind, scope, items)
 }
 
 func TestProducer_Tick_ConcurrentDrainsWriteOneAtATime(t *testing.T) {
-	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		byID := map[string]connector.PullSource{}
+		for i := range drainConcurrency {
+			id := fmt.Sprintf("flow/s%d", i)
+			byID[id] = &fakeSource{batches: [][]Msg{{{Topic: "source:" + id, Key: "a", Payload: []byte(`{}`)}}}}
+		}
+		store := &gatedWrites{fakeAppender: &fakeAppender{}, release: make(chan struct{})}
+		producer := NewProducer(ProducerDeps{
+			Ingester:  store,
+			Snapshots: store,
+			Heads:     store,
+			Sources:   sourcesOf(byID),
+			Interval:  time.Hour,
+			Logger:    zerolog.Nop(),
+		})
 
-	byID := map[string]connector.PullSource{}
-	for i := range drainConcurrency * 2 {
-		id := fmt.Sprintf("flow/s%d", i)
-		byID[id] = &fakeSource{batches: [][]Msg{{
-			{Topic: "source:" + id, Key: "a", Payload: []byte(`{}`)},
-			{Topic: "source:" + id, Key: "b", Payload: []byte(`{}`)},
-		}}}
-	}
-	tracker := &overlapTracker{fakeAppender: &fakeAppender{}}
-	producer := NewProducer(ProducerDeps{
-		Ingester:  tracker,
-		Snapshots: tracker,
-		Heads:     tracker,
-		Sources:   sourcesOf(byID),
-		Interval:  time.Hour,
-		Logger:    zerolog.Nop(),
+		done := make(chan TickSummary, 1)
+		go func() { done <- producer.Tick(t.Context()) }()
+
+		// One item and one snapshot per source.
+		for range 2 * drainConcurrency {
+			synctest.Wait()
+			assert.EqualValues(t, 1, store.inFlight.Load())
+			store.release <- struct{}{}
+		}
+
+		summary := <-done
+		assert.Zero(t, summary.Failed)
 	})
-
-	summary := producer.Tick(t.Context())
-
-	assert.Zero(t, summary.Failed)
-	assert.Equal(t, 1, tracker.peak)
 }
 
 // TestProducer_DedupesUnchangedPayload verifies durable deduplication: an
