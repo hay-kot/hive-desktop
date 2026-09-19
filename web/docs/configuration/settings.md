@@ -135,3 +135,5 @@ telemetry:
 Profile export collects CPU, allocation, and in-use heap profiles. It does not collect goroutine, mutex, or block profiles. OTLP and profile export can run independently.
 
 Tokens must use `env:`, `file:`, or `op://` references. Hive rejects literal telemetry tokens in the settings file. Endpoints and users may also use these references.
+
+A ready-made Grafana dashboard for these signals is in the repository's [`grafana/`](https://github.com/hay-kot/hive-desktop/tree/main/grafana) directory. Push it to your stack with [gcx](https://github.com/grafana/gcx). Its README maps each metric, span, and profile to the query that reads it.

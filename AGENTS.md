@@ -24,6 +24,7 @@ document wins for new work — do not extend the shape it is replacing.
 
 - **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/app/`, `internal/adapter/`) and vendored hive core (`internal/hivecore/`). See [`desktop/AGENTS.md`](desktop/AGENTS.md).
 - **`web/`** — the landing page and public docs at `hivedesktop.com`, a Zensical site served as Cloudflare Worker static assets, with its own `mise.toml` (`cd web && mise run build`). See [`web/AGENTS.md`](web/AGENTS.md).
+- **`grafana/`** — the reference Grafana dashboard for the app's own telemetry, as gcx resources. See [`grafana/README.md`](grafana/README.md).
 
 ## Development tooling — `cmd/`
 
