@@ -337,8 +337,10 @@ function submitProfile() {
           </p>
         </template>
 
-        <!-- token: personal access token fallback -->
-        <template v-else>
+        <!-- token: personal access token fallback. Named rather than v-else so
+             a card this chain has no branch for renders nothing instead of the
+             token form under someone else's heading. -->
+        <template v-else-if="card === 'token'">
           <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Paste a personal access token with <span class="font-mono text-text-2">repo</span> and <span class="font-mono text-text-2">notifications</span> scopes.</p>
           <input
             v-model="tokenInput"
