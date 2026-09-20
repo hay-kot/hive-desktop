@@ -164,6 +164,10 @@ export function useHiveSetup() {
     if (defaultAgent.value === agent.name) defaultAgent.value = profiles.value[0]?.name ?? ''
   }
 
+  function setDefaultAgent(name: string): void {
+    defaultAgent.value = name
+  }
+
   /**
    * Re-derive flags for every catalog profile in the draft. A custom profile
    * keeps whatever flags it was written with: the toggle is about the presets
@@ -255,6 +259,7 @@ export function useHiveSetup() {
     defaultAgentOverride,
     load,
     toggleAgent,
+    setDefaultAgent,
     setSkipPermissions,
     addWorkspace,
     addWorkspacePath,

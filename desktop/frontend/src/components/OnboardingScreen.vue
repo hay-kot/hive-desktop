@@ -224,12 +224,12 @@ function submitProfile() {
                 :custom-profiles="hive.customProfiles.value"
                 :default-agent-override="hive.defaultAgentOverride.value"
                 :busy="hive.saving.value"
-                @toggle-agent="(agent, on) => hive!.toggleAgent(agent, on)"
-                @set-default-agent="(name) => hive!.defaultAgent.value = name"
-                @set-skip-permissions="(on) => hive!.setSkipPermissions(on)"
-                @add-workspace="hive!.addWorkspace()"
-                @add-workspace-path="(path) => hive!.addWorkspacePath(path)"
-                @remove-workspace="(path) => hive!.removeWorkspace(path)"
+                @toggle-agent="hive.toggleAgent"
+                @set-default-agent="hive.setDefaultAgent"
+                @set-skip-permissions="hive.setSkipPermissions"
+                @add-workspace="hive.addWorkspace"
+                @add-workspace-path="hive.addWorkspacePath"
+                @remove-workspace="hive.removeWorkspace"
               />
             </div>
             <button

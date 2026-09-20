@@ -122,7 +122,7 @@ onMounted(() => {
           :default-agent-override="hive.defaultAgentOverride.value"
           :busy="hive.saving.value"
           @toggle-agent="hive.toggleAgent"
-          @set-default-agent="(name) => hive.defaultAgent.value = name"
+          @set-default-agent="hive.setDefaultAgent"
           @set-skip-permissions="hive.setSkipPermissions"
           @add-workspace="() => void hive.addWorkspace()"
           @add-workspace-path="(path) => void hive.addWorkspacePath(path)"
