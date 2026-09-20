@@ -27,9 +27,10 @@ const {
 const hive = useHiveSetup()
 const { copy } = useClipboard()
 
-// Confirmation that a save landed, cleared as soon as the form is edited
-// again. The write is atomic and the reload is synchronous, so by the time
-// this shows, a new session picker would already list what was saved.
+// Confirmation that a save landed. It renders only while the draft still
+// matches disk, so editing the form retires it without anything clearing it.
+// The write is atomic and the reload is synchronous, so by the time this
+// shows, a new session picker would already list what was saved.
 const saved = ref(false)
 
 const hiveCLIDocsURL = 'https://colonyops.github.io/hive/'
@@ -41,10 +42,6 @@ function openHiveCLIDocs(): void {
 async function save(): Promise<void> {
   saved.value = await hive.save()
   await refresh()
-}
-
-function touch(): void {
-  saved.value = false
 }
 
 useCommands(() => {
@@ -114,7 +111,7 @@ onMounted(() => {
       <div v-else-if="hive.unreadable.value" class="text-[12.5px] leading-relaxed text-text-3">
         Editing is unavailable until the file parses. Open it below to fix it.
       </div>
-      <div v-else class="flex flex-col gap-6" @change="touch">
+      <div v-else class="flex flex-col gap-6">
         <HiveSetupForm
           :agents="hive.agents.value"
           :selected-agents="hive.selectedAgents.value"
@@ -124,12 +121,12 @@ onMounted(() => {
           :custom-profiles="hive.customProfiles.value"
           :default-agent-override="hive.defaultAgentOverride.value"
           :busy="hive.saving.value"
-          @toggle-agent="(agent, on) => { touch(); hive.toggleAgent(agent, on) }"
-          @set-default-agent="(name) => { touch(); hive.defaultAgent.value = name }"
-          @set-skip-permissions="(on) => { touch(); hive.setSkipPermissions(on) }"
-          @add-workspace="() => { touch(); void hive.addWorkspace() }"
-          @add-workspace-path="(path) => { touch(); void hive.addWorkspacePath(path) }"
-          @remove-workspace="(path) => { touch(); hive.removeWorkspace(path) }"
+          @toggle-agent="hive.toggleAgent"
+          @set-default-agent="(name) => hive.defaultAgent.value = name"
+          @set-skip-permissions="hive.setSkipPermissions"
+          @add-workspace="() => void hive.addWorkspace()"
+          @add-workspace-path="(path) => void hive.addWorkspacePath(path)"
+          @remove-workspace="hive.removeWorkspace"
         />
 
         <div class="flex items-center gap-3 border-t border-row pt-4">
