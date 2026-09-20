@@ -682,18 +682,20 @@ const hiveStepDone = ref(false)
 // feed, and the step itself needs the second — a config this app could not
 // read is not a reason to hold a first run in front of the whole app.
 const hiveResolved = ref(false)
-// "Configured" is usable, not merely present: a config file that declares no
-// agent profiles or no workspaces leaves the session picker exactly as empty
-// as no file at all, so it is a first run, not a returning one.
-const hiveNeedsSetup = computed(() => !!hive.setup.value && !hive.usable.value && !hiveStepDone.value)
+// The step runs whenever the read succeeded and the step has not been retired.
+// Whether the config is usable picks which body renders, not whether the step
+// is up — see hiveNeedsConfirm.
+const hiveStepActive = computed(() => !!hive.setup.value && !hiveStepDone.value)
 // Step 2: no profile exists yet. This is also where deleting the last profile
 // lands.
 const needsProfile = computed(() => profilesLoaded.value && profiles.value.length === 0)
 
 // A usable config is confirmed rather than skipped past, so a user with a
 // hive CLI setup is told it was found instead of silently having it adopted.
-const hiveNeedsConfirm = computed(() => !!hive.setup.value && hive.usable.value && !hiveStepDone.value)
-const hiveStepActive = computed(() => hiveNeedsSetup.value || hiveNeedsConfirm.value)
+// "Usable" is not "present": a file that declares no agent profiles or no
+// workspaces leaves the session picker exactly as empty as no file at all, so
+// it gets the setup form, not the confirmation.
+const hiveNeedsConfirm = computed(() => hiveStepActive.value && hive.usable.value)
 
 // The Hive step belongs to the first run and nothing else. A launch that
 // already has a profile has had one, so the step is marked done before it can
