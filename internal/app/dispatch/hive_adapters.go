@@ -253,6 +253,10 @@ type HiveSessionLauncher struct {
 	// config, which the app can now rewrite while it runs (Rebind). recorder
 	// and links are not: they come from this app's own stores and outlive any
 	// config edit.
+	//
+	// Every constructor here Rebinds before returning, so the three hive()
+	// accessors load a non-nil pointer. Construct one of these adapters any
+	// other way and they panic.
 	current  atomic.Pointer[launcherHive]
 	recorder activity.Recorder
 	links    ItemSessionLinker
@@ -277,15 +281,7 @@ func (l *HiveSessionLauncher) Rebind(sessions SessionCreator) {
 	l.current.Store(&launcherHive{sessions: sessions})
 }
 
-// hive answers nil rather than panicking when nothing was ever bound, so the
-// callers' "hive session service is unavailable" guards stay the way a
-// half-built launcher reports itself.
-func (l *HiveSessionLauncher) hive() SessionCreator {
-	if current := l.current.Load(); current != nil {
-		return current.sessions
-	}
-	return nil
-}
+func (l *HiveSessionLauncher) hive() SessionCreator { return l.current.Load().sessions }
 
 // SetRecorder attaches an activity recorder so created sessions surface in the
 // Activity view. Optional: nil (the default) records nothing.
@@ -453,12 +449,7 @@ func (m *HiveSessionManager) Rebind(sessions SessionManagement, statuses session
 	m.current.Store(&managerHive{sessions: sessions, statuses: statuses, git: gitExec, statusPollInterval: statusPollInterval})
 }
 
-func (m *HiveSessionManager) hive() *managerHive {
-	if current := m.current.Load(); current != nil {
-		return current
-	}
-	return &managerHive{}
-}
+func (m *HiveSessionManager) hive() *managerHive { return m.current.Load() }
 
 // ListSessions returns every session, recycled and corrupted included: an
 // unattachable session still has to be manageable, which is the whole point of
@@ -846,12 +837,7 @@ func (p *HiveMessagePublisher) Rebind(messages DurableMessageService) {
 	p.current.Store(&publisherHive{messages: messages})
 }
 
-func (p *HiveMessagePublisher) hive() DurableMessageService {
-	if current := p.current.Load(); current != nil {
-		return current.messages
-	}
-	return nil
-}
+func (p *HiveMessagePublisher) hive() DurableMessageService { return p.current.Load().messages }
 
 func (p *HiveMessagePublisher) PublishMessage(ctx context.Context, payload, topic string) (string, error) {
 	messages := p.hive()
