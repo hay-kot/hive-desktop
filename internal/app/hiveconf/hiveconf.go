@@ -91,8 +91,6 @@ type Setup struct {
 	// from the file itself, so an absent file reports no profiles and no
 	// workspaces rather than hive's fallbacks.
 	Exists bool `json:"exists"`
-	// EnvironmentOverride reports that HIVE_CONFIG chose this path.
-	EnvironmentOverride bool `json:"environmentOverride"`
 	// Usable reports that the file declares at least one agent profile and at
 	// least one workspace. It is what first run branches on: a file that
 	// exists but declares neither leaves the launcher exactly as empty as no
@@ -121,8 +119,8 @@ type document struct {
 
 // Load reports what the config at path declares. A missing file is not an
 // error: it is the ordinary first-run state, and reports Exists false.
-func Load(path string, environmentOverride bool) Setup {
-	setup := Setup{Path: path, EnvironmentOverride: environmentOverride}
+func Load(path string) Setup {
+	setup := Setup{Path: path}
 	if path == "" {
 		return setup
 	}

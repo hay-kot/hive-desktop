@@ -36,7 +36,6 @@ function hiveSetup(over: Record<string, unknown> = {}) {
     config: {
       path: '/home/u/.config/hive/config.yaml',
       exists: false,
-      environmentOverride: false,
       usable: false,
       unreadable: '',
       defaultAgent: '',

@@ -80,7 +80,7 @@ func newHiveConfigService(opts hiveConfigOptions) *HiveConfigService {
 // Setup reports the current configuration and the agents this machine can run.
 func (s *HiveConfigService) Setup(ctx context.Context) HiveSetup {
 	location := s.location()
-	setup := hiveconf.Load(location.Path, location.EnvironmentOverride)
+	setup := hiveconf.Load(location.Path)
 	view := HiveSetup{
 		Config: setup,
 		Agents: hiveconf.AgentOptions(ctx, s.lookPath),

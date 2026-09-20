@@ -47,11 +47,6 @@ export interface Setup {
     "exists": boolean;
 
     /**
-     * EnvironmentOverride reports that HIVE_CONFIG chose this path.
-     */
-    "environmentOverride": boolean;
-
-    /**
      * Usable reports that the file declares at least one agent profile and at
      * least one workspace. It is what first run branches on: a file that
      * exists but declares neither leaves the launcher exactly as empty as no

@@ -54,10 +54,8 @@ export function useHiveSetup() {
 
   const agents = computed<AgentOption[]>(() => setup.value?.agents ?? [])
   const path = computed(() => setup.value?.config.path ?? '')
-  const exists = computed(() => setup.value?.config.exists ?? false)
   const usable = computed(() => setup.value?.config.usable ?? false)
   const unreadable = computed(() => setup.value?.config.unreadable ?? '')
-  const environmentOverride = computed(() => setup.value?.config.environmentOverride ?? false)
   const defaultAgentOverride = computed(() => setup.value?.defaultAgentOverride ?? '')
 
   /** The catalog agents currently in the draft, by name. */
@@ -252,10 +250,8 @@ export function useHiveSetup() {
     canSave,
     dirty,
     path,
-    exists,
     usable,
     unreadable,
-    environmentOverride,
     defaultAgentOverride,
     load,
     toggleAgent,

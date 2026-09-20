@@ -28,7 +28,6 @@ function setup(config: Record<string, unknown> = {}) {
     config: {
       path: '/home/u/.config/hive/config.yaml',
       exists: true,
-      environmentOverride: false,
       usable: true,
       unreadable: '',
       defaultAgent: 'claude',

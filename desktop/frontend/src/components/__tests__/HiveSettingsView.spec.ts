@@ -60,7 +60,6 @@ function setup(over: Partial<{
     config: {
       path: CONFIG,
       exists: over.exists ?? true,
-      environmentOverride: false,
       usable: over.usable ?? true,
       unreadable: over.unreadable ?? '',
       defaultAgent: over.defaultAgent ?? 'claude',

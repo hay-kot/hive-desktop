@@ -334,7 +334,6 @@ describe('App', () => {
       config: {
         path: '/home/dev/.config/hive/config.yaml',
         exists: true,
-        environmentOverride: false,
         usable: true,
         unreadable: '',
         defaultAgent: 'claude',

@@ -49,7 +49,7 @@ func loadHive(t *testing.T, path string) *config.Config {
 }
 
 func TestLoadReportsAMissingFileAsTheOrdinaryFirstRun(t *testing.T) {
-	setup := hiveconf.Load(filepath.Join(t.TempDir(), "config.yaml"), false)
+	setup := hiveconf.Load(filepath.Join(t.TempDir(), "config.yaml"))
 
 	assert.False(t, setup.Exists)
 	assert.False(t, setup.Usable)
@@ -71,7 +71,7 @@ agents:
   claude: {}
 `)
 
-	setup := hiveconf.Load(path, false)
+	setup := hiveconf.Load(path)
 
 	assert.True(t, setup.Exists)
 	assert.True(t, setup.Usable)
@@ -91,7 +91,7 @@ agents:
 func TestLoadReportsAConfigWithNoWorkspacesAsUnusable(t *testing.T) {
 	path := write(t, t.TempDir(), "agents:\n  default: claude\n  claude: {}\n")
 
-	setup := hiveconf.Load(path, false)
+	setup := hiveconf.Load(path)
 
 	assert.True(t, setup.Exists)
 	assert.False(t, setup.Usable)
@@ -102,7 +102,7 @@ func TestLoadReadsHivesDeprecatedRepoDirsSpelling(t *testing.T) {
 	repos := workspaceDir(t, 1)
 	path := write(t, t.TempDir(), "repo_dirs:\n  - "+repos+"\nagents:\n  default: claude\n  claude: {}\n")
 
-	setup := hiveconf.Load(path, false)
+	setup := hiveconf.Load(path)
 
 	assert.True(t, setup.Usable, "an older config is not an unconfigured one")
 }
@@ -113,7 +113,7 @@ func TestLoadReadsHivesDeprecatedRepoDirsSpelling(t *testing.T) {
 func TestLoadReportsAnUnparseableFileWithoutClaimingItIsEmpty(t *testing.T) {
 	path := write(t, t.TempDir(), "workspaces: [\n")
 
-	setup := hiveconf.Load(path, false)
+	setup := hiveconf.Load(path)
 
 	assert.True(t, setup.Exists)
 	assert.False(t, setup.Usable)
@@ -126,7 +126,7 @@ func TestLoadCountsOnlyDirectoriesThatAreRepositories(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".hidden", ".git"), 0o755))
 	path := write(t, t.TempDir(), "workspaces:\n  - "+dir+"\nagents:\n  default: claude\n  claude: {}\n")
 
-	setup := hiveconf.Load(path, false)
+	setup := hiveconf.Load(path)
 
 	assert.Equal(t, 2, setup.Workspaces[0].Repos)
 }
@@ -134,7 +134,7 @@ func TestLoadCountsOnlyDirectoriesThatAreRepositories(t *testing.T) {
 func TestLoadMarksAConfiguredFolderThatIsNoLongerThere(t *testing.T) {
 	path := write(t, t.TempDir(), "workspaces:\n  - /nope/gone\nagents:\n  default: claude\n  claude: {}\n")
 
-	setup := hiveconf.Load(path, false)
+	setup := hiveconf.Load(path)
 
 	require.Len(t, setup.Workspaces, 1)
 	assert.False(t, setup.Workspaces[0].Exists)
