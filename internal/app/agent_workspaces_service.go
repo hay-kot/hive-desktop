@@ -68,12 +68,16 @@ type AgentWorkspacesService struct {
 	schedules *stores.ScheduleStore
 	history   scheduleHistory
 	skills    *SkillsService
-	// profileCommands is agentCommands' result (app.go): hive's configured
+	// profileCommands reads agentCommands' result (app.go): hive's configured
 	// agent profiles projected onto a full command line, flags included. It
 	// seeds the editor's preset list and nothing else — no launch reads it, so
 	// a hive.yaml edit cannot change what an existing workspace runs
 	// (ADR the-workspace-command-is-a-template).
-	profileCommands map[string]string
+	//
+	// It is a function rather than the map because the Hive config is
+	// reloadable: a map captured here would freeze the presets at the set that
+	// existed when the service was built.
+	profileCommands func() map[string]string
 	// rootProblem carries EnsureRoot's error, verbatim, when the configured
 	// root could not be created or opened at startup -- empty otherwise.
 	rootProblem string
@@ -137,7 +141,7 @@ type AgentWorkspacesDeps struct {
 	// workspace delete spans them with.
 	Stores          *stores.Stores
 	Skills          *SkillsService
-	ProfileCommands map[string]string
+	ProfileCommands func() map[string]string
 	RootProblem     string
 	ExecEnv         *execenv.Resolver
 	// EditorCommand nil means NopEditorCommandReader.
@@ -864,7 +868,7 @@ func (s *AgentWorkspacesService) Presets(context.Context) []agentws.Preset {
 	for _, p := range presets {
 		shipped[p.Agent] = true
 	}
-	for agent, command := range s.profileCommands {
+	for agent, command := range s.profileCommands() {
 		if shipped[agent] {
 			// A shipped agent already has postures spelled out; hive's single
 			// profile line would only duplicate one of them, less precisely.

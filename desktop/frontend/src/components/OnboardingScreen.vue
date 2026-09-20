@@ -4,26 +4,38 @@ import { Browser } from '@wailsio/runtime'
 import IconAlertTriangle from '~icons/lucide/alert-triangle'
 import IconBell from '~icons/lucide/bell'
 import IconCheck from '~icons/lucide/check'
+import IconFolderGit2 from '~icons/lucide/folder-git-2'
 import IconGithub from '~icons/lucide/github'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
+import HiveSetupForm from './HiveSetupForm.vue'
 import type { DeviceFlowInfo } from '../types/github'
 import type { ConnectCard } from '../composables/useGitHubConnection'
 import type { NotificationPermission } from '../composables/useNotificationSettings'
-import { useAutofocus } from '../composables/useAutofocus'
+import type { useHiveSetup } from '../composables/useHiveSetup'
 import { useClipboard } from '../composables/useClipboard'
 
 const props = defineProps<{
-  // 'profile' is step 1: the profile is the thing that exists before any
-  // credential does. The connect cards are step 2, and are skippable.
-  // 'permissions' is step 3: the OS notification grant, asked once the account
+  // 'hive' is step 1: the agent and the repository folders a session runs in.
+  // It goes first because it is the one step whose answer the rest of the app
+  // reads, and because a first run that has not written a profile yet has
+  // nothing to lose if the setup is abandoned here.
+  // 'profile' is step 2: the profile is the thing that exists before any
+  // credential does. The connect cards are step 3, and are skippable.
+  // 'permissions' is step 4: the OS notification grant, asked once the account
   // is settled so the prompt lands with context instead of mid-usage.
-  card: ConnectCard | 'profile' | 'permissions'
+  card: ConnectCard | 'hive' | 'profile' | 'permissions'
   deviceFlow: DeviceFlowInfo | null
   error: string | null
   busy: boolean
   githubConnected: boolean
   // The live OS permission state; only read on the 'permissions' card.
   permission?: NotificationPermission
+  // The Hive setup draft; only read on the 'hive' card. Passed in rather than
+  // created here so App.vue owns the one instance the step advances on.
+  hive?: ReturnType<typeof useHiveSetup>
+  // True when the Hive step is showing an existing config to confirm rather
+  // than a form to fill in.
+  hiveConfigured?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -32,6 +44,8 @@ const emit = defineEmits<{
   backToStart: []
   submitToken: [token: string]
   createProfile: [name: string]
+  saveHive: []
+  skipHive: []
   skipConnect: []
   requestPermission: []
   finishPermissions: []
@@ -41,30 +55,39 @@ const tokenInput = ref('')
 const profileInput = ref('')
 const profileInputEl = ref<HTMLInputElement | null>(null)
 const { copy, copied } = useClipboard({ resetDelay: 1600 })
-useAutofocus(profileInputEl)
+
+// Not useAutofocus: that focuses once, on mount, and the profile input does
+// not exist then — the Hive step is on screen first, and this component stays
+// mounted across the switch. Watching the ref focuses whenever the input
+// appears, which covers arriving from the Hive step and mounting straight onto
+// the profile card (deleting the last profile lands there).
+watch(profileInputEl, (el) => { el?.focus() }, { flush: 'post' })
 
 // Confirming the skip is local to this screen: it is a warning to read, not a
 // state the app has to hold. Leaving the connect step at all drops it.
 const confirmingSkip = ref(false)
 watch(() => props.card, () => { confirmingSkip.value = false })
 
-// Three steps, one screen each: name a profile, connect the account, grant
-// notifications. Connecting seeds the profile's feeds, so "add feeds & tasks"
-// is not a user task and never was a step of its own.
+// Four steps, one screen each: point Hive at an agent and your repositories,
+// name a profile, connect the account, grant notifications. Connecting seeds
+// the profile's feeds, so "add feeds & tasks" is not a user task and never was
+// a step of its own.
 const activeStep = computed(() => {
-  if (props.card === 'profile') return 1
-  if (props.card === 'permissions') return 3
-  return 2
+  if (props.card === 'hive') return 1
+  if (props.card === 'profile') return 2
+  if (props.card === 'permissions') return 4
+  return 3
 })
 const firstRunSteps = [
-  { label: 'Create your first profile', step: 1 },
-  { label: 'Connect GitHub', step: 2 },
-  { label: 'Turn on notifications', step: 3 },
+  { label: 'Set up your agent and code', step: 1 },
+  { label: 'Create your first profile', step: 2 },
+  { label: 'Connect GitHub', step: 3 },
+  { label: 'Turn on notifications', step: 4 },
 ]
 // Deleting the last profile can return a connected user here. Do not present
 // account setup as unfinished when creating the replacement is all they need.
 const steps = computed(() => props.card === 'profile' && props.githubConnected
-  ? firstRunSteps.slice(0, 1)
+  ? firstRunSteps.slice(1, 2)
   : firstRunSteps)
 
 // The GitHub skip link belongs to the connect cards only — the profile step
@@ -73,6 +96,7 @@ const isConnectCard = computed(() => props.card === 'idle' || props.card === 'de
 
 const heading = computed(() => {
   if (confirmingSkip.value) return 'Skip connecting GitHub?'
+  if (props.card === 'hive') return props.hiveConfigured ? 'Using your Hive config' : 'Set up your agent and code'
   if (props.card === 'profile') return 'Create your first profile'
   if (props.card === 'permissions') return 'Turn on notifications'
   return 'Connect to GitHub'
@@ -114,9 +138,11 @@ function submitProfile() {
         <span class="font-mono text-[17px] font-semibold">hive</span>
       </div>
       <h1 class="mb-3 text-[26px] font-semibold leading-[1.25] tracking-[-.02em]">Triage GitHub and<br>spin up sessions.</h1>
-      <p class="mb-11 max-w-[330px] text-sm leading-relaxed text-text-3">{{ githubConnected
-        ? 'Name a profile to organize its feeds, sources, and rules.'
-        : 'Name a profile, then connect the account it pulls PRs, issues, and notifications from.' }}</p>
+      <p class="mb-11 max-w-[330px] text-sm leading-relaxed text-text-3">{{ card === 'hive'
+        ? 'Point Hive at your agent and your repositories, then connect the account it triages.'
+        : githubConnected
+          ? 'Name a profile to organize its feeds, sources, and rules.'
+          : 'Name a profile, then connect the account it pulls PRs, issues, and notifications from.' }}</p>
       <ol class="flex flex-col gap-5">
         <li
           v-for="step in steps"
@@ -140,14 +166,15 @@ function submitProfile() {
 
     <!-- Right: connect card -->
     <section class="flex flex-1 items-center justify-center bg-pane p-10">
-      <div class="w-[420px] text-center">
+      <div :class="card === 'hive' ? 'w-[560px] max-w-full' : 'w-[420px] text-center'">
         <div class="mx-auto mb-5 flex size-[60px] items-center justify-center rounded-[15px] border border-strong bg-chip text-text">
           <IconAlertTriangle v-if="confirmingSkip" class="size-[30px]" />
+          <IconFolderGit2 v-else-if="card === 'hive'" class="size-[30px]" />
           <IconLayoutGrid v-else-if="card === 'profile'" class="size-[30px]" />
           <IconBell v-else-if="card === 'permissions'" class="size-[30px]" />
           <IconGithub v-else class="size-[30px]" />
         </div>
-        <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]">{{ heading }}</h2>
+        <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]" :class="card === 'hive' ? 'text-center' : ''">{{ heading }}</h2>
 
         <!-- skip: the warning the bypass goes past, not a gate -->
         <template v-if="confirmingSkip">
@@ -162,7 +189,64 @@ function submitProfile() {
           </p>
         </template>
 
-        <!-- profile: step 1, the one step that needs no credential -->
+        <!-- hive: step 1, the agent and the folders a session runs in -->
+        <template v-else-if="card === 'hive' && hive">
+          <template v-if="hiveConfigured">
+            <p class="mb-6 text-center text-[13.5px] leading-relaxed text-text-3">
+              Hive found your configuration and will use it as it is.
+            </p>
+            <div class="mb-6 rounded-[11px] border border-strong bg-chip px-4 py-3.5 text-left" data-testid="onboarding-hive-existing">
+              <p class="truncate font-mono text-[12px] text-text-3">{{ hive.path.value }}</p>
+              <p class="mt-2 text-[12.5px] text-text-2">
+                Starts sessions with <span class="font-mono text-text">{{ hive.defaultAgent.value }}</span>
+                across {{ hive.workspaces.value.length === 1 ? '1 folder' : `${hive.workspaces.value.length} folders` }} of repositories.
+              </p>
+            </div>
+            <button
+              class="primary-button"
+              data-testid="onboarding-hive-continue"
+              @click="emit('skipHive')"
+            >Continue</button>
+            <p class="mt-4 text-center text-xs text-text-4">You can change any of this later under Settings ▸ Hive CLI.</p>
+          </template>
+
+          <template v-else>
+            <p class="mb-6 text-center text-[13.5px] leading-relaxed text-text-3">
+              Hive starts coding sessions in your repositories. Tell it which agent to run and where your code lives.
+            </p>
+            <div class="mb-6 text-left">
+              <HiveSetupForm
+                :agents="hive.agents.value"
+                :selected-agents="hive.selectedAgents.value"
+                :workspaces="hive.workspaces.value"
+                :default-agent="hive.defaultAgent.value"
+                :skip-permissions="hive.skipPermissions.value"
+                :custom-profiles="hive.customProfiles.value"
+                :default-agent-override="hive.defaultAgentOverride.value"
+                :busy="hive.saving.value"
+                @toggle-agent="(agent, on) => hive!.toggleAgent(agent, on)"
+                @set-default-agent="(name) => hive!.defaultAgent.value = name"
+                @set-skip-permissions="(on) => hive!.setSkipPermissions(on)"
+                @add-workspace="hive!.addWorkspace()"
+                @add-workspace-path="(path) => hive!.addWorkspacePath(path)"
+                @remove-workspace="(path) => hive!.removeWorkspace(path)"
+              />
+            </div>
+            <button
+              class="primary-button"
+              :disabled="hive.saving.value || !hive.canSave.value"
+              data-testid="onboarding-hive-submit"
+              @click="emit('saveHive')"
+            >{{ hive.saving.value ? 'Saving…' : 'Save and continue' }}</button>
+            <p v-if="hive.error.value" class="mt-4 text-center text-xs text-kind-issue" data-testid="onboarding-hive-error">{{ hive.error.value }}</p>
+            <p class="mt-4 text-center text-xs text-text-4">
+              <button class="link-quiet underline" data-testid="onboarding-hive-skip" @click="emit('skipHive')">Skip for now</button>
+              — the inbox works without this; the new session picker stays empty until you set it.
+            </p>
+          </template>
+        </template>
+
+        <!-- profile: step 2, the one step that needs no credential -->
         <template v-else-if="card === 'profile'">
           <p id="onboarding-profile-description" class="mb-6 text-[13.5px] leading-relaxed text-text-3">Profiles separate feeds, sources, and rules. Try Work, Open Source, or Personal.</p>
           <label for="onboarding-profile-name" class="mb-1.5 block text-left text-xs font-medium text-text-3">Profile name</label>

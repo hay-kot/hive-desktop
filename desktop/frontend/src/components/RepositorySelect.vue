@@ -205,7 +205,15 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
           </li>
         </ul>
         <div v-else class="px-3 py-4 text-center text-[12.5px] text-text-4" :data-testid="testid ? `${testid}-empty` : undefined">
-          {{ query.trim() ? 'No matching repository' : 'No repositories configured' }}
+          <template v-if="query.trim()">No matching repository</template>
+          <template v-else>
+            No repositories configured
+            <!-- The list is built from the Hive config's workspaces, so an
+                 empty one is a setting, not a missing feature. Someone who
+                 skipped the first-run step lands here and would otherwise have
+                 nothing to go on. -->
+            <span class="mt-1 block text-[11.5px]">Add the folders holding them under Settings ▸ Hive CLI.</span>
+          </template>
         </div>
       </div>
     </Teleport>

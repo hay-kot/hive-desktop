@@ -21,8 +21,11 @@ type HiveConfigLocation struct {
 }
 
 type systemOptions struct {
-	Paths      settings.Paths
-	HiveConfig HiveConfigLocation
+	Paths settings.Paths
+	// HiveConfig reads the location rather than holding it: the Hive config is
+	// reloadable, and a first run that creates the file changes where it
+	// resolves while this service is on screen.
+	HiveConfig func() HiveConfigLocation
 	OpenPath   func(string) error
 	RevealPath func(string) error
 }
@@ -39,7 +42,7 @@ type systemOptions struct {
 // not domain.
 type SystemService struct {
 	paths      settings.Paths
-	hiveConfig HiveConfigLocation
+	hiveConfig func() HiveConfigLocation
 	openPath   func(string) error
 	revealPath func(string) error
 }
@@ -54,6 +57,9 @@ func newSystemService(opts systemOptions) *SystemService {
 	}
 	if opts.RevealPath == nil {
 		opts.RevealPath = osopen.Reveal
+	}
+	if opts.HiveConfig == nil {
+		opts.HiveConfig = func() HiveConfigLocation { return HiveConfigLocation{} }
 	}
 	return &SystemService{
 		paths:      opts.Paths,
@@ -86,13 +92,14 @@ type SystemInfo struct {
 // Info returns the effective locations for this process and their override
 // state.
 func (s *SystemService) Info(context.Context) SystemInfo {
+	hiveConfig := s.hiveConfig()
 	return SystemInfo{
 		DataDir:         pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
 		ConfigDir:       pathInfo(s.paths.ConfigDir, s.paths.ConfigDirOverridden),
 		LogFile:         pathInfo(s.paths.LogFile, false),
 		Database:        pathInfo(queries.DatabasePath(s.paths.StateDir), false),
 		AgentWorkspaces: pathInfo(s.paths.AgentWorkspacesDir, false),
-		HiveConfig:      pathInfo(s.hiveConfig.Path, s.hiveConfig.EnvironmentOverride),
+		HiveConfig:      pathInfo(hiveConfig.Path, hiveConfig.EnvironmentOverride),
 	}
 }
 
@@ -127,7 +134,7 @@ const initialHiveConfig = `# Hive configuration
 // in the OS default application. O_EXCL preserves a file created between the
 // settings read and this call.
 func (s *SystemService) OpenHiveConfig(_ context.Context) error {
-	path := s.hiveConfig.Path
+	path := s.hiveConfig().Path
 	if path == "" {
 		return Errorf(KindInternal, "Hive config path is unavailable")
 	}
@@ -210,8 +217,8 @@ func (s *SystemService) checkAllowed(path string) error {
 		filepath.Clean(s.paths.AgentWorkspacesDir):             {},
 		filepath.Clean(s.paths.ReportsDir):                     {},
 	}
-	if s.hiveConfig.Path != "" {
-		allowed[filepath.Clean(s.hiveConfig.Path)] = struct{}{}
+	if hiveConfig := s.hiveConfig(); hiveConfig.Path != "" {
+		allowed[filepath.Clean(hiveConfig.Path)] = struct{}{}
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

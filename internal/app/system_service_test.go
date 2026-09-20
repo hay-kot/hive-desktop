@@ -47,7 +47,7 @@ func TestSystemServiceInfoReportsHiveConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, nil, 0o644))
 
 	info := newSystemService(systemOptions{
-		HiveConfig: HiveConfigLocation{Path: path, EnvironmentOverride: true},
+		HiveConfig: staticHiveConfig(HiveConfigLocation{Path: path, EnvironmentOverride: true}),
 	}).Info(t.Context())
 
 	require.Equal(t, PathInfo{Path: path, Exists: true, Overridden: true}, info.HiveConfig)
@@ -101,7 +101,7 @@ func TestSystemServiceCheckAllowed(t *testing.T) {
 	t.Setenv(settings.EnvDataDir, t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	hiveConfig := filepath.Join(t.TempDir(), "config.yaml")
-	s := newSystemService(systemOptions{HiveConfig: HiveConfigLocation{Path: hiveConfig}})
+	s := newSystemService(systemOptions{HiveConfig: staticHiveConfig(HiveConfigLocation{Path: hiveConfig})})
 
 	require.NoError(t, s.checkAllowed(settings.DataDir()))
 	require.NoError(t, s.checkAllowed(settings.LogFile()))
@@ -110,6 +110,13 @@ func TestSystemServiceCheckAllowed(t *testing.T) {
 	require.NoError(t, s.checkAllowed(settings.ReportsDir()))
 	require.NoError(t, s.checkAllowed(hiveConfig))
 	require.Error(t, s.checkAllowed("/etc/passwd"))
+}
+
+// staticHiveConfig pins the location for a test. Production reads it through a
+// function because a reload re-resolves it; a test that never reloads does not
+// care which value it gets, only that it is the same one.
+func staticHiveConfig(location HiveConfigLocation) func() HiveConfigLocation {
+	return func() HiveConfigLocation { return location }
 }
 
 func TestResolveHiveConfigLocation(t *testing.T) {
@@ -206,7 +213,7 @@ func TestSystemServiceOpenHiveConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
 	var opened string
 	s := newSystemService(systemOptions{
-		HiveConfig: HiveConfigLocation{Path: path},
+		HiveConfig: staticHiveConfig(HiveConfigLocation{Path: path}),
 		OpenPath: func(path string) error {
 			opened = path
 			return nil

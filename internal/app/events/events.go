@@ -87,6 +87,12 @@ type NotificationRaised struct {
 	InApp     bool
 }
 
+// HiveConfigChanged reports that the external Hive config was rewritten and
+// the session, status and message services were rebuilt from it. It carries no
+// payload: every consumer re-reads what it needs, and the one thing a reader
+// most wants — the repository list — is behind a call that scans the disk.
+type HiveConfigChanged struct{}
+
 func (LogAppended) eventName() string            { return "log.appended" }
 func (InboxUpdated) eventName() string           { return "inbox.updated" }
 func (ActivityAppended) eventName() string       { return "activity.appended" }
@@ -100,3 +106,4 @@ func (CanvasToggleRequested) eventName() string  { return "canvas.toggle-request
 func (SchedulesUpdated) eventName() string       { return "schedules.updated" }
 func (ConnectionUpdated) eventName() string      { return "connection.updated" }
 func (NotificationRaised) eventName() string     { return "notification.raised" }
+func (HiveConfigChanged) eventName() string      { return "hive-config.changed" }

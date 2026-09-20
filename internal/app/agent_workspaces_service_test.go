@@ -51,7 +51,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 		Terminals:       manager,
 		Stores:          stores.New(db, stores.Options{}),
 		Skills:          newTestSkillsService(t),
-		ProfileCommands: commands,
+		ProfileCommands: func() map[string]string { return commands },
 		MCPBase:         mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
 		Events:          events.New(zerolog.Nop()),
 	})
@@ -117,7 +117,7 @@ func newManifestOnlyService(t *testing.T, root string, profileCommands map[strin
 
 	return newAgentWorkspacesService(AgentWorkspacesDeps{
 		Store: awStore, Stores: stores.New(db, stores.Options{}), Skills: newTestSkillsService(t),
-		ProfileCommands: profileCommands, MCPBase: mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
+		ProfileCommands: func() map[string]string { return profileCommands }, MCPBase: mcpBaseFunc(func(context.Context) string { return testMCPBaseURL }),
 		Events: events.New(zerolog.Nop()),
 	})
 }

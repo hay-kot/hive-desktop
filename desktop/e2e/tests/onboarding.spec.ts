@@ -16,7 +16,8 @@ const onboardingPorts: Record<string, number> = {
 }
 
 // The first-run story is one ordered walk on a per-browser onboarding server:
-// create a profile, then connect the account that fills it, then the feed.
+// set up the agent and repository folders, create a profile, connect the
+// account that fills it, then the feed.
 // Splitting it into named steps that share one page pins any failure to a
 // specific step (profile-create vs. connect vs. flow-edit vs. delete)
 // instead of a line deep inside one giant test.
@@ -54,31 +55,70 @@ test.describe.serial('first-run onboarding, then profile and flow management', (
     await page.close()
   })
 
-  test('starts at the profile step, which needs no account', async () => {
+  // Step 1 is the Hive config: the agent a session runs and the folders
+  // holding the repositories it runs in. It is first because it is the one
+  // answer the rest of the app reads back — with neither, the new session
+  // picker has nothing in it.
+  //
+  // The folder is typed rather than picked. The native directory dialog needs
+  // a GUI, and this suite drives the headless server build, which has none;
+  // the typed input exists for that reason as much as for keyboard users.
+  test('starts at the hive setup step and writes a config from it', async () => {
     await page.goto('/')
 
-    // The profile is the one thing that exists without a credential, so it
-    // is step 1 — the connect cards are not on screen yet.
     const onboarding = page.getByTestId('onboarding')
     await expect(onboarding).toBeVisible()
     await expect(onboarding).toContainText('Triage GitHub and')
+    await expect(onboarding).toContainText('Set up your agent and code')
+    await expect(page.getByTestId('hive-setup-agents')).toBeVisible()
+    await expect(page.getByTestId('onboarding-profile-input')).toBeHidden()
+    // No profile chrome in the title bar while onboarding (gated on profileName).
+    await expect(page.getByTestId('titlebar-activity')).toBeHidden()
+
+    // Nothing is chosen until an agent and a folder both are. The step opens
+    // with whichever catalog agent is on PATH already selected, and the
+    // container may or may not have one, so this selects rather than toggles.
+    const claude = page.getByTestId('hive-agent-claude')
+    if (await claude.getAttribute('aria-pressed') !== 'true') await claude.click()
+    await expect(claude).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('onboarding-hive-submit')).toBeDisabled()
+
+    await mkdir(screenshotsDir, { recursive: true })
+    await page.screenshot({ path: join(screenshotsDir, `onboarding-hive-${projectName}.png`), fullPage: true })
+
+    // /tmp exists in the container and is not itself a repository, which is
+    // all the validation asks. It holds no repositories, and the count saying
+    // so is the point: the step is honest about what it found.
+    await page.getByTestId('hive-workspace-path').fill('/tmp')
+    await page.getByTestId('hive-workspace-path-add').click()
+    await expect(page.getByTestId('hive-workspace-list')).toContainText('/tmp')
+    await expect(page.getByTestId('onboarding-hive-submit')).toBeEnabled()
+
+    await page.getByTestId('onboarding-hive-submit').click()
+
+    // Saving reloads the Hive runtime in place and hands off to the profile
+    // step; no relaunch stands between the two.
+    await expect(page.getByTestId('onboarding-profile-input')).toBeVisible({ timeout: 15_000 })
+  })
+
+  test('moves on to the profile step, which needs no account', async () => {
+    // The profile is the one thing that exists without a credential, so the
+    // connect cards are not on screen yet.
+    const onboarding = page.getByTestId('onboarding')
     await expect(onboarding).toContainText('Create your first profile')
     await expect(onboarding).toContainText('Tokens are stored in your OS keychain.')
     await expect(page.getByTestId('onboarding-connect')).toBeHidden()
-    // No profile chrome in the title bar while onboarding (gated on profileName).
-    await expect(page.getByTestId('titlebar-activity')).toBeHidden()
 
     const profileInput = page.getByTestId('onboarding-profile-input')
     await expect(page.getByText('Profile name', { exact: true })).toBeVisible()
     await expect(profileInput).toBeFocused()
     await expect(page.getByTestId('onboarding-profile-submit')).toBeDisabled()
-    await mkdir(screenshotsDir, { recursive: true })
     await page.screenshot({ path: join(screenshotsDir, `onboarding-profile-${projectName}.png`), fullPage: true })
 
     await profileInput.fill('Frontend Triage')
     await page.getByTestId('onboarding-profile-submit').click()
 
-    // Step 2, not the feed: the profile exists but has no sources yet.
+    // The connect step, not the feed: the profile exists but has no sources yet.
     await expect(page.getByTestId('onboarding-connect')).toBeVisible({ timeout: 15_000 })
     await expect(onboarding).toContainText('Connect to GitHub')
   })
@@ -113,7 +153,7 @@ test.describe.serial('first-run onboarding, then profile and flow management', (
     await expect(page.getByTestId('onboarding')).toContainText('Waiting for authorization…')
     await page.screenshot({ path: join(screenshotsDir, `onboarding-device-flow-${projectName}.png`), fullPage: true })
 
-    // Step 3 stands between the grant and the feed: the OS notification
+    // One step stands between the grant and the feed: the OS notification
     // prompt. Skipping is the path that needs no OS grant, so it is the one a
     // headless run can take.
     await expect(page.getByTestId('onboarding-permissions-skip')).toHaveText('Not now')

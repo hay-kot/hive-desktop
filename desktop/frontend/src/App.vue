@@ -29,6 +29,7 @@ import ToastStack from './components/ToastStack.vue'
 import SequenceHint from './components/SequenceHint.vue'
 import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useNotificationSettings } from './composables/useNotificationSettings'
+import { useHiveSetup } from './composables/useHiveSetup'
 import { useAgentCanvasRoute } from './composables/useAgentCanvasRoute'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
@@ -658,34 +659,94 @@ watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (k
 })
 
 // ── First run ────────────────────────────────────────────────────────────────
-// create profile -> connect GitHub -> feed. The profile goes first because
-// it is the one thing that exists without a credential; connecting is the
-// expected next step but can be skipped past a warning, and skipping lands on
-// a feed whose empty state points at Integrations.
+// hive setup -> create profile -> connect GitHub -> feed. Hive setup goes
+// first because it is the one answer the rest of the app reads back, and
+// because abandoning it costs nothing that early. The profile comes next as
+// the one thing that exists without a credential; connecting is the expected
+// step after it but can be skipped past a warning, and skipping lands on a
+// feed whose empty state points at Integrations.
 
-// Step 1: no profile exists yet. This is also where deleting the last profile
+// Step 1: the Hive CLI config — which agent starts a session and where the
+// repositories it runs in are. It goes before the profile because it is the
+// one answer the rest of the app reads back (the new session picker is built
+// from it), and because the step costs nothing to abandon: no profile has
+// been created and no credential stored yet.
+//
+// `hiveStepDone` is the tail of one first run rather than persisted state, the
+// same shape as the two steps below it.
+const hive = useHiveSetup()
+const hiveStepDone = ref(false)
+// hiveResolved is "the read finished", success or not; hive.setup is "it
+// succeeded". The two are separate because they answer different questions:
+// the shell waits on the first so the step cannot flash in behind a rendered
+// feed, and the step itself needs the second — a config this app could not
+// read is not a reason to hold a first run in front of the whole app.
+const hiveResolved = ref(false)
+// "Configured" is usable, not merely present: a config file that declares no
+// agent profiles or no workspaces leaves the session picker exactly as empty
+// as no file at all, so it is a first run, not a returning one.
+const hiveNeedsSetup = computed(() => !!hive.setup.value && !hive.usable.value && !hiveStepDone.value)
+// Step 2: no profile exists yet. This is also where deleting the last profile
 // lands.
 const needsProfile = computed(() => profilesLoaded.value && profiles.value.length === 0)
 
-// Step 2. It is the tail of one continuous first run rather than a state the
+// A usable config is confirmed rather than skipped past, so a user with a
+// hive CLI setup is told it was found instead of silently having it adopted.
+const hiveNeedsConfirm = computed(() => !!hive.setup.value && hive.usable.value && !hiveStepDone.value)
+const hiveStepActive = computed(() => hiveNeedsSetup.value || hiveNeedsConfirm.value)
+
+// The Hive step belongs to the first run and nothing else. A launch that
+// already has a profile has had one, so the step is marked done before it can
+// render — which is what keeps deleting the last profile later from replaying
+// it, and keeps a returning user with an unusable config out of a full-screen
+// takeover. Settings ▸ Hive CLI is where that user repairs it.
+// Watching "a profile is known to exist" rather than "needsProfile is false":
+// the latter is also false while the profiles are still loading, which would
+// latch the step away before first run ever got to it.
+watch(() => profilesLoaded.value && profiles.value.length > 0, (hasProfile) => {
+  if (hasProfile) hiveStepDone.value = true
+}, { immediate: true })
+
+// Step 3. It is the tail of one continuous first run rather than a state the
 // app persists: set when the first profile is created with nothing
 // connected, cleared by connecting or skipping. Disconnecting later never
 // sets it — Settings ▸ Integrations is where that is repaired.
 const firstRunConnect = ref(false)
 
-// Step 3: the OS notification grant. Like firstRunConnect it is the tail of
+// Step 4: the OS notification grant. Like firstRunConnect it is the tail of
 // one first run, not persisted state — set when the connect step resolves and
 // cleared once the user grants, denies, or skips. Requesting it here is the
 // only place onboarding pops the OS prompt; a returning user whose permission
 // is already resolved never sees this step (advanceToPermissions gates on it).
 const firstRunPermissions = ref(false)
-const onboardingActive = computed(() => needsProfile.value || firstRunConnect.value || firstRunPermissions.value)
+const onboardingActive = computed(() => hiveStepActive.value || needsProfile.value || firstRunConnect.value || firstRunPermissions.value)
 
 // Move off the connect step onto the permissions step, unless the OS decision
 // is already made — a grant or a denial has nothing left to ask, so first run
 // ends and the feed takes over.
 function advanceToPermissions(): void {
   firstRunPermissions.value = notificationPermission.value === 'not-requested'
+}
+
+async function loadHiveSetup(): Promise<void> {
+  try {
+    await hive.load()
+  } finally {
+    hiveResolved.value = true
+  }
+}
+
+async function submitHiveSetup(): Promise<void> {
+  if (await hive.save()) hiveStepDone.value = true
+}
+
+// Leaving the step — saved, confirmed, or skipped — ends it. Nothing records
+// which of the three happened, and nothing needs to: the next launch has a
+// profile, so the latch above retires the step whatever the config says. A
+// skip therefore means "not now, and not here again" — the repository picker's
+// empty state is what points at Settings ▸ Hive CLI afterwards.
+function finishHiveStep(): void {
+  hiveStepDone.value = true
 }
 
 function skipConnectStep(): void {
@@ -741,7 +802,7 @@ const mode = computed<'hub' | 'terminal' | 'agents'>(() => {
 // siblings, not branches of one chain, so hubActive is written as the
 // positive case rather than "not terminal": a third route with no explicit
 // case here would otherwise render the hub underneath it.
-const shellLoaded = computed(() => profilesLoaded.value || !!profilesError.value)
+const shellLoaded = computed(() => (profilesLoaded.value || !!profilesError.value) && hiveResolved.value)
 const terminalActive = computed(() => mode.value === 'terminal' && shellLoaded.value && !onboardingActive.value)
 const agentsActive = computed(() => mode.value === 'agents' && shellLoaded.value && !onboardingActive.value)
 const hubActive = computed(() => mode.value === 'hub' && shellLoaded.value && !onboardingActive.value)
@@ -874,6 +935,11 @@ const {
   dismiss: dismissWhatsNew,
 } = useReleaseNotes()
 onMounted(() => { void checkReleaseNotes() })
+// The Hive config decides whether first run has a step at all, so it is read
+// alongside the profiles rather than when the step would render — the shell
+// holds its empty frame until profilesLoaded, and a step that resolved after
+// that would flash in behind it.
+onMounted(() => { void loadHiveSetup() })
 const {
   open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, initialTarget: newSessionInitialTarget, busy: newSessionBusy, error: newSessionError,
   failure: newSessionFailure, formKey: newSessionFormKey,
@@ -1357,12 +1423,16 @@ onUnmounted(() => {
       <div v-if="!shellLoaded" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
         v-else-if="onboardingActive"
-        :card="needsProfile ? 'profile' : firstRunConnect ? connectCard : 'permissions'"
+        :card="hiveStepActive ? 'hive' : needsProfile ? 'profile' : firstRunConnect ? connectCard : 'permissions'"
         :device-flow="deviceFlow"
-        :error="needsProfile ? createProfileError : firstRunConnect ? connectError : notificationError"
-        :busy="needsProfile ? creatingProfile : firstRunConnect ? connectBusy : requestingPermission"
+        :error="hiveStepActive ? null : needsProfile ? createProfileError : firstRunConnect ? connectError : notificationError"
+        :busy="hiveStepActive ? false : needsProfile ? creatingProfile : firstRunConnect ? connectBusy : requestingPermission"
         :github-connected="githubConnected"
         :permission="notificationPermission"
+        :hive="hive"
+        :hive-configured="hiveNeedsConfirm"
+        @save-hive="submitHiveSetup"
+        @skip-hive="finishHiveStep"
         @start-device-flow="startDeviceFlow"
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"

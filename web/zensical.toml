@@ -20,6 +20,7 @@ nav = [
     "getting-started/index.md",
     "getting-started/features.md",
     { "First run" = [
+      "getting-started/agent-and-repos.md",
       "getting-started/sign-in.md",
       "getting-started/notifications.md",
       "getting-started/first-feed.md",
