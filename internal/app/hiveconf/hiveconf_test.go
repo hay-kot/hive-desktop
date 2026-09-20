@@ -312,18 +312,33 @@ func TestApplyDropsTheDeprecatedRepoDirsKeyItReplaces(t *testing.T) {
 	assert.Contains(t, string(raw), repos)
 }
 
+// TestApplyFillsAFileHiveCreatedButLeftEmpty: a file with comments but no keys
+// is rendered whole, not edited in place. yaml.v3 attaches a keyless
+// document's comments to no node, so an in-place edit would drop them and
+// leave a config with no header at all.
 func TestApplyFillsAFileHiveCreatedButLeftEmpty(t *testing.T) {
 	repos := workspaceDir(t, 1)
-	path := write(t, t.TempDir(), "# Hive configuration\n")
+	for name, existing := range map[string]string{
+		"comments only": "# Hive configuration\n",
+		"empty":         "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := write(t, t.TempDir(), existing)
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
-		DefaultAgent: "claude",
-		Profiles:     []hiveconf.Profile{{Name: "claude"}},
-		Workspaces:   []string{repos},
-	}))
+			require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+				DefaultAgent: "claude",
+				Profiles:     []hiveconf.Profile{{Name: "claude"}},
+				Workspaces:   []string{repos},
+			}))
 
-	loaded := loadHive(t, path)
-	assert.Equal(t, []string{repos}, loaded.Workspaces)
+			loaded := loadHive(t, path)
+			assert.Equal(t, []string{repos}, loaded.Workspaces)
+
+			raw, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Contains(t, string(raw), "Reference: https://hive.colonyops.io/configuration")
+		})
+	}
 }
 
 func TestApplyRefusesAnEditThatWouldNotLoadAndLeavesTheFileAlone(t *testing.T) {

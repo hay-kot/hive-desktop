@@ -75,12 +75,12 @@ func (e Edit) Validate() error {
 	return nil
 }
 
-// Apply writes the edit to path, creating the file when it is absent and
-// editing the existing document in place when it is not.
+// Apply writes the edit to path, rendering a whole file when there are no
+// keys to edit and editing the existing document in place when there are.
 //
-// The two paths differ because the files do: a file this app creates is
-// authored for a reader who has never seen one, comments included, while a
-// file the user already has is theirs — the write reaches in for the two keys
+// The two paths differ because the files do: a file this app fills is authored
+// for a reader who has never seen one, comments included, while a file the
+// user already has keys in is theirs — the write reaches in for the two keys
 // it owns and leaves the rest byte-for-byte.
 func Apply(path string, edit Edit) error {
 	if err := edit.Validate(); err != nil {
@@ -101,7 +101,22 @@ func Apply(path string, edit Edit) error {
 		return fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}
 
-	out, err := editDocument(raw, edit)
+	doc := &yaml.Node{}
+	if err := yaml.Unmarshal(raw, doc); err != nil {
+		return fmt.Errorf("parse the Hive config: %w", err)
+	}
+	// A file with no keys is rendered rather than edited. Editing it in place
+	// would produce a config with no header at all: yaml.v3 attaches a
+	// keyless document's comments to no node, so they are dropped whatever
+	// this does, and seeding a bare mapping then writes the keys with nothing
+	// above them. Rendering means every path that first fills the file — this
+	// one, and the absent-file branch above — leaves the same commented
+	// document behind.
+	if len(doc.Content) == 0 {
+		return writeFileAtomic(path, []byte(render(edit)))
+	}
+
+	out, err := editDocument(doc, edit)
 	if err != nil {
 		return err
 	}
@@ -109,18 +124,7 @@ func Apply(path string, edit Edit) error {
 }
 
 // editDocument applies the edit to an existing document's node tree.
-func editDocument(raw []byte, edit Edit) ([]byte, error) {
-	doc := &yaml.Node{}
-	if err := yaml.Unmarshal(raw, doc); err != nil {
-		return nil, fmt.Errorf("parse the Hive config: %w", err)
-	}
-	// An empty file parses to a document with no content. Seed a mapping so
-	// the first write into a file `hive` created but never filled behaves the
-	// same as a write into a file with keys already in it.
-	if len(doc.Content) == 0 {
-		doc.Kind = yaml.DocumentNode
-		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
-	}
+func editDocument(doc *yaml.Node, edit Edit) ([]byte, error) {
 	root := doc.Content[0]
 	if root.Kind != yaml.MappingNode {
 		return nil, fmt.Errorf("the Hive config is not a YAML mapping")
