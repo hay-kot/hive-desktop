@@ -263,9 +263,9 @@ type HiveSessionLauncher struct {
 	logger   zerolog.Logger
 }
 
-// launcherHive is the launcher's slice of a configured Hive runtime. It is
-// replaced whole rather than field by field, so a call that reads it twice
-// cannot straddle a Rebind.
+// launcherHive is replaced whole rather than field by field, so a call that
+// reads it twice cannot straddle a Rebind. The manager and publisher below
+// hold their own for the same reason.
 type launcherHive struct{ sessions SessionCreator }
 
 func NewHiveSessionLauncher(sessions SessionCreator) *HiveSessionLauncher {
@@ -415,7 +415,6 @@ type HiveSessionManager struct {
 	windows sessionWindowSource
 }
 
-// managerHive is the manager's slice of a configured Hive runtime.
 type managerHive struct {
 	sessions           SessionManagement
 	statuses           sessionStatusSource
@@ -820,8 +819,7 @@ type DurableMessageService interface {
 }
 type HiveMessagePublisher struct{ current atomic.Pointer[publisherHive] }
 
-// publisherHive is the publisher's slice of a configured Hive runtime. The
-// message service carries the configured retention cap, so a reload is what
+// publisherHive carries the configured retention cap, so a reload is what
 // makes a changed messaging.max_messages take effect.
 type publisherHive struct{ messages DurableMessageService }
 

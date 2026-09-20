@@ -660,20 +660,14 @@ watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (k
 
 // ── First run ────────────────────────────────────────────────────────────────
 // hive setup -> create profile -> connect GitHub -> feed. Hive setup goes
-// first because it is the one answer the rest of the app reads back, and
-// because abandoning it costs nothing that early. The profile comes next as
-// the one thing that exists without a credential; connecting is the expected
+// first because it is the one answer the rest of the app reads back — the new
+// session picker is built from it — and because abandoning it costs nothing
+// that early: no profile written, no credential stored. The profile comes next
+// as the one thing that exists without a credential; connecting is the expected
 // step after it but can be skipped past a warning, and skipping lands on a
 // feed whose empty state points at Integrations.
-
-// Step 1: the Hive CLI config — which agent starts a session and where the
-// repositories it runs in are. It goes before the profile because it is the
-// one answer the rest of the app reads back (the new session picker is built
-// from it), and because the step costs nothing to abandon: no profile has
-// been created and no credential stored yet.
 //
-// `hiveStepDone` is the tail of one first run rather than persisted state, the
-// same shape as the two steps below it.
+// Each step's flag is the tail of one first run rather than persisted state.
 const hive = useHiveSetup()
 const hiveStepDone = ref(false)
 // hiveResolved is "the read finished", success or not; hive.setup is "it

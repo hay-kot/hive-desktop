@@ -123,7 +123,6 @@ func Apply(path string, edit Edit) error {
 	return writeFileAtomic(path, out)
 }
 
-// editDocument applies the edit to an existing document's node tree.
 func editDocument(doc *yaml.Node, edit Edit) ([]byte, error) {
 	root := doc.Content[0]
 	if root.Kind != yaml.MappingNode {

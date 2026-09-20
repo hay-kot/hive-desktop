@@ -15,14 +15,8 @@ import type { useHiveSetup } from '../composables/useHiveSetup'
 import { useClipboard } from '../composables/useClipboard'
 
 const props = defineProps<{
-  // 'hive' is step 1: the agent and the repository folders a session runs in.
-  // It goes first because it is the one step whose answer the rest of the app
-  // reads, and because a first run that has not written a profile yet has
-  // nothing to lose if the setup is abandoned here.
-  // 'profile' is step 2: the profile is the thing that exists before any
-  // credential does. The connect cards are step 3, and are skippable.
-  // 'permissions' is step 4: the OS notification grant, asked once the account
-  // is settled so the prompt lands with context instead of mid-usage.
+  // Step order and why it is that order: see the First run section of App.vue.
+  // 'hive' is 1, 'profile' is 2, the connect cards are 3, 'permissions' is 4.
   card: ConnectCard | 'hive' | 'profile' | 'permissions'
   deviceFlow: DeviceFlowInfo | null
   error: string | null

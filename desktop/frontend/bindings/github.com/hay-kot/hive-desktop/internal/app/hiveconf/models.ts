@@ -38,12 +38,6 @@ export interface Profile {
  */
 export interface Setup {
     "path": string;
-
-    /**
-     * Exists reports whether the file is on disk. Everything below is read
-     * from the file itself, so an absent file reports no profiles and no
-     * workspaces rather than hive's fallbacks.
-     */
     "exists": boolean;
 
     /**

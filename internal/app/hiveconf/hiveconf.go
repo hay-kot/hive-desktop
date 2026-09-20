@@ -86,11 +86,8 @@ type Workspace struct {
 // Setup is what the Hive config declares right now, and whether that is
 // enough for the session launcher to do anything.
 type Setup struct {
-	Path string `json:"path"`
-	// Exists reports whether the file is on disk. Everything below is read
-	// from the file itself, so an absent file reports no profiles and no
-	// workspaces rather than hive's fallbacks.
-	Exists bool `json:"exists"`
+	Path   string `json:"path"`
+	Exists bool   `json:"exists"`
 	// Usable reports that the file declares at least one agent profile and at
 	// least one workspace. It is what first run branches on: a file that
 	// exists but declares neither leaves the launcher exactly as empty as no
@@ -106,9 +103,7 @@ type Setup struct {
 	Workspaces   []Workspace `json:"workspaces"`
 }
 
-// document is the narrow slice of the Hive config this package reads. Decoding
-// into it rather than into hive's Config is deliberate: hive's loader fills in
-// defaults, and a default is exactly what Setup must not report as a choice.
+// document is the narrow slice of the Hive config this package reads.
 type document struct {
 	Agents     yaml.Node `yaml:"agents"`
 	Workspaces []string  `yaml:"workspaces"`
@@ -155,8 +150,7 @@ func Load(path string) Setup {
 
 // decodeAgents splits hive's agents mapping into the reserved "default" key
 // and the profile entries beside it. It mirrors hive's own UnmarshalYAML
-// rather than calling it, so an unknown reserved key is skipped instead of
-// being reported as a profile a person could pick.
+// rather than calling it, so hive and this package disagree about no key.
 func decodeAgents(node yaml.Node) (defaultAgent string, profiles []Profile) {
 	if node.Kind != yaml.MappingNode {
 		return "", nil
@@ -186,7 +180,7 @@ func decodeAgents(node yaml.Node) (defaultAgent string, profiles []Profile) {
 }
 
 // Inspect reports what is at a candidate workspace path without reading the
-// config. It is what the picker shows after a folder is chosen.
+// config, for a folder the user has chosen but not saved.
 func Inspect(path string) Workspace { return describeWorkspace(path) }
 
 func describeWorkspace(path string) Workspace {

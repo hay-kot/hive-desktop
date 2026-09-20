@@ -1365,9 +1365,9 @@ func (a *App) HiveConfigLocation() HiveConfigLocation {
 	return HiveConfigLocation{}
 }
 
-// profileCommands reads the current agent command set. AgentWorkspacesService
-// holds this function rather than the map it returns, so a config reload
-// reaches the preset list without rebuilding the service.
+// profileCommands is held by AgentWorkspacesService as a function rather than
+// as the map it returns, so a config reload reaches the preset list without
+// rebuilding the service.
 func (a *App) profileCommands() map[string]string {
 	if current := a.agentCommands.Load(); current != nil {
 		return *current
