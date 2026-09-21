@@ -10,8 +10,12 @@
    Deliberately not .markdown-body: that sheet is shared with untrusted GitHub
    issue and PR bodies and must not grow a layout vocabulary. */
 .hv-html {
+  --hv-font-size: 13.5px;
+  --hv-line-height: 1.65;
   container-type: inline-size;
   overflow-wrap: break-word;
+  font-size: var(--hv-font-size);
+  line-height: var(--hv-line-height);
 
   /* A block may write any class, so it may reach the global utilities and
      position itself. contain: layout makes this element the containing block
@@ -27,12 +31,13 @@
    readable document. */
 .hv-html h1, .hv-html h2, .hv-html h3,
 .hv-html h4, .hv-html h5, .hv-html h6 {
-  margin: 16px 0 8px; color: var(--color-text); font-weight: 650; line-height: 1.3;
+  margin: 16px 0 8px; color: var(--color-text); font-weight: 650;
+  line-height: calc(var(--hv-line-height) * 0.79);
 }
-.hv-html h1 { font-size: 18px; }
-.hv-html h2 { font-size: 16px; }
-.hv-html h3 { font-size: 14.5px; }
-.hv-html h4, .hv-html h5, .hv-html h6 { font-size: 13.5px; }
+.hv-html h1 { font-size: 1.333em; }
+.hv-html h2 { font-size: 1.185em; }
+.hv-html h3 { font-size: 1.074em; }
+.hv-html h4, .hv-html h5, .hv-html h6 { font-size: 1em; }
 .hv-html *:first-child { margin-top: 0; }
 .hv-html *:last-child { margin-bottom: 0; }
 .hv-html p { margin: 8px 0; }
@@ -61,7 +66,7 @@
 }
 .hv-html pre {
   margin: 10px 0; padding: 12px 14px; overflow-x: auto; border-radius: 7px;
-  background: var(--color-card); line-height: 1.5;
+  background: var(--color-card); line-height: calc(var(--hv-line-height) * 0.91);
 }
 .hv-html pre code { padding: 0; background: transparent; }
 .hv-html table {
@@ -94,9 +99,9 @@
 .hv-cols-4 { --hv-cols: 4; }
 
 /* The pane is user-resizable down to 300px, where any multi-column grid is
-   unreadable. Collapsing here rather than refusing the class means an agent
-   picks columns for the content, not for a width it cannot know. */
-@container (max-width: 360px) {
+   unreadable. The em threshold grows with the reader's text size, so larger
+   type earns a single column sooner. */
+@container (max-width: 26.667em) {
   .hv-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -117,11 +122,11 @@
 /* Data. */
 .hv-stat { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .hv-stat-value {
-  color: var(--color-text); font-size: 19px; font-weight: 650;
-  line-height: 1.2; font-variant-numeric: tabular-nums;
+  color: var(--color-text); font-size: 1.407em; font-weight: 650;
+  line-height: calc(var(--hv-line-height) * 0.73); font-variant-numeric: tabular-nums;
 }
 .hv-stat-label {
-  color: var(--color-text-4); font-size: 10.5px; font-weight: 500;
+  color: var(--color-text-4); font-size: 0.778em; font-weight: 500;
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 .hv-kv {
@@ -139,7 +144,8 @@
   border: 1px solid color-mix(in srgb, var(--hv-tone) 35%, transparent);
   background: color-mix(in srgb, var(--hv-tone) 14%, transparent);
   color: var(--hv-tone);
-  font-size: 11px; font-weight: 600; line-height: 1.7; white-space: nowrap;
+  font-size: 0.815em; font-weight: 600;
+  line-height: calc(var(--hv-line-height) * 1.03); white-space: nowrap;
 }
 .hv-muted { color: var(--color-text-4); }
 .hv-mono { font-family: var(--font-mono); font-size: 0.9em; font-variant-numeric: tabular-nums; }
@@ -162,7 +168,7 @@
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
-  font-size: 12px;
+  font-size: 0.889em;
 }
 
 .hv-html svg[viewBox] { width: 100%; }

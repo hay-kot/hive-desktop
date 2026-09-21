@@ -73,6 +73,10 @@ type AppearanceSettings struct {
 	// for instant switching (ADR terminal-attach-pool). Carried verbatim; the frontend heals
 	// anything outside 1-6 to the default, 3.
 	TerminalPoolSize int `json:"terminalPoolSize"`
+	// Canvas typography is stored as preset names. The frontend owns the maps
+	// from those names to CSS values and heals unknown values.
+	CanvasFontSize    string `json:"canvasFontSize"`
+	CanvasLineSpacing string `json:"canvasLineSpacing"`
 }
 
 // KeybindingSettings carries keyboard shortcut overrides keyed by command id.
@@ -115,6 +119,8 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		TerminalShowWindows:    current.TerminalShowWindows,
 		TerminalShowStatusBar:  current.TerminalShowStatusBar,
 		TerminalPoolSize:       current.TerminalPoolSize,
+		CanvasFontSize:         current.CanvasFontSize,
+		CanvasLineSpacing:      current.CanvasLineSpacing,
 	}, nil
 }
 
@@ -180,6 +186,14 @@ func (s *SettingsService) SetTerminalShowStatusBar(ctx context.Context, show boo
 
 func (s *SettingsService) SetTerminalPoolSize(ctx context.Context, size int) error {
 	return s.settings.SetTerminalPoolSize(ctx, size)
+}
+
+func (s *SettingsService) SetCanvasFontSize(ctx context.Context, size string) error {
+	return s.settings.SetCanvasFontSize(ctx, size)
+}
+
+func (s *SettingsService) SetCanvasLineSpacing(ctx context.Context, spacing string) error {
+	return s.settings.SetCanvasLineSpacing(ctx, spacing)
 }
 
 func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {

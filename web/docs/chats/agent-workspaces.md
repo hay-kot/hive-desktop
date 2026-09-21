@@ -105,7 +105,7 @@ You can add HTTP, SSE, and stdio servers to the shared MCP library, then enable 
 
 An agent with **Hive Canvas** enabled can publish named output beside its chat. Canvases remain available after the chat ends and can contain Markdown, sanitized HTML, and links.
 
-Use the canvas pane to search previous output, copy a canvas as Markdown, save it to a file, or open its links.
+Use the canvas pane to search previous output, copy a canvas as Markdown, save it to a file, or open its links. Settings ▸ Chats changes text size and line spacing for every canvas. Copy and save keep the original Markdown.
 
 ## Use a chat in Code
 

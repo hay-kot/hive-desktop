@@ -184,6 +184,8 @@ notifications:
   sound: true
 appearance:
   theme: ""
+  canvas_font_size: "" # small, medium, large, or xl; empty means medium
+  canvas_line_spacing: "" # compact, standard, or relaxed; empty means standard
   terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
   terminal_font_family: "" # any installed monospace family; empty is the bundled JetBrains Mono (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font)
   terminal_font_weight: 0 # 300, 350, 400, 600, or 700; 0 means the default, 350

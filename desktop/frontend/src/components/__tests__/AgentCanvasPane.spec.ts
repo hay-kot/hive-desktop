@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentCanvasPane from '../AgentCanvasPane.vue'
+import { resetCanvasTypographyForTests } from '../../composables/useCanvasTypography'
 import type { AgentWorkspacesClient, CanvasBlock, WorkspaceCanvasMeta } from '../../lib/agentWorkspacesClient'
 
 const wailsEvents = vi.hoisted(() => ({
@@ -25,6 +26,13 @@ vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: runtime.setText },
   Dialogs: { SaveFile: runtime.saveFile },
 }))
+
+const settingsBindings = vi.hoisted(() => ({
+  AppearanceSettings: vi.fn(),
+  SetCanvasFontSize: vi.fn(),
+  SetCanvasLineSpacing: vi.fn(),
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => settingsBindings)
 
 function block(overrides: Partial<CanvasBlock>): CanvasBlock {
   return { id: 'b', kind: 'markdown', title: '', body: '', url: '', createdAt: 1, updatedAt: 1, ...overrides }
@@ -55,6 +63,11 @@ async function mountPane(client: AgentWorkspacesClient, name: string | null = nu
 describe('AgentCanvasPane', () => {
   beforeEach(() => {
     wailsEvents.handlers = []
+    localStorage.clear()
+    resetCanvasTypographyForTests()
+    settingsBindings.AppearanceSettings.mockResolvedValue({ canvasFontSize: '', canvasLineSpacing: '' })
+    settingsBindings.SetCanvasFontSize.mockResolvedValue(undefined)
+    settingsBindings.SetCanvasLineSpacing.mockResolvedValue(undefined)
   })
 
   // Agent-authored markdown is untrusted: raw HTML must arrive escaped, never
@@ -83,6 +96,21 @@ describe('AgentCanvasPane', () => {
     expect(rendered.find('.hv-stat-value').text()).toBe('42')
     expect(rendered.classes()).not.toContain('markdown-body')
     expect(wrapper.get('[data-testid="agent-canvas-block-stats"] h2').text()).toBe('Run')
+  })
+
+  it('applies the global canvas reading settings to markdown and html without pane controls', async () => {
+    settingsBindings.AppearanceSettings.mockResolvedValue({ canvasFontSize: 'xl', canvasLineSpacing: 'relaxed' })
+    const wrapper = await mountPane(fakeCanvasClient([
+      block({ id: 'doc', body: '# Plan' }),
+      block({ id: 'stats', kind: 'html', body: '<p>42 open</p>' }),
+    ]))
+
+    for (const body of wrapper.findAll('.canvas-reading-body')) {
+      const style = (body.element as HTMLElement).style
+      expect(style.getPropertyValue('--hv-font-size')).toBe('18px')
+      expect(style.getPropertyValue('--hv-line-height')).toBe('1.85')
+    }
+    expect(wrapper.find('[data-testid="agent-canvas-typography"]').exists()).toBe(false)
   })
 
   // The body here is what canvas.SanitizeHTML emits, viewBox spelled as SVG
