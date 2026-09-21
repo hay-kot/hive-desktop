@@ -131,19 +131,9 @@ install_darwin() {
   EXE_PATH="$APP_PATH/Contents/MacOS/$APP_EXE"
 }
 
-linux_runtime_install_command() {
-  if command -v apt-get >/dev/null 2>&1; then
-    printf '%s' 'sudo apt install libgtk-4-1 libwebkitgtk-6.0-4'
-  elif command -v dnf >/dev/null 2>&1; then
-    printf '%s' 'sudo dnf install gtk4 webkitgtk6.0'
-  elif command -v pacman >/dev/null 2>&1; then
-    printf '%s' 'sudo pacman -S gtk4 webkitgtk-6.0'
-  fi
-}
-
 check_linux_runtime() {
   command -v ldd >/dev/null 2>&1 || return 0
-  local output missing install_command ldd_status=0
+  local output missing ldd_status=0
   output="$(LC_ALL=C ldd "$EXE_PATH" 2>&1)" || ldd_status=$?
   missing="$(printf '%s\n' "$output" | awk '$2 == "=>" && $3 == "not" && $4 == "found" { print $1 }')"
   if [ -z "$missing" ] && [ "$ldd_status" -eq 0 ]; then
@@ -154,10 +144,6 @@ check_linux_runtime() {
     printf '%s\n' "$missing" | while IFS= read -r library; do
       say "missing runtime library: ${BOLD}$library${RST}"
     done
-    install_command="$(linux_runtime_install_command)"
-    if [ -n "$install_command" ]; then
-      say "install GTK 4 and WebKitGTK 6.0: ${BOLD}$install_command${RST}"
-    fi
   else
     say "couldn't verify the installed binary:"
     printf '%s\n' "$output" >&2
