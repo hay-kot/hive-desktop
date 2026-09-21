@@ -18,8 +18,8 @@ type SessionLaunchRepository struct {
 	Repository string `json:"repository"`
 }
 
-// SessionLaunchWorkspace is one agent workspace available to the session
-// launch dialog. Dir is its stable identity under the configured root.
+// SessionLaunchWorkspace identifies a configured workspace by its stable
+// directory name.
 type SessionLaunchWorkspace struct {
 	Dir            string `json:"dir"`
 	Name           string `json:"name"`

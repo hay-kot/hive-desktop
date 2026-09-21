@@ -14,7 +14,8 @@ type LaunchSessionConfig struct {
 	// Agent optionally selects a non-default agent profile for the new
 	// session (e.g. "claude", "aider").
 	Agent string `yaml:"agent,omitempty"`
-	// RepoTemplate renders which repository the session is created against.
+	// RepoTemplate selects a repository after rendering. Empty leaves target
+	// selection to Workspace or invocation input.
 	RepoTemplate string `yaml:"repo_template,omitempty"`
 	// Workspace names an agent workspace by its directory under the configured
 	// workspace root.

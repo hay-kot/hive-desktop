@@ -91,9 +91,8 @@ func TestActionTypesRoundTripThroughTheYAMLWriterAndLoader(t *testing.T) {
 			seed := 0
 			populateNonZero(t, reflect.ValueOf(cfg).Elem(), &seed)
 			if launch, ok := cfg.(*LaunchSessionConfig); ok {
-				// A workspace is mutually exclusive with the repository-only
-				// fields. Keep the new branch populated for this schema-wide pass;
-				// focused tests cover the repository and post-hook branches.
+				// This schema-wide pass exercises the workspace branch; focused
+				// tests cover the mutually exclusive repository and post-hook fields.
 				launch.RepoTemplate = ""
 				launch.Agent = ""
 				launch.PostHook = ""

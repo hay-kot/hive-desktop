@@ -388,8 +388,6 @@ func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, err
 	return views, nil
 }
 
-// SessionLaunchWorkspaces returns the valid workspace choices shared by the
-// New Session dialog and the actions editor.
 func (s *AgentWorkspacesService) SessionLaunchWorkspaces(context.Context) []dispatch.SessionLaunchWorkspace {
 	statuses := s.store.Statuses()
 	workspaces := make([]dispatch.SessionLaunchWorkspace, 0, len(statuses))
@@ -523,9 +521,8 @@ func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string
 	return items, nil
 }
 
-// StartSession launches a new, named session in workspace.
-// LaunchWorkspaceSession starts a detached chat for a New Session form or a
-// launch-session action. Generated files are refreshed before the agent starts.
+// LaunchWorkspaceSession refreshes generated files before starting the
+// detached chat.
 func (s *AgentWorkspacesService) LaunchWorkspaceSession(ctx context.Context, req dispatch.LaunchWorkspaceSessionRequest) (dispatch.SessionExecutionOutcome, error) {
 	regen, err := s.regenerate(ctx, req.Workspace)
 	if err != nil {
@@ -1718,8 +1715,6 @@ func resolvedFor(ws agentws.Workspace, absoluteDir string) agentws.Workspace {
 	return ws
 }
 
-// sessionName adds the agent-workspace namespace to the record's immutable,
-// cross-instance terminal id.
 func sessionName(rec stores.AgentSession) string {
 	return agentSessionPrefix + rec.TerminalID
 }

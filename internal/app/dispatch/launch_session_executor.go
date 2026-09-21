@@ -38,14 +38,12 @@ type SessionLauncher interface {
 	LaunchSession(ctx context.Context, req LaunchSessionRequest) (SessionExecutionOutcome, error)
 }
 
-// LaunchWorkspaceSessionRequest is a rendered workspace chat launch.
 type LaunchWorkspaceSessionRequest struct {
 	Workspace string
 	Name      string
 	Prompt    string
 }
 
-// WorkspaceSessionLauncher starts an agent workspace chat.
 type WorkspaceSessionLauncher interface {
 	LaunchWorkspaceSession(ctx context.Context, req LaunchWorkspaceSessionRequest) (SessionExecutionOutcome, error)
 }
