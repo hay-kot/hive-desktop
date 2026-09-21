@@ -95,7 +95,7 @@ The one-line installer ([ADR install-script](decisions/2026-07-27-install-script
 curl -fsSL https://hivedesktop.com/install.sh | bash
 ```
 
-It detects OS+arch, resolves the channel's latest build from the **same manifest the updater reads** (`channels/<channel>/latest.json`), verifies the artifact's sha256 from the manifest before installing, and on macOS unzips `Hive.app` into `/Applications` (falling back to `~/Applications`). The channel defaults to stable; pass another with `… | bash -s -- --channel dev` or the `HIVE_CHANNEL` env var. It always installs the channel's latest — no version pin — and re-running upgrades in place. It leaves `PATH` unchanged because the `hive` command belongs to the separate CLI product.
+It detects OS+arch, resolves the channel's latest build from the **same manifest the updater reads** (`channels/<channel>/latest.json`), and verifies the artifact's sha256 from the manifest before installing. On macOS it unzips `Hive.app` into `/Applications` (falling back to `~/Applications`). On Linux it installs under `~/.local/share/hive`, checks the binary's linked runtime libraries, and writes the icon and `.desktop` entry under `XDG_DATA_HOME` (defaulting to `~/.local/share`). The channel defaults to stable; pass another with `… | bash -s -- --channel dev` or the `HIVE_CHANNEL` env var. It always installs the channel's latest — no version pin — and re-running upgrades in place. It leaves `PATH` unchanged because the `hive` command belongs to the separate CLI product.
 
 - **No stable or beta manifest exists yet** — only `dev`. Until one is published the default `curl … | bash` fails on the missing stable manifest, and the site's download buttons ask for `dev` explicitly.
 - The script and its page are public and crawlable: `web/docs/install.sh` and the `## Install` section of `web/docs/getting-started/index.md`, both in the generated sitemap. They sat behind a path token before the URL became public (ADR [install-script](decisions/2026-07-27-install-script.md)). The URL is published in the README and the docs, so treat it as stable.
@@ -207,24 +207,11 @@ tar -xzf "Hive-$VER-linux-$ARCH.tar.gz" -C ~/.local/bin
 ~/.local/bin/hive-desktop
 ```
 
-Runtime dependencies are GTK 4 and WebKitGTK 6.0 — `libgtk-4-1` + `libwebkitgtk-6.0-4` on Debian/Ubuntu, `gtk4` + `webkitgtk6.0` on Fedora. Ubuntu 24.04 / Debian 13 / Fedora 40 or newer satisfy these from the base repos.
+Runtime dependencies are GTK 4 and WebKitGTK 6.0 — `libgtk-4-1` + `libwebkitgtk-6.0-4` on Debian/Ubuntu, `gtk4` + `webkitgtk6.0` on Fedora, and `gtk4` + `webkitgtk-6.0` on Arch. Ubuntu 24.04 / Debian 13 / Fedora 40 or newer satisfy these from the base repos. This follows the [default Wails Linux stack](https://v3.wails.io/guides/build/linux/).
 
 **System tray.** Hive normally hides to the tray when you close its window, and the tray menu is where profiles and Quit live. That needs a StatusNotifier host: Ubuntu, KDE, XFCE, and Cinnamon have one; **vanilla GNOME (Fedora Workstation, Debian GNOME) does not** unless you install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/). Hive checks the session bus at startup, and when no host owns `org.kde.StatusNotifierWatcher` it makes closing the window quit the app instead of hiding it — otherwise closing would leave it running with no window and no tray to restore it from.
 
-To get a launcher entry, drop a `.desktop` file in place (optional):
-
-```bash
-cat > ~/.local/share/applications/hive-desktop.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Name=Hive
-Exec=$HOME/.local/bin/hive-desktop
-Icon=$HOME/.local/bin/hive-desktop
-Categories=Development;
-Terminal=false
-EOF
-update-desktop-database ~/.local/share/applications
-```
+The terminal installer creates `hive-desktop.desktop` and installs the app icon in the user's XDG data directory, then refreshes the desktop database when `update-desktop-database` is available. A manually extracted tarball does not create that integration.
 
 ## Auto-update
 

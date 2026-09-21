@@ -7,6 +7,32 @@ description: Fix common setup, source, notification, and terminal problems.
 
 Check **Activity** for flow, source, and action errors. Open **Settings ▸ System ▸ Diagnostics** for the application log.
 
+## Hive does not start on Linux
+
+Hive requires GTK 4 and WebKitGTK 6.0. Install their runtime packages, then start Hive again:
+
+=== "Debian or Ubuntu"
+
+    ```sh
+    sudo apt install libgtk-4-1 libwebkitgtk-6.0-4
+    ```
+
+=== "Fedora"
+
+    ```sh
+    sudo dnf install gtk4 webkitgtk6.0
+    ```
+
+=== "Arch Linux"
+
+    ```sh
+    sudo pacman -S gtk4 webkitgtk-6.0
+    ```
+
+Hive supports Ubuntu 24.04, Debian 13, Fedora 40, and newer releases. See the [Wails Linux documentation](https://v3.wails.io/guides/build/linux/) for details about the GTK and WebKitGTK stack.
+
+The terminal installer also adds Hive to your desktop application menu. If you installed an older version of the script or extracted the tarball manually, run the current [terminal installer](index.md#install-from-the-terminal) to create the entry.
+
 ## tmux is not installed
 
 Code, Chats, and quick terminals require tmux 3.2 or newer.

@@ -7,9 +7,8 @@
 # Drop the `| bash` to read this first.
 #
 # Detects your OS + CPU, pulls the channel's latest build, verifies its SHA-256
-# against the published manifest, and installs the app. macOS is the only
-# published platform; Linux is wired up but only installs once linux builds are
-# published.
+# against the published manifest, and installs the app. On Linux it also checks
+# the runtime libraries and registers Hive with the desktop application menu.
 #
 # Channel defaults to stable. Track another by passing the flag through bash:
 #
@@ -132,16 +131,91 @@ install_darwin() {
   EXE_PATH="$APP_PATH/Contents/MacOS/$APP_EXE"
 }
 
+linux_runtime_install_command() {
+  if command -v apt-get >/dev/null 2>&1; then
+    printf '%s' 'sudo apt install libgtk-4-1 libwebkitgtk-6.0-4'
+  elif command -v dnf >/dev/null 2>&1; then
+    printf '%s' 'sudo dnf install gtk4 webkitgtk6.0'
+  elif command -v pacman >/dev/null 2>&1; then
+    printf '%s' 'sudo pacman -S gtk4 webkitgtk-6.0'
+  fi
+}
+
+check_linux_runtime() {
+  command -v ldd >/dev/null 2>&1 || return 0
+  local output missing install_command ldd_status=0
+  output="$(LC_ALL=C ldd "$EXE_PATH" 2>&1)" || ldd_status=$?
+  missing="$(printf '%s\n' "$output" | awk '$2 == "=>" && $3 == "not" && $4 == "found" { print $1 }')"
+  if [ -z "$missing" ] && [ "$ldd_status" -eq 0 ]; then
+    return
+  fi
+
+  if [ -n "$missing" ]; then
+    printf '%s\n' "$missing" | while IFS= read -r library; do
+      say "missing runtime library: ${BOLD}$library${RST}"
+    done
+    install_command="$(linux_runtime_install_command)"
+    if [ -n "$install_command" ]; then
+      say "install GTK 4 and WebKitGTK 6.0: ${BOLD}$install_command${RST}"
+    fi
+  else
+    say "couldn't verify the installed binary:"
+    printf '%s\n' "$output" >&2
+  fi
+  say "Linux requirements: ${BOLD}https://hivedesktop.com/getting-started/troubleshooting/#hive-does-not-start-on-linux${RST}"
+  die "Hive is installed but this system does not meet its Linux runtime requirements"
+}
+
+install_linux_desktop_entry() {
+  local data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  local applications_dir="$data_home/applications"
+  local icon_dir="$data_home/icons/hicolor/128x128/apps"
+  local desktop_file="$applications_dir/hive-desktop.desktop"
+  local icon_file="$icon_dir/hive-desktop.png"
+  local escaped_exe="$EXE_PATH"
+  escaped_exe="${escaped_exe//\\/\\\\}"
+  escaped_exe="${escaped_exe//\"/\\\"}"
+  escaped_exe="${escaped_exe//%/%%}"
+
+  mkdir -p "$applications_dir" "$icon_dir"
+  if ! curl -fsSL --proto '=https' --tlsv1.2 \
+    -o "$icon_file" "https://hivedesktop.com/assets/hive-desktop.png"; then
+    rm -f "$icon_file"
+    say "couldn't download the application icon; installing the launcher without it"
+  fi
+
+  cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Hive
+Comment=Desktop workspace for feeds, code, and agent chats
+Exec="$escaped_exe"
+Icon=hive-desktop
+Categories=Development;
+Terminal=false
+StartupNotify=true
+StartupWMClass=hive-desktop
+EOF
+  chmod 0644 "$desktop_file"
+  if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$applications_dir" >/dev/null 2>&1 || true
+  fi
+}
+
 install_linux() {
   need tar
   local dir="${HIVE_HOME:-$HOME/.local/share/hive}"
   mkdir -p "$dir"
+  dir="$(cd "$dir" && pwd -P)"
   tar -xzf "$PKG" -C "$dir" || die "failed to extract the download"
   EXE_PATH="$dir/$APP_EXE"
   [ -x "$EXE_PATH" ] || EXE_PATH="$(find "$dir" -maxdepth 2 -type f -name "$APP_EXE" | head -1)"
   [ -n "$EXE_PATH" ] || die "couldn't find the $APP_EXE binary in the archive"
   chmod +x "$EXE_PATH"
   APP_PATH="$dir"
+  install_linux_desktop_entry
+  check_linux_runtime
 }
 
 print_next() {
@@ -151,7 +225,7 @@ print_next() {
   if [ "$OS" = darwin ]; then
     say "launch it: ${BOLD}open -a Hive${RST}"
   else
-    say "launch it: ${BOLD}$EXE_PATH${RST}"
+    say "launch it from your application menu, or run: ${BOLD}$EXE_PATH${RST}"
   fi
   say "next: connect GitHub, then build your first feed."
 }
