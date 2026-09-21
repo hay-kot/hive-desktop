@@ -256,7 +256,7 @@ func TestResolver_ResolvesEnabledSourceNodesAcrossFlows(t *testing.T) {
 		},
 	}
 
-	instances := newResolver(fetchers, flows).PullInstances()
+	instances := newResolver(fetchers, flows).PullInstances(t.Context())
 
 	// Only the one enabled node in the one enabled flow, addressed
 	// flow-qualified.

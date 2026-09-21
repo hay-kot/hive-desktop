@@ -144,7 +144,7 @@ func (m *Manager) Available(ctx context.Context) error {
 	m.probed = true
 	m.binary = binary
 	m.mu.Unlock()
-	m.log.Info().Str("tmux", binary).Str("version", strings.TrimSpace(raw)).Msg("tmux control mode available")
+	m.log.Info().Ctx(ctx).Str("tmux", binary).Str("version", strings.TrimSpace(raw)).Msg("tmux control mode available")
 	return nil
 }
 

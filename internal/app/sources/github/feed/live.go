@@ -155,7 +155,7 @@ func (p *LiveProvider) noteRateLimit(ctx context.Context, err error) {
 	if active {
 		return
 	}
-	p.logger.Warn().Err(err).Time("resume_at", until).Msg("github rate limited; fetches paused")
+	p.logger.Warn().Ctx(ctx).Err(err).Time("resume_at", until).Msg("github rate limited; fetches paused")
 	if recorder != nil {
 		recorder.Record(ctx, activity.RefreshFailed("github", fmt.Sprintf("rate limited; fetches paused until %s", until.Format("15:04:05"))))
 	}
@@ -183,12 +183,12 @@ func (p *LiveProvider) SourceItems(ctx context.Context, src SourceDef) ([]Item, 
 	}
 
 	if src.Kind == "search" && failed && p.now().Sub(failure.at) < searchTTL {
-		return p.serveFetchError(src, cached, ok, failure.err)
+		return p.serveFetchError(ctx, src, cached, ok, failure.err)
 	}
 
 	items, err := p.fetchSource(ctx, src)
 	if err != nil {
-		return p.serveFetchError(src, cached, ok, err)
+		return p.serveFetchError(ctx, src, cached, ok, err)
 	}
 	return items, nil
 }
@@ -216,9 +216,9 @@ func notificationsTTL(cached *cachedSource) time.Duration {
 // serveFetchError preserves stale search and notifications data through
 // transient failures, while authentication failures must reach the caller so
 // it can prompt for a reconnect.
-func (p *LiveProvider) serveFetchError(src SourceDef, cached *cachedSource, ok bool, err error) ([]Item, error) {
+func (p *LiveProvider) serveFetchError(ctx context.Context, src SourceDef, cached *cachedSource, ok bool, err error) ([]Item, error) {
 	if ok && !errors.Is(err, sourcehttp.ErrUnauthorized) && !errors.Is(err, ErrNotAuthenticated) {
-		p.logger.Debug().Err(err).Str("source", src.ID).Msg("source fetch failed; serving stale cache")
+		p.logger.Debug().Ctx(ctx).Err(err).Str("source", src.ID).Msg("source fetch failed; serving stale cache")
 		return cached.items, nil
 	}
 	return nil, err
@@ -285,7 +285,7 @@ func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) err
 		return err
 	}
 
-	p.logger.Debug().Int("searches", len(reqs)).Msg("prefetched search sources in one graphql request")
+	p.logger.Debug().Ctx(ctx).Int("searches", len(reqs)).Msg("prefetched search sources in one graphql request")
 
 	fetchedAt := p.now()
 	p.mu.Lock()
@@ -376,7 +376,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 			if errors.Is(err, sourcehttp.ErrUnauthorized) || ctx.Err() != nil {
 				return nil, err
 			}
-			p.logger.Debug().Err(err).Msg("notification authors fetch failed; retrying next poll")
+			p.logger.Debug().Ctx(ctx).Err(err).Msg("notification authors fetch failed; retrying next poll")
 			result.Validators = sourcehttp.Validators{}
 		}
 		p.setCache(key, &cachedSource{

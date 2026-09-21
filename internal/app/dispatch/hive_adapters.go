@@ -323,7 +323,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	if l.links != nil {
 		for _, origin := range origins {
 			if linkErr := l.links.Link(ctx, s.ID, origin); linkErr != nil {
-				l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Str("external_id", origin.ExternalID).Msg("linking session to an inbox item")
+				l.logger.Warn().Ctx(ctx).Err(linkErr).Str("session_id", s.ID).Str("external_id", origin.ExternalID).Msg("linking session to an inbox item")
 			}
 		}
 	}

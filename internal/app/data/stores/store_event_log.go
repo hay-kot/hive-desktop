@@ -230,6 +230,7 @@ func (s *EventLogStore) Commit(ctx context.Context, b models.CommitBatch) error 
 					// ingest. Keyless outputs are skipped so the consumer can advance.
 					if out.Key == "" {
 						s.logger.Warn().
+							Ctx(ctx).
 							Str("consumer", b.Consumer).
 							Str("sourceKind", out.SourceKind).
 							Str("sourceScope", out.SourceScope).

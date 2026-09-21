@@ -111,7 +111,7 @@ func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
 // without standing up the connector registry.
 type settingsServiceSources struct{ source connector.PullSource }
 
-func (s settingsServiceSources) PullInstances() []connector.Instance {
+func (s settingsServiceSources) PullInstances(context.Context) []connector.Instance {
 	return []connector.Instance{{
 		Type:     "sources.test",
 		Node:     connector.Node{FlowID: "profile", NodeID: "github"},

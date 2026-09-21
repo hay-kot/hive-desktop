@@ -1045,7 +1045,7 @@ func (c *Client) snapshotCmd(ctx context.Context, pane, cmd string) ([]string, e
 	if _, ok := errors.AsType[*CommandError](err); !ok {
 		return nil, err
 	}
-	c.log.Warn().Err(err).Str("pane", pane).Str("command", cmd).Msg("snapshot command skipped")
+	c.log.Warn().Ctx(ctx).Err(err).Str("pane", pane).Str("command", cmd).Msg("snapshot command skipped")
 	return nil, nil
 }
 
@@ -1062,7 +1062,7 @@ func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
 	for _, line := range lines {
 		w, ok := parseWindowLine(line)
 		if !ok {
-			c.log.Warn().Str("line", line).Msg("unparseable list-windows row")
+			c.log.Warn().Ctx(ctx).Str("line", line).Msg("unparseable list-windows row")
 			continue
 		}
 		windows = append(windows, w)
