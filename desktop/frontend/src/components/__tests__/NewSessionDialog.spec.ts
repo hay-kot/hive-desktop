@@ -28,6 +28,15 @@ function mountDialog(overrides: Record<string, unknown> = {}) {
 }
 
 describe('NewSessionDialog', () => {
+  it('puts the compact Code and Chats selector with icons in the header', () => {
+    const wrapper = mountDialog()
+    const selector = wrapper.get('header').get('[data-testid="new-session-target"]')
+    expect(selector.text()).toContain('Code')
+    expect(selector.text()).toContain('Chats')
+    expect(selector.findAll('svg')).toHaveLength(2)
+    expect(wrapper.get('form').find('[data-testid="new-session-target"]').exists()).toBe(false)
+  })
+
   it('prefills from the draft and emits repository, name, prompt, and agent', async () => {
     const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' } })
     await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
@@ -54,9 +63,9 @@ describe('NewSessionDialog', () => {
     expect(wrapper.emitted('submit')).toEqual([[{ repository: 'https://github.com/acme/site.git', name: 'fix-crash', prompt: '', agent: 'claude' }]])
   })
 
-  it('switches to an agent workspace and emits no repository or agent', async () => {
-    const wrapper = mountDialog({ initial: { ...blank, name: 'incident', prompt: 'Triage this alert' } })
-    await wrapper.get('[data-testid="new-session-target-workspace"]').trigger('click')
+  it('opens directly on Chats and emits no repository or agent', async () => {
+    const wrapper = mountDialog({ initial: { ...blank, name: 'incident', prompt: 'Triage this alert' }, initialTarget: 'workspace' })
+    expect(wrapper.get('[data-testid="new-session-target-workspace"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.find('[data-testid="new-session-repository"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="new-session-agent"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="new-session-workspace"]').text()).toContain('Alert triage')

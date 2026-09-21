@@ -67,6 +67,7 @@ useRegisterOpenModal()
         <header class="flex shrink-0 items-center gap-3 border-b border-row px-5 py-4">
           <span v-if="icon" :class="['flex size-7 items-center justify-center rounded-[7px]', badgeClasses]"><component :is="icon" class="size-4" /></span>
           <div class="flex-1 text-[15px] font-semibold tracking-[-.01em]">{{ title }}</div>
+          <slot name="header-actions" />
           <button
             class="cursor-pointer text-text-3 hover:text-text disabled:cursor-default disabled:opacity-50"
             aria-label="Close"

@@ -100,9 +100,12 @@ describe('DetailPane', () => {
     await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
     const menu = wrapper.get('[data-testid="item-actions-menu"]')
     expect(menu.findAll('button').map((entry) => entry.get('span.flex-1').text())).toEqual([
-      'Mark as read', 'Archive', 'Ignore', 'Open in browser', 'Copy link', 'Copy contents', 'Create session…', 'Summarize',
+      'Mark as read', 'Archive', 'Ignore', 'Open in browser', 'Copy link', 'Copy contents', 'Create Session', 'Create Chat', 'Summarize',
     ])
-    await menu.get('[data-testid="menu-toggle-ignored"]').trigger('click')
+    await menu.get('[data-testid="menu-create-chat"]').trigger('click')
+    expect(wrapper.emitted('create-session')).toEqual([['workspace']])
+    await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="menu-toggle-ignored"]').trigger('click')
     expect(wrapper.emitted('toggle-ignored')).toHaveLength(1)
     expect(wrapper.find('[data-testid="item-actions-menu"]').exists()).toBe(false)
   })

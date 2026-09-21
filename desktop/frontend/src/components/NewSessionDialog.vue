@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
 import IconCircleAlert from '~icons/lucide/circle-alert'
+import IconCode from '~icons/lucide/code'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
@@ -15,6 +17,7 @@ import { useSubmitShortcut } from '../composables/useSubmitShortcut'
 const props = defineProps<{
   options: SessionLaunchOptions
   initial: { repository: string; workspace: string; name: string; prompt: string; agent: string }
+  initialTarget?: 'repository' | 'workspace'
   busy: boolean
   error: string | null
   /** The creation this form was handed back from, or null for a fresh form. */
@@ -30,7 +33,11 @@ const emit = defineEmits<{
 // which is also what makes Enter in a single-line field submit.
 const formId = useId()
 const submitHint = formatCombo('mod+enter')
-const target = ref<'repository' | 'workspace'>(props.initial.workspace ? 'workspace' : 'repository')
+const targetOptions = [
+  { value: 'repository' as const, label: 'Code', icon: IconCode },
+  { value: 'workspace' as const, label: 'Chats', icon: IconMessagesSquare },
+]
+const target = ref<'repository' | 'workspace'>(props.initialTarget ?? (props.initial.workspace ? 'workspace' : 'repository'))
 const repository = ref(props.initial.repository || props.options.defaultRepository)
 const firstWorkspace = props.initial.prompt
   ? props.options.workspaces?.find((item) => item.supportsPrompt)
@@ -97,13 +104,27 @@ useSubmitShortcut(submit)
 
 <template>
   <BaseModal
-    title="New session"
+    :title="target === 'workspace' ? 'New chat' : 'New session'"
     :icon="IconPlay"
     :width="520"
     :busy="busy"
     testid="new-session-dialog"
     @close="emit('close')"
   >
+    <template #header-actions>
+      <div class="grid grid-cols-2 gap-0.5 rounded-md border border-card bg-app p-0.5" role="group" aria-label="Session target" data-testid="new-session-target">
+        <button
+          v-for="option in targetOptions"
+          :key="option.value"
+          type="button"
+          class="flex items-center gap-1 rounded px-2 py-1 text-[10.5px] font-medium leading-none transition-colors"
+          :class="target === option.value ? 'bg-raised text-text shadow-sm' : 'text-text-3 hover:text-text'"
+          :aria-pressed="target === option.value"
+          :data-testid="`new-session-target-${option.value}`"
+          @click="target = option.value as 'repository' | 'workspace'"
+        ><component :is="option.icon" class="size-3" />{{ option.label }}</button>
+      </div>
+    </template>
     <section
       v-if="failure"
       class="mx-5 mt-4 rounded-lg border border-severity-error-border bg-severity-error-tint px-3.5 py-3"
@@ -134,18 +155,6 @@ useSubmitShortcut(submit)
       </div>
     </section>
     <form :id="formId" class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
-      <div class="grid grid-cols-2 gap-1 rounded-lg border border-card bg-app p-1" role="group" aria-label="Session target" data-testid="new-session-target">
-        <button
-          v-for="option in [{ value: 'repository', label: 'Repository' }, { value: 'workspace', label: 'Agent workspace' }]"
-          :key="option.value"
-          type="button"
-          class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
-          :class="target === option.value ? 'bg-raised text-text shadow-sm' : 'text-text-3 hover:text-text'"
-          :aria-pressed="target === option.value"
-          :data-testid="`new-session-target-${option.value}`"
-          @click="target = option.value as 'repository' | 'workspace'"
-        >{{ option.label }}</button>
-      </div>
       <div v-if="target === 'repository'" class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
         <RepositorySelect
           :model-value="repository"

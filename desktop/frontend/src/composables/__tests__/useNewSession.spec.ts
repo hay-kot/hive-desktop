@@ -56,6 +56,12 @@ describe('useNewSession', () => {
     expect(s.initial.value).toEqual({ ...blank, repository: 'https://github.com/acme/site.git' })
   })
 
+  it('opens the shared dialog on Chats when requested', async () => {
+    const s = useNewSession()
+    await s.openBlank('', 'workspace')
+    expect(s.initialTarget.value).toBe('workspace')
+  })
+
   it('falls back to the default when the session on screen has no remote', async () => {
     const s = useNewSession()
     await s.openBlank('')
@@ -69,6 +75,13 @@ describe('useNewSession', () => {
     expect(mocks.NewSessionDraft).toHaveBeenCalledWith([7])
     expect(s.open.value).toBe(true)
     expect(s.initial.value).toEqual({ repository: 'acme/site', workspace: '', name: 'fix-crash', prompt: 'Fix the crash', agent: 'claude' })
+  })
+
+  it('opens an item draft on Chats when requested', async () => {
+    mocks.NewSessionDraft.mockResolvedValue({ repository: 'acme/site', name: 'incident', prompt: 'Triage this alert' })
+    const s = useNewSession()
+    await s.openFromItem(item, 'workspace')
+    expect(s.initialTarget.value).toBe('workspace')
   })
 
   it('creates one session for an ordered item selection', async () => {
