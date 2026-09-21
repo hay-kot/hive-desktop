@@ -84,9 +84,10 @@ individual choices; this document describes the shape everything fits into.
 > Agent workspaces are a third driving surface, behind the same terminal
 > transport rather than a new one: `internal/app/agentws` owns a
 > generated-and-disposable on-disk root (ADR workspace-directories-are-generated-and-disposable) and drives sessions as tmux
-> sessions named `agentws-<record id>` — not hive ones, but riding the same
+> sessions named `agentws-<terminal id>` — not hive ones, but riding the same
 > `tmuxcc.Manager` and tmux stream a hive session's terminal does, which is
-> what lets a session survive an app restart (ADR agent-workspace-sessions-are-tmux-sessions); its control plane
+> what lets a session survive an app restart (ADR agent-workspace-sessions-are-tmux-sessions). The persisted random terminal id avoids row-id collisions across isolated databases
+> (ADR agent-workspace-tmux-sessions-use-persisted-random-ids); its control plane
 > rides `httpapi`'s `/api/terminal/` prefix and authenticates per handler
 > because it spawns processes too. `internal/app/mcpcatalog` is the shipped
 > MCP server registry it wires workspaces against. See
@@ -1879,6 +1880,13 @@ of the launch line; `Resolve` renders it and wraps it in
 line already runs under `$SHELL -l -c`. Template source is folded onto one
 line before parsing, never after rendering, so a newline inside an
 interpolated value stays part of the quoted word `shq` produced.
+
+A chat record has three separate identities. Its numeric row id addresses the
+HTTP and canvas APIs. Its agent session id addresses the CLI's conversation and
+can rotate on a fresh relaunch. Its immutable eight-character `terminal_id`
+addresses tmux as `agentws-<terminal_id>` and is random because isolated app
+databases share the machine-wide tmux namespace
+(ADR agent-workspace-tmux-sessions-use-persisted-random-ids). Existing records keep their old numeric suffix after migration.
 
 There is no `agent:` field. The label the activity classifier, the resume
 probe and the bounded-MCP notice key on is `AgentFor(command)` — the first

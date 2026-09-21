@@ -16,7 +16,7 @@ import (
 // which is arbitrary command execution just as a pop-up shell is (ADR terminal-transport),
 // and mounting it here is what gives it the terminal bearer token and CORS
 // policy without a second rule. Sessions are tmux sessions named
-// agentws-<record id> and ride the shared tmux data plane at
+// agentws-<terminal id> and ride the shared tmux data plane at
 // TerminalStreamPath (ADR agent-workspace-sessions-are-tmux-sessions) — there is no agent-specific stream. Start and
 // Resume attach server-side and return the active window id alongside the
 // session name, so the area never has to drive the generic
@@ -53,10 +53,10 @@ type agentSessionView struct {
 	Name         string `json:"name"`
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
-	// Slug is the tmux session name (agentws-<id>) this session is addressed by
+	// Slug is the tmux session name (agentws-<terminal id>) this session is addressed by
 	// whether or not it is running; terminalId is what reports liveness.
 	Slug string `json:"slug"`
-	// TerminalID is the tmux session name (agentws-<id>) addressed on
+	// TerminalID is the tmux session name (agentws-<terminal id>) addressed on
 	// TerminalStreamPath, empty when nothing is running.
 	TerminalID string `json:"terminalId"`
 	// WindowID is TerminalID's active tmux window, needed to frame input and
@@ -676,7 +676,7 @@ func (b agentSessionRenameRequest) Validate() error {
 }
 
 // AgentSessionRename sets a session's display name. The record is the only
-// thing touched — a live tmux session keeps its agentws-<id> name.
+// thing touched — a live tmux session keeps its agentws-<terminal id> name.
 func (ctrl *Controller) AgentSessionRename(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentSessionRenameRequest](ctrl, w, r)
 	if err != nil {

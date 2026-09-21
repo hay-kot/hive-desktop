@@ -244,7 +244,7 @@ func main() {
 	agents := wailsui.AgentsTransport{}
 	// A workspace session rides this same tmux stream a hive session's terminal
 	// does — it is a tmux session too, just not a hive one
-	// (ADR agent-workspace-sessions-are-tmux-sessions) — addressed by the agentws-<id> name AgentWorkspacesService
+	// (ADR agent-workspace-sessions-are-tmux-sessions) — addressed by the agentws-<terminal id> name AgentWorkspacesService
 	// gives it rather than a hive slug. There is no agent-specific stream.
 	if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 		terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}

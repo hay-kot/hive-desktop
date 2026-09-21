@@ -333,7 +333,8 @@ func TestResumeFallsBackToFreshLaunch(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	require.NotEmpty(t, started.TerminalID)
+	require.Regexp(t, `^agentws-[a-z0-9]{8}$`, started.TerminalID)
+	assert.Equal(t, started.TerminalID, started.Slug)
 	assert.True(t, started.ResumeAttempted, "codex has no resume form, but a fresh start always ResumeAttempted=true")
 
 	closed, err := svc.CloseSession(t.Context(), started.ID)
@@ -524,22 +525,26 @@ func TestDetachedLaunchThatNeverStartedLeavesNoRecord(t *testing.T) {
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	// tmux refuses a session name it already holds, which is how a launch is
-	// made to fail after its record exists. Both ids are taken because the
-	// second launch may reuse the first's rowid once its record is gone.
-	for _, id := range []int64{1, 2} {
-		blocker := exec.CommandContext(t.Context(), "tmux", "new-session", "-d", "-s", sessionName(id))
+	// made to fail after its record exists.
+	launchBlocked := func(name, terminalID string, detached bool) {
+		rec, err := svc.sessions.Create(t.Context(), stores.AgentSessionCreate{
+			Workspace: "demo", Name: name, Agent: "claude", TerminalID: terminalID,
+		})
+		require.NoError(t, err)
+		blocker := exec.CommandContext(t.Context(), "tmux", "new-session", "-d", "-s", sessionName(rec))
 		blocker.Env = tmuxtest.ScrubbedEnv()
 		require.NoError(t, blocker.Run())
+
+		_, err = svc.launchTerminal(t.Context(), rec, terminalLaunch{dir: root, line: agentCmd, detached: detached})
+		require.Error(t, err)
 	}
 
-	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "scheduled", Detached: true})
-	require.Error(t, err)
+	launchBlocked("scheduled", "blocked1", true)
 	records, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, records, "a scheduled launch that never started must not leave a row the sidebar lists")
 
-	_, err = svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "by hand", Cols: 80, Rows: 24})
-	require.Error(t, err)
+	launchBlocked("by hand", "blocked2", false)
 	records, err = svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Len(t, records, 1, "a launch the user made keeps its record to retry from")

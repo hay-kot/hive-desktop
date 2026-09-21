@@ -28,7 +28,7 @@ func (q *Queries) DeleteAgentWorkspaceSessionsByWorkspace(ctx context.Context, w
 }
 
 const getAgentWorkspaceSession = `-- name: GetAgentWorkspaceSession :one
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token FROM agent_workspace_session WHERE id = ?
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token, terminal_id FROM agent_workspace_session WHERE id = ?
 `
 
 func (q *Queries) GetAgentWorkspaceSession(ctx context.Context, id int64) (AgentWorkspaceSession, error) {
@@ -44,12 +44,13 @@ func (q *Queries) GetAgentWorkspaceSession(ctx context.Context, id int64) (Agent
 		&i.LastOpenedAt,
 		&i.ScheduleID,
 		&i.EndToken,
+		&i.TerminalID,
 	)
 	return i, err
 }
 
 const getAgentWorkspaceSessionByEndToken = `-- name: GetAgentWorkspaceSessionByEndToken :one
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token FROM agent_workspace_session WHERE end_token = ? AND end_token <> ''
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token, terminal_id FROM agent_workspace_session WHERE end_token = ? AND end_token <> ''
 `
 
 // The session a launch handed this token to. An empty token matches nothing:
@@ -67,14 +68,15 @@ func (q *Queries) GetAgentWorkspaceSessionByEndToken(ctx context.Context, endTok
 		&i.LastOpenedAt,
 		&i.ScheduleID,
 		&i.EndToken,
+		&i.TerminalID,
 	)
 	return i, err
 }
 
 const insertAgentWorkspaceSession = `-- name: InsertAgentWorkspaceSession :one
-INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, terminal_id, created_at, last_opened_at, schedule_id, end_token)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token, terminal_id
 `
 
 type InsertAgentWorkspaceSessionParams struct {
@@ -82,6 +84,7 @@ type InsertAgentWorkspaceSessionParams struct {
 	Name           string `json:"name"`
 	Agent          string `json:"agent"`
 	AgentSessionID string `json:"agent_session_id"`
+	TerminalID     string `json:"terminal_id"`
 	CreatedAt      int64  `json:"created_at"`
 	LastOpenedAt   int64  `json:"last_opened_at"`
 	ScheduleID     string `json:"schedule_id"`
@@ -94,6 +97,7 @@ func (q *Queries) InsertAgentWorkspaceSession(ctx context.Context, arg InsertAge
 		arg.Name,
 		arg.Agent,
 		arg.AgentSessionID,
+		arg.TerminalID,
 		arg.CreatedAt,
 		arg.LastOpenedAt,
 		arg.ScheduleID,
@@ -110,12 +114,13 @@ func (q *Queries) InsertAgentWorkspaceSession(ctx context.Context, arg InsertAge
 		&i.LastOpenedAt,
 		&i.ScheduleID,
 		&i.EndToken,
+		&i.TerminalID,
 	)
 	return i, err
 }
 
 const listAgentWorkspaceSessions = `-- name: ListAgentWorkspaceSessions :many
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token FROM agent_workspace_session
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token, terminal_id FROM agent_workspace_session
 WHERE workspace = ?
 ORDER BY id DESC
 `
@@ -142,6 +147,7 @@ func (q *Queries) ListAgentWorkspaceSessions(ctx context.Context, workspace stri
 			&i.LastOpenedAt,
 			&i.ScheduleID,
 			&i.EndToken,
+			&i.TerminalID,
 		); err != nil {
 			return nil, err
 		}
@@ -157,7 +163,7 @@ func (q *Queries) ListAgentWorkspaceSessions(ctx context.Context, workspace stri
 }
 
 const listAllAgentWorkspaceSessions = `-- name: ListAllAgentWorkspaceSessions :many
-SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token FROM agent_workspace_session
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token, terminal_id FROM agent_workspace_session
 ORDER BY id DESC
 `
 
@@ -182,6 +188,7 @@ func (q *Queries) ListAllAgentWorkspaceSessions(ctx context.Context) ([]AgentWor
 			&i.LastOpenedAt,
 			&i.ScheduleID,
 			&i.EndToken,
+			&i.TerminalID,
 		); err != nil {
 			return nil, err
 		}

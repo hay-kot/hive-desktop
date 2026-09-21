@@ -21,6 +21,7 @@ func TestAgentSessionStore(t *testing.T) {
 		assert.Equal(t, "first pass", created.Name)
 		assert.Equal(t, "claude", created.Agent)
 		assert.Equal(t, "sess-1", created.AgentSessionID)
+		assert.Regexp(t, `^[a-z0-9]{8}$`, created.TerminalID)
 		assert.Equal(t, created.CreatedAt, created.LastOpenedAt, "creation stamps both from the same clock read")
 
 		got, err := st.AgentSessions.Get(ctx, created.ID)
@@ -110,7 +111,8 @@ func TestAgentSessionStore(t *testing.T) {
 		require.NoError(t, err)
 		second, err := st.AgentSessions.Create(ctx, AgentSessionCreate{Workspace: "shared-name-scope", Name: "duplicate", Agent: "claude"})
 		require.NoError(t, err)
-		assert.NotEqual(t, first.ID, second.ID, "the row id is the identity, not the name")
+		assert.NotEqual(t, first.ID, second.ID, "the row id is the record identity, not the name")
+		assert.NotEqual(t, first.TerminalID, second.TerminalID, "each record gets its own tmux identity")
 
 		sessions, err := st.AgentSessions.List(ctx, "shared-name-scope")
 		require.NoError(t, err)
@@ -153,5 +155,6 @@ func TestAgentSessionStore(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "triage the flaky test", got.Name)
 		assert.Equal(t, created.AgentSessionID, got.AgentSessionID, "a rename touches only the name")
+		assert.Equal(t, created.TerminalID, got.TerminalID)
 	})
 }
