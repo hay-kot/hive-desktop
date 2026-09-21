@@ -243,8 +243,8 @@ export interface SessionLaunchRepository {
 }
 
 /**
- * SessionLaunchWorkspace is one agent workspace available to the session
- * launch dialog. Dir is its stable identity under the configured root.
+ * SessionLaunchWorkspace identifies a configured workspace by its stable
+ * directory name.
  */
 export interface SessionLaunchWorkspace {
     "dir": string;
