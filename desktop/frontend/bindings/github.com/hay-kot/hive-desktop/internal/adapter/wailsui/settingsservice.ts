@@ -48,6 +48,14 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
     return $Call.ByID(256290300);
 }
 
+export function SetCanvasFontSize(size: string): $CancellablePromise<void> {
+    return $Call.ByID(3357552462, size);
+}
+
+export function SetCanvasLineSpacing(spacing: string): $CancellablePromise<void> {
+    return $Call.ByID(3193028293, spacing);
+}
+
 /**
  * SetEditor persists the editor command; empty clears it.
  */

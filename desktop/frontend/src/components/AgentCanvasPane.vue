@@ -14,6 +14,7 @@ import IconSearch from '~icons/lucide/search'
 import IconX from '~icons/lucide/x'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import { useAgentCanvas } from '../composables/useAgentCanvas'
+import { useCanvasTypography } from '../composables/useCanvasTypography'
 import { useClipboard } from '../composables/useClipboard'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
@@ -45,6 +46,12 @@ watch(() => [props.workspace, props.name, props.session] as const, ([dir, name, 
 const browsing = ref(false)
 
 const headerTitle = computed(() => canvas.value?.title || shown.value || 'Canvas')
+
+const { fontSizePx, lineHeight } = useCanvasTypography()
+const readerStyle = computed(() => ({
+  '--hv-font-size': `${fontSizePx.value}px`,
+  '--hv-line-height': String(lineHeight.value),
+}))
 
 const search = ref('')
 const searchInput = ref<HTMLInputElement | null>(null)
@@ -263,7 +270,7 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
       </div>
     </div>
 
-    <div v-else class="hive-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
+    <div v-else class="hive-scroll canvas-reader min-h-0 flex-1 overflow-y-auto px-4 py-3" :style="readerStyle">
       <template v-if="canvas && canvas.blocks.length">
         <article
           v-for="block in canvas.blocks"
@@ -272,10 +279,11 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
           :data-testid="'agent-canvas-block-' + block.id"
         >
           <template v-if="block.kind === 'markdown' || block.kind === 'html'">
-            <h2 v-if="block.title" class="mb-2 text-[13.5px] font-semibold text-text">{{ block.title }}</h2>
+            <h2 v-if="block.title" class="canvas-block-title mb-2 font-semibold text-text">{{ block.title }}</h2>
             <div
-              class="text-[13.5px] leading-[1.65] text-text-2"
+              class="canvas-reading-body text-text-2"
               :class="block.kind === 'html' ? 'hv-html' : 'markdown-body'"
+              :style="readerStyle"
               @click="onBodyClick"
               v-html="renderBody(block)"
             />
@@ -287,8 +295,8 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
             :title="block.url"
             @click="openLinkBlock(block)"
           >
-            <span class="truncate text-[13.5px] text-accent underline underline-offset-2">{{ block.title }}</span>
-            <span class="truncate font-mono text-[10.5px] text-text-4">{{ block.url }}</span>
+            <span class="canvas-link-title truncate text-accent underline underline-offset-2">{{ block.title }}</span>
+            <span class="canvas-link-url truncate font-mono text-text-4">{{ block.url }}</span>
           </button>
         </article>
       </template>
@@ -301,9 +309,26 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
 </template>
 
 <style scoped>
+.canvas-reader { font-size: var(--hv-font-size); line-height: var(--hv-line-height); }
 .canvas-block { padding: 12px 0; }
 .canvas-block + .canvas-block { border-top: 1px solid var(--color-border); }
 .canvas-block:first-child { padding-top: 0; }
+.canvas-block-title, .canvas-link-title { font-size: 1em; line-height: var(--hv-line-height); }
+.canvas-reading-body { font-size: var(--hv-font-size); line-height: var(--hv-line-height); }
+.canvas-reading-body.markdown-body :deep(h1),
+.canvas-reading-body.markdown-body :deep(h2),
+.canvas-reading-body.markdown-body :deep(h3),
+.canvas-reading-body.markdown-body :deep(h4),
+.canvas-reading-body.markdown-body :deep(h5),
+.canvas-reading-body.markdown-body :deep(h6) { line-height: calc(var(--hv-line-height) * 0.79); }
+.canvas-reading-body.markdown-body :deep(h1) { font-size: 1.407em; }
+.canvas-reading-body.markdown-body :deep(h2) { font-size: 1.222em; }
+.canvas-reading-body.markdown-body :deep(h3) { font-size: 1.111em; }
+.canvas-reading-body.markdown-body :deep(h4),
+.canvas-reading-body.markdown-body :deep(h5),
+.canvas-reading-body.markdown-body :deep(h6) { font-size: 1.037em; }
+.canvas-reading-body.markdown-body :deep(pre) { line-height: calc(var(--hv-line-height) * 0.91); }
 .canvas-link { display: flex; width: 100%; min-width: 0; cursor: pointer; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
 .canvas-link:hover span:first-child { text-decoration-thickness: 2px; }
+.canvas-link-url { font-size: 0.778em; line-height: var(--hv-line-height); }
 </style>
