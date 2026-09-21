@@ -18,7 +18,7 @@ import { useConfirmation } from '../composables/useConfirmation'
 import { actionTypeMeta } from '../lib/actionPresentation'
 import { moveId, type OrderDropTarget } from '../lib/listOrder'
 import { useActionsSettings, type EditableAction } from '../composables/useActionsSettings'
-import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import { SessionLaunchWorkspaces } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { SessionLaunchWorkspace } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = withDefaults(defineProps<{ knownTypes?: string[] }>(), { knownTypes: () => [] })
@@ -35,7 +35,7 @@ const editorTypes = computed(() => {
 const editing = ref<EditableAction | null>(null)
 const workspaces = ref<SessionLaunchWorkspace[]>([])
 onMounted(async () => {
-  try { workspaces.value = (await SessionLaunchOptions()).workspaces ?? [] } catch { workspaces.value = [] }
+  try { workspaces.value = await SessionLaunchWorkspaces() ?? [] } catch { workspaces.value = [] }
 })
 const editorTrigger = ref<HTMLElement | null>(null)
 const saving = ref(false)

@@ -202,10 +202,17 @@ func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.Se
 	if err != nil {
 		return dispatch.SessionLaunchOptions{}, Wrap(err, KindInternal, "resolving session launch options")
 	}
-	if s.workspaceLauncher != nil {
-		opts.Workspaces = s.workspaceLauncher.SessionLaunchWorkspaces(ctx)
-	}
+	opts.Workspaces = s.SessionLaunchWorkspaces(ctx)
 	return s.withEnvironmentDefaultAgent(ctx, opts), nil
+}
+
+// SessionLaunchWorkspaces supplies workspace choices without resolving
+// repository options.
+func (s *SessionsService) SessionLaunchWorkspaces(ctx context.Context) []dispatch.SessionLaunchWorkspace {
+	if s.workspaceLauncher == nil {
+		return nil
+	}
+	return s.workspaceLauncher.SessionLaunchWorkspaces(ctx)
 }
 
 // withEnvironmentDefaultAgent preselects the agent hive itself would run:

@@ -153,6 +153,14 @@ export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLa
 }
 
 /**
+ * SessionLaunchWorkspaces returns workspace choices without resolving
+ * repository options.
+ */
+export function SessionLaunchWorkspaces(): $CancellablePromise<dispatch$0.SessionLaunchWorkspace[] | null> {
+    return $Call.ByID(1258616632);
+}
+
+/**
  * SessionPullRequest resolves the pull request for a branch SessionGitStatus
  * reported, answering from a short-lived cache unless refresh is set. Its
  * Status field says why there is nothing to show, so a caller never has to

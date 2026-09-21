@@ -3,9 +3,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ActionSettingsView from '../ActionSettingsView.vue'
 import type { EditableAction } from '../../composables/useActionsSettings'
 
-const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), ReorderActions: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn() }))
+const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), ReorderActions: vi.fn(), SessionLaunchWorkspaces: vi.fn(), On: vi.fn() }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction, ReorderActions: mocks.ReorderActions }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({ SessionLaunchOptions: mocks.SessionLaunchOptions }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({ SessionLaunchWorkspaces: mocks.SessionLaunchWorkspaces }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))
 
 const launch: EditableAction = { id: 'review', label: 'Review', type: 'launch-session', showInDetail: true, targets: ['item'], appliesTo: ['pr'], launch: { promptTemplate: 'Review {{ .Payload }}', repoTemplate: 'https://repo', agent: 'codex' } }
@@ -17,7 +17,7 @@ async function setValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSe
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [], defaultRepository: '', workspaces: [{ dir: 'alerts', name: 'Alert triage', supportsPrompt: true }], agents: [], defaultAgent: '' })
+  mocks.SessionLaunchWorkspaces.mockResolvedValue([{ dir: 'alerts', name: 'Alert triage', supportsPrompt: true }])
   document.body.innerHTML = ''
 })
 

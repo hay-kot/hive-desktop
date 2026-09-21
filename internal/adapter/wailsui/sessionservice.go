@@ -22,6 +22,12 @@ func (s *SessionService) SessionLaunchOptions(ctx context.Context) (dispatch.Ses
 	return s.sessions.SessionLaunchOptions(ctx)
 }
 
+// SessionLaunchWorkspaces returns workspace choices without resolving
+// repository options.
+func (s *SessionService) SessionLaunchWorkspaces(ctx context.Context) []dispatch.SessionLaunchWorkspace {
+	return s.sessions.SessionLaunchWorkspaces(ctx)
+}
+
 // ListSessions returns every session in every state; Slug is the tmux target an
 // attach uses, and only an active session has one.
 func (s *SessionService) ListSessions(ctx context.Context) ([]dispatch.SessionSummary, error) {

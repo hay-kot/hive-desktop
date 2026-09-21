@@ -196,6 +196,17 @@ func activeSession() (*fakeSessionManager, dispatch.SessionDetail) {
 	}, detail
 }
 
+func TestSessionsService_SessionLaunchWorkspacesDoesNotResolveRepositories(t *testing.T) {
+	repositories := &fakeSessionLauncher{}
+	workspaceOptions := []dispatch.SessionLaunchWorkspace{{Dir: "alerts", Name: "Alerts", SupportsPrompt: true}}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: repositories, WorkspaceLauncher: &fakeWorkspaceLauncher{options: workspaceOptions},
+	})
+
+	assert.Equal(t, workspaceOptions, svc.SessionLaunchWorkspaces(t.Context()))
+	assert.Zero(t, repositories.optsCalls)
+}
+
 func TestSessionsService_SessionLaunchOptions(t *testing.T) {
 	expected := dispatch.SessionLaunchOptions{
 		Repositories:      []dispatch.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}},
