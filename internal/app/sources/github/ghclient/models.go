@@ -25,6 +25,10 @@ type SearchItem struct {
 	Labels        []Label
 	IsPullRequest bool // __typename == "PullRequest"
 	Draft         bool // isDraft; always false for issues
+	Review        ReviewState
+	Checks        CheckState
+	Additions     int
+	Deletions     int
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

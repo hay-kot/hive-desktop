@@ -44,6 +44,16 @@ export interface CanonicalPayload {
   state: string
 }
 
+export type PullRequestCI = 'none' | 'passing' | 'pending' | 'failing'
+export type PullRequestReview = 'open' | 'draft' | 'approved' | 'changes_requested' | 'review_required'
+
+export interface PullRequestMetadata {
+  ci: PullRequestCI | null
+  review: PullRequestReview | null
+  additions: number | null
+  deletions: number | null
+}
+
 export function canonicalPayload(item: InboxItem): CanonicalPayload {
   if (!item.payload || typeof item.payload !== 'object') {
     return { kind: '', repo: '', num: 0, author: '', body: '', url: item.url, labels: [], state: '' }
@@ -60,6 +70,21 @@ export function canonicalPayload(item: InboxItem): CanonicalPayload {
     labels: Array.isArray(value.labels) ? value.labels.filter((label): label is string => typeof label === 'string') : [],
     state: string('state'),
   }
+}
+
+export function pullRequestMetadata(item: InboxItem): PullRequestMetadata | null {
+  if (kind(item) !== 'PR' || !item.payload || typeof item.payload !== 'object') return null
+  const value = item.payload as Record<string, unknown>
+  const ciStates = new Set<PullRequestCI>(['none', 'passing', 'pending', 'failing'])
+  const reviewStates = new Set<PullRequestReview>(['open', 'draft', 'approved', 'changes_requested', 'review_required'])
+  const ci = typeof value.ci === 'string' && ciStates.has(value.ci as PullRequestCI) ? value.ci as PullRequestCI : null
+  const review = typeof value.review === 'string' && reviewStates.has(value.review as PullRequestReview) ? value.review as PullRequestReview : null
+  const count = (key: string): number | null => {
+    const entry = value[key]
+    return typeof entry === 'number' && Number.isFinite(entry) && entry >= 0 ? entry : null
+  }
+  const metadata = { ci, review, additions: count('additions'), deletions: count('deletions') }
+  return Object.values(metadata).every((entry) => entry == null) ? null : metadata
 }
 
 // ── Canonical projections ───────────────────────────────────────────────────

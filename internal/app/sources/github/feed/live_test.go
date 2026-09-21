@@ -94,6 +94,41 @@ func newLiveProviderForTest(t *testing.T, api *searchBatchAPI, token string) (*L
 	return live, store
 }
 
+func TestSearchItemsAddsPullRequestMetadataOnly(t *testing.T) {
+	t.Parallel()
+
+	live := &LiveProvider{}
+	items := live.searchItems([]ghclient.SearchItem{
+		{Number: 1, Title: "PR", Repo: "o/r", IsPullRequest: true, Review: ghclient.ReviewStateApproved, Checks: ghclient.CheckStatePassing, Additions: 42, Deletions: 7},
+		{Number: 2, Title: "Issue", Repo: "o/r"},
+		{Number: 3, Title: "No checks", Repo: "o/r", IsPullRequest: true, Review: ghclient.ReviewStateOpen},
+	})
+
+	require.Len(t, items, 3)
+	assert.Equal(t, "passing", items[0].CI)
+	assert.Equal(t, "approved", items[0].Review)
+	require.NotNil(t, items[0].Additions)
+	require.NotNil(t, items[0].Deletions)
+	assert.Equal(t, 42, *items[0].Additions)
+	assert.Equal(t, 7, *items[0].Deletions)
+	assert.Empty(t, items[1].CI)
+	assert.Empty(t, items[1].Review)
+	assert.Nil(t, items[1].Additions)
+	assert.Nil(t, items[1].Deletions)
+	assert.Equal(t, "none", items[2].CI)
+	require.NotNil(t, items[2].Additions)
+	require.NotNil(t, items[2].Deletions)
+	assert.Zero(t, *items[2].Additions)
+	assert.Zero(t, *items[2].Deletions)
+
+	payload, err := json.Marshal(items[2])
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(payload, &decoded))
+	assert.Zero(t, decoded["additions"])
+	assert.Zero(t, decoded["deletions"])
+}
+
 func TestPrefetchSearch_OneRequestForManySources(t *testing.T) {
 	api := &searchBatchAPI{}
 	live, _ := newLiveProviderForTest(t, api, "token")

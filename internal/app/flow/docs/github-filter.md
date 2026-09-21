@@ -7,8 +7,10 @@ A **GitHub filter** node narrows a stream of GitHub items down to the ones you c
 - `repos` / `exclude_repos` — one doublestar glob per line, matched against `owner/repo`.
 - `authors` / `exclude_authors` — one glob per line, matched case-insensitively.
 - `labels` / `exclude_labels` — one glob per line, matched against any of the item's labels.
-- `types` — `pr` and/or `issue`.
-- `reasons` — GitHub notification reasons (e.g. `mention`, `review_requested`). Items with no reason (search-only items) never match a reasons filter.
+- `types` - `pr` and/or `issue`.
+- `ci` - `passing`, `pending`, `failing`, and/or `none`. Only search-backed pull requests carry this field.
+- `review` - `open`, `draft`, `approved`, `changes_requested`, and/or `review_required`. Only search-backed pull requests carry this field.
+- `reasons` - GitHub notification reasons (for example, `mention` or `review_requested`). Items with no reason never match a reasons filter.
 
 ## Behavior
 

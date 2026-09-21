@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Ports the FeedEditorSheet filter UI (8 glob/checkbox groups) onto the
+// Ports the filter UI's glob and checkbox groups onto the
 // field kit, as a controlled component over Config (see config.ts for the
 // shape and the matches()/glob semantics this only edits, never evaluates).
 import { GlobListField, ToggleField } from '../../fields'
@@ -19,6 +19,8 @@ const globGroups: Array<{ key: GlobKey; label: string; placeholder: string; test
   { key: 'exclude_labels', label: 'Exclude labels', placeholder: 'wontfix', testid: 'github-filter-editor-exclude-labels' },
 ]
 
+const allCIStates = ['passing', 'pending', 'failing', 'none']
+const allReviewStates = ['open', 'draft', 'approved', 'changes_requested', 'review_required']
 const allReasons = [
   'approval_requested', 'assign', 'author', 'ci_activity', 'comment', 'invitation', 'manual',
   'member_feature_requested', 'mention', 'review_requested', 'security_advisory_credit',
@@ -37,6 +39,26 @@ function toggleType(value: string, checked: boolean) {
   const current = props.config.types ?? []
   const next = checked ? [...current, value] : current.filter((v) => v !== value)
   emit('update:config', { ...props.config, types: next.length > 0 ? next : undefined })
+}
+
+function ciChecked(value: string): boolean {
+  return (props.config.ci ?? []).includes(value)
+}
+
+function toggleCI(value: string, checked: boolean) {
+  const current = props.config.ci ?? []
+  const next = checked ? [...current, value] : current.filter((v) => v !== value)
+  emit('update:config', { ...props.config, ci: next.length > 0 ? next : undefined })
+}
+
+function reviewChecked(value: string): boolean {
+  return (props.config.review ?? []).includes(value)
+}
+
+function toggleReview(value: string, checked: boolean) {
+  const current = props.config.review ?? []
+  const next = checked ? [...current, value] : current.filter((v) => v !== value)
+  emit('update:config', { ...props.config, review: next.length > 0 ? next : undefined })
 }
 
 function reasonChecked(value: string): boolean {
@@ -78,6 +100,35 @@ function toggleReason(value: string, checked: boolean) {
         testid="github-filter-editor-type-issue"
         @update:model-value="(v) => toggleType('issue', v)"
       />
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 border-t border-row pt-4">
+      <fieldset>
+        <legend class="mb-2 text-[12.5px] text-text-2">CI status</legend>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
+          <ToggleField
+            v-for="state in allCIStates"
+            :key="state"
+            :label="state.replaceAll('_', ' ')"
+            :model-value="ciChecked(state)"
+            :testid="`github-filter-editor-ci-${state}`"
+            @update:model-value="(v) => toggleCI(state, v)"
+          />
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend class="mb-2 text-[12.5px] text-text-2">Review status</legend>
+        <div class="grid grid-cols-2 gap-x-3 gap-y-1.5">
+          <ToggleField
+            v-for="state in allReviewStates"
+            :key="state"
+            :label="state.replaceAll('_', ' ')"
+            :model-value="reviewChecked(state)"
+            :testid="`github-filter-editor-review-${state}`"
+            @update:model-value="(v) => toggleReview(state, v)"
+          />
+        </div>
+      </fieldset>
     </div>
 
     <div>

@@ -42,7 +42,7 @@ wires:
 
 Every node needs an `id` and `type`. Type-specific fields sit beside them. Wires name the source and destination node IDs.
 
-Add a filter between the source and feed when you need narrower routing. Branch one output to several destinations when an item should enter a feed and raise a notification or action.
+Add a filter between the source and feed when you need narrower routing. The GitHub filter can match CI states such as `passing` or `failing` and review states such as `approved` or `changes_requested`. Branch one output to several destinations when an item should enter a feed and raise a notification or action.
 
 ## Flow files
 

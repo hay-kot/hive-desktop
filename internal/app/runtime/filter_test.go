@@ -62,6 +62,16 @@ func TestFilterRuleComposition(t *testing.T) {
 	require.True(t, p.matches(filterableItem{Repo: "acme/app", Kind: "PR"}), "type comparison folds case")
 }
 
+func TestFilterPullRequestStatus(t *testing.T) {
+	t.Parallel()
+
+	p := newFilter(t, &flow.GithubFilterConfig{CI: []string{"passing"}, Review: []string{"approved"}})
+	require.True(t, p.matches(filterableItem{Kind: "PR", CI: "PASSING", Review: "approved"}))
+	require.False(t, p.matches(filterableItem{Kind: "PR", CI: "failing", Review: "approved"}))
+	require.False(t, p.matches(filterableItem{Kind: "PR", CI: "passing", Review: "changes_requested"}))
+	require.False(t, p.matches(filterableItem{Kind: "Issue"}), "missing PR fields must not match")
+}
+
 func TestFilterAuthorsFoldCase(t *testing.T) {
 	t.Parallel()
 

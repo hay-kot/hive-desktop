@@ -20,6 +20,8 @@ type GithubFilterConfig struct {
 	ExcludeLabels  []string `json:"exclude_labels,omitempty"  yaml:"exclude_labels,omitempty"`
 	Types          []string `json:"types,omitempty"           yaml:"types,omitempty"`
 	Reasons        []string `json:"reasons,omitempty"         yaml:"reasons,omitempty"`
+	CI             []string `json:"ci,omitempty"              yaml:"ci,omitempty"`
+	Review         []string `json:"review,omitempty"          yaml:"review,omitempty"`
 }
 
 func (c *GithubFilterConfig) Inputs() int  { return 1 }
@@ -27,6 +29,15 @@ func (c *GithubFilterConfig) Outputs() int { return 2 }
 
 // githubFilterValidTypes are the allowed values of the types filter.
 var githubFilterValidTypes = map[string]bool{"pr": true, "issue": true}
+
+var githubFilterValidCI = map[string]bool{
+	"none": true, "passing": true, "pending": true, "failing": true,
+}
+
+var githubFilterValidReview = map[string]bool{
+	"open": true, "draft": true, "approved": true,
+	"changes_requested": true, "review_required": true,
+}
 
 // githubFilterValidReasons are the notification reasons GitHub delivers.
 var githubFilterValidReasons = map[string]bool{
@@ -53,12 +64,13 @@ func (c *GithubFilterConfig) empty() bool {
 	return len(c.Repos) == 0 && len(c.ExcludeRepos) == 0 &&
 		len(c.Authors) == 0 && len(c.ExcludeAuthors) == 0 &&
 		len(c.Labels) == 0 && len(c.ExcludeLabels) == 0 &&
-		len(c.Types) == 0 && len(c.Reasons) == 0
+		len(c.Types) == 0 && len(c.Reasons) == 0 &&
+		len(c.CI) == 0 && len(c.Review) == 0
 }
 
 func (c *GithubFilterConfig) Validate(Refs) error {
 	if c.empty() {
-		return fmt.Errorf("github-filter: at least one of repos, exclude_repos, authors, exclude_authors, labels, exclude_labels, types, reasons must be set")
+		return fmt.Errorf("github-filter: at least one filter group must be set")
 	}
 
 	globGroups := []struct {
@@ -87,6 +99,16 @@ func (c *GithubFilterConfig) Validate(Refs) error {
 	for _, reason := range c.Reasons {
 		if !githubFilterValidReasons[reason] {
 			return fmt.Errorf("github-filter: unknown reason %q", reason)
+		}
+	}
+	for _, state := range c.CI {
+		if !githubFilterValidCI[strings.ToLower(state)] {
+			return fmt.Errorf("github-filter: unknown CI state %q", state)
+		}
+	}
+	for _, state := range c.Review {
+		if !githubFilterValidReview[strings.ToLower(state)] {
+			return fmt.Errorf("github-filter: unknown review state %q", state)
 		}
 	}
 	return nil

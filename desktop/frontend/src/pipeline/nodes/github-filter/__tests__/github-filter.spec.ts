@@ -22,6 +22,8 @@ describe('github-filter validate', () => {
       { exclude_labels: ['wontfix'] },
       { types: ['pr'] },
       { reasons: ['mention'] },
+      { ci: ['passing'] },
+      { review: ['approved'] },
     ]
     for (const config of groups) {
       expect(validate(config), JSON.stringify(config)).toEqual([])
