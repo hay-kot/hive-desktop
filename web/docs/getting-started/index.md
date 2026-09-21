@@ -31,7 +31,9 @@ curl -fsSL https://hivedesktop.com/install.sh | bash
 
 === "Linux"
 
-    Installs the binary under `~/.local/share/hive`. Set `HIVE_HOME` to choose another directory.
+    Hive requires the GTK 4 and WebKitGTK 6.0 runtime libraries. [Install the packages for your distribution](troubleshooting.md#hive-does-not-start-on-linux) before you start Hive.
+
+    The installer puts the binary under `~/.local/share/hive` and adds Hive to your application menu. Set `HIVE_HOME` to choose another binary directory. A manually extracted tarball does not add the application-menu entry.
 
 To inspect the installer first, omit `| bash`. Add `-s -- --channel dev` after `bash` to install the dev channel.
 
