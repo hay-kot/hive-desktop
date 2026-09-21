@@ -287,9 +287,6 @@ func TestSessionsService_CreateSessionLaunchesAsAJob(t *testing.T) {
 	}, launcher.calls[0])
 }
 
-// CreateSession resolves an unstated agent through the same env override the
-// form preselects with (#438): the form and the launch it submits must agree
-// on which agent runs.
 func TestSessionsService_CreateSessionLaunchesAWorkspaceChat(t *testing.T) {
 	repositories := &fakeSessionLauncher{}
 	workspaces := &fakeWorkspaceLauncher{}
@@ -313,6 +310,9 @@ func TestSessionsService_CreateSessionLaunchesAWorkspaceChat(t *testing.T) {
 	assert.Zero(t, repositories.optsCalls, "a workspace command selects its own agent")
 }
 
+// CreateSession resolves an unstated agent through the same env override the
+// form preselects with (#438): the form and the launch it submits must agree
+// on which agent runs.
 func TestSessionsService_CreateSessionResolvesTheEnvironmentAgentWhenNoneIsRequested(t *testing.T) {
 	launcher := &fakeSessionLauncher{opts: dispatch.SessionLaunchOptions{Agents: []string{"claude", "codex"}}}
 	runner := &fakeJobRunner{}
