@@ -1495,8 +1495,18 @@ load-bearing:
   it. `OutputData.Origin` is how it reaches an executor; a launcher records the
   link and never fails the launch over it.
 
-**A `launch-session` action's `post_hook` runs after the session exists, and its
-failure is not the action's.** The hook is a shell command rendered over the
+**A `launch-session` action targets either a repository or an agent workspace**
+([ADR a-launch-session-action-targets-either-a-repository-or-an-agent-workspace](decisions/2026-09-18-a-launch-session-action-targets-either-a-repository-or-an-agent-workspace.md)).
+`repo_template` and `workspace` are mutually exclusive fixed targets; either is
+headless, while neither opens the interactive target picker. Dispatch selects
+between the Hive session launcher and `AgentWorkspacesService` through
+consumer-defined ports. A workspace launch resolves the current workspace,
+regenerates its files, requires a command that carries `.Prompt` through
+`shq`, and starts a detached `agentws-*` chat. It has no Hive session record or
+`item_session` link.
+
+**A repository `launch-session` action's `post_hook` runs after the session
+exists, and its failure is not the action's.** The hook is a shell command rendered over the
 same data as the action's other templates with `.Session` bound to the session
 just created, run in that checkout through the shared `runShell` helper.
 Everything after `LaunchSession` returns follows the same rule as the item link
@@ -2048,10 +2058,11 @@ it with the rest of the manifest. The MCP tools' per-entry write is
 `agentws.WriteSchedules` through `AgentWorkspacesService.PutSchedule` and
 `RemoveSchedule`; a `SchedulePatch` field the call omits keeps its stored
 value. Both writers refuse a manifest that does not parse, and both refuse a
-schedule on a workspace whose `command:` does not pass `.Prompt`
-(`agentws.SupportsPrompt`, the same render-both-ways probe as
-`SupportsResume`): a scheduled chat whose prompt the template drops would sit
-idle in a detached session with nobody watching. The shipped presets end in
+schedule on a workspace whose `command:` does not pass `.Prompt` through
+`shq` (`agentws.SupportsPrompt` renders a shell-sensitive probe and requires
+its quoted value in the result): a scheduled chat whose prompt the template
+drops would sit idle in a detached session with nobody watching, while an
+unquoted value would become shell syntax. The shipped presets end in
 `agentws.PromptTail`, and a hand-edited manifest that breaks the rule lists
 as a workspace problem. Run state is app-local data in `desktop-pipeline.db`
 behind one store, `stores.ScheduleStore`: a schedule's cursor (how far it has

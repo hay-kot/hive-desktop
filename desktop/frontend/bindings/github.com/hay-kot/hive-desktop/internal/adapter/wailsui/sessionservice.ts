@@ -23,8 +23,8 @@ import * as dispatch$0 from "../../app/dispatch/models.js";
 import * as $models from "./models.js";
 
 /**
- * CreateSession validates the form and starts the session as a background job,
- * returning the job id. Its outcome surfaces in the jobs UI.
+ * CreateSession validates the form and starts its repository session or
+ * workspace chat as a background job. Its outcome surfaces in the jobs UI.
  */
 export function CreateSession(req: dispatch$0.CreateSessionRequest): $CancellablePromise<number> {
     return $Call.ByID(4281714313, req);

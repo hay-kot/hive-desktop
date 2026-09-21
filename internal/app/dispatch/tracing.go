@@ -23,6 +23,7 @@ const (
 	attrAttempted  = "dispatch.attempted"
 	attrAgent      = "dispatch.session.agent"
 	attrRepo       = "dispatch.session.repo"
+	attrWorkspace  = "dispatch.session.workspace"
 	attrSeverity   = "dispatch.notify.severity"
 	attrInApp      = "dispatch.notify.in_app"
 	attrTopic      = "dispatch.message.topic"

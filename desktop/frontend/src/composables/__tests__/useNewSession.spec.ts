@@ -14,9 +14,9 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 import { resetNewSessionForTests, useNewSession } from '../useNewSession'
 import { resetToastsForTests, useToasts } from '../useToasts'
 
-const options = { repositories: [], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', agents: ['claude'], defaultAgent: 'claude' }
+const options = { repositories: [], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', workspaces: [{ dir: 'alerts', name: 'Alerts', supportsPrompt: true }], agents: ['claude'], defaultAgent: 'claude' }
 const item = { id: 7 } as InboxItem
-const blank = { repository: options.defaultRepository, name: '', prompt: '', agent: 'claude' }
+const blank = { repository: options.defaultRepository, workspace: '', name: '', prompt: '', agent: 'claude' }
 
 const failure = {
   reason: 'clone repository: git clone: exec git: exit status 1',
@@ -68,7 +68,7 @@ describe('useNewSession', () => {
     await s.openFromItem(item)
     expect(mocks.NewSessionDraft).toHaveBeenCalledWith([7])
     expect(s.open.value).toBe(true)
-    expect(s.initial.value).toEqual({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash', agent: 'claude' })
+    expect(s.initial.value).toEqual({ repository: 'acme/site', workspace: '', name: 'fix-crash', prompt: 'Fix the crash', agent: 'claude' })
   })
 
   it('creates one session for an ordered item selection', async () => {
@@ -117,9 +117,18 @@ describe('useNewSession', () => {
     const s = useNewSession()
     await s.openBlank()
     await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude' })
-    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude', itemIds: [] })
+    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: 'acme/site', workspace: '', name: 'fix-crash', prompt: 'go', agent: 'claude', itemIds: [] })
     expect(s.open.value).toBe(false)
     expect(useToasts().toasts.value.at(-1)?.message).toContain('fix-crash')
+  })
+
+  it('starts a workspace chat with the item context and target intact', async () => {
+    mocks.NewSessionDraft.mockResolvedValue({ repository: 'acme/site', name: 'incident', prompt: 'Alert context' })
+    mocks.CreateSession.mockResolvedValue(7)
+    const s = useNewSession()
+    await s.openFromItem(item)
+    await s.submit({ workspace: 'alerts', name: 'incident', prompt: 'Alert context' })
+    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: '', workspace: 'alerts', name: 'incident', prompt: 'Alert context', agent: '', itemIds: [7] })
   })
 
   // The session a form drafted from an item creates is recorded against that
@@ -141,7 +150,7 @@ describe('useNewSession', () => {
     mocks.FailedSessionDraft.mockResolvedValue(pending())
     const s = useNewSession()
     await s.openBlank('https://github.com/other/repo.git')
-    expect(s.initial.value).toEqual({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash', agent: 'pi' })
+    expect(s.initial.value).toEqual({ repository: 'acme/site', workspace: '', name: 'fix-crash', prompt: 'Fix the crash', agent: 'pi' })
     expect(s.failure.value).toEqual(failure)
   })
 
@@ -243,7 +252,7 @@ describe('useNewSession — retry from an activity row', () => {
 
     expect(mocks.SessionDraftFromActivity).toHaveBeenCalledWith(metadata)
     expect(s.open.value).toBe(true)
-    expect(s.initial.value).toEqual({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash', agent: 'pi' })
+    expect(s.initial.value).toEqual({ repository: 'acme/site', workspace: '', name: 'fix-crash', prompt: 'Fix the crash', agent: 'pi' })
     expect(s.failure.value?.step).toBe('Cloning repository...')
   })
 

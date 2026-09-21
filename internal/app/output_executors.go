@@ -24,6 +24,7 @@ import (
 // exported name for them, only the registry key Types() derives from.
 func outputExecutors(
 	launcher dispatch.SessionLauncher,
+	workspaceLauncher dispatch.WorkspaceSessionLauncher,
 	publisher dispatch.MessagePublisher,
 	notifier dispatch.SystemNotifier,
 	gate dispatch.NotificationGate,
@@ -32,7 +33,7 @@ func outputExecutors(
 	logger zerolog.Logger,
 ) map[string]dispatch.Executor {
 	return map[string]dispatch.Executor{
-		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(logger, launcher, env),
+		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(logger, launcher, workspaceLauncher, env),
 		"shell":                          dispatch.NewShellExecutor(logger, env),
 		"publish-message":                dispatch.NewPublishMessageExecutor(publisher),
 		"clipboard":                      dispatch.NewClipboardExecutor(),

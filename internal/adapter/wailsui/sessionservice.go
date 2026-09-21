@@ -93,8 +93,8 @@ func (s *SessionService) SessionRisk(ctx context.Context, id string) (dispatch.S
 	return s.sessions.SessionRisk(ctx, id)
 }
 
-// CreateSession validates the form and starts the session as a background job,
-// returning the job id. Its outcome surfaces in the jobs UI.
+// CreateSession validates the form and starts its repository session or
+// workspace chat as a background job. Its outcome surfaces in the jobs UI.
 func (s *SessionService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (int64, error) {
 	return s.sessions.CreateSession(ctx, req)
 }

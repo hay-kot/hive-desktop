@@ -79,9 +79,9 @@ func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, err
 // IsRerun) and trims the result. Extracted from LaunchSessionExecutor —
 // which now calls it — so the applicability probe and the executor can
 // never drift: a template referencing .Raw or .Key probes exactly as it
-// executes. Actions without a repo_template (interactive launch-session, or
-// any non-launch-session type) render "" with no error — they impose no
-// payload requirement.
+// executes. Actions without a repo_template (interactive or workspace
+// launch-session actions, and every other type) render "" with no error;
+// they impose no repository requirement on the payload.
 func RenderRepoTarget(action actions.Action, key string, payload []byte, inputs map[string]string) (string, error) {
 	cfg, ok := action.Config.(*actions.LaunchSessionConfig)
 	if !ok || cfg.RepoTemplate == "" {
@@ -120,8 +120,8 @@ func ActionApplicability(action actions.Action, item DecodedActionItem) (ok bool
 		return false, fmt.Sprintf("action %q does not apply to kind %q", action.ID, item.Kind)
 	}
 
-	_, isLaunchSession := action.Config.(*actions.LaunchSessionConfig)
-	if !isLaunchSession || !action.HeadlessCapable() {
+	launch, isLaunchSession := action.Config.(*actions.LaunchSessionConfig)
+	if !isLaunchSession || !action.HeadlessCapable() || strings.TrimSpace(launch.RepoTemplate) == "" {
 		return true, ""
 	}
 

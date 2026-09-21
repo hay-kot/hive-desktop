@@ -5,6 +5,7 @@ import CreateSessionDialog from '../CreateSessionDialog.vue'
 const options = {
   repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }],
   defaultRepository: 'https://github.com/hay-kot/hive-desktop.git',
+  workspaces: [{ dir: 'alerts', name: 'Alert triage', supportsPrompt: true }],
   agents: ['claude', 'pi'],
   defaultAgent: 'claude',
 }
@@ -19,6 +20,33 @@ describe('CreateSessionDialog', () => {
     await wrapper.get('[data-testid="session-name"]').setValue('review-pr-12')
     await wrapper.get('[data-testid="create-session-submit"]').trigger('click')
     expect(wrapper.emitted('submit')).toEqual([[{ name: 'review-pr-12', repository: options.defaultRepository, agent: 'claude', inputs: {} }]])
+  })
+
+  it('starts an agent workspace chat without repository or agent input', async () => {
+    const wrapper = mountDialog()
+    await wrapper.get('[data-testid="session-target-workspace"]').trigger('click')
+    await wrapper.get('[data-testid="session-name"]').setValue('triage-alert')
+    await wrapper.get('[data-testid="create-session-submit"]').trigger('click')
+    expect(wrapper.emitted('submit')).toEqual([[{ name: 'triage-alert', workspace: 'alerts', inputs: {} }]])
+    expect(wrapper.find('[data-testid="session-repository"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="session-agent"]').exists()).toBe(false)
+  })
+
+  it('defaults to the first workspace that accepts an opening prompt', async () => {
+    const wrapper = mountDialog({
+      options: {
+        ...options,
+        workspaces: [
+          { dir: 'plain', name: 'Plain chat', supportsPrompt: false },
+          { dir: 'alerts', name: 'Alert triage', supportsPrompt: true },
+        ],
+      },
+    })
+    await wrapper.get('[data-testid="session-target-workspace"]').trigger('click')
+    await wrapper.get('[data-testid="session-name"]').setValue('triage-alert')
+    await wrapper.get('[data-testid="create-session-submit"]').trigger('click')
+
+    expect(wrapper.emitted('submit')).toEqual([[{ name: 'triage-alert', workspace: 'alerts', inputs: {} }]])
   })
 
   it('picks a repository through the shared selector', async () => {

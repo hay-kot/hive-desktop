@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -387,6 +388,23 @@ func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, err
 	return views, nil
 }
 
+// SessionLaunchWorkspaces returns the valid workspace choices shared by the
+// New Session dialog and the actions editor.
+func (s *AgentWorkspacesService) SessionLaunchWorkspaces(context.Context) []dispatch.SessionLaunchWorkspace {
+	statuses := s.store.Statuses()
+	workspaces := make([]dispatch.SessionLaunchWorkspace, 0, len(statuses))
+	for _, st := range statuses {
+		if !st.Valid {
+			continue
+		}
+		workspaces = append(workspaces, dispatch.SessionLaunchWorkspace{
+			Dir: st.Workspace.Dir, Name: st.Workspace.Name,
+			SupportsPrompt: agentws.SupportsPrompt(st.Workspace.Command),
+		})
+	}
+	return workspaces
+}
+
 // Open regenerates the workspace's disposable artifacts and returns its
 // sessions. It is the only entry point that writes into a workspace.
 func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResult, error) {
@@ -506,6 +524,34 @@ func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string
 }
 
 // StartSession launches a new, named session in workspace.
+// LaunchWorkspaceSession starts a detached chat for a New Session form or a
+// launch-session action. Generated files are refreshed before the agent starts.
+func (s *AgentWorkspacesService) LaunchWorkspaceSession(ctx context.Context, req dispatch.LaunchWorkspaceSessionRequest) (dispatch.SessionExecutionOutcome, error) {
+	regen, err := s.regenerate(ctx, req.Workspace)
+	if err != nil {
+		return dispatch.SessionExecutionOutcome{}, err
+	}
+	if strings.TrimSpace(req.Prompt) != "" && !agentws.SupportsPrompt(regen.status.Workspace.Command) {
+		return dispatch.SessionExecutionOutcome{}, promptlessCommandError("start a chat with an opening prompt")
+	}
+	view, err := s.StartSession(ctx, StartSession{
+		Workspace: req.Workspace,
+		Name:      req.Name,
+		Prompt:    req.Prompt,
+		Detached:  true,
+	})
+	if err != nil {
+		return dispatch.SessionExecutionOutcome{}, err
+	}
+	if view.ExitedEarly {
+		_ = s.sessions.Delete(ctx, view.ID)
+		return dispatch.SessionExecutionOutcome{}, Errorf(KindInternal, "%s", view.Notice)
+	}
+	return dispatch.SessionExecutionOutcome{
+		ID: strconv.FormatInt(view.ID, 10), Name: view.Name, Slug: view.Slug,
+	}, nil
+}
+
 func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSession) (SessionView, error) {
 	if !validWorkspaceDir(req.Workspace) {
 		return SessionView{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", req.Workspace)
@@ -955,7 +1001,7 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 		}
 	}
 	if len(req.Schedules) > 0 && !agentws.SupportsPrompt(command) {
-		return promptlessCommandError()
+		return promptlessCommandError("run schedules")
 	}
 	// The id shape, cron and prompt rules are the spec's own; repeating them
 	// here would be a second place for them to drift.
@@ -1013,7 +1059,7 @@ func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, pa
 	// schedule saved into a workspace whose command drops the prompt would
 	// turn the whole workspace into a problem the agent never asked for.
 	if !agentws.SupportsPrompt(st.Workspace.Command) {
-		return ScheduleView{}, promptlessCommandError()
+		return ScheduleView{}, promptlessCommandError("run schedules")
 	}
 
 	id := strings.TrimSpace(patch.ID)
@@ -1082,8 +1128,8 @@ func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id str
 	return err
 }
 
-func promptlessCommandError() error {
-	return Errorf(KindInvalid, "the workspace command does not pass a prompt to the agent, so it cannot run schedules; pick a shipped command or add%s to it", agentws.PromptTail)
+func promptlessCommandError(purpose string) error {
+	return Errorf(KindInvalid, "the workspace command does not pass a prompt to the agent, so it cannot %s; pick a shipped command or add%s to it", purpose, agentws.PromptTail)
 }
 
 // editableWorkspace refuses a manifest that does not parse: on the first load

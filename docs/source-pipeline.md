@@ -283,6 +283,12 @@ output-command queue, except `clipboard`, which renders without one (ADR clipboa
 Background commands retry up to the configured limit; command output
 and failure diagnostics are retained with the command record.
 
+A `launch-session` action can target a rendered repository or a literal agent
+workspace directory. Either fixed target runs headlessly; with neither, manual
+invocation asks for one. Workspace launches use the current workspace command
+and refuse one that drops the rendered prompt or does not shell-quote it
+(ADR a-launch-session-action-targets-either-a-repository-or-an-agent-workspace).
+
 An action may declare `inputs` — values collected from the user when it is
 invoked and rendered into its templates as `.Inputs.<name>` (ADR action-declared-inputs). An
 action with a required input that has no default cannot run headlessly, so a

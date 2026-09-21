@@ -18,6 +18,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -224,6 +225,77 @@ func TestOpenRejectsAWorkspaceOutsideTheRoot(t *testing.T) {
 	entries, err := os.ReadDir(root)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "a rejected workspace argument must write nothing")
+}
+
+func TestLaunchWorkspaceSessionCarriesPromptIntoDetachedChat(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	capture := filepath.Join(t.TempDir(), "prompt")
+	agent := filepath.Join(t.TempDir(), "codex")
+	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\nprintf '%s' \"$2\" > "+capture+"\nexec cat\n"), 0o755))
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	outcome, err := svc.LaunchWorkspaceSession(t.Context(), dispatch.LaunchWorkspaceSessionRequest{
+		Workspace: "demo", Name: "alert", Prompt: "cluster prod is down",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alert", outcome.Name)
+	assert.NotEmpty(t, outcome.ID)
+	assert.NotEmpty(t, outcome.Slug)
+	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
+	require.Eventually(t, func() bool {
+		got, readErr := os.ReadFile(capture)
+		return readErr == nil && string(got) == "cluster prod is down"
+	}, time.Second, 10*time.Millisecond)
+	_, err = os.Stat(filepath.Join(root, "demo", ".mcp.json"))
+	require.NoError(t, err, "a launch refreshes generated workspace files")
+}
+
+func TestLaunchWorkspaceSessionReportsAnImmediateExit(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agent := fakeAgentBinary(t, "codex", "exit 1")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	_, err := svc.LaunchWorkspaceSession(t.Context(), dispatch.LaunchWorkspaceSessionRequest{
+		Workspace: "demo", Name: "alert", Prompt: "triage this",
+	})
+	require.ErrorContains(t, err, "session exited immediately")
+	assert.Equal(t, 0, liveAgentSessionCount(t, svc))
+	sessions, listErr := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, listErr)
+	assert.Empty(t, sessions, "a failed detached launch must not leave a dead chat to accumulate on retry")
+}
+
+func TestLaunchWorkspaceSessionRefusesPromptlessCommand(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agent := fakeAgentBinary(t, "codex", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	_, err := svc.LaunchWorkspaceSession(t.Context(), dispatch.LaunchWorkspaceSessionRequest{
+		Workspace: "demo", Name: "alert", Prompt: "do not drop this",
+	})
+	require.ErrorContains(t, err, "does not pass a prompt")
+	sessions, listErr := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, listErr)
+	assert.Empty(t, sessions)
+	assert.Equal(t, 0, liveAgentSessionCount(t, svc))
+}
+
+func TestSessionLaunchWorkspacesReportsPromptSupport(t *testing.T) {
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "plain", agentWorkspaceYAML("Plain", "codex", ""))
+	writeAgentWorkspaceManifest(t, root, "prompted", agentWorkspaceYAML("Prompted", "codex"+agentws.PromptTail, ""))
+	svc := newManifestOnlyService(t, root, nil)
+
+	assert.Equal(t, []dispatch.SessionLaunchWorkspace{
+		{Dir: "plain", Name: "Plain", SupportsPrompt: false},
+		{Dir: "prompted", Name: "Prompted", SupportsPrompt: true},
+	}, svc.SessionLaunchWorkspaces(t.Context()))
 }
 
 func TestResumeFallsBackToFreshLaunch(t *testing.T) {

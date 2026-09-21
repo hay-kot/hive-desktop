@@ -1,25 +1,43 @@
 # Launch session
 
-A **launch-session** action starts a hive coding session from the triggering
-item. It is the action type behind manually invoking "review this PR" /
-"start work on this issue" on an item, and behind flow `action` nodes that
-spawn agents automatically.
+A **launch-session** action starts a repository-backed Hive coding session or
+an agent workspace chat from the triggering item. It is the action type behind
+manual item handoffs and flow `action` nodes that start agents automatically.
 
 ## Fields
 
 - `prompt_template` (required) — the new session's initial prompt.
-- `repo_template` — which repository the session is created against. Set it and
-  the action can run **headlessly** (a flow `action` node can fire it with no
-  human present). Leave it empty and the action becomes interactive: invoking
-  it manually prompts for repository, session name, and agent before the
-  session launches, and a flow `action` node is **rejected at validation
-  time** for referencing it.
-- `agent` — a non-default agent profile (e.g. `claude`, `aider`). Omit for the
-  launcher's default.
-- `post_hook` — a shell command to run once the session exists, in its
-  checkout. See below.
+- `repo_template` — which repository the Hive session is created against.
+- `workspace` — the directory name of an agent workspace under the configured
+  workspace root.
+- `agent` — a non-default Hive agent profile (e.g. `claude`, `aider`). Omit for
+  the launcher's default. Agent workspaces select their agent in `command:` and
+  cannot use this field.
+- `post_hook` — a shell command to run once a repository session exists, in its
+  checkout. A workspace target cannot use it. See below.
 - `post_hook_timeout` — how long the hook may run, as a duration string
   (`"2m"`). Defaults to one minute.
+
+`repo_template` and `workspace` are mutually exclusive. Either fixed target
+makes the action **headless**, so a flow `action` node can fire it with no human
+present. With neither field, manual invocation asks for a repository or agent
+workspace plus the session name. A flow rejects that interactive variant.
+
+A workspace action resolves the current workspace definition when it runs. Its
+`command:` must carry `.Prompt` through `shq`; otherwise Hive refuses the launch
+rather than dropping the item context or treating it as shell syntax. The
+shipped command presets already satisfy this requirement.
+
+```yaml
+- id: triage-alert
+  label: Triage alert
+  type: launch-session
+  workspace: incident-triage
+  prompt_template: |
+    Triage {{ .Payload.alert }} in {{ .Payload.cluster }}.
+
+    {{ .Payload.thread_url }}
+```
 
 ## Post hook
 

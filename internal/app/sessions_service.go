@@ -35,6 +35,11 @@ type sessionLauncher interface {
 	SessionLaunchOptions(context.Context) (dispatch.SessionLaunchOptions, error)
 }
 
+type workspaceSessionLauncher interface {
+	dispatch.WorkspaceSessionLauncher
+	SessionLaunchWorkspaces(context.Context) []dispatch.SessionLaunchWorkspace
+}
+
 // sessionManager is the read and lifecycle half of the session surface, kept
 // apart from sessionLauncher because launching is a dispatch action: an output
 // command holds a launcher, and it has no business holding a delete.
@@ -89,17 +94,18 @@ type itemSessionStore interface {
 // launch path, read plus lifecycle management of the sessions that exist, and
 // the configured actions a terminal session or window offers.
 type SessionsService struct {
-	launcher   sessionLauncher
-	manager    sessionManager
-	statuses   sessionStatusSource
-	git        sessionGitSource
-	tmux       sessionTmux
-	jobs       sessionJobRunner
-	items      inboxItemRefReader
-	links      itemSessionStore
-	catalog    *actions.ActionStore
-	dispatcher *dispatch.Dispatcher
-	recorder   activity.Recorder
+	launcher          sessionLauncher
+	workspaceLauncher workspaceSessionLauncher
+	manager           sessionManager
+	statuses          sessionStatusSource
+	git               sessionGitSource
+	tmux              sessionTmux
+	jobs              sessionJobRunner
+	items             inboxItemRefReader
+	links             itemSessionStore
+	catalog           *actions.ActionStore
+	dispatcher        *dispatch.Dispatcher
+	recorder          activity.Recorder
 	// pullRequests is nil in a build with no GitHub client, which reads as
 	// disconnected.
 	pullRequests  *sessionPullRequests
@@ -135,19 +141,20 @@ type NopEditorCommandReader struct{}
 func (NopEditorCommandReader) Editor(context.Context) (string, error) { return "", nil }
 
 type SessionsDeps struct {
-	Launcher     sessionLauncher
-	Manager      sessionManager
-	Statuses     sessionStatusSource
-	Git          sessionGitSource
-	Tmux         sessionTmux
-	Jobs         sessionJobRunner
-	Items        inboxItemRefReader
-	Links        itemSessionStore
-	Catalog      *actions.ActionStore
-	Dispatcher   *dispatch.Dispatcher
-	Recorder     activity.Recorder
-	PullRequests *sessionPullRequests
-	ExecEnv      *execenv.Resolver
+	Launcher          sessionLauncher
+	WorkspaceLauncher workspaceSessionLauncher
+	Manager           sessionManager
+	Statuses          sessionStatusSource
+	Git               sessionGitSource
+	Tmux              sessionTmux
+	Jobs              sessionJobRunner
+	Items             inboxItemRefReader
+	Links             itemSessionStore
+	Catalog           *actions.ActionStore
+	Dispatcher        *dispatch.Dispatcher
+	Recorder          activity.Recorder
+	PullRequests      *sessionPullRequests
+	ExecEnv           *execenv.Resolver
 	// EditorCommand reads the configured editor from settings on every call,
 	// so a settings change applies without restarting. nil means
 	// NopEditorCommandReader.
@@ -167,32 +174,36 @@ func newSessionsService(d SessionsDeps) *SessionsService {
 		d.DefaultAgentEnv = NopDefaultAgentReader{}
 	}
 	return &SessionsService{
-		launcher:        d.Launcher,
-		manager:         d.Manager,
-		statuses:        d.Statuses,
-		git:             d.Git,
-		tmux:            d.Tmux,
-		jobs:            d.Jobs,
-		items:           d.Items,
-		links:           d.Links,
-		catalog:         d.Catalog,
-		dispatcher:      d.Dispatcher,
-		recorder:        d.Recorder,
-		pullRequests:    d.PullRequests,
-		execEnv:         d.ExecEnv,
-		editorCommand:   d.EditorCommand,
-		defaultAgentEnv: d.DefaultAgentEnv,
-		events:          d.Events,
-		logger:          d.Logger,
+		launcher:          d.Launcher,
+		workspaceLauncher: d.WorkspaceLauncher,
+		manager:           d.Manager,
+		statuses:          d.Statuses,
+		git:               d.Git,
+		tmux:              d.Tmux,
+		jobs:              d.Jobs,
+		items:             d.Items,
+		links:             d.Links,
+		catalog:           d.Catalog,
+		dispatcher:        d.Dispatcher,
+		recorder:          d.Recorder,
+		pullRequests:      d.PullRequests,
+		execEnv:           d.ExecEnv,
+		editorCommand:     d.EditorCommand,
+		defaultAgentEnv:   d.DefaultAgentEnv,
+		events:            d.Events,
+		logger:            d.Logger,
 	}
 }
 
-// SessionLaunchOptions supplies the configured repository and agent choices the
-// New Session form presents.
+// SessionLaunchOptions supplies the repository, workspace, and agent choices
+// the New Session form presents.
 func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.SessionLaunchOptions, error) {
 	opts, err := s.launcher.SessionLaunchOptions(ctx)
 	if err != nil {
 		return dispatch.SessionLaunchOptions{}, Wrap(err, KindInternal, "resolving session launch options")
+	}
+	if s.workspaceLauncher != nil {
+		opts.Workspaces = s.workspaceLauncher.SessionLaunchWorkspaces(ctx)
 	}
 	return s.withEnvironmentDefaultAgent(ctx, opts), nil
 }
@@ -432,14 +443,18 @@ func (s *SessionsService) SessionRisk(ctx context.Context, id string) (dispatch.
 	return risk, nil
 }
 
-// CreateSession validates a New Session form, then launches the session as a
-// background job and returns its id. Creation (which may clone a repository)
+// CreateSession validates a New Session form, then launches a repository
+// session or workspace chat as a background job and returns its id. Creation
 // runs asynchronously and its outcome surfaces in the jobs UI, so only
 // validation errors are returned here.
 func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (int64, error) {
 	repo := strings.TrimSpace(req.Repository)
-	if repo == "" {
-		return 0, Errorf(KindInvalid, "repository is required")
+	workspace := strings.TrimSpace(req.Workspace)
+	if (repo == "") == (workspace == "") {
+		return 0, Errorf(KindInvalid, "exactly one of repository or workspace is required")
+	}
+	if workspace != "" && s.workspaceLauncher == nil {
+		return 0, Errorf(KindUnavailable, "agent workspace sessions are unavailable")
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -452,36 +467,39 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	// Items pruned between opening and submitting the form are omitted rather
 	// than blocking the one session the user asked for.
 	var origins []models.ItemRef
-	seenIDs := make(map[int64]struct{}, len(req.ItemIDs))
-	seenOrigins := make(map[models.ItemRef]struct{}, len(req.ItemIDs))
-	for _, itemID := range req.ItemIDs {
-		if itemID <= 0 {
-			continue
-		}
-		if _, exists := seenIDs[itemID]; exists {
-			continue
-		}
-		seenIDs[itemID] = struct{}{}
-		resolved, err := s.items.RefByID(ctx, itemID)
-		if err != nil {
-			if stores.IsNotFound(err) {
+	if repo != "" {
+		seenIDs := make(map[int64]struct{}, len(req.ItemIDs))
+		seenOrigins := make(map[models.ItemRef]struct{}, len(req.ItemIDs))
+		for _, itemID := range req.ItemIDs {
+			if itemID <= 0 {
 				continue
 			}
-			return 0, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+			if _, exists := seenIDs[itemID]; exists {
+				continue
+			}
+			seenIDs[itemID] = struct{}{}
+			resolved, err := s.items.RefByID(ctx, itemID)
+			if err != nil {
+				if stores.IsNotFound(err) {
+					continue
+				}
+				return 0, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+			}
+			if _, exists := seenOrigins[resolved]; exists {
+				continue
+			}
+			seenOrigins[resolved] = struct{}{}
+			origins = append(origins, resolved)
 		}
-		if _, exists := seenOrigins[resolved]; exists {
-			continue
-		}
-		seenOrigins[resolved] = struct{}{}
-		origins = append(origins, resolved)
 	}
 
+	prompt := strings.TrimSpace(req.Prompt)
+	agent := ""
+	if repo != "" {
+		agent = s.resolveLaunchAgent(ctx, req.Agent)
+	}
 	launch := dispatch.LaunchSessionRequest{
-		Name:    name,
-		Prompt:  strings.TrimSpace(req.Prompt),
-		Agent:   s.resolveLaunchAgent(ctx, req.Agent),
-		Repo:    repo,
-		Origins: origins,
+		Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origins: origins,
 	}
 	// The anchor for the failure. hive logs "cloning repository" with dest= and
 	// strategy= but names no session, so without a line either side of it a log
@@ -489,6 +507,7 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	s.logger.Info().
 		Str("session_name", name).
 		Str("repository", repo).
+		Str("workspace", workspace).
 		Str("agent", launch.Agent).
 		Ints64("item_ids", req.ItemIDs).
 		Msg("creating session")
@@ -497,13 +516,21 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 	// old attempt back over the session just asked for.
 	s.setFailedCreate(nil)
 	jobID := s.jobs.Track(ctx, "Create session", newSessionJobActionID, name, func(bg context.Context) error {
-		if _, err := s.launcher.LaunchSession(bg, launch); err != nil {
-			if errors.Is(err, dispatch.ErrDuplicateSessionName) {
-				return fmt.Errorf("a session named %q already exists", name)
-			}
-			return s.recordFailedCreate(bg, req, err)
+		var err error
+		if workspace != "" {
+			_, err = s.workspaceLauncher.LaunchWorkspaceSession(bg, dispatch.LaunchWorkspaceSessionRequest{
+				Workspace: workspace, Name: name, Prompt: prompt,
+			})
+		} else {
+			_, err = s.launcher.LaunchSession(bg, launch)
 		}
-		return nil
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, dispatch.ErrDuplicateSessionName) {
+			return fmt.Errorf("a session named %q already exists", name)
+		}
+		return s.recordFailedCreate(bg, req, err)
 	})
 	return jobID, nil
 }
@@ -537,6 +564,7 @@ func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.C
 	s.logger.Error().
 		Str("session_name", strings.TrimSpace(req.Name)).
 		Str("repository", strings.TrimSpace(req.Repository)).
+		Str("workspace", strings.TrimSpace(req.Workspace)).
 		Str("remote", remote).
 		Str("clone_strategy", failure.CloneStrategy).
 		Str("destination", failure.Destination).
@@ -548,6 +576,7 @@ func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.C
 
 	draft := dispatch.SessionDraft{
 		Repository: strings.TrimSpace(req.Repository),
+		Workspace:  strings.TrimSpace(req.Workspace),
 		Name:       strings.TrimSpace(req.Name),
 		Prompt:     strings.TrimSpace(req.Prompt),
 		Agent:      req.Agent,
@@ -558,8 +587,12 @@ func (s *SessionsService) recordFailedCreate(ctx context.Context, req dispatch.C
 	// The durable half: the toast and the slot die with the process, the row
 	// does not, and it carries the form to come back to.
 	if s.recorder != nil {
+		target := draft.Repository
+		if target == "" {
+			target = draft.Workspace
+		}
 		s.recorder.Record(ctx, activity.SessionCreateFailed(
-			draft.Name, draft.Repository, failure.Step, failure.Reason,
+			draft.Name, target, failure.Step, failure.Reason,
 			dispatch.SessionDraftMetadata(draft),
 		))
 	}

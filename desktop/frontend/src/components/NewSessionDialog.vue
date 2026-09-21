@@ -3,7 +3,7 @@ import { computed, ref, useId } from 'vue'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
-import AppSelect from './AppSelect.vue'
+import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
 import RepositorySelect from './RepositorySelect.vue'
@@ -14,7 +14,7 @@ import { useSubmitShortcut } from '../composables/useSubmitShortcut'
 
 const props = defineProps<{
   options: SessionLaunchOptions
-  initial: { repository: string; name: string; prompt: string; agent: string }
+  initial: { repository: string; workspace: string; name: string; prompt: string; agent: string }
   busy: boolean
   error: string | null
   /** The creation this form was handed back from, or null for a fresh form. */
@@ -22,7 +22,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   close: []
-  submit: [input: { repository: string; name: string; prompt: string; agent?: string }]
+  submit: [input: { repository?: string; workspace?: string; name: string; prompt: string; agent?: string }]
   dismissFailure: []
 }>()
 
@@ -30,21 +30,44 @@ const emit = defineEmits<{
 // which is also what makes Enter in a single-line field submit.
 const formId = useId()
 const submitHint = formatCombo('mod+enter')
+const target = ref<'repository' | 'workspace'>(props.initial.workspace ? 'workspace' : 'repository')
 const repository = ref(props.initial.repository || props.options.defaultRepository)
+const firstWorkspace = props.initial.prompt
+  ? props.options.workspaces?.find((item) => item.supportsPrompt)
+  : props.options.workspaces?.[0]
+const workspace = ref(props.initial.workspace || firstWorkspace?.dir || '')
 const name = ref(props.initial.name)
 const prompt = ref(props.initial.prompt)
 const agent = ref(props.initial.agent)
 const validationError = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
-const canSubmit = computed(() => repository.value.trim() !== '' && name.value.trim() !== '')
+const canSubmit = computed(() => {
+  const selectedTarget = target.value === 'repository' ? repository.value : workspace.value
+  if (selectedTarget.trim() === '' || name.value.trim() === '') return false
+  if (target.value === 'workspace' && prompt.value.trim() !== '') {
+    return props.options.workspaces?.find((item) => item.dir === workspace.value)?.supportsPrompt ?? false
+  }
+  return true
+})
 const agentOptions = computed(() => [{ value: '', label: 'Default agent' }, ...(props.options.agents ?? []).map((key) => ({ value: key, label: key }))])
+const workspaceOptions = computed<AppSelectOption[]>(() => (props.options.workspaces ?? []).map((item) => ({
+  value: item.dir,
+  label: item.name || item.dir,
+  hint: item.supportsPrompt ? item.dir : `${item.dir} · opening prompts are not supported`,
+  disabled: prompt.value.trim() !== '' && !item.supportsPrompt,
+})))
 
 function submit() {
   if (props.busy) return
   const repo = repository.value.trim()
+  const selectedWorkspace = workspace.value.trim()
   const sessionName = name.value.trim()
-  if (!repo) {
+  if (target.value === 'repository' && !repo) {
     validationError.value = 'Repository is required.'
+    return
+  }
+  if (target.value === 'workspace' && !selectedWorkspace) {
+    validationError.value = 'Agent workspace is required.'
     return
   }
   if (!sessionName) {
@@ -56,6 +79,10 @@ function submit() {
     return
   }
   validationError.value = ''
+  if (target.value === 'workspace') {
+    emit('submit', { workspace: selectedWorkspace, name: sessionName, prompt: prompt.value.trim() })
+    return
+  }
   emit('submit', { repository: repo, name: sessionName, prompt: prompt.value.trim(), ...(agent.value ? { agent: agent.value } : {}) })
 }
 
@@ -107,13 +134,37 @@ useSubmitShortcut(submit)
       </div>
     </section>
     <form :id="formId" class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
-      <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
+      <div class="grid grid-cols-2 gap-1 rounded-lg border border-card bg-app p-1" role="group" aria-label="Session target" data-testid="new-session-target">
+        <button
+          v-for="option in [{ value: 'repository', label: 'Repository' }, { value: 'workspace', label: 'Agent workspace' }]"
+          :key="option.value"
+          type="button"
+          class="rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="target === option.value ? 'bg-raised text-text shadow-sm' : 'text-text-3 hover:text-text'"
+          :aria-pressed="target === option.value"
+          :data-testid="`new-session-target-${option.value}`"
+          @click="target = option.value as 'repository' | 'workspace'"
+        >{{ option.label }}</button>
+      </div>
+      <div v-if="target === 'repository'" class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
         <RepositorySelect
           :model-value="repository"
           :repositories="options.repositories"
           testid="new-session-repository"
           @update:model-value="repository = $event"
         />
+      </div>
+      <div v-else class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Agent workspace
+        <AppSelect
+          v-model="workspace"
+          :options="workspaceOptions"
+          searchable
+          placeholder="No workspaces configured"
+          aria-label="Agent workspace"
+          testid="new-session-workspace"
+          :disabled="!workspaceOptions.length"
+        />
+        <span v-if="!workspaceOptions.length" class="font-normal text-text-4">Create a workspace in Chats before starting one here.</span>
       </div>
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Session name
         <!-- A session name slugs into a tmux name and a directory path, so the
@@ -123,7 +174,7 @@ useSubmitShortcut(submit)
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Prompt <span class="font-normal text-text-4">(optional)</span>
         <textarea v-model="prompt" rows="6" class="resize-y rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] leading-relaxed text-text outline-none focus:border-accent" placeholder="Describe the task for the agent…" data-testid="new-session-prompt" />
       </label>
-      <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Agent <span class="font-normal text-text-4">(optional)</span>
+      <div v-if="target === 'repository'" class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Agent <span class="font-normal text-text-4">(optional)</span>
         <AppSelect
           :model-value="agent"
           :options="agentOptions"
@@ -136,7 +187,7 @@ useSubmitShortcut(submit)
     </form>
     <template #footer>
       <BaseButton class="flex-1" type="submit" :form="formId" :busy="busy" :disabled="!canSubmit" data-testid="new-session-submit">
-        {{ busy ? 'Creating…' : failure ? 'Try again' : 'Create session' }}
+        {{ busy ? 'Creating…' : failure ? 'Try again' : target === 'workspace' ? 'Start chat' : 'Create session' }}
         <kbd v-if="!busy" class="rounded bg-black/15 px-1 py-0.5 font-mono text-[10.5px] leading-none">{{ submitHint }}</kbd>
       </BaseButton>
       <BaseButton variant="secondary" :busy="busy" @click="emit('close')">Cancel</BaseButton>

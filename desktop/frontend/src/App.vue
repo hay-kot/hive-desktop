@@ -894,7 +894,7 @@ function cancelNewSessionDialog(): void {
   cancelNewSession()
 }
 
-async function submitNewSessionAndClearSelection(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
+async function submitNewSessionAndClearSelection(input: { repository?: string; workspace?: string; name: string; prompt: string; agent?: string }): Promise<void> {
   await submitNewSession(input)
   if (!newSessionOpen.value && creatingFromSelection.value) {
     creatingFromSelection.value = false

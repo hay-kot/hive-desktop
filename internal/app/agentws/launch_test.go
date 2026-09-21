@@ -269,11 +269,13 @@ func TestResolvePassesThePromptThroughEveryPreset(t *testing.T) {
 
 // A template that never mentions .Prompt launches the same line either way:
 // the prompt is dropped, never spliced somewhere the shell would run it.
-func TestSupportsPromptComparesBothRenderings(t *testing.T) {
+func TestSupportsPromptRequiresQuotedPromptValue(t *testing.T) {
 	t.Parallel()
 
 	assert.False(t, SupportsPrompt("claude"))
 	assert.False(t, SupportsPrompt("claude {{ .Prompt | len | print | slice 0 0 }}"), "mentioning the field without changing the line is not support")
+	assert.False(t, SupportsPrompt("claude {{ if .Prompt }}--quiet{{ end }}"), "branching on the prompt without carrying its value is not support")
+	assert.False(t, SupportsPrompt("claude {{ .Prompt }}"), "unquoted prompt text would become shell syntax")
 	assert.True(t, SupportsPrompt("pi"+PromptTail))
 
 	w := Workspace{Command: "pi --some-flag", Dir: "/abs/demo"}

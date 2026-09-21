@@ -5,7 +5,7 @@ import type { SessionCreateFailure, SessionDraft, SessionLaunchOptions as Sessio
 import type { InboxItem } from '../types/feed'
 import { useToasts } from './useToasts'
 
-interface Draft { repository: string; name: string; prompt: string; agent: string }
+interface Draft { repository: string; workspace: string; name: string; prompt: string; agent: string }
 
 // An activity row's metadata as the bindings give it. Forwarded, never read.
 type ActivityMetadata = { [_ in string]?: string } | null
@@ -17,7 +17,7 @@ const loading = ref(false)
 const busy = ref(false)
 const error = ref<string | null>(null)
 const options = ref<SessionLaunchOptionsView | null>(null)
-const initial = ref<Draft>({ repository: '', name: '', prompt: '', agent: '' })
+const initial = ref<Draft>({ repository: '', workspace: '', name: '', prompt: '', agent: '' })
 
 // The render copy of the failure shown against the form. The backend holds the
 // authority, and this is re-read rather than remembered so a reload keeps it.
@@ -102,7 +102,8 @@ export function useNewSession() {
 
   function restored(draft: SessionDraft, opts: SessionLaunchOptionsView): Draft {
     return {
-      repository: draft.repository || opts.defaultRepository || '',
+      repository: draft.workspace ? '' : draft.repository || opts.defaultRepository || '',
+      workspace: draft.workspace ?? '',
       name: draft.name,
       prompt: draft.prompt,
       // Empty included: "" is the form's own "Default agent", not an absent
@@ -126,7 +127,7 @@ export function useNewSession() {
         show(restored(pending, opts), opts, draftItemIDs(pending), pending.failure)
         return
       }
-      show({ repository: preferred || opts.defaultRepository || '', name: '', prompt: '', agent: opts.defaultAgent }, opts, [], null)
+      show({ repository: preferred || opts.defaultRepository || '', workspace: '', name: '', prompt: '', agent: opts.defaultAgent }, opts, [], null)
     } catch (e) {
       showToast(message(e, 'Could not load session options.'), { severity: 'error' })
     } finally {
@@ -230,7 +231,7 @@ export function useNewSession() {
     itemIDs.value = []
   }
 
-  async function submit(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
+  async function submit(input: { repository?: string; workspace?: string; name: string; prompt: string; agent?: string }): Promise<void> {
     if (busy.value) return
     busy.value = true
     error.value = null
@@ -238,7 +239,7 @@ export function useNewSession() {
       // Creation (including any clone) runs as a background job. A failure
       // arrives later through sessions:create-failed, which is what hands the
       // form back; only validation errors reject here.
-      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemIds: [...itemIDs.value] })
+      await CreateSession({ repository: input.repository ?? '', workspace: input.workspace ?? '', name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemIds: [...itemIDs.value] })
       showToast(`Creating session ${input.name}…`, { severity: 'info' })
       open.value = false
       options.value = null
