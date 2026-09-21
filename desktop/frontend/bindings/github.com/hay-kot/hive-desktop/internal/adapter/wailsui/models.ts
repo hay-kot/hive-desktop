@@ -89,6 +89,13 @@ export interface AppearanceSettings {
      * anything outside 1-6 to the default, 3.
      */
     "terminalPoolSize": number;
+
+    /**
+     * Canvas typography is stored as preset names. The frontend owns the maps
+     * from those names to CSS values and heals unknown values.
+     */
+    "canvasFontSize": string;
+    "canvasLineSpacing": string;
 }
 
 /**

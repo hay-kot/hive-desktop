@@ -49,6 +49,7 @@ export interface EditableLaunchConfig {
     "promptTemplate": string;
     "agent"?: string;
     "repoTemplate"?: string;
+    "workspace"?: string;
     "postHook"?: string;
     "postHookTimeout"?: string;
 }

@@ -82,7 +82,7 @@ func TestResolverSkipsDisabledFlowsAndNodes(t *testing.T) {
 		},
 	})
 
-	instances := resolver.PullInstances()
+	instances := resolver.PullInstances(t.Context())
 	require.Len(t, instances, 1)
 	assert.Equal(t, "triage/live", instances[0].Node.ID())
 }
@@ -102,11 +102,11 @@ func TestResolverSeparatesPullFromPush(t *testing.T) {
 		},
 	}})
 
-	pull := resolver.PullInstances()
+	pull := resolver.PullInstances(t.Context())
 	require.Len(t, pull, 1)
 	assert.Equal(t, "triage/poll", pull[0].Node.ID())
 
-	push := resolver.PushInstances()
+	push := resolver.PushInstances(t.Context())
 	require.Len(t, push, 1)
 	assert.Equal(t, "triage/hook", push[0].Node.ID())
 }
@@ -130,8 +130,8 @@ func TestResolverSkipsConnectorsWithoutAFactory(t *testing.T) {
 		zerolog.Nop(),
 	)
 
-	assert.Empty(t, resolver.PullInstances(), "a connector with no factory must not resolve")
-	assert.Len(t, resolver.PushInstances(), 1)
+	assert.Empty(t, resolver.PullInstances(t.Context()), "a connector with no factory must not resolve")
+	assert.Len(t, resolver.PushInstances(t.Context()), 1)
 }
 
 // One node's factory failing must not cost the tick every other source.
@@ -157,7 +157,7 @@ func TestResolverSkipsInstancesThatFailToBuild(t *testing.T) {
 		},
 	}}, factories, zerolog.Nop())
 
-	instances := resolver.PullInstances()
+	instances := resolver.PullInstances(t.Context())
 	require.Len(t, instances, 1)
 	assert.Equal(t, "triage/healthy", instances[0].Node.ID())
 }
@@ -175,7 +175,7 @@ func TestResolverCarriesTheFlowResurfacePolicy(t *testing.T) {
 		Nodes:     []flow.Node{githubNode("poll", "search", "is:open")},
 	}})
 
-	instances := resolver.PullInstances()
+	instances := resolver.PullInstances(t.Context())
 	require.Len(t, instances, 1)
 	assert.EqualValues(t, "never", instances[0].Node.Policy)
 }
@@ -205,7 +205,7 @@ func TestResolverPrefetchesPerConnectorType(t *testing.T) {
 		},
 	}}, factories, zerolog.Nop())
 
-	all := append(resolver.PullInstances(), resolver.PushInstances()...)
+	all := append(resolver.PullInstances(t.Context()), resolver.PushInstances(t.Context())...)
 	require.NoError(t, resolver.Prefetch(t.Context(), all))
 
 	require.Len(t, batched, 2, "both GitHub sources should be offered in one batch")

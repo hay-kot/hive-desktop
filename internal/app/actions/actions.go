@@ -283,7 +283,7 @@ func (a Action) HeadlessCapable() bool {
 	}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
-		return strings.TrimSpace(c.RepoTemplate) != ""
+		return strings.TrimSpace(c.RepoTemplate) != "" || strings.TrimSpace(c.Workspace) != ""
 	case *ClipboardConfig:
 		// A clipboard action has no clipboard target from a headless flow, so
 		// it is a detail-pane affordance only and never a flow terminal.
@@ -295,5 +295,5 @@ func (a Action) HeadlessCapable() bool {
 
 func (a Action) RequiresSessionInput() bool {
 	c, ok := a.Config.(*LaunchSessionConfig)
-	return ok && strings.TrimSpace(c.RepoTemplate) == ""
+	return ok && strings.TrimSpace(c.RepoTemplate) == "" && strings.TrimSpace(c.Workspace) == ""
 }

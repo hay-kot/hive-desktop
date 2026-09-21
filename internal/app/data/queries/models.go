@@ -29,6 +29,7 @@ type AgentWorkspaceSession struct {
 	LastOpenedAt   int64  `json:"last_opened_at"`
 	ScheduleID     string `json:"schedule_id"`
 	EndToken       string `json:"end_token"`
+	TerminalID     string `json:"terminal_id"`
 }
 
 type ConsumerOffset struct {

@@ -16,7 +16,8 @@ import (
 // inbox items the form was drafted from; the core resolves their identities
 // and never takes item refs from a client.
 type CreateSessionRequest struct {
-	Repository string  `json:"repository"`
+	Repository string  `json:"repository,omitempty"`
+	Workspace  string  `json:"workspace,omitempty"`
 	Name       string  `json:"name"`
 	Prompt     string  `json:"prompt"`
 	Agent      string  `json:"agent,omitempty"`
@@ -28,7 +29,8 @@ type CreateSessionRequest struct {
 // ItemIDs are only meaningful for the second, which has to restore both
 // because the form they came from is gone.
 type SessionDraft struct {
-	Repository string  `json:"repository"`
+	Repository string  `json:"repository,omitempty"`
+	Workspace  string  `json:"workspace,omitempty"`
 	Name       string  `json:"name"`
 	Prompt     string  `json:"prompt"`
 	Agent      string  `json:"agent,omitempty"`
@@ -68,6 +70,7 @@ const (
 	RetryKindSessionCreate = "session-create"
 
 	metaRepository  = "repository"
+	metaWorkspace   = "workspace"
 	metaName        = "name"
 	metaPrompt      = "prompt"
 	metaAgent       = "agent"
@@ -85,6 +88,7 @@ func SessionDraftMetadata(draft SessionDraft) map[string]string {
 	meta := map[string]string{
 		RetryMetadataKey: RetryKindSessionCreate,
 		metaRepository:   draft.Repository,
+		metaWorkspace:    draft.Workspace,
 		metaName:         draft.Name,
 		metaPrompt:       draft.Prompt,
 		metaAgent:        draft.Agent,
@@ -109,19 +113,20 @@ func SessionDraftMetadata(draft SessionDraft) map[string]string {
 }
 
 // SessionDraftFromMetadata decodes what SessionDraftMetadata wrote. It reports
-// false for a bag that is not a session-create retry or that names no
-// repository, so a forged or truncated row prefills nothing.
+// false for a bag that is not a session-create retry or does not name exactly
+// one launch target, so a forged or truncated row prefills nothing.
 func SessionDraftFromMetadata(meta map[string]string) (SessionDraft, bool) {
 	if meta[RetryMetadataKey] != RetryKindSessionCreate {
 		return SessionDraft{}, false
 	}
 	draft := SessionDraft{
 		Repository: meta[metaRepository],
+		Workspace:  meta[metaWorkspace],
 		Name:       meta[metaName],
 		Prompt:     meta[metaPrompt],
 		Agent:      meta[metaAgent],
 	}
-	if draft.Repository == "" {
+	if (draft.Repository == "") == (draft.Workspace == "") {
 		return SessionDraft{}, false
 	}
 	for encoded := range strings.SplitSeq(meta[metaItemIDs], ",") {

@@ -1,13 +1,14 @@
 # Agent workspace sessions are tmux sessions
 
-- **Status:** accepted
+- **Status:** accepted; tmux naming amended by [ADR agent-workspace-tmux-sessions-use-persisted-random-ids](2026-09-21-agent-workspace-tmux-sessions-use-persisted-random-ids.md)
 - **Date:** 2026-08-03
 
 ## Context
 
 Phase 5 shipped agent workspace sessions on `ptyterm`, the same backend the
 pop-up terminal uses (ADR ptyterm-terminals-are-caller-addressed): a caller-addressed PTY this process owns
-outright, id `agentws-<record id>`. Live use surfaced the defects that backend
+outright, id `agentws-<record id>` (new sessions now use a persisted random id;
+ADR agent-workspace-tmux-sessions-use-persisted-random-ids). Live use surfaced the defects that backend
 cannot fix: a PTY has no concept of "the current screen at this client's
 size," so a resize or a session switch replays whatever escape sequences the
 scrollback happens to hold, mangling the redraw and interleaving output
@@ -27,7 +28,7 @@ a server-side process tree that outlives any one client, including this one.
 
 1. **An agent workspace session is a tmux session, not a ptyterm one.** It is
    created detached — `tmuxcc.Manager.NewSession(ctx, name, dir, command)` —
-   named `agentws-<record id>`, cwd the workspace directory, running the
+   named `agentws-<terminal id>`, cwd the workspace directory, running the
    `agentws.Resolve`d command line through a login shell (the same
    shell-command-line contract `ptyterm.Spec.Command` used). It carries no
    hive session, no repo, and no row in hive's own session store — `agentws-*`
@@ -120,7 +121,7 @@ a server-side process tree that outlives any one client, including this one.
 - **A workspace session's identity is a tmux session name, not a durable
   handle inside this process.** Restarting Hive, or even the machine's tmux
   server surviving a Hive restart, means `ResumeSession` finds the same
-  `agentws-<id>` session and reattaches to it — the reopen codex never had is
+  `agentws-<terminal id>` session and reattaches to it — the reopen codex never had is
   now real for every agent.
 - **`SessionView` gained `WindowID`.** A listing read (`Sessions`, `Open`)
   leaves it empty; only a call that attaches (`StartSession`, `ResumeSession`)

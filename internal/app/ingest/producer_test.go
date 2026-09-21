@@ -63,7 +63,7 @@ type stubSources struct {
 	prefetch  func(context.Context, []connector.Instance) error
 }
 
-func (s stubSources) PullInstances() []connector.Instance { return s.instances }
+func (s stubSources) PullInstances(context.Context) []connector.Instance { return s.instances }
 
 func (s stubSources) Prefetch(ctx context.Context, instances []connector.Instance) error {
 	if s.prefetch == nil {

@@ -84,7 +84,7 @@ func (s *ActivityService) Append(ctx context.Context, e activity.Event) (activit
 // is logged and swallowed rather than returned.
 func (s *ActivityService) Record(ctx context.Context, e activity.Event) {
 	if _, err := s.Append(ctx, e); err != nil {
-		s.log.Warn().Err(err).Str("title", e.Title).Msg("recording activity event failed")
+		s.log.Warn().Ctx(ctx).Err(err).Str("title", e.Title).Msg("recording activity event failed")
 	}
 }
 

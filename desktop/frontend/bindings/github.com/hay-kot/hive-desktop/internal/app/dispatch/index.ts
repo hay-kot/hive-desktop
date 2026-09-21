@@ -21,6 +21,7 @@ export type {
     SessionInvocationInput,
     SessionLaunchOptions,
     SessionLaunchRepository,
+    SessionLaunchWorkspace,
     SessionPullRequest,
     SessionPullRequestKey,
     SessionRisk,

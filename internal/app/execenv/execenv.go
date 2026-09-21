@@ -155,21 +155,21 @@ func (r *Resolver) resolveLocked(ctx context.Context) {
 	env, err := r.resolveShellEnvironment(ctx)
 	switch {
 	case err != nil:
-		r.logger.Warn().Err(err).Str("shell", r.shell).
+		r.logger.Warn().Ctx(ctx).Err(err).Str("shell", r.shell).
 			Msg("login shell environment unavailable; hook and shell-action commands run with the inherited PATH")
 	case len(env) == 0:
 		// No shell to ask. A shell that answers nothing errors instead.
 	case env["PATH"] == "":
-		r.logger.Warn().Str("shell", r.shell).
+		r.logger.Warn().Ctx(ctx).Str("shell", r.shell).
 			Msg("login shell reported no PATH; hook and shell-action commands run with the inherited PATH")
 	default:
-		r.logger.Info().Str("shell", r.shell).Msg("resolved subprocess PATH from the login shell")
+		r.logger.Info().Ctx(ctx).Str("shell", r.shell).Msg("resolved subprocess PATH from the login shell")
 	}
 
 	r.env = env
 	r.path = join(env["PATH"], inherited, strings.Join(SearchDirs(), string(os.PathListSeparator)))
 	r.resolved = true
-	r.logger.Debug().Str("path", r.path).Msg("subprocess PATH")
+	r.logger.Debug().Ctx(ctx).Str("path", r.path).Msg("subprocess PATH")
 }
 
 // LookPath resolves a command name against the same PATH its child will run

@@ -10,8 +10,8 @@ ORDER BY id DESC;
 SELECT * FROM agent_workspace_session WHERE id = ?;
 
 -- name: InsertAgentWorkspaceSession :one
-INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at, schedule_id, end_token)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, terminal_id, created_at, last_opened_at, schedule_id, end_token)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetAgentWorkspaceSessionByEndToken :one

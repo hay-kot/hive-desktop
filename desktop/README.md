@@ -184,6 +184,8 @@ notifications:
   sound: true
 appearance:
   theme: ""
+  canvas_font_size: "" # small, medium, large, or xl; empty means medium
+  canvas_line_spacing: "" # compact, standard, or relaxed; empty means standard
   terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
   terminal_font_family: "" # any installed monospace family; empty is the bundled JetBrains Mono (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font)
   terminal_font_weight: 0 # 300, 350, 400, 600, or 700; 0 means the default, 350
@@ -541,9 +543,13 @@ id regardless of its detail kind scope.
 
 A flow action node is automation control: it emits a durable, deduplicated
 `output_command`, not an editor-side script. `launch-session` can launch
-headlessly when its repository template is configured, or interactively ask
-for repository/name/agent when it is not. Prefer local HTTPS or SSH remotes
-for repository templates. `shell` captures bounded stdout/stderr diagnostics.
+headlessly when it has a repository template or an agent workspace directory,
+or interactively ask for either target and a name when it has neither. A
+workspace launch regenerates its files and refuses a command that drops the
+opening prompt or interpolates it without `shq`. `repo_template` and
+`workspace` are mutually exclusive;
+`agent` and `post_hook` apply only to repository sessions. Prefer local HTTPS
+or SSH remotes for repository templates. `shell` captures bounded stdout/stderr diagnostics.
 `publish-message` accepts only a constant topic and durably publishes with
 sender `hive-desktop` and an empty session identity. Completed outcomes are
 typed (session or message); failed outcomes retain their persisted diagnostics.

@@ -23,6 +23,16 @@ actions:
       {{ .Payload.url }}
 
       {{ .Payload.body }}
+  - id: triage-alert
+    label: Triage alert
+    type: launch-session
+    show_in_detail: true
+    applies_to: [alert]
+    workspace: incident-triage
+    prompt_template: |
+      Triage {{ .Payload.title }}
+
+      {{ .Payload.url }}
   - id: open-in-editor
     label: Open in editor
     type: shell

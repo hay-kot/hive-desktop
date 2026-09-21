@@ -18,6 +18,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 	"github.com/hay-kot/hive-desktop/internal/app/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -226,6 +227,103 @@ func TestOpenRejectsAWorkspaceOutsideTheRoot(t *testing.T) {
 	assert.Empty(t, entries, "a rejected workspace argument must write nothing")
 }
 
+func TestLaunchWorkspaceSessionCarriesPromptIntoDetachedChat(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	capture := filepath.Join(t.TempDir(), "prompt")
+	agent := filepath.Join(t.TempDir(), "codex")
+	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\nprintf '%s' \"$2\" > "+capture+"\nexec cat\n"), 0o755))
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	outcome, err := svc.LaunchWorkspaceSession(t.Context(), dispatch.LaunchWorkspaceSessionRequest{
+		Workspace: "demo", Name: "alert", Prompt: "cluster prod is down",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alert", outcome.Name)
+	assert.NotEmpty(t, outcome.ID)
+	assert.NotEmpty(t, outcome.Slug)
+	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
+	require.Eventually(t, func() bool {
+		got, readErr := os.ReadFile(capture)
+		return readErr == nil && string(got) == "cluster prod is down"
+	}, time.Second, 10*time.Millisecond)
+	_, err = os.Stat(filepath.Join(root, "demo", ".mcp.json"))
+	require.NoError(t, err, "a launch refreshes generated workspace files")
+}
+
+func TestStartSessionUsesTheResolvedWorkspaceSnapshot(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	capture := filepath.Join(t.TempDir(), "prompt")
+	agent := filepath.Join(t.TempDir(), "codex")
+	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\nprintf '%s' \"$2\" > "+capture+"\nexec cat\n"), 0o755))
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	_, err := svc.StartSession(t.Context(), StartSession{
+		Workspace: "demo", Name: "current", Prompt: "do not drop this", Detached: true,
+	})
+	require.ErrorContains(t, err, "does not pass a prompt")
+
+	resolved := agentws.Workspace{Dir: "demo", Name: "Demo", Command: agent + agentws.PromptTail}
+	started, err := svc.startSession(t.Context(), resolved, StartSession{
+		Workspace: "demo", Name: "resolved", Prompt: "keep this prompt", Detached: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "demo", started.Workspace)
+	require.Eventually(t, func() bool {
+		got, readErr := os.ReadFile(capture)
+		return readErr == nil && string(got) == "keep this prompt"
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestLaunchWorkspaceSessionReportsAnImmediateExit(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agent := fakeAgentBinary(t, "codex", "exit 1")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	_, err := svc.LaunchWorkspaceSession(t.Context(), dispatch.LaunchWorkspaceSessionRequest{
+		Workspace: "demo", Name: "alert", Prompt: "triage this",
+	})
+	require.ErrorContains(t, err, "session exited immediately")
+	assert.Equal(t, 0, liveAgentSessionCount(t, svc))
+	sessions, listErr := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, listErr)
+	assert.Empty(t, sessions, "a failed detached launch must not leave a dead chat to accumulate on retry")
+}
+
+func TestLaunchWorkspaceSessionRefusesPromptlessCommand(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agent := fakeAgentBinary(t, "codex", "cat")
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	_, err := svc.LaunchWorkspaceSession(t.Context(), dispatch.LaunchWorkspaceSessionRequest{
+		Workspace: "demo", Name: "alert", Prompt: "do not drop this",
+	})
+	require.ErrorContains(t, err, "does not pass a prompt")
+	sessions, listErr := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, listErr)
+	assert.Empty(t, sessions)
+	assert.Equal(t, 0, liveAgentSessionCount(t, svc))
+}
+
+func TestSessionLaunchWorkspacesReportsPromptSupport(t *testing.T) {
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "plain", agentWorkspaceYAML("Plain", "codex", ""))
+	writeAgentWorkspaceManifest(t, root, "prompted", agentWorkspaceYAML("Prompted", "codex"+agentws.PromptTail, ""))
+	svc := newManifestOnlyService(t, root, nil)
+
+	assert.Equal(t, []dispatch.SessionLaunchWorkspace{
+		{Dir: "plain", Name: "Plain", SupportsPrompt: false},
+		{Dir: "prompted", Name: "Prompted", SupportsPrompt: true},
+	}, svc.SessionLaunchWorkspaces(t.Context()))
+}
+
 func TestResumeFallsBackToFreshLaunch(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -235,7 +333,8 @@ func TestResumeFallsBackToFreshLaunch(t *testing.T) {
 
 	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	require.NotEmpty(t, started.TerminalID)
+	require.Regexp(t, `^agentws-[a-z0-9]{8}$`, started.TerminalID)
+	assert.Equal(t, started.TerminalID, started.Slug)
 	assert.True(t, started.ResumeAttempted, "codex has no resume form, but a fresh start always ResumeAttempted=true")
 
 	closed, err := svc.CloseSession(t.Context(), started.ID)
@@ -426,22 +525,26 @@ func TestDetachedLaunchThatNeverStartedLeavesNoRecord(t *testing.T) {
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
 
 	// tmux refuses a session name it already holds, which is how a launch is
-	// made to fail after its record exists. Both ids are taken because the
-	// second launch may reuse the first's rowid once its record is gone.
-	for _, id := range []int64{1, 2} {
-		blocker := exec.CommandContext(t.Context(), "tmux", "new-session", "-d", "-s", sessionName(id))
+	// made to fail after its record exists.
+	launchBlocked := func(name, terminalID string, detached bool) {
+		rec, err := svc.sessions.Create(t.Context(), stores.AgentSessionCreate{
+			Workspace: "demo", Name: name, Agent: "claude", TerminalID: terminalID,
+		})
+		require.NoError(t, err)
+		blocker := exec.CommandContext(t.Context(), "tmux", "new-session", "-d", "-s", sessionName(rec))
 		blocker.Env = tmuxtest.ScrubbedEnv()
 		require.NoError(t, blocker.Run())
+
+		_, err = svc.launchTerminal(t.Context(), rec, terminalLaunch{dir: root, line: agentCmd, detached: detached})
+		require.Error(t, err)
 	}
 
-	_, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "scheduled", Detached: true})
-	require.Error(t, err)
+	launchBlocked("scheduled", "blocked1", true)
 	records, err := svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Empty(t, records, "a scheduled launch that never started must not leave a row the sidebar lists")
 
-	_, err = svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "by hand", Cols: 80, Rows: 24})
-	require.Error(t, err)
+	launchBlocked("by hand", "blocked2", false)
 	records, err = svc.sessions.List(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Len(t, records, 1, "a launch the user made keeps its record to retry from")

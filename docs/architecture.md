@@ -84,9 +84,10 @@ individual choices; this document describes the shape everything fits into.
 > Agent workspaces are a third driving surface, behind the same terminal
 > transport rather than a new one: `internal/app/agentws` owns a
 > generated-and-disposable on-disk root (ADR workspace-directories-are-generated-and-disposable) and drives sessions as tmux
-> sessions named `agentws-<record id>` — not hive ones, but riding the same
+> sessions named `agentws-<terminal id>` — not hive ones, but riding the same
 > `tmuxcc.Manager` and tmux stream a hive session's terminal does, which is
-> what lets a session survive an app restart (ADR agent-workspace-sessions-are-tmux-sessions); its control plane
+> what lets a session survive an app restart (ADR agent-workspace-sessions-are-tmux-sessions). The persisted random terminal id avoids row-id collisions across isolated databases
+> (ADR agent-workspace-tmux-sessions-use-persisted-random-ids); its control plane
 > rides `httpapi`'s `/api/terminal/` prefix and authenticates per handler
 > because it spawns processes too. `internal/app/mcpcatalog` is the shipped
 > MCP server registry it wires workspaces against. See
@@ -1518,8 +1519,18 @@ load-bearing:
   it. `OutputData.Origin` is how it reaches an executor; a launcher records the
   link and never fails the launch over it.
 
-**A `launch-session` action's `post_hook` runs after the session exists, and its
-failure is not the action's.** The hook is a shell command rendered over the
+**A `launch-session` action targets either a repository or an agent workspace**
+([ADR a-launch-session-action-targets-either-a-repository-or-an-agent-workspace](decisions/2026-09-18-a-launch-session-action-targets-either-a-repository-or-an-agent-workspace.md)).
+`repo_template` and `workspace` are mutually exclusive fixed targets; either is
+headless, while neither opens the interactive target picker. Dispatch selects
+between the Hive session launcher and `AgentWorkspacesService` through
+consumer-defined ports. A workspace launch resolves the current workspace,
+regenerates its files, requires a command that carries `.Prompt` through
+`shq`, and starts a detached `agentws-*` chat. It has no Hive session record or
+`item_session` link.
+
+**A repository `launch-session` action's `post_hook` runs after the session
+exists, and its failure is not the action's.** The hook is a shell command rendered over the
 same data as the action's other templates with `.Session` bound to the session
 just created, run in that checkout through the shared `runShell` helper.
 Everything after `LaunchSession` returns follows the same rule as the item link
@@ -1893,6 +1904,13 @@ line already runs under `$SHELL -l -c`. Template source is folded onto one
 line before parsing, never after rendering, so a newline inside an
 interpolated value stays part of the quoted word `shq` produced.
 
+A chat record has three separate identities. Its numeric row id addresses the
+HTTP and canvas APIs. Its agent session id addresses the CLI's conversation and
+can rotate on a fresh relaunch. Its immutable eight-character `terminal_id`
+addresses tmux as `agentws-<terminal_id>` and is random because isolated app
+databases share the machine-wide tmux namespace
+(ADR agent-workspace-tmux-sessions-use-persisted-random-ids). Existing records keep their old numeric suffix after migration.
+
 There is no `agent:` field. The label the activity classifier, the resume
 probe and the bounded-MCP notice key on is `AgentFor(command)` — the first
 word, less any directory, lowercased — so a CLI this build has never heard of
@@ -2071,10 +2089,11 @@ it with the rest of the manifest. The MCP tools' per-entry write is
 `agentws.WriteSchedules` through `AgentWorkspacesService.PutSchedule` and
 `RemoveSchedule`; a `SchedulePatch` field the call omits keeps its stored
 value. Both writers refuse a manifest that does not parse, and both refuse a
-schedule on a workspace whose `command:` does not pass `.Prompt`
-(`agentws.SupportsPrompt`, the same render-both-ways probe as
-`SupportsResume`): a scheduled chat whose prompt the template drops would sit
-idle in a detached session with nobody watching. The shipped presets end in
+schedule on a workspace whose `command:` does not pass `.Prompt` through
+`shq` (`agentws.SupportsPrompt` renders a shell-sensitive probe and requires
+its quoted value in the result): a scheduled chat whose prompt the template
+drops would sit idle in a detached session with nobody watching, while an
+unquoted value would become shell syntax. The shipped presets end in
 `agentws.PromptTail`, and a hand-edited manifest that breaks the rule lists
 as a workspace problem. Run state is app-local data in `desktop-pipeline.db`
 behind one store, `stores.ScheduleStore`: a schedule's cursor (how far it has

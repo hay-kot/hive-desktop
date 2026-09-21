@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import IconGripVertical from '~icons/lucide/grip-vertical'
 import IconPlus from '~icons/lucide/plus'
 import IconTrash2 from '~icons/lucide/trash-2'
@@ -18,6 +18,8 @@ import { useConfirmation } from '../composables/useConfirmation'
 import { actionTypeMeta } from '../lib/actionPresentation'
 import { moveId, type OrderDropTarget } from '../lib/listOrder'
 import { useActionsSettings, type EditableAction } from '../composables/useActionsSettings'
+import { SessionLaunchWorkspaces } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import type { SessionLaunchWorkspace } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = withDefaults(defineProps<{ knownTypes?: string[] }>(), { knownTypes: () => [] })
 const { actions, loading, error, create, update, remove, reorder } = useActionsSettings()
@@ -31,6 +33,10 @@ const editorTypes = computed(() => {
   return [...canonical.values()].sort((a, b) => a.localeCompare(b))
 })
 const editing = ref<EditableAction | null>(null)
+const workspaces = ref<SessionLaunchWorkspace[]>([])
+onMounted(async () => {
+  try { workspaces.value = await SessionLaunchWorkspaces() ?? [] } catch { workspaces.value = [] }
+})
 const editorTrigger = ref<HTMLElement | null>(null)
 const saving = ref(false)
 const confirmation = useConfirmation()
@@ -133,7 +139,7 @@ function dropClass(id: string): Record<string, boolean> {
       <div v-else class="mt-1 flex items-center gap-1.5 font-mono text-[11.5px] text-text-4" data-testid="actions-source">Synced from .hive/actions.yml · {{ actions.length }} {{ actions.length === 1 ? 'action' : 'actions' }}</div>
     </div>
 
-    <ActionEditor v-if="editing" :action="editing" :is-new="isNew" :busy="saving" :error="error" :known-types="editorTypes" :return-focus-to="editorTrigger" @save="save" @cancel="editing = null" />
+    <ActionEditor v-if="editing" :action="editing" :is-new="isNew" :busy="saving" :error="error" :known-types="editorTypes" :workspaces="workspaces" :return-focus-to="editorTrigger" @save="save" @cancel="editing = null" />
     <ConfirmationDialog v-if="confirmation.open.value && confirmation.options.value" :title="confirmation.options.value.title" :description="confirmation.options.value.description" :confirm-label="confirmation.options.value.confirmLabel" :busy="confirmation.busy.value" :error="confirmation.error.value" @confirm="confirmation.confirm" @cancel="confirmation.cancel" />
   </SettingsPage>
 </template>

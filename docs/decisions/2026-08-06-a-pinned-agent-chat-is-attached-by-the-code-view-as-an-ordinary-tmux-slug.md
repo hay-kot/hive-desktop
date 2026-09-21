@@ -1,6 +1,6 @@
 # A pinned agent chat is attached by the Code view as an ordinary tmux slug
 
-- **Status:** accepted
+- **Status:** accepted; slug generation amended by [ADR agent-workspace-tmux-sessions-use-persisted-random-ids](2026-09-21-agent-workspace-tmux-sessions-use-persisted-random-ids.md)
 - **Date:** 2026-08-06
 
 ## Context
@@ -11,7 +11,7 @@ areas the title bar switches between, so watching one while working in the other
 meant a mode flip per glance.
 
 The two are already the same kind of object. ADR agent-workspace-sessions-are-tmux-sessions made a chat a tmux session
-named `agentws-<record id>` on the same stream and the same control plane
+named `agentws-<terminal id>` on the same stream and the same control plane
 terminal mode uses, and nothing on the attach or sweep path checks a slug
 against hive's session list.
 
@@ -24,7 +24,7 @@ against hive's session list.
    walk and the rails reach it without learning a second kind of row.
 
 2. **The core declares the slug; the frontend never derives it.**
-   `SessionView.Slug` carries `agentws-<id>` whether or not the chat is running,
+   `SessionView.Slug` carries `agentws-<terminal id>` whether or not the chat is running,
    because a row needs a stable pool and route key while stopped. `TerminalID`
    keeps its existing job of reporting liveness, so the two are not conflated.
    Deriving the name in TypeScript would put the core's tmux naming scheme in a

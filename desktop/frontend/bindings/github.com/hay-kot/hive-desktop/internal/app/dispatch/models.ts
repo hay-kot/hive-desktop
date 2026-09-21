@@ -43,7 +43,8 @@ export interface ClipboardExecutionOutcome {
  * and never takes item refs from a client.
  */
 export interface CreateSessionRequest {
-    "repository": string;
+    "repository"?: string;
+    "workspace"?: string;
     "name": string;
     "prompt": string;
     "agent"?: string;
@@ -161,7 +162,8 @@ export interface SessionDetail {
  * because the form they came from is gone.
  */
 export interface SessionDraft {
-    "repository": string;
+    "repository"?: string;
+    "workspace"?: string;
     "name": string;
     "prompt": string;
     "agent"?: string;
@@ -215,7 +217,8 @@ export interface SessionGitStatus {
 
 export interface SessionInvocationInput {
     "name": string;
-    "repository": string;
+    "repository"?: string;
+    "workspace"?: string;
     "agent"?: string;
 }
 
@@ -225,6 +228,7 @@ export interface SessionInvocationInput {
 export interface SessionLaunchOptions {
     "repositories": SessionLaunchRepository[] | null;
     "defaultRepository": string;
+    "workspaces": SessionLaunchWorkspace[] | null;
     "agents": string[] | null;
     "defaultAgent": string;
 }
@@ -236,6 +240,16 @@ export interface SessionLaunchOptions {
 export interface SessionLaunchRepository {
     "name": string;
     "repository": string;
+}
+
+/**
+ * SessionLaunchWorkspace identifies a configured workspace by its stable
+ * directory name.
+ */
+export interface SessionLaunchWorkspace {
+    "dir": string;
+    "name": string;
+    "supportsPrompt": boolean;
 }
 
 /**

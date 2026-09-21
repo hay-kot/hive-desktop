@@ -117,6 +117,7 @@ func (fx *fetcher) Alerts(ctx context.Context) ([]client.Alert, Binding, error) 
 		// A silently short list reads as "these are all my alerts". Say so
 		// instead; the fix is PostHog-side (fewer alerts) or a paged fetch.
 		fx.logger.Warn().
+			Ctx(ctx).
 			Str("account", fx.ref.Account).
 			Int("fetched", len(alerts)).
 			Msg("posthog project has more alerts than one page; the tail is not polled")

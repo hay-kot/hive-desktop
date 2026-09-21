@@ -387,7 +387,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// no connection callback to drop its cache on.
 	a.rssFetchers = rss.NewFetchers(cfg.Logger)
 
-	a.outputs = a.buildOutputWorker(cfg)
 	a.retention = ingest.NewMaintenance(db, queries.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
 	a.scripts.Register(js.New(runtime.NewScriptPool(0)))
@@ -397,20 +396,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Sources = newSourcesService(a.producer, a.fetchers, a.rssFetchers)
-	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
 	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
-	a.Sessions = newSessionsService(SessionsDeps{
-		Launcher: a.launcher, Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
-		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
-		Recorder: a.Activity, Events: a.Events, Logger: cfg.Logger,
-		PullRequests: newSessionPullRequests(
-			newGitHubForge(gitHubClient, a.credentials),
-			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
-		),
-		ExecEnv:         a.execEnv,
-		EditorCommand:   a.Settings,
-		DefaultAgentEnv: defaultAgentEnvReader{env: a.execEnv},
-	})
 	a.TerminalImages = &TerminalImagesService{store: terminalimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "terminal-images")), clipboard: cfg.ImageClipboard}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
@@ -443,8 +429,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Observability = newObservabilityService(cfg.SettingsStore, cfg.Settings.Telemetry, cfg.TelemetryRuntime)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
-	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir, Logger: cfg.Logger})
-	a.PopupTerminals = newPopupTerminalsService(PopupTerminalsDeps{Manager: a.popupTerminals, Terminals: a.Terminals, Directory: a.Sessions, Catalog: a.actionStore})
 	a.Canvas = newCanvasService(CanvasDeps{
 		Store:    canvas.NewStore(cfg.Paths.AgentWorkspacesDir),
 		Sessions: a.Stores.AgentSessions,
@@ -464,6 +448,23 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		Events:          a.Events,
 		Logger:          cfg.Logger,
 	})
+	a.outputs = a.buildOutputWorker(cfg)
+	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
+	a.Sessions = newSessionsService(SessionsDeps{
+		Launcher: a.launcher, WorkspaceLauncher: a.AgentWorkspaces,
+		Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
+		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
+		Recorder: a.Activity, Events: a.Events, Logger: cfg.Logger,
+		PullRequests: newSessionPullRequests(
+			newGitHubForge(gitHubClient, a.credentials),
+			newGiteaForge(gitea.NewPullRequests(giteaInstances, a.credentials, a.giteaFetchers)),
+		),
+		ExecEnv:         a.execEnv,
+		EditorCommand:   a.Settings,
+		DefaultAgentEnv: defaultAgentEnvReader{env: a.execEnv},
+	})
+	a.Terminals = newTerminalsService(TerminalsDeps{Manager: a.terminals, Starter: a.Sessions, Home: os.UserHomeDir, Logger: cfg.Logger})
+	a.PopupTerminals = newPopupTerminalsService(PopupTerminalsDeps{Manager: a.popupTerminals, Terminals: a.Terminals, Directory: a.Sessions, Catalog: a.actionStore})
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
 	// Tasks answering unavailable instead.
@@ -1040,7 +1041,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Stores.InboxItems, a.execEnv, cfg.Logger))
+	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.AgentWorkspaces, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Stores.InboxItems, a.execEnv, cfg.Logger))
 	worker := dispatch.NewWorker(a.Stores.OutputCommands, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), a.dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
 	worker.SetRecorder(a.Activity)
 	worker.SetJobRecorder(a.Jobs)

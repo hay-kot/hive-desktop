@@ -201,7 +201,7 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	ctx, span := tracer.Start(ctx, "ingest.tick", trace.WithAttributes(attribute.Bool(attrForced, forced)))
 	defer span.End()
 
-	instances := pr.sources.PullInstances()
+	instances := pr.sources.PullInstances(ctx)
 
 	pr.prefetch(ctx, instances)
 
@@ -387,7 +387,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 		return nil
 	})
 	if err != nil {
-		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: source fetch failed")
+		pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Msg("pipeline producer: source fetch failed")
 		pr.recordFailure(ctx, id, err)
 		return out, err
 	}
@@ -400,7 +400,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (out
 	offset, err := pr.snapshots.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	<-pr.writeSlot
 	if err != nil {
-		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
+		pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
 		pr.recordFailure(ctx, id, err)
 		return out, err
 	}
@@ -420,7 +420,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 
 	keys, err := pr.heads.ListActiveKeys(ctx, stores.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
 	if err != nil {
-		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
+		pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
 	}
 
@@ -431,7 +431,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		}
 		payload, err := pr.heads.Payload(ctx, topic, key)
 		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: reading source head failed")
+			pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: reading source head failed")
 			continue
 		}
 		// source_head persists the source payload, not presentation metadata.
@@ -449,7 +449,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 	if err != nil {
 		// A partial failure still resolves some verdicts; those are ingested
 		// below rather than discarded.
-		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: absence confirmation failed")
+		pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Msg("pipeline producer: absence confirmation failed")
 	}
 	for _, prev := range prevs {
 		v, ok := verdicts[prev.ExternalID]
@@ -460,7 +460,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		result, err := pr.ingester.IngestObservation(ctx, classifier, stores.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		<-pr.writeSlot
 		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
+			pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
 		}
 		if result.Wrote {
@@ -475,7 +475,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 			err := pr.heads.Delete(ctx, topic, prev.ExternalID)
 			<-pr.writeSlot
 			if err != nil {
-				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
+				pr.logger.Debug().Ctx(ctx).Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
 			}
 		}
 	}

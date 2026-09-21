@@ -3,8 +3,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ActionSettingsView from '../ActionSettingsView.vue'
 import type { EditableAction } from '../../composables/useActionsSettings'
 
-const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), ReorderActions: vi.fn(), On: vi.fn() }))
+const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), ReorderActions: vi.fn(), SessionLaunchWorkspaces: vi.fn(), On: vi.fn() }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction, ReorderActions: mocks.ReorderActions }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({ SessionLaunchWorkspaces: mocks.SessionLaunchWorkspaces }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))
 
 const launch: EditableAction = { id: 'review', label: 'Review', type: 'launch-session', showInDetail: true, targets: ['item'], appliesTo: ['pr'], launch: { promptTemplate: 'Review {{ .Payload }}', repoTemplate: 'https://repo', agent: 'codex' } }
@@ -14,7 +15,11 @@ function shell(id: string): EditableAction { return { id, label: id.toUpperCase(
 function rowIds(wrapper: VueWrapper): string[] { return wrapper.findAll('[data-testid^="action-row-"]').map((row) => row.attributes('data-testid')!.replace('action-row-', '')) }
 async function setValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): Promise<void> { element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); await flushPromises() }
 
-beforeEach(() => { vi.clearAllMocks(); document.body.innerHTML = '' })
+beforeEach(() => {
+  vi.clearAllMocks()
+  mocks.SessionLaunchWorkspaces.mockResolvedValue([{ dir: 'alerts', name: 'Alert triage', supportsPrompt: true }])
+  document.body.innerHTML = ''
+})
 
 describe('ActionSettingsView', () => {
   it('opens create/edit in a right slideover and round-trips launch fields', async () => {
@@ -29,6 +34,21 @@ describe('ActionSettingsView', () => {
     editor<HTMLButtonElement>('action-save').click(); await flushPromises()
     expect(mocks.UpdateAction).toHaveBeenCalledWith('review', expect.objectContaining({ id: 'review', launch: { promptTemplate: 'Updated', repoTemplate: 'https://other', agent: 'claude' } }))
     expect(mocks.UpdateAction.mock.calls[0][1].shell).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('saves a workspace target and clears repository-only fields', async () => {
+    mocks.UpdateAction.mockResolvedValue(launch)
+    const wrapper = mountSettings(); await flushPromises()
+    await wrapper.get('[data-testid="action-row-review"] button').trigger('click')
+    await editor<HTMLButtonElement>('action-launch-target').click(); await flushPromises()
+    await editor<HTMLButtonElement>('action-launch-target-option-workspace').click(); await flushPromises()
+    await editor<HTMLButtonElement>('action-launch-workspace').click(); await flushPromises()
+    await editor<HTMLButtonElement>('action-launch-workspace-option-alerts').click(); await flushPromises()
+    editor<HTMLButtonElement>('action-save').click(); await flushPromises()
+    expect(mocks.UpdateAction.mock.calls[0][1].launch).toEqual(expect.objectContaining({
+      workspace: 'alerts', repoTemplate: '', agent: '', postHook: '', postHookTimeout: '',
+    }))
     wrapper.unmount()
   })
 

@@ -114,7 +114,7 @@ func (s *subscription) deliver(ctx context.Context, logger zerolog.Logger, e Eve
 		// The event says what was dropped; the subscriber name says who
 		// dropped it. Debug rather than warn: for a coalescing subscriber a
 		// drop is the contract working, not a fault.
-		logger.Debug().Str("subscriber", s.name).Str("event", e.eventName()).Msg("events: coalesced an undelivered event")
+		logger.Debug().Ctx(ctx).Str("subscriber", s.name).Str("event", e.eventName()).Msg("events: coalesced an undelivered event")
 	}
 	select {
 	case s.wake <- struct{}{}:

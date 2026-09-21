@@ -25,7 +25,7 @@ type Sources interface {
 	// current flow set. It is called once per tick — rather than fixed at
 	// construction — so a source node added to or removed from a flow takes
 	// effect without a restart.
-	PullInstances() []connector.Instance
+	PullInstances(ctx context.Context) []connector.Instance
 	// Prefetch offers the tick's instances to any connector that declared
 	// CapBatchPrefetch, before any of them is drained.
 	Prefetch(ctx context.Context, instances []connector.Instance) error

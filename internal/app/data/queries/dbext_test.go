@@ -37,11 +37,34 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := migrate.Load(sub)
 	require.NoError(t, err)
-	require.Len(t, migrations, 9)
+	require.Len(t, migrations, 10)
 
 	applied, err := migrate.AppliedVersions(ctx, database.Conn())
 	require.NoError(t, err)
-	assert.Equal(t, map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true}, applied)
+	assert.Equal(t, map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true, 8: true, 9: true, 10: true}, applied)
+}
+
+func TestMigration10PreservesExistingAgentWorkspaceTmuxNames(t *testing.T) {
+	ctx := t.Context()
+	conn, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "migration.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	sub, err := migrationsSub()
+	require.NoError(t, err)
+	migrations, err := migrate.Load(sub)
+	require.NoError(t, err)
+	require.NoError(t, migrate.EnsureTable(ctx, conn))
+	require.NoError(t, migrate.Apply(ctx, conn, migrations[:9]))
+	_, err = conn.ExecContext(ctx, `INSERT INTO agent_workspace_session
+		(workspace, name, agent, agent_session_id, created_at, last_opened_at)
+		VALUES ('demo', 'existing', 'claude', 'conversation', 1, 1)`)
+	require.NoError(t, err)
+
+	require.NoError(t, migrate.Apply(ctx, conn, migrations[9:]))
+	var terminalID string
+	require.NoError(t, conn.QueryRowContext(ctx, `SELECT terminal_id FROM agent_workspace_session WHERE id = 1`).Scan(&terminalID))
+	assert.Equal(t, "1", terminalID, "the migrated tmux name remains agentws-1")
 }
 
 func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {

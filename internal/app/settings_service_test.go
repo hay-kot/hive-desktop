@@ -111,7 +111,7 @@ func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
 // without standing up the connector registry.
 type settingsServiceSources struct{ source connector.PullSource }
 
-func (s settingsServiceSources) PullInstances() []connector.Instance {
+func (s settingsServiceSources) PullInstances(context.Context) []connector.Instance {
 	return []connector.Instance{{
 		Type:     "sources.test",
 		Node:     connector.Node{FlowID: "profile", NodeID: "github"},
@@ -185,6 +185,8 @@ func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got.Theme)
 	require.Empty(t, got.TerminalFontSize)
+	require.Empty(t, got.CanvasFontSize)
+	require.Empty(t, got.CanvasLineSpacing)
 	require.True(t, got.TerminalShowWindows, "the terminal window listing ships on")
 	require.True(t, got.TerminalShowStatusBar, "the session status bar ships on")
 	require.Equal(t, 3, got.TerminalPoolSize, "the attach pool ships at three sessions")
@@ -199,6 +201,8 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
 	require.NoError(t, service.SetTerminalFontSize(t.Context(), "large"))
+	require.NoError(t, service.SetCanvasFontSize(t.Context(), "xl"))
+	require.NoError(t, service.SetCanvasLineSpacing(t.Context(), "relaxed"))
 	require.NoError(t, service.SetTerminalShowWindows(t.Context(), false))
 	require.NoError(t, service.SetTerminalPoolSize(t.Context(), 5))
 
@@ -206,6 +210,8 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.NoError(t, err)
 	require.Equal(t, "midnight", got.Appearance.Theme)
 	require.Equal(t, "large", got.Appearance.TerminalFontSize)
+	require.Equal(t, "xl", got.Appearance.CanvasFontSize)
+	require.Equal(t, "relaxed", got.Appearance.CanvasLineSpacing)
 	require.False(t, got.Appearance.TerminalShowWindows)
 	require.Equal(t, 5, got.Appearance.TerminalPoolSize)
 	require.Equal(t, 5*time.Minute, got.Polling.Interval.Duration())
@@ -215,6 +221,8 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.NoError(t, err)
 	require.Equal(t, "midnight", roundTripped.Theme)
 	require.Equal(t, "large", roundTripped.TerminalFontSize, "one appearance setter must not clobber the other field")
+	require.Equal(t, "xl", roundTripped.CanvasFontSize)
+	require.Equal(t, "relaxed", roundTripped.CanvasLineSpacing)
 	require.False(t, roundTripped.TerminalShowWindows)
 	require.Equal(t, 5, roundTripped.TerminalPoolSize)
 }

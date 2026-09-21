@@ -28,9 +28,9 @@ prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
 - `name` — display name shown on the workspace's card.
 - `command` — the whole invocation, as a Go template rendered when a session starts. It is required, and it is the only thing that decides what runs. There is no `agent` key: Hive reads the label off the command's first word to pick the icon, the activity indicator and the resume probe, and a CLI it has never heard of is a normal workspace.
 
-  Available fields: `.Dir` (the workspace directory), `.MCPConfig` (the generated `.mcp.json`, written for every workspace whatever the agent), `.SessionID` (a uuid Hive minted), `.Resume` (true when reattaching to a conversation), and `.Prompt` (a scheduled chat's opening message; empty on a chat started by hand). `shq` quotes a value for the shell: use it on every path.
+  Available fields: `.Dir` (the workspace directory), `.MCPConfig` (the generated `.mcp.json`, written for every workspace whatever the agent), `.SessionID` (a uuid Hive minted), `.Resume` (true when reattaching to a conversation), and `.Prompt` (an optional opening message for a schedule, New Session form, or action). `shq` quotes a value for the shell: use it on every interpolated value.
 
-  A workspace with `schedules:` needs a command that passes `.Prompt`, or Hive refuses the manifest: a scheduled chat whose prompt the command drops would sit idle with nobody watching. End the command with `{{ "{{ if .Prompt }}-- {{ .Prompt | shq }}{{ end }}" }}`, which is what the shipped presets do.
+  A workspace with `schedules:` or one used by a prompted launch needs a command that passes `.Prompt` through `shq`. Hive refuses a prompt-dropping or unquoted command because the detached chat would either sit idle or let prompt text become shell syntax. End the command with `{{ "{{ if .Prompt }}-- {{ .Prompt | shq }}{{ end }}" }}`, which is what the shipped presets do.
 
   The line runs as `cd <workspace> && <your command>` under a login shell, so an env prefix or a pipeline works. Break it across several lines for readability; they are folded before rendering.
 

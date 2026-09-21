@@ -10,8 +10,12 @@ type AgentSession struct {
 	Name           string `json:"name"`
 	Agent          string `json:"agent"`
 	AgentSessionID string `json:"agentSessionId"`
-	CreatedAt      int64  `json:"createdAt"`
-	LastOpenedAt   int64  `json:"lastOpenedAt"`
+	// TerminalID is the immutable random suffix in this chat's tmux session
+	// name. It is independent of the database id because several isolated
+	// databases can share one tmux namespace.
+	TerminalID   string `json:"terminalId"`
+	CreatedAt    int64  `json:"createdAt"`
+	LastOpenedAt int64  `json:"lastOpenedAt"`
 	// ScheduleID names the schedule that started this chat, empty for one
 	// started by hand. It is a column rather than a lookup in the run history:
 	// session ids are reused after a delete and runs are pruned, so a
@@ -29,6 +33,7 @@ type AgentSessionCreate struct {
 	Name           string
 	Agent          string
 	AgentSessionID string
+	TerminalID     string
 	ScheduleID     string
 	EndToken       string
 }
@@ -36,7 +41,8 @@ type AgentSessionCreate struct {
 func mapAgentSessionFromDB(row queries.AgentWorkspaceSession) AgentSession {
 	return AgentSession{
 		ID: row.ID, Workspace: row.Workspace, Name: row.Name, Agent: row.Agent,
-		AgentSessionID: row.AgentSessionID, CreatedAt: row.CreatedAt, LastOpenedAt: row.LastOpenedAt,
+		AgentSessionID: row.AgentSessionID, TerminalID: row.TerminalID,
+		CreatedAt: row.CreatedAt, LastOpenedAt: row.LastOpenedAt,
 		ScheduleID: row.ScheduleID, EndToken: row.EndToken,
 	}
 }

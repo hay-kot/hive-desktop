@@ -5,7 +5,8 @@ import type { SessionCreateFailure, SessionDraft, SessionLaunchOptions as Sessio
 import type { InboxItem } from '../types/feed'
 import { useToasts } from './useToasts'
 
-interface Draft { repository: string; name: string; prompt: string; agent: string }
+interface Draft { repository: string; workspace: string; name: string; prompt: string; agent: string }
+export type SessionTarget = 'repository' | 'workspace'
 
 // An activity row's metadata as the bindings give it. Forwarded, never read.
 type ActivityMetadata = { [_ in string]?: string } | null
@@ -17,7 +18,8 @@ const loading = ref(false)
 const busy = ref(false)
 const error = ref<string | null>(null)
 const options = ref<SessionLaunchOptionsView | null>(null)
-const initial = ref<Draft>({ repository: '', name: '', prompt: '', agent: '' })
+const initial = ref<Draft>({ repository: '', workspace: '', name: '', prompt: '', agent: '' })
+const initialTarget = ref<SessionTarget>('repository')
 
 // The render copy of the failure shown against the form. The backend holds the
 // authority, and this is re-read rather than remembered so a reload keeps it.
@@ -65,6 +67,7 @@ export function resetNewSessionForTests(): void {
   busy.value = false
   error.value = null
   options.value = null
+  initialTarget.value = 'repository'
   failure.value = null
   formKey.value = 0
   itemIDs.value = []
@@ -91,9 +94,10 @@ export function useNewSession() {
     if (!cachedOptions) void fetchOptions().catch(() => {})
   }
 
-  function show(draft: Draft, opts: SessionLaunchOptionsView, items: number[], detail: SessionCreateFailure | null): void {
+  function show(draft: Draft, opts: SessionLaunchOptionsView, items: number[], detail: SessionCreateFailure | null, target: SessionTarget = draft.workspace ? 'workspace' : 'repository'): void {
     options.value = opts
     initial.value = draft
+    initialTarget.value = target
     itemIDs.value = [...items]
     failure.value = detail
     formKey.value += 1
@@ -102,7 +106,8 @@ export function useNewSession() {
 
   function restored(draft: SessionDraft, opts: SessionLaunchOptionsView): Draft {
     return {
-      repository: draft.repository || opts.defaultRepository || '',
+      repository: draft.workspace ? '' : draft.repository || opts.defaultRepository || '',
+      workspace: draft.workspace ?? '',
       name: draft.name,
       prompt: draft.prompt,
       // Empty included: "" is the form's own "Default agent", not an absent
@@ -116,7 +121,7 @@ export function useNewSession() {
   // backend default — the first configured workspace — is almost never it.
   //
   // A failed attempt outranks both: it is the only copy of what was typed.
-  async function openBlank(preferred = ''): Promise<void> {
+  async function openBlank(preferred = '', target: SessionTarget = 'repository'): Promise<void> {
     if (open.value || loading.value) return
     error.value = null
     loading.value = true
@@ -126,7 +131,7 @@ export function useNewSession() {
         show(restored(pending, opts), opts, draftItemIDs(pending), pending.failure)
         return
       }
-      show({ repository: preferred || opts.defaultRepository || '', name: '', prompt: '', agent: opts.defaultAgent }, opts, [], null)
+      show({ repository: preferred || opts.defaultRepository || '', workspace: '', name: '', prompt: '', agent: opts.defaultAgent }, opts, [], null, target)
     } catch (e) {
       showToast(message(e, 'Could not load session options.'), { severity: 'error' })
     } finally {
@@ -134,7 +139,7 @@ export function useNewSession() {
     }
   }
 
-  async function openFromItems(items: InboxItem[]): Promise<void> {
+  async function openFromItems(items: InboxItem[], target: SessionTarget = 'repository'): Promise<void> {
     if (open.value || loading.value || items.length === 0) return
     error.value = null
     loading.value = true
@@ -148,7 +153,7 @@ export function useNewSession() {
         return
       }
       const draftOptions = items.length > 1 && !draft.repository ? { ...opts, defaultRepository: '' } : opts
-      show(restored({ ...draft, agent: opts.defaultAgent }, draftOptions), draftOptions, ids, null)
+      show(restored({ ...draft, agent: opts.defaultAgent }, draftOptions), draftOptions, ids, null, target)
     } catch (e) {
       showToast(message(e, 'Could not prepare the session.'), { severity: 'error' })
     } finally {
@@ -156,8 +161,8 @@ export function useNewSession() {
     }
   }
 
-  async function openFromItem(item: InboxItem): Promise<void> {
-    await openFromItems([item])
+  async function openFromItem(item: InboxItem, target: SessionTarget = 'repository'): Promise<void> {
+    await openFromItems([item], target)
   }
 
   // Unlike openBlank this replaces a form that is already open: the user asked
@@ -230,7 +235,7 @@ export function useNewSession() {
     itemIDs.value = []
   }
 
-  async function submit(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
+  async function submit(input: { repository?: string; workspace?: string; name: string; prompt: string; agent?: string }): Promise<void> {
     if (busy.value) return
     busy.value = true
     error.value = null
@@ -238,7 +243,7 @@ export function useNewSession() {
       // Creation (including any clone) runs as a background job. A failure
       // arrives later through sessions:create-failed, which is what hands the
       // form back; only validation errors reject here.
-      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemIds: [...itemIDs.value] })
+      await CreateSession({ repository: input.repository ?? '', workspace: input.workspace ?? '', name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemIds: [...itemIDs.value] })
       showToast(`Creating session ${input.name}…`, { severity: 'info' })
       open.value = false
       options.value = null
@@ -252,7 +257,7 @@ export function useNewSession() {
   }
 
   return {
-    open, options, initial, busy, loading, error, failure, formKey,
+    open, options, initial, initialTarget, busy, loading, error, failure, formKey,
     prefetch, openBlank, openFromItem, openFromItems, openFailure, openFromActivity, dismissFailure, onCreateFailed, cancel, submit,
   }
 }

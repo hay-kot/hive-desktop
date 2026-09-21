@@ -22,6 +22,12 @@ func (s *SessionService) SessionLaunchOptions(ctx context.Context) (dispatch.Ses
 	return s.sessions.SessionLaunchOptions(ctx)
 }
 
+// SessionLaunchWorkspaces returns workspace choices without resolving
+// repository options.
+func (s *SessionService) SessionLaunchWorkspaces(ctx context.Context) []dispatch.SessionLaunchWorkspace {
+	return s.sessions.SessionLaunchWorkspaces(ctx)
+}
+
 // ListSessions returns every session in every state; Slug is the tmux target an
 // attach uses, and only an active session has one.
 func (s *SessionService) ListSessions(ctx context.Context) ([]dispatch.SessionSummary, error) {
@@ -93,8 +99,8 @@ func (s *SessionService) SessionRisk(ctx context.Context, id string) (dispatch.S
 	return s.sessions.SessionRisk(ctx, id)
 }
 
-// CreateSession validates the form and starts the session as a background job,
-// returning the job id. Its outcome surfaces in the jobs UI.
+// CreateSession validates the form and starts its repository session or
+// workspace chat as a background job. Its outcome surfaces in the jobs UI.
 func (s *SessionService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (int64, error) {
 	return s.sessions.CreateSession(ctx, req)
 }

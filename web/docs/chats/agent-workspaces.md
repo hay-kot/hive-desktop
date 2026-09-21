@@ -34,6 +34,16 @@ Use **New workspace** in Chats. A workspace chooses:
 
 The command picker includes **Ask**, **Auto**, and **Full** presets for Claude Code and Codex. **Custom** lets you edit the complete command template. Add model or provider flags to the command itself.
 
+Schedules and feed-item launches need a command that passes the opening prompt
+as a shell-quoted argument. Keep this suffix from the shipped presets:
+
+```text
+{{ if .Prompt }}-- {{ .Prompt | shq }}{{ end }}
+```
+
+Hive refuses a prompted launch if the custom command drops `.Prompt` or
+interpolates it without `shq`.
+
 **Full** presets bypass the agent's approval checks. Use them only when you trust the workspace instructions and every enabled tool.
 
 ## Work with chats
@@ -45,6 +55,13 @@ Stopping an agent keeps its chat record. Restarting a stopped chat resumes the c
 Drag image files or paste clipboard screenshots into a chat's terminal to give
 the agent visual context. See [Image input](../code/terminal-mode.md#image-input)
 for supported formats, limits, and saved clipboard images.
+
+An Inbox item's **…** menu offers **Create Session** for Code and **Create Chat**
+for Chats. Both open the same dialog on the requested target; use its compact
+**Code** / **Chats** switch to change targets. A chat keeps the generated item
+prompt, which you can edit before launch. A `launch-session` action with a fixed
+`workspace` can do the same from a manual item action or a flow. See
+[Actions](../inbox/actions.md#action-types).
 
 ## Scheduled jobs
 
@@ -92,7 +109,7 @@ You can add HTTP, SSE, and stdio servers to the shared MCP library, then enable 
 
 An agent with **Hive Canvas** enabled can publish named output beside its chat. Canvases remain available after the chat ends and can contain Markdown, sanitized HTML, and links.
 
-Use the canvas pane to search previous output, copy a canvas as Markdown, save it to a file, or open its links.
+Use the canvas pane to search previous output, copy a canvas as Markdown, save it to a file, or open its links. Settings ▸ Chats changes text size and line spacing for every canvas. Copy and save keep the original Markdown.
 
 ## Use a chat in Code
 
