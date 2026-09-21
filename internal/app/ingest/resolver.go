@@ -35,21 +35,21 @@ func NewResolver(flows FlowLister, factories map[string]connector.Factory, logge
 
 // PullInstances is every enabled pull-mode instance: the sources a producer
 // tick drains.
-func (r *Resolver) PullInstances() []connector.Instance {
-	return r.instances(connector.ModePull)
+func (r *Resolver) PullInstances(ctx context.Context) []connector.Instance {
+	return r.instances(ctx, connector.ModePull)
 }
 
 // PushInstances is every enabled push-mode instance: the sources an ingress
 // resolves a delivery against.
-func (r *Resolver) PushInstances() []connector.Instance {
-	return r.instances(connector.ModePush)
+func (r *Resolver) PushInstances(ctx context.Context) []connector.Instance {
+	return r.instances(ctx, connector.ModePush)
 }
 
 // instances walks the enabled flows and constructs one instance per enabled
 // source node of the requested mode. A node whose connector has no factory,
 // or whose factory rejects its config, is logged and skipped: one
 // misconfigured source must not take the rest of the tick down with it.
-func (r *Resolver) instances(mode connector.Mode) []connector.Instance {
+func (r *Resolver) instances(ctx context.Context, mode connector.Mode) []connector.Instance {
 	var out []connector.Instance
 	for _, f := range r.flows.List() {
 		if !f.Enabled {
@@ -65,7 +65,7 @@ func (r *Resolver) instances(mode connector.Mode) []connector.Instance {
 			}
 			instance, err := r.build(f, node)
 			if err != nil {
-				r.logger.Warn().Err(err).Str("flow", f.ID).Str("node", node.ID).Msg("ingest: source unavailable")
+				r.logger.Warn().Ctx(ctx).Err(err).Str("flow", f.ID).Str("node", node.ID).Msg("ingest: source unavailable")
 				continue
 			}
 			out = append(out, instance)

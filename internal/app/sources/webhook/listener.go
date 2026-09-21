@@ -52,7 +52,7 @@ const maxBodyBytes = 1 << 20
 // It is a function of connector instances rather than of flows so this
 // package never imports the flow package: the flow set is walked by whoever
 // owns the registry, and the connector only sees its own instances.
-type Instances func() []connector.Instance
+type Instances func(context.Context) []connector.Instance
 
 // Listener is the desktop's local webhook ingress: a localhost-only HTTP
 // server whose /hooks/<path> routes are resolved per request. It bypasses the
@@ -206,9 +206,9 @@ type target struct {
 // resolveTargets returns every enabled webhook source instance declaring
 // path. Several may share a path — each receives the delivery, so one sender
 // can fan into multiple flows.
-func (l *Listener) resolveTargets(path string) []target {
+func (l *Listener) resolveTargets(ctx context.Context, path string) []target {
 	var out []target
-	for _, inst := range l.instances() {
+	for _, inst := range l.instances(ctx) {
 		cfg, ok := inst.Config.(*Config)
 		if !ok || cfg.Path != path {
 			continue
@@ -226,7 +226,7 @@ func (l *Listener) handleHook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, PathPrefix)
-	targets := l.resolveTargets(path)
+	targets := l.resolveTargets(r.Context(), path)
 	if len(targets) == 0 {
 		http.Error(w, "no webhook endpoint at this path", http.StatusNotFound)
 		return

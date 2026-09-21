@@ -37,7 +37,7 @@ func webhookInstance(t *testing.T, flowID, nodeID, path, secret string) connecto
 // fakeInstances is the listener's Instances seam: the push-mode instances the
 // registry would resolve from the current flow set.
 func fakeInstances(instances ...connector.Instance) Instances {
-	return func() []connector.Instance { return instances }
+	return func(context.Context) []connector.Instance { return instances }
 }
 
 type notifierFunc func(offset int64)
