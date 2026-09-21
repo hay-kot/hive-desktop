@@ -21,6 +21,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
+	"github.com/hay-kot/hive-desktop/internal/adapter/nativeclipboard"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
@@ -195,6 +196,7 @@ func main() {
 		Logger:                   logger,
 		CredentialKeyringService: os.Getenv(credentials.EnvKeyringService),
 		Notifier:                 ui.Notifier(),
+		ImageClipboard:           nativeclipboard.Reader{},
 		Gate:                     ui.Gate(),
 		Build:                    report.Build{Version: version, Commit: commit, Date: date},
 		TelemetryRuntime:         telemetryRuntime,

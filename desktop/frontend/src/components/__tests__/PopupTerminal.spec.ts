@@ -17,6 +17,7 @@ const xterm = vi.hoisted(() => {
     rows = 24
     options: Record<string, unknown> = {}
     write = vi.fn()
+    paste = vi.fn((text: string) => this.type(text))
     // Focusing an element inside a display:none subtree silently does nothing,
     // so what matters is not that focus() was called but that the pane was on
     // screen when it was.
@@ -69,7 +70,7 @@ const xterm = vi.hoisted(() => {
 
 vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: xterm.FakeAddon }))
-vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: vi.fn().mockResolvedValue(undefined) } }))
+vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: vi.fn().mockResolvedValue(undefined) }, Events: { On: vi.fn(() => vi.fn()) } }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeAddon }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeAddon }))
 vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeAddon }))

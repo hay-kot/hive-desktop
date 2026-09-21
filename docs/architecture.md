@@ -1159,6 +1159,17 @@ disabling its segment (ADR terminal-agents-grafana-and-commands-graduate-out-of-
 
 ### Terminal sessions
 
+**Image input is local file references.** Wails routes native drops to a specific
+terminal host; that host also captures clipboard images. `TerminalImagesService`
+validates original paths or saves clipboard bytes through `terminalimg` under
+StateDir. Images are pasted one path at a time, with no submission, into a target
+captured before asynchronous preparation. The authenticated HTTP control plane
+acknowledges tmux pastes; popup terminals use xterm's paste mode over their PTY.
+Completed clipboard files survive detach, restart and session deletion, with a
+quota that refuses new files instead of evicting existing references. A driven
+clipboard reader provides macOS PNG/TIFF fallback for image-only native pastes;
+platform clipboard code stays in the adapter. ADR terminal-image-input-is-delivered-as-local-file-references.
+
 Terminal mode attaches one tmux control-mode client per Hive session, keyed by
 the session **slug** (the tmux session name). Four pieces, and the split between
 them is the constraint (ADR terminal-transport):

@@ -172,6 +172,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewObservabilityService(core.Observability)),
 		application.NewService(NewDevToolsService(core.DevTools)),
 		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal)),
+		application.NewService(NewTerminalImagesService(core.TerminalImages)),
 		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal)),
 		application.NewService(NewAgentsService(core.AgentWorkspaces, core.Webhooks, opts.Agents)),
 		application.NewService(u.updater),
@@ -251,6 +252,7 @@ func (u *UI) attachUpdater(opts MountOptions) {
 
 func (u *UI) buildWindow() {
 	u.window = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		EnableFileDrop:   true,
 		Title:            "Hive",
 		Width:            1360,
 		Height:           864,
@@ -272,6 +274,12 @@ func (u *UI) buildWindow() {
 			},
 			InvisibleTitleBarHeight: 42,
 		},
+	})
+
+	u.window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		if target := event.Context().DropTargetDetails(); target != nil {
+			emitTerminalFilesDropped(TerminalFilesDropped{Target: target.ElementID, Paths: event.Context().DroppedFiles()})
+		}
 	})
 
 	// The sole owner of notification activation: a click brings the existing

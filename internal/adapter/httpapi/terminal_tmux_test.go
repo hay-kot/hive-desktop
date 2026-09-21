@@ -579,6 +579,25 @@ func TestTmuxPasteIsBracketedOnlyWhenThePaneAsksForIt(t *testing.T) {
 		"a pane that did not ask for them must not receive them as literal text")
 }
 
+func TestTmuxImagePathPasteUsesNamedPaneWithoutSubmitting(t *testing.T) {
+	tmux := startTmux(t, "hive-images")
+	tmux.tmux("new-window", "-t", tmux.slug, "-n", "target", `printf '\033[?2004h'; cat -v`)
+	tmux.tmux("new-window", "-t", tmux.slug, "-n", "other", "cat -v")
+	h := newTerminalHarness(t)
+	attached := h.attach(t, tmux.slug)
+	for _, text := range []string{`/tmp/image\ one.png `, `/tmp/image\ two.png `} {
+		resp := h.post(t, "/api/terminal/panes/paste", testToken, terminalPasteRequest{Slug: tmux.slug, PaneID: paneIDNamed(t, attached, "target"), Text: text})
+		require.Equal(t, http.StatusNoContent, resp.StatusCode)
+		_ = resp.Body.Close()
+	}
+	tmux.awaitPane(tmux.slug+":target", "two.png")
+	output := tmux.tmux("capture-pane", "-p", "-t", tmux.slug+":target")
+	assert.Equal(t, 2, strings.Count(output, "^[[200~"))
+	assert.Equal(t, 2, strings.Count(output, "^[[201~"))
+	assert.Contains(t, strings.Split(output, "\n")[0], "two.png", "no newline submitted either path")
+	assert.NotContains(t, tmux.tmux("capture-pane", "-p", "-t", tmux.slug+":other"), ".png")
+}
+
 // pasteFrames is what the frontend sends for one paste: its bytes, then the
 // commit the server pastes on.
 func pasteFrames(paneID, text string) [][]byte {

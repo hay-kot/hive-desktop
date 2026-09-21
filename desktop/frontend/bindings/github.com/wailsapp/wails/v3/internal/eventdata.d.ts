@@ -25,6 +25,7 @@ declare module "@wailsio/runtime" {
             "notification:toast": wailsui$0.NotificationToast;
             "schedules:updated": string;
             "sessions:create-failed": string;
+            "terminal:files-dropped": wailsui$0.TerminalFilesDropped;
             "update:available": wailsui$0.UpdateInfo;
             "window:blur": boolean;
             "window:focus": boolean;

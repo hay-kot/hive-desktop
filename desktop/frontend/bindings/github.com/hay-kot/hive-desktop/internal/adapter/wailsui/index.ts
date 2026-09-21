@@ -25,6 +25,7 @@ import * as SettingsService from "./settingsservice.js";
 import * as SourcesService from "./sourcesservice.js";
 import * as SystemService from "./systemservice.js";
 import * as TasksService from "./tasksservice.js";
+import * as TerminalImagesService from "./terminalimagesservice.js";
 import * as TerminalService from "./terminalservice.js";
 import * as UpdaterService from "./updaterservice.js";
 import * as WebhookService from "./webhookservice.js";
@@ -54,6 +55,7 @@ export {
     SourcesService,
     SystemService,
     TasksService,
+    TerminalImagesService,
     TerminalService,
     UpdaterService,
     WebhookService,
@@ -97,6 +99,7 @@ export type {
     SystemInfo,
     TerminalAvailability,
     TerminalEndpoint,
+    TerminalFilesDropped,
     UpdateInfo,
     WebhookCaptureView,
     WebhookInfo,

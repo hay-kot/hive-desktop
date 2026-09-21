@@ -57,6 +57,28 @@ Hide the panel to keep its shell running, or use **End this terminal** to stop i
 
 ## Working in Code
 
+### Image input
+
+Drag image files onto the terminal pane, or paste a screenshot from your
+clipboard with <kbd>⌘V</kbd> on macOS. This works in Code, Chats, and pop-up
+terminals. Hive inserts an image reference; add your instructions and submit
+the prompt yourself. The agent must support image input and run on the same
+filesystem as Hive.
+
+PNG, JPEG, GIF, and WebP files are supported, up to 20 MiB and 64 megapixels
+each. A gesture can include up to 10 images totaling 64 MiB. Unsupported or
+oversized images show an error. Switching away during preparation cancels
+insertion; a paste already sent can finish in its original pane.
+
+Clipboard images are saved under `desktop/assets/terminal-images/` inside the
+data directory shown in **Settings ▸ System**. They survive restarts so resumed
+conversations can still read them. Storage is limited to 1 GiB. Remove files
+you no longer need from that directory to free space; conversations that still
+reference removed files cannot read them again. Dragged files stay at their
+original location.
+
+### Navigation
+
 - Select a window from the sidebar to attach to it.
 - Use <kbd>⌘1</kbd> through <kbd>⌘9</kbd> to switch windows.
 - Use <kbd>⌘←</kbd> to focus the sidebar and <kbd>⌘→</kbd> to return to the terminal.

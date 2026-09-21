@@ -992,3 +992,8 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+[data-file-drop-target].file-drop-target-active {
+  outline: 2px solid var(--color-text-3);
+  outline-offset: -2px;
+}

@@ -42,6 +42,10 @@ Create several named chats inside a workspace and use the sidebar to see whether
 
 Stopping an agent keeps its chat record. Restarting a stopped chat resumes the conversation when its command and agent support it. You can also rename or delete a chat, filter the sidebar, and open recent chats from the command palette.
 
+Drag image files or paste clipboard screenshots into a chat's terminal to give
+the agent visual context. See [Image input](../code/terminal-mode.md#image-input)
+for supported formats, limits, and saved clipboard images.
+
 ## Scheduled jobs
 
 Add a schedule from the workspace editor to start a chat automatically. Schedules can run hourly, daily, weekly, monthly, or from a five-field cron expression in your local time.

@@ -136,6 +136,7 @@ EOF
     local action_path="${data_dir}/fixtures/actions.yml"
     env \
       HIVE_DESKTOP_DATA_DIR="${data_dir}" \
+      HIVE_DESKTOP_HTTP_PORT=0 \
       HIVE_CONFIG="${data_dir}/hive-e2e.yaml" \
       XDG_CONFIG_HOME="${config_home}" \
       HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE="$([[ "${mode}" == "action-seed" ]] && echo action-smoke || echo "${mode}")" \
