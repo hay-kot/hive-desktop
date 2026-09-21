@@ -531,10 +531,7 @@ func (s *AgentWorkspacesService) LaunchWorkspaceSession(ctx context.Context, req
 	if err != nil {
 		return dispatch.SessionExecutionOutcome{}, err
 	}
-	if strings.TrimSpace(req.Prompt) != "" && !agentws.SupportsPrompt(regen.status.Workspace.Command) {
-		return dispatch.SessionExecutionOutcome{}, promptlessCommandError("start a chat with an opening prompt")
-	}
-	view, err := s.StartSession(ctx, StartSession{
+	view, err := s.startSession(ctx, regen.status.Workspace, StartSession{
 		Workspace: req.Workspace,
 		Name:      req.Name,
 		Prompt:    req.Prompt,
@@ -560,9 +557,14 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	if !ok || !st.Valid {
 		return SessionView{}, Errorf(KindNotFound, "workspace %q not found", req.Workspace)
 	}
-	ws := st.Workspace
+	return s.startSession(ctx, st.Workspace, req)
+}
 
-	workspaceDir := filepath.Join(s.store.Root(), req.Workspace)
+func (s *AgentWorkspacesService) startSession(ctx context.Context, ws agentws.Workspace, req StartSession) (SessionView, error) {
+	if strings.TrimSpace(req.Prompt) != "" && !agentws.SupportsPrompt(ws.Command) {
+		return SessionView{}, promptlessCommandError("start a chat with an opening prompt")
+	}
+	workspaceDir := filepath.Join(s.store.Root(), ws.Dir)
 	agentSessionID := uuid.NewString()
 	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), agentSessionID, false, req.Prompt)
 	if err != nil {
@@ -570,7 +572,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	}
 
 	rec, err := s.sessions.Create(ctx, stores.AgentSessionCreate{
-		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
+		Workspace: ws.Dir, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
 		ScheduleID: req.ScheduleID,
 		// The token is minted once and reused by every resume, so the
 		// process's environment is the same across launches.
@@ -601,7 +603,7 @@ func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req 
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "framing the scheduled prompt")
 	}
-	return s.StartSession(ctx, StartSession{
+	return s.startSession(ctx, regen.status.Workspace, StartSession{
 		Workspace: req.Workspace, Name: req.Name, Prompt: prompt, Detached: true,
 		ScheduleID: req.ScheduleID,
 	})

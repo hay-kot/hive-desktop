@@ -252,6 +252,32 @@ func TestLaunchWorkspaceSessionCarriesPromptIntoDetachedChat(t *testing.T) {
 	require.NoError(t, err, "a launch refreshes generated workspace files")
 }
 
+func TestStartSessionUsesTheResolvedWorkspaceSnapshot(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	capture := filepath.Join(t.TempDir(), "prompt")
+	agent := filepath.Join(t.TempDir(), "codex")
+	require.NoError(t, os.WriteFile(agent, []byte("#!/bin/sh\nprintf '%s' \"$2\" > "+capture+"\nexec cat\n"), 0o755))
+	writeAgentWorkspaceManifest(t, root, "demo", agentWorkspaceYAML("Demo", agent, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"codex": agent})
+
+	_, err := svc.StartSession(t.Context(), StartSession{
+		Workspace: "demo", Name: "current", Prompt: "do not drop this", Detached: true,
+	})
+	require.ErrorContains(t, err, "does not pass a prompt")
+
+	resolved := agentws.Workspace{Dir: "demo", Name: "Demo", Command: agent + agentws.PromptTail}
+	started, err := svc.startSession(t.Context(), resolved, StartSession{
+		Workspace: "demo", Name: "resolved", Prompt: "keep this prompt", Detached: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "demo", started.Workspace)
+	require.Eventually(t, func() bool {
+		got, readErr := os.ReadFile(capture)
+		return readErr == nil && string(got) == "keep this prompt"
+	}, time.Second, 10*time.Millisecond)
+}
+
 func TestLaunchWorkspaceSessionReportsAnImmediateExit(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
