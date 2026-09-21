@@ -661,6 +661,9 @@ func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Durati
 
 func (s *AgentWorkspacesService) SessionLive(ctx context.Context, id int64) (bool, error) {
 	rec, err := s.getSession(ctx, id)
+	if KindOf(err) == KindNotFound {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
