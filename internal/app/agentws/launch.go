@@ -28,10 +28,9 @@ type LaunchData struct {
 	// agent already persisted. A template that does not branch on it reports
 	// no resume support at all — see SupportsResume.
 	Resume bool
-	// Prompt is the agent's first message on a scheduled chat and empty on one
-	// started by hand, so a template that guards on it produces exactly the
-	// interactive line when there is nothing to say. A template that never
-	// interpolates it cannot be scheduled — see SupportsPrompt.
+	// Prompt is the optional opening message for a detached chat. A template
+	// that never interpolates it cannot run schedules or prompted launches --
+	// see SupportsPrompt.
 	Prompt string
 }
 
@@ -132,25 +131,26 @@ func SupportsResume(command string) bool {
 	return fresh != resumed
 }
 
-// SupportsPrompt reports whether command carries a prompt into the launch. It
-// renders with and without one and compares, for the same reason
-// SupportsResume does: a scheduled chat whose prompt the template drops would
-// sit idle in a detached session with nobody watching, so the caller has to
-// know before it writes the schedule.
+// SupportsPrompt reports whether command carries a shell-quoted prompt into
+// the launch. Detached callers cannot recover a prompt that the template drops,
+// and direct unquoted interpolation would let prompt text become shell syntax.
 func SupportsPrompt(command string) bool {
 	t, err := parseCommand(command)
 	if err != nil {
 		return false
 	}
-	bare, err := render(t, LaunchData{Dir: "/probe", MCPConfig: "/probe/.mcp.json", SessionID: "probe-session"})
+	data := LaunchData{Dir: "/probe", MCPConfig: "/probe/.mcp.json", SessionID: "probe-session"}
+	bare, err := render(t, data)
 	if err != nil {
 		return false
 	}
-	prompted, err := render(t, LaunchData{Dir: "/probe", MCPConfig: "/probe/.mcp.json", SessionID: "probe-session", Prompt: "prompt-probe"})
+	const probe = "prompt-probe'; exit 91\nsecond line"
+	data.Prompt = probe
+	prompted, err := render(t, data)
 	if err != nil {
 		return false
 	}
-	return bare != prompted
+	return bare != prompted && strings.Contains(prompted, shellQuote(probe))
 }
 
 // dangerousFlags are the permission bypasses this build knows by name. The

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,7 +54,7 @@ const (
 )
 
 // AgentWorkspacesService opens agent workspaces and drives the sessions run
-// inside them: an agent CLI in a tmux session named agentws-<record id>,
+// inside them: an agent CLI in a tmux session named agentws-<terminal id>,
 // resolved through the workspace's command template (agentws.Resolve) and
 // addressed by a durable stores.AgentSession record. Sessions are tmux's, not this process's -- they outlive App.Close
 // by design, which is what makes reopening a codex session (no resume form)
@@ -248,12 +249,12 @@ type SessionView struct {
 	Name         string `json:"name"`
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
-	// Slug is the tmux session name (agentws-<id>) this session is addressed by
+	// Slug is the tmux session name (agentws-<terminal id>) this session is addressed by
 	// whether or not it is running, so a caller can key a row, a route or an
 	// attach pool on it without deriving the name itself. TerminalID, not this,
 	// is what reports liveness.
 	Slug string `json:"slug"`
-	// TerminalID is the tmux session name (agentws-<id>) a live session rides,
+	// TerminalID is the tmux session name (agentws-<terminal id>) a live session rides,
 	// addressed on the same tmux stream terminal mode uses (ADR terminal-transport); empty
 	// when nothing is running.
 	TerminalID string `json:"terminalId"`
@@ -387,6 +388,21 @@ func (s *AgentWorkspacesService) List(ctx context.Context) ([]WorkspaceView, err
 	return views, nil
 }
 
+func (s *AgentWorkspacesService) SessionLaunchWorkspaces(context.Context) []dispatch.SessionLaunchWorkspace {
+	statuses := s.store.Statuses()
+	workspaces := make([]dispatch.SessionLaunchWorkspace, 0, len(statuses))
+	for _, st := range statuses {
+		if !st.Valid {
+			continue
+		}
+		workspaces = append(workspaces, dispatch.SessionLaunchWorkspace{
+			Dir: st.Workspace.Dir, Name: st.Workspace.Name,
+			SupportsPrompt: agentws.SupportsPrompt(st.Workspace.Command),
+		})
+	}
+	return workspaces
+}
+
 // Open regenerates the workspace's disposable artifacts and returns its
 // sessions. It is the only entry point that writes into a workspace.
 func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResult, error) {
@@ -494,7 +510,7 @@ func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string
 	}
 	items := make([]SessionActivityItem, 0, len(records))
 	for _, rec := range records {
-		screen, err := s.terminals.CapturePane(ctx, sessionName(rec.ID))
+		screen, err := s.terminals.CapturePane(ctx, sessionName(rec))
 		if err != nil {
 			// Not running, or a transient tmux error -- omitted rather than
 			// reported, the same tolerance sessionView extends to liveness.
@@ -505,7 +521,31 @@ func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string
 	return items, nil
 }
 
-// StartSession launches a new, named session in workspace.
+// LaunchWorkspaceSession refreshes generated files before starting the
+// detached chat.
+func (s *AgentWorkspacesService) LaunchWorkspaceSession(ctx context.Context, req dispatch.LaunchWorkspaceSessionRequest) (dispatch.SessionExecutionOutcome, error) {
+	regen, err := s.regenerate(ctx, req.Workspace)
+	if err != nil {
+		return dispatch.SessionExecutionOutcome{}, err
+	}
+	view, err := s.startSession(ctx, regen.status.Workspace, StartSession{
+		Workspace: req.Workspace,
+		Name:      req.Name,
+		Prompt:    req.Prompt,
+		Detached:  true,
+	})
+	if err != nil {
+		return dispatch.SessionExecutionOutcome{}, err
+	}
+	if view.ExitedEarly {
+		_ = s.sessions.Delete(ctx, view.ID)
+		return dispatch.SessionExecutionOutcome{}, Errorf(KindInternal, "%s", view.Notice)
+	}
+	return dispatch.SessionExecutionOutcome{
+		ID: strconv.FormatInt(view.ID, 10), Name: view.Name, Slug: view.Slug,
+	}, nil
+}
+
 func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSession) (SessionView, error) {
 	if !validWorkspaceDir(req.Workspace) {
 		return SessionView{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", req.Workspace)
@@ -514,9 +554,14 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	if !ok || !st.Valid {
 		return SessionView{}, Errorf(KindNotFound, "workspace %q not found", req.Workspace)
 	}
-	ws := st.Workspace
+	return s.startSession(ctx, st.Workspace, req)
+}
 
-	workspaceDir := filepath.Join(s.store.Root(), req.Workspace)
+func (s *AgentWorkspacesService) startSession(ctx context.Context, ws agentws.Workspace, req StartSession) (SessionView, error) {
+	if strings.TrimSpace(req.Prompt) != "" && !agentws.SupportsPrompt(ws.Command) {
+		return SessionView{}, promptlessCommandError("start a chat with an opening prompt")
+	}
+	workspaceDir := filepath.Join(s.store.Root(), ws.Dir)
 	agentSessionID := uuid.NewString()
 	line, err := agentws.Resolve(resolvedFor(ws, workspaceDir), agentSessionID, false, req.Prompt)
 	if err != nil {
@@ -524,7 +569,7 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	}
 
 	rec, err := s.sessions.Create(ctx, stores.AgentSessionCreate{
-		Workspace: req.Workspace, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
+		Workspace: ws.Dir, Name: req.Name, Agent: ws.Agent(), AgentSessionID: agentSessionID,
 		ScheduleID: req.ScheduleID,
 		// The token is minted once and reused by every resume, so the
 		// process's environment is the same across launches.
@@ -555,7 +600,7 @@ func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req 
 	if err != nil {
 		return SessionView{}, Wrap(err, KindInternal, "framing the scheduled prompt")
 	}
-	return s.StartSession(ctx, StartSession{
+	return s.startSession(ctx, regen.status.Workspace, StartSession{
 		Workspace: req.Workspace, Name: req.Name, Prompt: prompt, Detached: true,
 		ScheduleID: req.ScheduleID,
 	})
@@ -615,7 +660,14 @@ func (s *AgentWorkspacesService) endAfter(ctx context.Context, delay time.Durati
 }
 
 func (s *AgentWorkspacesService) SessionLive(ctx context.Context, id int64) (bool, error) {
-	alive, err := s.terminals.HasSession(ctx, sessionName(id))
+	rec, err := s.getSession(ctx, id)
+	if KindOf(err) == KindNotFound {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	alive, err := s.terminals.HasSession(ctx, sessionName(rec))
 	if err != nil {
 		return false, terminalError(err, "checking session %d", id)
 	}
@@ -644,7 +696,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		return SessionView{}, err
 	}
 
-	name := sessionName(rec.ID)
+	name := sessionName(rec)
 	alive, err := s.terminals.HasSession(ctx, name)
 	if err != nil {
 		return SessionView{}, terminalError(err, "checking session %q", rec.Name)
@@ -718,7 +770,7 @@ func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bo
 	if err != nil {
 		return false, err
 	}
-	closed, err := s.terminals.KillSession(ctx, sessionName(rec.ID))
+	closed, err := s.terminals.KillSession(ctx, sessionName(rec))
 	if err != nil {
 		return false, terminalError(err, "closing session %q", rec.Name)
 	}
@@ -726,7 +778,7 @@ func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bo
 }
 
 // RenameSession sets a session's display name. Purely a record edit: the
-// tmux session name derives from the id, so a live terminal keeps running
+// tmux session name comes from an immutable terminal id, so a live terminal keeps running
 // under the same name.
 func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, name string) error {
 	name = strings.TrimSpace(name)
@@ -740,15 +792,15 @@ func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, na
 }
 
 // DeleteSession ends any live tmux session, then removes the record. The
-// session is killed first: its name derives from the record id, so deleting
-// the record around a live one would orphan a running agent no UI could
+// session is killed first: its name lives on the record, so deleting the
+// record around a live one would orphan a running agent no UI could
 // address again until it happened to be found by name.
 func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) error {
 	rec, err := s.getSession(ctx, id)
 	if err != nil {
 		return err
 	}
-	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
+	if _, err := s.terminals.KillSession(ctx, sessionName(rec)); err != nil {
 		return terminalError(err, "closing session %q", rec.Name)
 	}
 	if err := s.sessions.Delete(ctx, id); err != nil {
@@ -775,7 +827,7 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 		return Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
 	for _, rec := range records {
-		if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
+		if _, err := s.terminals.KillSession(ctx, sessionName(rec)); err != nil {
 			return terminalError(err, "closing session %q", rec.Name)
 		}
 	}
@@ -955,7 +1007,7 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 		}
 	}
 	if len(req.Schedules) > 0 && !agentws.SupportsPrompt(command) {
-		return promptlessCommandError()
+		return promptlessCommandError("run schedules")
 	}
 	// The id shape, cron and prompt rules are the spec's own; repeating them
 	// here would be a second place for them to drift.
@@ -1013,7 +1065,7 @@ func (s *AgentWorkspacesService) PutSchedule(ctx context.Context, dir string, pa
 	// schedule saved into a workspace whose command drops the prompt would
 	// turn the whole workspace into a problem the agent never asked for.
 	if !agentws.SupportsPrompt(st.Workspace.Command) {
-		return ScheduleView{}, promptlessCommandError()
+		return ScheduleView{}, promptlessCommandError("run schedules")
 	}
 
 	id := strings.TrimSpace(patch.ID)
@@ -1082,8 +1134,8 @@ func (s *AgentWorkspacesService) RemoveSchedule(ctx context.Context, dir, id str
 	return err
 }
 
-func promptlessCommandError() error {
-	return Errorf(KindInvalid, "the workspace command does not pass a prompt to the agent, so it cannot run schedules; pick a shipped command or add%s to it", agentws.PromptTail)
+func promptlessCommandError(purpose string) error {
+	return Errorf(KindInvalid, "the workspace command does not pass a prompt to the agent, so it cannot %s; pick a shipped command or add%s to it", purpose, agentws.PromptTail)
 }
 
 // editableWorkspace refuses a manifest that does not parse: on the first load
@@ -1381,7 +1433,7 @@ func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, co
 	if err != nil {
 		return err
 	}
-	client, ok := s.terminals.Client(sessionName(rec.ID))
+	client, ok := s.terminals.Client(sessionName(rec))
 	if !ok {
 		return Errorf(KindNotFound, "session %q has no attached terminal", rec.Name)
 	}
@@ -1415,7 +1467,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec stores.
 			Errorf(KindConflict, "too many agent sessions are running (%d max); close one first", maxConcurrentAgentSessions))
 	}
 
-	name := sessionName(rec.ID)
+	name := sessionName(rec)
 	// The record id is the canvas tools' session argument; handing it to the
 	// process at launch is what lets the agent name its own chat without
 	// guessing (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
@@ -1623,7 +1675,7 @@ func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.W
 func (s *AgentWorkspacesService) sessionViews(ctx context.Context, records []stores.AgentSession) []SessionView {
 	views := make([]SessionView, 0, len(records))
 	for _, rec := range records {
-		name := sessionName(rec.ID)
+		name := sessionName(rec)
 		live := ""
 		if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
 			live = name
@@ -1666,10 +1718,8 @@ func resolvedFor(ws agentws.Workspace, absoluteDir string) agentws.Workspace {
 	return ws
 }
 
-// sessionName derives a session's tmux session name from its record id, so a
-// resume within one run reattaches rather than spawning beside itself.
-func sessionName(recordID int64) string {
-	return fmt.Sprintf("%s%d", agentSessionPrefix, recordID)
+func sessionName(rec stores.AgentSession) string {
+	return agentSessionPrefix + rec.TerminalID
 }
 
 // validWorkspaceDir reports whether dir resolves to a direct child of the

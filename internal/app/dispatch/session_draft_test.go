@@ -127,3 +127,13 @@ func TestSessionDraftMetadataKeepsAnEmptyAgentEmpty(t *testing.T) {
 	assert.Empty(t, got.ItemIDs)
 	assert.Nil(t, got.Failure, "no failure recorded means no panel to show")
 }
+
+func TestSessionDraftMetadataRoundTripsAWorkspaceTarget(t *testing.T) {
+	draft := SessionDraft{Workspace: "alerts", Name: "incident", Prompt: "triage", ItemIDs: []int64{42}}
+	got, ok := SessionDraftFromMetadata(SessionDraftMetadata(draft))
+	require.True(t, ok)
+	assert.Equal(t, draft, got)
+
+	_, ok = SessionDraftFromMetadata(SessionDraftMetadata(SessionDraft{Repository: "repo", Workspace: "alerts", Name: "invalid"}))
+	assert.False(t, ok)
+}

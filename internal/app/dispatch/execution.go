@@ -18,17 +18,27 @@ type SessionLaunchRepository struct {
 	Repository string `json:"repository"`
 }
 
+// SessionLaunchWorkspace identifies a configured workspace by its stable
+// directory name.
+type SessionLaunchWorkspace struct {
+	Dir            string `json:"dir"`
+	Name           string `json:"name"`
+	SupportsPrompt bool   `json:"supportsPrompt"`
+}
+
 // SessionLaunchOptions is the narrow DTO used by the session launch dialog.
 type SessionLaunchOptions struct {
 	Repositories      []SessionLaunchRepository `json:"repositories"`
 	DefaultRepository string                    `json:"defaultRepository"`
+	Workspaces        []SessionLaunchWorkspace  `json:"workspaces"`
 	Agents            []string                  `json:"agents"`
 	DefaultAgent      string                    `json:"defaultAgent"`
 }
 
 type SessionInvocationInput struct {
 	Name       string `json:"name"`
-	Repository string `json:"repository"`
+	Repository string `json:"repository,omitempty"`
+	Workspace  string `json:"workspace,omitempty"`
 	Agent      string `json:"agent,omitempty"`
 }
 

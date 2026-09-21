@@ -181,7 +181,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: renders the workspace's command template into a command line, creates a detached tmux session named agentws-<id> running it, and attaches. cols/rows of 0x0 attach unsized. The data plane is the tmux stream at " + TerminalStreamPath + ", outside this operations table; windowId names the pane to frame input/output for.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: renders the workspace's command template into a command line, creates a detached tmux session named agentws-<terminal id> running it, and attaches. cols/rows of 0x0 attach unsized. The data plane is the tmux stream at " + TerminalStreamPath + ", outside this operations table; windowId names the pane to frame input/output for.",
 			Request: agentSessionStartRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionStart,
 			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
 		},
@@ -196,7 +196,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such session"),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/rename", Summary: "Set a session's display name. The record is the only thing touched — a live tmux session keeps its agentws-<id> name.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/rename", Summary: "Set a session's display name. The record is the only thing touched — a live tmux session keeps its agentws-<terminal id> name.",
 			Request: agentSessionRenameRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionRename,
 			Errors: agentErrors("no such session"),
 		},

@@ -6,11 +6,12 @@ import NewSessionDialog from '../NewSessionDialog.vue'
 const options = {
   repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }],
   defaultRepository: 'https://github.com/hay-kot/hive-desktop.git',
+  workspaces: [{ dir: 'alerts', name: 'Alert triage', supportsPrompt: true }],
   agents: ['claude', 'pi'],
   defaultAgent: 'claude',
 }
 
-const blank = { repository: '', name: '', prompt: '', agent: options.defaultAgent }
+const blank = { repository: '', workspace: '', name: '', prompt: '', agent: options.defaultAgent }
 
 const failure = {
   reason: 'clone repository: git clone: exec git: exit status 1',
@@ -27,6 +28,15 @@ function mountDialog(overrides: Record<string, unknown> = {}) {
 }
 
 describe('NewSessionDialog', () => {
+  it('puts the compact Code and Chats selector with icons in the header', () => {
+    const wrapper = mountDialog()
+    const selector = wrapper.get('header').get('[data-testid="new-session-target"]')
+    expect(selector.text()).toContain('Code')
+    expect(selector.text()).toContain('Chats')
+    expect(selector.findAll('svg')).toHaveLength(2)
+    expect(wrapper.get('form').find('[data-testid="new-session-target"]').exists()).toBe(false)
+  })
+
   it('prefills from the draft and emits repository, name, prompt, and agent', async () => {
     const wrapper = mountDialog({ initial: { ...blank, repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' } })
     await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
@@ -51,6 +61,32 @@ describe('NewSessionDialog', () => {
     await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
 
     expect(wrapper.emitted('submit')).toEqual([[{ repository: 'https://github.com/acme/site.git', name: 'fix-crash', prompt: '', agent: 'claude' }]])
+  })
+
+  it('opens directly on Chats and emits no repository or agent', async () => {
+    const wrapper = mountDialog({ initial: { ...blank, name: 'incident', prompt: 'Triage this alert' }, initialTarget: 'workspace' })
+    expect(wrapper.get('[data-testid="new-session-target-workspace"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="new-session-repository"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="new-session-agent"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="new-session-workspace"]').text()).toContain('Alert triage')
+    await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
+    expect(wrapper.emitted('submit')).toEqual([[{ workspace: 'alerts', name: 'incident', prompt: 'Triage this alert' }]])
+  })
+
+  it('restores a workspace target and preserves the name and prompt when switching targets', async () => {
+    const wrapper = mountDialog({ initial: { ...blank, workspace: 'alerts', name: 'incident', prompt: 'Triage this alert' } })
+    expect(wrapper.get('[data-testid="new-session-target-workspace"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('[data-testid="new-session-target-repository"]').trigger('click')
+    await wrapper.get('[data-testid="new-session-target-workspace"]').trigger('click')
+    await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
+    expect(wrapper.emitted('submit')).toEqual([[{ workspace: 'alerts', name: 'incident', prompt: 'Triage this alert' }]])
+  })
+
+  it('disables workspace submission when no workspaces exist', async () => {
+    const wrapper = mountDialog({ options: { ...options, workspaces: [] } })
+    await wrapper.get('[data-testid="new-session-target-workspace"]').trigger('click')
+    expect((wrapper.get('[data-testid="new-session-submit"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect(wrapper.text()).toContain('Create a workspace in Chats')
   })
 
   it('submits on ⌘/Ctrl+Enter from anywhere in the dialog', async () => {

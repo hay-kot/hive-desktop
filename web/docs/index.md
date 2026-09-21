@@ -33,7 +33,7 @@ hide:
     <ul>
       <li><strong>Any data, any feed.</strong> Filters cover the common rules. JavaScript function nodes parse and reshape any payload, split it across outputs, and route it into whatever feed structure you want.</li>
       <li><strong>One ping per real change.</strong> Notify nodes deduplicate and cool down, so a firing alert or a moving pull request interrupts you once.</li>
-      <li><strong>From item to session.</strong> A launch-session action starts a coding agent from an item's detail pane, with the repository checked out and the item as the prompt.</li>
+      <li><strong>From item to agent.</strong> A launch-session action starts a repository coding session or sends the item to an agent workspace as its opening prompt.</li>
     </ul>
     <a class="hive-showcase__link" href="inbox/flows/">How flows work</a>
   </div>

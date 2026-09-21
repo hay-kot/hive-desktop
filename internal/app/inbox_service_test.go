@@ -374,7 +374,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 
 	launcher := &recordingSessionLauncher{}
 	worker := newTestWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
-		"launch-session": dispatch.NewLaunchSessionExecutor(zerolog.Nop(), launcher, stubExecEnv{}),
+		"launch-session": dispatch.NewLaunchSessionExecutor(zerolog.Nop(), launcher, nil, stubExecEnv{}),
 	}), 0, zerolog.Nop())
 	service := newTestInboxService(db, actionStore, worker)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")

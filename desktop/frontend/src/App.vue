@@ -875,7 +875,7 @@ const {
 } = useReleaseNotes()
 onMounted(() => { void checkReleaseNotes() })
 const {
-  open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, busy: newSessionBusy, error: newSessionError,
+  open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, initialTarget: newSessionInitialTarget, busy: newSessionBusy, error: newSessionError,
   failure: newSessionFailure, formKey: newSessionFormKey,
   openBlank: openNewSession, openFromItem: openNewSessionFromItem, openFromItems: openNewSessionFromItems, cancel: cancelNewSession, submit: submitNewSession,
   dismissFailure: dismissNewSessionFailure, onCreateFailed: onNewSessionFailed,
@@ -894,7 +894,7 @@ function cancelNewSessionDialog(): void {
   cancelNewSession()
 }
 
-async function submitNewSessionAndClearSelection(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
+async function submitNewSessionAndClearSelection(input: { repository?: string; workspace?: string; name: string; prompt: string; agent?: string }): Promise<void> {
   await submitNewSession(input)
   if (!newSessionOpen.value && creatingFromSelection.value) {
     creatingFromSelection.value = false
@@ -1523,7 +1523,7 @@ onUnmounted(() => {
               @item-create-session="openNewSessionFromItem"
               @item-run-action="runItemAction"
             />
-            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :sessions="itemSessions" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" :source-images="sourceImages" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="selectedItem && openNewSessionFromItem(selectedItem)" @open-session="openItemSession" @edit="requestOpenActionsSettings" />
+            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :sessions="itemSessions" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" :source-images="sourceImages" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="(target) => selectedItem && openNewSessionFromItem(selectedItem, target)" @open-session="openItemSession" @edit="requestOpenActionsSettings" />
           </section>
           <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 font-mono text-xs text-text-4">
             <template v-if="profilesError">
@@ -1562,6 +1562,7 @@ onUnmounted(() => {
       :key="newSessionFormKey"
       :options="newSessionOptions"
       :initial="newSessionInitial"
+      :initial-target="newSessionInitialTarget"
       :busy="newSessionBusy"
       :error="newSessionError"
       :failure="newSessionFailure"

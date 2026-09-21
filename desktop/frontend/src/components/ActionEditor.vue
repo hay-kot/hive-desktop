@@ -5,20 +5,25 @@ import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
 import BaseButton from './BaseButton.vue'
 import AppCheckbox from './AppCheckbox.vue'
+import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import ActionInputsEditor from './ActionInputsEditor.vue'
 import AppliesToField from './AppliesToField.vue'
 import DrawerSheet from './DrawerSheet.vue'
 import { useReturnFocus } from '../composables/useReturnFocus'
 import { SelectField, TextareaField, TextField } from '../pipeline/fields'
 import type { EditableAction } from '../composables/useActionsSettings'
+import type { SessionLaunchWorkspace } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
-const props = withDefaults(defineProps<{ action: EditableAction; isNew: boolean; busy?: boolean; error?: string | null; returnFocusTo?: HTMLElement | null; knownTypes?: string[] }>(), { knownTypes: () => [] })
+const props = withDefaults(defineProps<{ action: EditableAction; isNew: boolean; busy?: boolean; error?: string | null; returnFocusTo?: HTMLElement | null; knownTypes?: string[]; workspaces?: SessionLaunchWorkspace[] }>(), { knownTypes: () => [], workspaces: () => [] })
 const emit = defineEmits<{ save: []; cancel: [] }>()
 const idRef = ref<{ focus: () => void } | null>(null)
 const labelRef = ref<{ focus: () => void } | null>(null)
 const appliesField = ref<{ flush: () => void } | null>(null)
 const closeRef = ref<HTMLButtonElement | null>(null)
 const validationError = ref<string | null>(null)
+const launchTarget = ref<'interactive' | 'repository' | 'workspace'>(
+  props.action.launch?.workspace ? 'workspace' : props.action.launch?.repoTemplate ? 'repository' : 'interactive',
+)
 
 const typeOptions = [
   { value: 'launch-session', label: 'Launch session' },
@@ -35,6 +40,17 @@ const targetOptions = [
   { value: 'session', label: 'Terminal session' },
   { value: 'window', label: 'Terminal window' },
 ]
+const launchTargetOptions = [
+  { value: 'interactive', label: 'Choose when run' },
+  { value: 'repository', label: 'Repository' },
+  { value: 'workspace', label: 'Agent workspace' },
+]
+const workspaceOptions = computed<AppSelectOption[]>(() => props.workspaces.map((workspace) => ({
+  value: workspace.dir,
+  label: workspace.name || workspace.dir,
+  hint: workspace.supportsPrompt ? workspace.dir : `${workspace.dir} · command does not accept a prompt`,
+  disabled: !workspace.supportsPrompt,
+})))
 const terminalTargetsAllowed = computed(() => props.action.type !== 'launch-session')
 function hasTarget(value: string): boolean { return (props.action.targets ?? []).includes(value) }
 function setTarget(value: string, on: boolean): void {
@@ -45,6 +61,18 @@ function setTarget(value: string, on: boolean): void {
   props.action.targets = next.length ? targetOptions.map((option) => option.value).filter((option) => next.includes(option)) : ['item']
 }
 
+function setLaunchTarget(value: string): void {
+  if (!props.action.launch || !['interactive', 'repository', 'workspace'].includes(value)) return
+  launchTarget.value = value as typeof launchTarget.value
+  props.action.launch.repoTemplate = ''
+  props.action.launch.workspace = ''
+  if (value === 'workspace') {
+    props.action.launch.agent = ''
+    props.action.launch.postHook = ''
+    props.action.launch.postHookTimeout = ''
+  }
+}
+
 function setType(value: string): void {
   props.action.type = value
   props.action.launch = undefined
@@ -52,7 +80,8 @@ function setType(value: string): void {
   props.action.message = undefined
   props.action.clipboard = undefined
   if (value === 'launch-session') {
-    props.action.launch = { promptTemplate: '', repoTemplate: '' }
+    props.action.launch = { promptTemplate: '', repoTemplate: '', workspace: '' }
+    launchTarget.value = 'interactive'
     props.action.targets = ['item']
   } else if (value === 'shell') props.action.shell = { commandTemplate: '' }
   else if (value === 'publish-message') props.action.message = { topic: '', messageTemplate: '' }
@@ -107,10 +136,26 @@ onMounted(async () => {
       </template>
       <template v-if="action.launch">
         <TextareaField v-model="action.launch.promptTemplate" label="Prompt template" :rows="4" monospace testid="action-launch-prompt" />
-        <TextField v-model="action.launch.repoTemplate" label="Repository template" testid="action-launch-repo" />
-        <TextField v-model="action.launch.agent" label="Agent (optional)" testid="action-launch-agent" />
-        <TextareaField :model-value="action.launch.postHook ?? ''" label="Post hook" :rows="2" monospace testid="action-launch-post-hook" @update:model-value="action.launch.postHook = $event" />
-        <TextField v-model="action.launch.postHookTimeout" label="Post hook timeout" placeholder="e.g. 1m" testid="action-launch-post-hook-timeout" />
+        <SelectField label="Session target" :model-value="launchTarget" :options="launchTargetOptions" testid="action-launch-target" @update:model-value="setLaunchTarget" />
+        <TextField v-if="launchTarget === 'repository'" v-model="action.launch.repoTemplate" label="Repository template" testid="action-launch-repo" />
+        <div v-if="launchTarget === 'workspace'" class="grid gap-1.5 text-[12px] font-medium text-text-2">
+          <span>Agent workspace</span>
+          <AppSelect
+            :model-value="action.launch.workspace ?? ''"
+            :options="workspaceOptions"
+            searchable
+            placeholder="No prompt-capable workspaces"
+            aria-label="Agent workspace"
+            testid="action-launch-workspace"
+            :disabled="!workspaceOptions.length"
+            @update:model-value="action.launch.workspace = $event"
+          />
+        </div>
+        <template v-if="launchTarget !== 'workspace'">
+          <TextField v-model="action.launch.agent" label="Agent (optional)" testid="action-launch-agent" />
+          <TextareaField :model-value="action.launch.postHook ?? ''" label="Post hook" :rows="2" monospace testid="action-launch-post-hook" @update:model-value="action.launch.postHook = $event" />
+          <TextField v-model="action.launch.postHookTimeout" label="Post hook timeout" placeholder="e.g. 1m" testid="action-launch-post-hook-timeout" />
+        </template>
       </template>
       <template v-if="action.shell">
         <TextareaField v-model="action.shell.commandTemplate" label="Command template" monospace testid="action-shell-command" />

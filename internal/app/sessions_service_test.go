@@ -39,6 +39,21 @@ func (f *fakeSessionLauncher) SessionLaunchOptions(context.Context) (dispatch.Se
 	return f.opts, nil
 }
 
+type fakeWorkspaceLauncher struct {
+	options []dispatch.SessionLaunchWorkspace
+	calls   []dispatch.LaunchWorkspaceSessionRequest
+	err     error
+}
+
+func (f *fakeWorkspaceLauncher) SessionLaunchWorkspaces(context.Context) []dispatch.SessionLaunchWorkspace {
+	return f.options
+}
+
+func (f *fakeWorkspaceLauncher) LaunchWorkspaceSession(_ context.Context, req dispatch.LaunchWorkspaceSessionRequest) (dispatch.SessionExecutionOutcome, error) {
+	f.calls = append(f.calls, req)
+	return dispatch.SessionExecutionOutcome{ID: "42", Name: req.Name, Slug: "agentws-42"}, f.err
+}
+
 // fakeSessionManager stands in for the hive seam. details is keyed by session
 // id; sessions is what the list returns.
 type fakeSessionManager struct {
@@ -181,6 +196,17 @@ func activeSession() (*fakeSessionManager, dispatch.SessionDetail) {
 	}, detail
 }
 
+func TestSessionsService_SessionLaunchWorkspacesDoesNotResolveRepositories(t *testing.T) {
+	repositories := &fakeSessionLauncher{}
+	workspaceOptions := []dispatch.SessionLaunchWorkspace{{Dir: "alerts", Name: "Alerts", SupportsPrompt: true}}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: repositories, WorkspaceLauncher: &fakeWorkspaceLauncher{options: workspaceOptions},
+	})
+
+	assert.Equal(t, workspaceOptions, svc.SessionLaunchWorkspaces(t.Context()))
+	assert.Zero(t, repositories.optsCalls)
+}
+
 func TestSessionsService_SessionLaunchOptions(t *testing.T) {
 	expected := dispatch.SessionLaunchOptions{
 		Repositories:      []dispatch.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}},
@@ -189,9 +215,14 @@ func TestSessionsService_SessionLaunchOptions(t *testing.T) {
 		DefaultAgent:      "claude",
 	}
 	manager, _ := activeSession()
-	svc := newSessionsService(SessionsDeps{Launcher: &fakeSessionLauncher{opts: expected}, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, DefaultAgentEnv: NopDefaultAgentReader{}})
+	workspaceOptions := []dispatch.SessionLaunchWorkspace{{Dir: "alerts", Name: "Alerts", SupportsPrompt: true}}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{opts: expected}, WorkspaceLauncher: &fakeWorkspaceLauncher{options: workspaceOptions},
+		Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, DefaultAgentEnv: NopDefaultAgentReader{},
+	})
 	got, err := svc.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
+	expected.Workspaces = workspaceOptions
 	assert.Equal(t, expected, got)
 }
 
@@ -226,7 +257,10 @@ func TestSessionsService_CreateSessionValidatesBeforeTracking(t *testing.T) {
 	svc := newSessionsService(SessionsDeps{Launcher: launcher, Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: runner})
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Name: "review", Prompt: "go"})
-	assert.Equal(t, KindInvalid, KindOf(err), "repository is required")
+	assert.Equal(t, KindInvalid, KindOf(err), "a target is required")
+
+	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Workspace: "alerts", Name: "review"})
+	assert.Equal(t, KindInvalid, KindOf(err), "targets are mutually exclusive")
 
 	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r"})
 	assert.Equal(t, KindInvalid, KindOf(err), "name is required")
@@ -262,6 +296,29 @@ func TestSessionsService_CreateSessionLaunchesAsAJob(t *testing.T) {
 		Agent:  "claude",
 		Repo:   "https://github.com/acme/site.git",
 	}, launcher.calls[0])
+}
+
+func TestSessionsService_CreateSessionLaunchesAWorkspaceChat(t *testing.T) {
+	repositories := &fakeSessionLauncher{}
+	workspaces := &fakeWorkspaceLauncher{}
+	runner := &fakeJobRunner{}
+	manager, _ := activeSession()
+	svc := newSessionsService(SessionsDeps{
+		Launcher: repositories, WorkspaceLauncher: workspaces,
+		Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: runner,
+	})
+
+	jobID, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{
+		Workspace: " alerts ", Name: " incident ", Prompt: " cluster prod is down ", Agent: "ignored",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), jobID)
+	require.NoError(t, runner.err)
+	assert.Empty(t, repositories.calls)
+	assert.Equal(t, []dispatch.LaunchWorkspaceSessionRequest{{
+		Workspace: "alerts", Name: "incident", Prompt: "cluster prod is down",
+	}}, workspaces.calls)
+	assert.Zero(t, repositories.optsCalls, "a workspace command selects its own agent")
 }
 
 // CreateSession resolves an unstated agent through the same env override the
@@ -727,6 +784,39 @@ func TestSessionsService_CreateSessionRecordsARetryableActivityRow(t *testing.T)
 	assert.Equal(t, "claude", restored.Agent)
 	require.NotNil(t, restored.Failure)
 	assert.Equal(t, "Cloning repository...", restored.Failure.Step)
+}
+
+func TestSessionsService_WorkspaceFailureRecordsARetryableDraft(t *testing.T) {
+	manager, _ := activeSession()
+	recorder := &fakeActivityRecorder{}
+	svc := newSessionsService(SessionsDeps{
+		Launcher: &fakeSessionLauncher{}, WorkspaceLauncher: &fakeWorkspaceLauncher{err: errors.New("agent exited")},
+		Manager: manager, Statuses: manager, Tmux: &fakeSessionTmux{}, Jobs: &fakeJobRunner{}, Recorder: recorder,
+	})
+
+	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{
+		Workspace: "alerts", Name: "triage-alert", Prompt: "Triage the alert", ItemIDs: []int64{41, 42},
+	})
+	require.NoError(t, err)
+
+	draft, err := svc.FailedSessionDraft(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, draft.Repository)
+	assert.Equal(t, "alerts", draft.Workspace)
+	assert.Equal(t, "triage-alert", draft.Name)
+	assert.Equal(t, "Triage the alert", draft.Prompt)
+	assert.Equal(t, []int64{41, 42}, draft.ItemIDs)
+	require.NotNil(t, draft.Failure)
+	assert.Equal(t, "agent exited", draft.Failure.Reason)
+
+	require.Len(t, recorder.events, 1)
+	restored, err := svc.SessionDraftFromActivity(t.Context(), recorder.events[0].Metadata)
+	require.NoError(t, err)
+	assert.Empty(t, restored.Repository)
+	assert.Equal(t, "alerts", restored.Workspace)
+	assert.Equal(t, "triage-alert", restored.Name)
+	assert.Equal(t, "Triage the alert", restored.Prompt)
+	assert.Equal(t, []int64{41, 42}, restored.ItemIDs)
 }
 
 func TestSessionsService_CreateSessionRecordsNoFailureRowWhenItWorks(t *testing.T) {

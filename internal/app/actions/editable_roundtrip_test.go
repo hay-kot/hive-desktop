@@ -90,6 +90,14 @@ func TestActionTypesRoundTripThroughTheYAMLWriterAndLoader(t *testing.T) {
 			cfg := factory()
 			seed := 0
 			populateNonZero(t, reflect.ValueOf(cfg).Elem(), &seed)
+			if launch, ok := cfg.(*LaunchSessionConfig); ok {
+				// This schema-wide pass exercises the workspace branch; focused
+				// tests cover the mutually exclusive repository and post-hook fields.
+				launch.RepoTemplate = ""
+				launch.Agent = ""
+				launch.PostHook = ""
+				launch.PostHookTimeout = 0
+			}
 			require.NoErrorf(t, cfg.Validate(), "populated %q config must satisfy its own Validate", actionType)
 
 			original := Action{

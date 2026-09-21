@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colonyops/hive/pkg/randid"
+
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
 )
 
@@ -37,9 +39,12 @@ func (s *AgentSessionStore) Get(ctx context.Context, id int64) (AgentSession, er
 
 func (s *AgentSessionStore) Create(ctx context.Context, in AgentSessionCreate) (AgentSession, error) {
 	now := s.now().UnixMilli()
+	if in.TerminalID == "" {
+		in.TerminalID = randid.Generate(8)
+	}
 	row, err := s.q.Ctx(ctx).InsertAgentWorkspaceSession(ctx, queries.InsertAgentWorkspaceSessionParams{
 		Workspace: in.Workspace, Name: in.Name, Agent: in.Agent, AgentSessionID: in.AgentSessionID,
-		CreatedAt: now, LastOpenedAt: now, ScheduleID: in.ScheduleID, EndToken: in.EndToken,
+		TerminalID: in.TerminalID, CreatedAt: now, LastOpenedAt: now, ScheduleID: in.ScheduleID, EndToken: in.EndToken,
 	})
 	return s.mapper.Err(row, wrap("creating agent workspace session", err))
 }
@@ -70,7 +75,7 @@ func (s *AgentSessionStore) SetAgentID(ctx context.Context, id int64, agentSessi
 	}))
 }
 
-// Display names do not affect the ID-derived tmux session name.
+// Display names do not affect the immutable terminal id.
 func (s *AgentSessionStore) Rename(ctx context.Context, id int64, name string) error {
 	return wrap("renaming agent workspace session", s.q.Ctx(ctx).RenameAgentWorkspaceSession(ctx, queries.RenameAgentWorkspaceSessionParams{
 		Name: name,

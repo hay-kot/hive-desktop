@@ -156,7 +156,7 @@ const TEMPLATE_FIELDS = [
   { field: '{{ .MCPConfig }}', means: 'the MCP config Hive generates for this workspace' },
   { field: '{{ .SessionID }}', means: 'the id Hive minted for this chat' },
   { field: '{{ .Resume }}', means: 'true when reopening a chat, false on a new one' },
-  { field: '{{ .Prompt }}', means: "a schedule's prompt on a scheduled chat; empty on one started by hand" },
+  { field: '{{ .Prompt }}', means: 'an optional opening message for a schedule or prompted launch; pass it through shq' },
   { field: 'shq', means: 'quotes a value for the shell — pipe every path through it' },
 ]
 

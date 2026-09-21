@@ -116,3 +116,24 @@ func TestLaunchSessionConfig_PostHookTimeoutNeedsAPostHook(t *testing.T) {
 	require.NoError(t, (&LaunchSessionConfig{PromptTemplate: "go", PostHook: "zed .", PostHookTimeout: Duration(time.Minute)}).Validate())
 	require.NoError(t, (&LaunchSessionConfig{PromptTemplate: "go", PostHook: "zed ."}).Validate())
 }
+
+func TestLaunchSessionConfig_WorkspaceTarget(t *testing.T) {
+	workspace := Action{Config: &LaunchSessionConfig{PromptTemplate: "triage", Workspace: "alerts"}}
+	require.NoError(t, workspace.Config.Validate())
+	assert.True(t, workspace.HeadlessCapable())
+	assert.False(t, workspace.RequiresSessionInput())
+
+	interactive := Action{Config: &LaunchSessionConfig{PromptTemplate: "triage"}}
+	assert.False(t, interactive.HeadlessCapable())
+	assert.True(t, interactive.RequiresSessionInput())
+
+	for name, cfg := range map[string]*LaunchSessionConfig{
+		"repository": {PromptTemplate: "triage", RepoTemplate: "repo", Workspace: "alerts"},
+		"agent":      {PromptTemplate: "triage", Workspace: "alerts", Agent: "claude"},
+		"post hook":  {PromptTemplate: "triage", Workspace: "alerts", PostHook: "zed ."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, cfg.Validate())
+		})
+	}
+}

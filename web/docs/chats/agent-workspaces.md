@@ -34,6 +34,16 @@ Use **New workspace** in Chats. A workspace chooses:
 
 The command picker includes **Ask**, **Auto**, and **Full** presets for Claude Code and Codex. **Custom** lets you edit the complete command template. Add model or provider flags to the command itself.
 
+Schedules and feed-item launches need a command that passes the opening prompt
+as a shell-quoted argument. Keep this suffix from the shipped presets:
+
+```text
+{{ if .Prompt }}-- {{ .Prompt | shq }}{{ end }}
+```
+
+Hive refuses a prompted launch if the custom command drops `.Prompt` or
+interpolates it without `shq`.
+
 **Full** presets bypass the agent's approval checks. Use them only when you trust the workspace instructions and every enabled tool.
 
 ## Work with chats
@@ -41,6 +51,13 @@ The command picker includes **Ask**, **Auto**, and **Full** presets for Claude C
 Create several named chats inside a workspace and use the sidebar to see whether each agent is working, needs approval, is running, or is stopped.
 
 Stopping an agent keeps its chat record. Restarting a stopped chat resumes the conversation when its command and agent support it. You can also rename or delete a chat, filter the sidebar, and open recent chats from the command palette.
+
+An Inbox item's **…** menu offers **Create Session** for Code and **Create Chat**
+for Chats. Both open the same dialog on the requested target; use its compact
+**Code** / **Chats** switch to change targets. A chat keeps the generated item
+prompt, which you can edit before launch. A `launch-session` action with a fixed
+`workspace` can do the same from a manual item action or a flow. See
+[Actions](../inbox/actions.md#action-types).
 
 ## Scheduled jobs
 

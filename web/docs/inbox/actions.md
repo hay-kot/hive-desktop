@@ -11,7 +11,7 @@ Actions can appear on feed items, terminal sessions, terminal windows, or in a f
 
 ## Action types
 
-- **`launch-session`** starts a coding agent session from an item.
+- **`launch-session`** starts a repository coding session or an agent workspace chat from an item.
 - **`shell`** runs a shell command.
 - **`publish-message`** sends a message to a topic.
 - **`clipboard`** renders text and copies it.
@@ -37,6 +37,24 @@ launchers: []
 ```
 
 This action appears for pull requests and starts a session with the repository and prompt rendered from the item.
+
+Use `workspace` instead of `repo_template` to send an item to an agent workspace:
+
+```yaml
+- id: triage-alert
+  label: Triage alert
+  type: launch-session
+  workspace: incident-triage
+  prompt_template: |
+    Triage {{ .Payload.alert }} in {{ .Payload.cluster }}.
+
+    {{ .Payload.thread_url }}
+```
+
+`workspace` is the workspace directory name. The workspace command must pass
+`.Prompt` through `shq`, as the shipped command presets do. Hive refuses the
+launch if the command would drop the item context or interpolate it as shell
+syntax. `repo_template` and `workspace` cannot appear together.
 
 Template fields depend on where the action runs:
 
@@ -79,7 +97,11 @@ Use `targets` to choose where an action appears:
 
 `item` is the default target. `session` and `window` add the action to row menus in Code. A `launch-session` action only supports item targets.
 
-A flow runs its named action for every routed item, regardless of `applies_to`. Flow actions cannot use the clipboard. A `launch-session` flow action needs `repo_template`, and required inputs need defaults.
+A flow runs its named action for every routed item, regardless of `applies_to`. Flow actions cannot use the clipboard. A `launch-session` flow action needs `repo_template` or `workspace`, and required inputs need defaults.
+
+A manual `launch-session` action with neither fixed target opens a dialog where
+you can choose a repository or an agent workspace. `agent` and `post_hook` apply
+only to repository sessions. A fixed workspace target cannot use either field.
 
 ## Quick terminals
 

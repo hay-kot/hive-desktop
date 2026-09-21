@@ -225,10 +225,17 @@ func TestActionStoreUpdateBlocksHeadlessActionBecomingInteractiveForLoadedFlows(
 	assert.True(t, got.HeadlessCapable())
 
 	// A change that keeps the action headless remains safe even when flows
-	// reference it.
+	// reference it, including a change to the other launch target.
 	headless.Label = "Updated"
+	headless.Launch.RepoTemplate = ""
+	headless.Launch.Workspace = "alerts"
 	_, err = s.Update(t.Context(), "used", headless)
 	require.NoError(t, err)
+	got, ok = s.Get("used")
+	require.True(t, ok)
+	gotCfg, ok := got.Config.(*LaunchSessionConfig)
+	require.True(t, ok)
+	assert.Equal(t, "alerts", gotCfg.Workspace)
 
 	// Active command counts are deletion-specific and do not block Update.
 	s.SetUsageChecker(usageStub{usage: ActionUsage{ActiveCommands: 2}})

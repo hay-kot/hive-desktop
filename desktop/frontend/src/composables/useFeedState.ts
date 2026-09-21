@@ -1049,7 +1049,7 @@ export function useFeedState() {
     sessionLaunchError.value = null
   }
 
-  async function submitSessionLaunch(input: { name: string; repository: string; agent?: string; inputs: Record<string, string> }) {
+  async function submitSessionLaunch(input: { name: string; repository?: string; workspace?: string; agent?: string; inputs: Record<string, string> }) {
     const action = sessionLaunchAction.value
     const item = sessionLaunchItem.value
     if (!action || !item || sessionLaunchBusy.value) return

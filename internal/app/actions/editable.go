@@ -43,6 +43,7 @@ type EditableLaunchConfig struct {
 	PromptTemplate  string `json:"promptTemplate"`
 	Agent           string `json:"agent,omitempty"`
 	RepoTemplate    string `json:"repoTemplate,omitempty"`
+	Workspace       string `json:"workspace,omitempty"`
 	PostHook        string `json:"postHook,omitempty"`
 	PostHookTimeout string `json:"postHookTimeout,omitempty"`
 }
@@ -71,7 +72,7 @@ func editableFromAction(a Action) (EditableAction, error) {
 		if c.PostHookTimeout != 0 {
 			postHookTimeout = time.Duration(c.PostHookTimeout).String()
 		}
-		out.Launch = &EditableLaunchConfig{PromptTemplate: c.PromptTemplate, Agent: c.Agent, RepoTemplate: c.RepoTemplate, PostHook: c.PostHook, PostHookTimeout: postHookTimeout}
+		out.Launch = &EditableLaunchConfig{PromptTemplate: c.PromptTemplate, Agent: c.Agent, RepoTemplate: c.RepoTemplate, Workspace: c.Workspace, PostHook: c.PostHook, PostHookTimeout: postHookTimeout}
 	case *ShellConfig:
 		timeout := ""
 		if c.Timeout != 0 {
@@ -123,7 +124,7 @@ func actionFromEditable(e EditableAction) (Action, error) {
 			}
 			postHookTimeout = Duration(d)
 		}
-		a.Config = &LaunchSessionConfig{PromptTemplate: e.Launch.PromptTemplate, Agent: e.Launch.Agent, RepoTemplate: e.Launch.RepoTemplate, PostHook: e.Launch.PostHook, PostHookTimeout: postHookTimeout}
+		a.Config = &LaunchSessionConfig{PromptTemplate: e.Launch.PromptTemplate, Agent: e.Launch.Agent, RepoTemplate: e.Launch.RepoTemplate, Workspace: e.Launch.Workspace, PostHook: e.Launch.PostHook, PostHookTimeout: postHookTimeout}
 	case "shell":
 		if e.Shell == nil {
 			return Action{}, fmt.Errorf("action %q: shell config is required for shell", e.ID)

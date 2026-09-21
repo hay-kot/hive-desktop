@@ -38,18 +38,27 @@ type SessionLauncher interface {
 	LaunchSession(ctx context.Context, req LaunchSessionRequest) (SessionExecutionOutcome, error)
 }
 
-// LaunchSessionExecutor renders a launch-session action's templates over
-// the triggering msg and hands the result to a SessionLauncher.
-type LaunchSessionExecutor struct {
-	logger   zerolog.Logger
-	launcher SessionLauncher
-	env      ExecEnvironment
+type LaunchWorkspaceSessionRequest struct {
+	Workspace string
+	Name      string
+	Prompt    string
 }
 
-// NewLaunchSessionExecutor treats a nil launcher as unavailable, so an action
-// fails rather than reporting a session it never created.
-func NewLaunchSessionExecutor(logger zerolog.Logger, launcher SessionLauncher, env ExecEnvironment) *LaunchSessionExecutor {
-	return &LaunchSessionExecutor{logger: logger, launcher: launcher, env: env}
+type WorkspaceSessionLauncher interface {
+	LaunchWorkspaceSession(ctx context.Context, req LaunchWorkspaceSessionRequest) (SessionExecutionOutcome, error)
+}
+
+// LaunchSessionExecutor renders a launch-session action's templates over the
+// triggering message and routes it to the configured target launcher.
+type LaunchSessionExecutor struct {
+	logger            zerolog.Logger
+	launcher          SessionLauncher
+	workspaceLauncher WorkspaceSessionLauncher
+	env               ExecEnvironment
+}
+
+func NewLaunchSessionExecutor(logger zerolog.Logger, launcher SessionLauncher, workspaceLauncher WorkspaceSessionLauncher, env ExecEnvironment) *LaunchSessionExecutor {
+	return &LaunchSessionExecutor{logger: logger, launcher: launcher, workspaceLauncher: workspaceLauncher, env: env}
 }
 
 func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Action, data OutputData, input ActionInvocationInput) (ExecutionResult, error) {
@@ -57,13 +66,8 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 	if !ok {
 		return ExecutionResult{}, fmt.Errorf("launch-session executor: action %q has config type %T", action.ID, action.Config)
 	}
-	if e.launcher == nil {
-		return ExecutionResult{}, fmt.Errorf("launch-session executor: no session launcher configured")
-	}
 
-	renderer := tmpl.New(tmpl.Config{})
-
-	prompt, err := renderer.Render(cfg.PromptTemplate, data)
+	prompt, err := tmpl.New(tmpl.Config{}).Render(cfg.PromptTemplate, data)
 	if err != nil {
 		return ExecutionResult{}, fmt.Errorf("launch-session: prompt_template: %w", err)
 	}
@@ -72,33 +76,41 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		return ExecutionResult{}, fmt.Errorf("launch-session: prompt_template rendered blank")
 	}
 
-	repo, err := RenderRepoTarget(action, data.Key, data.Raw, data.Inputs)
-	if err != nil {
-		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template: %w", err)
-	}
-
 	name := SlugifySessionName(action.ID + "-" + data.Key)
 	if err := ValidateSessionName(name); err != nil {
 		return ExecutionResult{}, fmt.Errorf("launch-session: derived session name: %w", err)
 	}
 
+	repo, err := RenderRepoTarget(action, data.Key, data.Raw, data.Inputs)
+	if err != nil {
+		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template: %w", err)
+	}
+	workspace := strings.TrimSpace(cfg.Workspace)
 	agent := cfg.Agent
-	if cfg.RepoTemplate == "" {
+	if strings.TrimSpace(cfg.RepoTemplate) == "" && workspace == "" {
 		if input.Session == nil {
-			return ExecutionResult{}, fmt.Errorf("launch-session: repository, name, and agent input are required")
+			return ExecutionResult{}, fmt.Errorf("launch-session: target and session name input are required")
 		}
-		repo, name = strings.TrimSpace(input.Session.Repository), strings.TrimSpace(input.Session.Name)
-		if repo == "" || name == "" {
-			return ExecutionResult{}, fmt.Errorf("launch-session: repository and session name are required")
+		repo = strings.TrimSpace(input.Session.Repository)
+		workspace = strings.TrimSpace(input.Session.Workspace)
+		name = strings.TrimSpace(input.Session.Name)
+		if (repo == "") == (workspace == "") {
+			return ExecutionResult{}, fmt.Errorf("launch-session: exactly one of repository or workspace is required")
+		}
+		if name == "" {
+			return ExecutionResult{}, fmt.Errorf("launch-session: session name is required")
 		}
 		if err := ValidateSessionName(name); err != nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: session name: %w", err)
 		}
-		if input.Session.Agent != "" {
+		if repo != "" && input.Session.Agent != "" {
 			agent = input.Session.Agent
 		}
-	} else if repo == "" {
+	} else if repo == "" && workspace == "" {
 		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template rendered blank")
+	}
+	if repo != "" && workspace != "" {
+		return ExecutionResult{}, fmt.Errorf("launch-session: repository and workspace targets are mutually exclusive")
 	}
 	if data.IsRerun {
 		name = fmt.Sprintf("%s-rerun-%d", name, data.CommandID)
@@ -106,31 +118,48 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}
-	var origins []models.ItemRef
-	if data.Origin.Known() {
-		origins = []models.ItemRef{data.Origin}
+
+	var outcome SessionExecutionOutcome
+	if workspace != "" {
+		outcome, err = e.launchWorkspace(ctx, LaunchWorkspaceSessionRequest{Workspace: workspace, Name: name, Prompt: prompt})
+	} else {
+		var origins []models.ItemRef
+		if data.Origin.Known() {
+			origins = []models.ItemRef{data.Origin}
+		}
+		outcome, err = e.launchRepository(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origins: origins})
 	}
-	outcome, err := e.launch(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: agent, Repo: repo, Origins: origins})
 	if err != nil {
 		return ExecutionResult{Attempted: true}, err
 	}
-	return ExecutionResult{
-		Attempted: true,
-		Outcome:   &ExecutionOutcome{Session: &outcome},
-		Log:       e.runPostHook(ctx, action, cfg, data, repo, outcome),
-	}, nil
+	result := ExecutionResult{Attempted: true, Outcome: &ExecutionOutcome{Session: &outcome}}
+	if repo != "" {
+		result.Log = e.runPostHook(ctx, action, cfg, data, repo, outcome)
+	}
+	return result, nil
 }
 
-// The launcher is the wait a launch-session action mostly is: hive clones or
-// resolves the checkout and starts the agent before it answers.
-func (e *LaunchSessionExecutor) launch(ctx context.Context, req LaunchSessionRequest) (outcome SessionExecutionOutcome, err error) {
+func (e *LaunchSessionExecutor) launchRepository(ctx context.Context, req LaunchSessionRequest) (outcome SessionExecutionOutcome, err error) {
+	if e.launcher == nil {
+		return SessionExecutionOutcome{}, fmt.Errorf("launch-session executor: no repository session launcher configured")
+	}
 	ctx, span := observe.StartConditionalSpan(ctx, tracer, "dispatch.launch-session", trace.WithAttributes(
 		attribute.String(attrAgent, req.Agent),
 		attribute.String(attrRepo, req.Repo),
 	))
 	defer observe.End(span, &err)
-
 	return e.launcher.LaunchSession(ctx, req)
+}
+
+func (e *LaunchSessionExecutor) launchWorkspace(ctx context.Context, req LaunchWorkspaceSessionRequest) (outcome SessionExecutionOutcome, err error) {
+	if e.workspaceLauncher == nil {
+		return SessionExecutionOutcome{}, fmt.Errorf("launch-session executor: no workspace session launcher configured")
+	}
+	ctx, span := observe.StartConditionalSpan(ctx, tracer, "dispatch.launch-session", trace.WithAttributes(
+		attribute.String(attrWorkspace, req.Workspace),
+	))
+	defer observe.End(span, &err)
+	return e.workspaceLauncher.LaunchWorkspaceSession(ctx, req)
 }
 
 // A failure stays in the log and never becomes the action's error: the session

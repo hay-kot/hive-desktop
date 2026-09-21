@@ -531,6 +531,9 @@ func actionNode(a Action) (*yaml.Node, error) {
 		if c.RepoTemplate != "" {
 			add("repo_template", c.RepoTemplate)
 		}
+		if c.Workspace != "" {
+			add("workspace", c.Workspace)
+		}
 		add("prompt_template", c.PromptTemplate)
 		if c.Agent != "" {
 			add("agent", c.Agent)
