@@ -72,9 +72,8 @@ type Config struct {
 	CredentialKeyringService string
 
 	// GUI-owned dependencies enter through consumer-defined driven ports.
-	ImageClipboard ClipboardImageReader
-	Notifier       dispatch.SystemNotifier
-	Gate           dispatch.NotificationGate
+	Notifier dispatch.SystemNotifier
+	Gate     dispatch.NotificationGate
 
 	// Build stamps the running binary into report bundles.
 	Build report.Build
@@ -397,7 +396,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.Sources = newSourcesService(a.producer, a.fetchers, a.rssFetchers)
 	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
-	a.TerminalImages = &TerminalImagesService{store: terminalimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "terminal-images")), clipboard: cfg.ImageClipboard}
+	a.TerminalImages = &TerminalImagesService{store: terminalimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "terminal-images"))}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(FlowsDeps{

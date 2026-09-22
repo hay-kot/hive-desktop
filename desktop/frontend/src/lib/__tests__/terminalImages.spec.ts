@@ -5,7 +5,6 @@ import { resetToastsForTests, useToasts } from '../../composables/useToasts'
 
 const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
-  clipboard: vi.fn(),
   drop: undefined as undefined | ((event: { data: { target: string; paths: string[] } }) => void),
   unsubscribe: vi.fn(),
 }))
@@ -13,7 +12,7 @@ vi.mock('@wailsio/runtime', () => ({ Events: { On: (_: string, handler: typeof m
   mocks.drop = handler
   return mocks.unsubscribe
 } } }))
-vi.mock('../terminalImagesClient', () => ({ prepareTerminalImages: mocks.prepare, clipboardTerminalImages: mocks.clipboard }))
+vi.mock('../terminalImagesClient', () => ({ prepareTerminalImages: mocks.prepare }))
 
 const disposers: (() => void)[] = []
 afterEach(() => {
@@ -49,22 +48,6 @@ function drop(host: HTMLElement, paths = ['/one.png']) {
 }
 
 describe('terminal image input', () => {
-  it('reads the native clipboard only for an explicit empty paste, and suppresses the default', async () => {
-    Object.assign(window, { _wails: { flags: { enableFileDrop: true } } })
-    mocks.clipboard.mockResolvedValue(['/native.png '])
-    const p = pane()
-    expect(mocks.clipboard).not.toHaveBeenCalled()
-    const xterm = vi.fn()
-    p.textarea.addEventListener('paste', xterm)
-    const event = new Event('paste', { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'clipboardData', { value: { getData: () => '' } })
-    p.textarea.dispatchEvent(event)
-    await flushPromises()
-    expect(xterm).not.toHaveBeenCalled()
-    expect(mocks.clipboard).toHaveBeenCalledOnce()
-    expect(mocks.prepare).not.toHaveBeenCalled()
-    expect(p.paste).toHaveBeenCalledWith('/native.png ', expect.any(AbortSignal))
-  })
   it('routes a native drop to exactly one pane, with a separate paste for each image', async () => {
     mocks.prepare.mockResolvedValue(['/one.png ', '/two.png '])
     const first = pane()
@@ -91,6 +74,7 @@ describe('terminal image input', () => {
   })
 
   it('captures clipboard images before xterm and does not paste their alternate text', async () => {
+    Object.assign(window, { _wails: { flags: { enableFileDrop: true } } })
     mocks.prepare.mockResolvedValue(['/clipboard.png '])
     const p = pane()
     const xterm = vi.fn()

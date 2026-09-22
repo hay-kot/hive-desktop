@@ -1,7 +1,6 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -9,27 +8,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/terminalimg"
 )
 
-type ClipboardImageReader interface {
-	ReadImage(context.Context) ([]byte, error)
-}
-
 type TerminalImagesService struct {
-	store     *terminalimg.Store
-	clipboard ClipboardImageReader
-}
-
-func (s *TerminalImagesService) Clipboard(ctx context.Context) ([]string, error) {
-	if s.clipboard == nil {
-		return []string{}, nil
-	}
-	raw, err := s.clipboard.ReadImage(ctx)
-	if err != nil {
-		return nil, Wrap(err, KindUnavailable, "Could not read the clipboard image. Save it to a file and drag it into the terminal.")
-	}
-	if len(raw) == 0 {
-		return []string{}, nil
-	}
-	return s.Save(ctx, []io.Reader{bytes.NewReader(raw)})
+	store *terminalimg.Store
 }
 
 func (s *TerminalImagesService) Prepare(ctx context.Context, paths []string) ([]string, error) {

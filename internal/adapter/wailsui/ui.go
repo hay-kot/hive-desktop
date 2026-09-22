@@ -172,7 +172,6 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewObservabilityService(core.Observability)),
 		application.NewService(NewDevToolsService(core.DevTools)),
 		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal)),
-		application.NewService(NewTerminalImagesService(core.TerminalImages)),
 		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal)),
 		application.NewService(NewAgentsService(core.AgentWorkspaces, core.Webhooks, opts.Agents)),
 		application.NewService(u.updater),

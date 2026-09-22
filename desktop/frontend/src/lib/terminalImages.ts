@@ -1,6 +1,6 @@
 import { Events } from '@wailsio/runtime'
 import { useToasts } from '../composables/useToasts'
-import { clipboardTerminalImages, prepareTerminalImages } from './terminalImagesClient'
+import { prepareTerminalImages } from './terminalImagesClient'
 import { interceptPaste } from './terminalPaste'
 
 export interface ImagePasteTarget {
@@ -29,21 +29,18 @@ export function installTerminalImages(host: HTMLElement, options: ImageInputOpti
   let queue = Promise.resolve()
   const visible = () => !disposed && host.isConnected && host.getClientRects().length > 0
 
-  function receive(input: File[] | string[] | (() => Promise<string[]>)): void {
-    if (!visible() || (typeof input !== 'function' && input.length === 0)) return
+  function receive(input: File[] | string[]): void {
+    if (!visible() || input.length === 0) return
     const target = options.capture()
     if (!target?.current()) return
     const controller = new AbortController()
     requests.add(controller)
     const current = () => visible() && !controller.signal.aborted && target.current()
-    // Capture native clipboard contents at the gesture, not when older uploads finish.
-    const clipboard = typeof input === 'function' ? input() : undefined
-    void clipboard?.catch(() => {})
     queue = queue.then(async () => {
       if (!current()) return
       const toast = showToast('Preparing image…', { duration: 0 })
       try {
-        const pastes = await (clipboard ?? prepareTerminalImages(input as File[] | string[], controller.signal))
+        const pastes = await prepareTerminalImages(input, controller.signal)
         for (const text of pastes) {
           if (!current()) return
           await target.paste(text, controller.signal)
@@ -68,7 +65,7 @@ export function installTerminalImages(host: HTMLElement, options: ImageInputOpti
   // Native Wails owns OS drops. Browser File drops are used by the headless
   // surface; handling both in Wails would insert the same image twice.
   const native = (window as Window & { _wails?: { flags?: { enableFileDrop?: boolean } } })._wails?.flags?.enableFileDrop === true
-  const releasePaste = interceptPaste(host, options.pasteText, receive, native ? () => receive(clipboardTerminalImages) : undefined)
+  const releasePaste = interceptPaste(host, options.pasteText, receive)
   const dragOver = (event: DragEvent) => {
     if (!native && event.dataTransfer?.types.includes('Files')) {
       event.preventDefault()

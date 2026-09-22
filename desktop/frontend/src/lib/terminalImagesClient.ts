@@ -1,9 +1,4 @@
 import { getTerminalEndpoint } from './terminalClient'
-import { Clipboard } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalimagesservice'
-
-export async function clipboardTerminalImages(): Promise<string[]> {
-  return await Clipboard() ?? []
-}
 
 async function request(path: string, body: FormData | object, signal: AbortSignal): Promise<Response> {
   const endpoint = await getTerminalEndpoint()
