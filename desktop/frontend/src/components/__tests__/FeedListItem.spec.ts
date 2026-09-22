@@ -15,20 +15,48 @@ describe('FeedListItem', () => {
     expect(wrapper.find('[data-testid="source-badge"]').attributes('data-source')).toBe('github')
     expect(wrapper.find('[data-testid="type-pill"]').classes()).toContain('type-pill-pr')
     expect(wrapper.find('[data-testid="type-pill"]').text()).toBe('Pull Request')
-    expect(wrapper.find('[data-testid="item-snippet"]').text()).toContain('octocat — Body')
-    expect(wrapper.get('[data-testid="pr-ci"]').attributes('aria-label')).toBe('Checks pass')
-    expect(wrapper.find('[data-testid="pr-review"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="item-byline"]').text()).toContain('octocat')
+    expect(wrapper.get('[data-testid="item-byline"]').text()).toContain('Approved')
+    expect(wrapper.findAll('[data-testid="metadata-separator"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="item-byline"]').text()).not.toContain('Body')
+    expect(wrapper.get('[data-testid="item-byline"] [data-testid="pr-ci"]').attributes('aria-label')).toBe('Checks pass')
+    expect(wrapper.get('[data-testid="pr-ci"]').classes()).toContain('text-severity-success/80')
+    expect(wrapper.get('[data-testid="pr-review"]').text()).toBe('Approved')
+    expect(wrapper.get('[data-testid="pr-review"]').classes()).toContain('text-severity-success/80')
+    expect(wrapper.get('[data-testid="pr-lines"] span:first-child').classes()).toContain('text-severity-success/70')
+    expect(wrapper.get('[data-testid="pr-lines"] span:last-child').classes()).toContain('text-severity-error/70')
     expect(wrapper.get('[data-testid="pr-lines"]').text()).toContain('+42')
     expect(wrapper.get('[data-testid="pr-lines"]').text()).toContain('−7')
   })
 
-  it('renders issue styling and an unread border only when inbox state is unread', () => {
-    expect(mountItem().get('[data-testid="feed-item"]').classes()).toContain('unread')
+  it('renders issue styling and marks unread state through title weight', () => {
+    expect(mountItem().get('[data-testid="item-title"]').classes()).toContain('font-semibold')
 
     const issue = mountItem({ unread: false, payload: { ...baseItem.payload as object, kind: 'Issue' } })
     expect(issue.find('[data-testid="type-pill"]').classes()).toContain('type-pill-issue')
-    expect(issue.get('[data-testid="feed-item"]').classes()).not.toContain('unread')
+    expect(issue.get('[data-testid="item-title"]').classes()).toContain('font-normal')
+    expect(issue.get('[data-testid="item-byline"]').text()).toBe('octocat')
     expect(issue.find('[data-testid="pr-metadata"]').exists()).toBe(false)
+  })
+
+  it('uses compact colored glyphs for pull request status', () => {
+    const failing = mountItem({ payload: { ...baseItem.payload as object, ci: 'failing', review: 'open' } })
+    expect(failing.get('[data-testid="pr-ci"]').classes()).toContain('text-severity-error/80')
+    expect(failing.find('[data-testid="metadata-separator"]').exists()).toBe(false)
+
+    const pending = mountItem({ payload: { ...baseItem.payload as object, ci: 'pending' } })
+    expect(pending.get('[data-testid="pr-ci"]').classes()).toContain('text-severity-warning/80')
+    expect(pending.get('[data-testid="pr-ci"] svg').classes()).toContain('motion-safe:animate-spin')
+  })
+
+  it('shows only approved and draft review states beside the author', () => {
+    const draft = mountItem({ payload: { ...baseItem.payload as object, review: 'draft' } })
+    expect(draft.get('[data-testid="pr-review"]').text()).toBe('Draft')
+
+    for (const review of ['open', 'review_required', 'changes_requested']) {
+      const wrapper = mountItem({ payload: { ...baseItem.payload as object, review } })
+      expect(wrapper.find('[data-testid="pr-review"]').exists()).toBe(false)
+    }
   })
 
   it('omits metadata for notification PRs and hides the no-CI state', () => {
