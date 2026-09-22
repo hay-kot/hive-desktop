@@ -7,7 +7,7 @@ import type { ItemSessionView } from '../../../bindings/github.com/hay-kot/hive-
 
 const item: InboxItem = {
   id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
-  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
+  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'Body', ci: 'passing', review: 'approved', additions: 42, deletions: 7 }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
 }
 const actions: ActionView[] = [{ id: 'summarize', label: 'Summarize', type: 'launch-session', showInDetail: true, requiresSessionInput: false }]
 const payload = (patch: Record<string, unknown>) => ({ ...(item.payload as Record<string, unknown>), ...patch })
@@ -18,7 +18,21 @@ describe('DetailPane', () => {
     expect(wrapper.get('[data-testid="source-badge"]').attributes('data-source')).toBe('github')
     expect(wrapper.text()).toContain('colonyops/hive #42')
     expect(wrapper.text()).toContain('octocat')
+    expect(wrapper.get('[data-testid="pr-ci"]').attributes('aria-label')).toBe('Checks pass')
+    expect(wrapper.get('[data-testid="pr-ci"]').text()).toBe('Checks pass')
+    expect(wrapper.get('[data-testid="pr-review"]').attributes('aria-label')).toBe('Review approved')
+    expect(wrapper.get('[data-testid="pr-review"]').text()).toBe('Review approved')
+    expect(wrapper.get('[data-testid="pr-lines"] span:first-child').classes()).toContain('text-severity-success/70')
+    expect(wrapper.get('[data-testid="pr-lines"] span:last-child').classes()).toContain('text-severity-error/70')
+    expect(wrapper.get('[data-testid="pr-lines"]').text()).toContain('+42')
+    expect(wrapper.get('[data-testid="pr-lines"]').text()).toContain('−7')
     expect(wrapper.findAll('[data-testid="action-card"]')).toHaveLength(1)
+  })
+
+  it('omits the PR metadata row when a notification payload has no enrichment', () => {
+    const notificationItem = { ...item, payload: payload({ ci: undefined, review: undefined, additions: undefined, deletions: undefined }) }
+    const wrapper = mount(DetailPane, { props: { item: notificationItem, actions } })
+    expect(wrapper.find('[data-testid="pr-metadata"]').exists()).toBe(false)
   })
 
   it('renders GitHub-flavored markdown and routes body links through open-url', async () => {
@@ -127,6 +141,7 @@ describe('DetailPane', () => {
     expect(wrapper.get('[data-testid="kind-pill"]').classes()).toContain('kind-pill-neutral')
     expect(wrapper.get('[data-testid="source-badge"]').attributes('data-source')).toBe('webhook')
     expect(wrapper.text()).not.toContain('#42')
+    expect(wrapper.find('[data-testid="pr-metadata"]').exists()).toBe(false)
   })
 
   it('omits the open-in-browser menu entry for webhook items without a URL, and the ACTIONS block when it has no applicable actions', async () => {

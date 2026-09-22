@@ -5,7 +5,7 @@ import type { InboxItem } from '../../types/feed'
 
 const baseItem: InboxItem = {
   id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
-  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
+  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'Body', ci: 'passing', review: 'approved', additions: 42, deletions: 7 }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
 }
 function mountItem(overrides: Partial<InboxItem> = {}, selected = false) { return mount(FeedListItem, { props: { item: { ...baseItem, ...overrides }, selected } }) }
 
@@ -15,13 +15,59 @@ describe('FeedListItem', () => {
     expect(wrapper.find('[data-testid="source-badge"]').attributes('data-source')).toBe('github')
     expect(wrapper.find('[data-testid="type-pill"]').classes()).toContain('type-pill-pr')
     expect(wrapper.find('[data-testid="type-pill"]').text()).toBe('Pull Request')
-    expect(wrapper.find('[data-testid="item-snippet"]').text()).toContain('octocat — Body')
+    expect(wrapper.get('[data-testid="item-byline"]').text()).toContain('octocat')
+    expect(wrapper.get('[data-testid="item-byline"]').text()).toContain('Approved')
+    expect(wrapper.findAll('[data-testid="metadata-separator"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="item-byline"]').text()).not.toContain('Body')
+    expect(wrapper.get('[data-testid="item-byline"] [data-testid="pr-ci"]').attributes('aria-label')).toBe('Checks pass')
+    expect(wrapper.get('[data-testid="pr-ci"]').classes()).toContain('text-severity-success/80')
+    expect(wrapper.get('[data-testid="pr-review"]').text()).toBe('Approved')
+    expect(wrapper.get('[data-testid="pr-review"]').classes()).toContain('text-severity-success/80')
+    expect(wrapper.get('[data-testid="pr-lines"] span:first-child').classes()).toContain('text-severity-success/70')
+    expect(wrapper.get('[data-testid="pr-lines"] span:last-child').classes()).toContain('text-severity-error/70')
+    expect(wrapper.get('[data-testid="pr-lines"]').text()).toContain('+42')
+    expect(wrapper.get('[data-testid="pr-lines"]').text()).toContain('−7')
   })
 
-  it('renders issue styling and an unread indicator only when inbox state is unread', () => {
+  it('renders issue styling and marks unread state through title weight', () => {
+    expect(mountItem().get('[data-testid="item-title"]').classes()).toContain('font-semibold')
+
     const issue = mountItem({ unread: false, payload: { ...baseItem.payload as object, kind: 'Issue' } })
     expect(issue.find('[data-testid="type-pill"]').classes()).toContain('type-pill-issue')
-    expect(issue.find('[data-testid="unread-dot"]').exists()).toBe(false)
+    expect(issue.get('[data-testid="item-title"]').classes()).toContain('font-normal')
+    expect(issue.get('[data-testid="item-byline"]').text()).toBe('octocat')
+    expect(issue.find('[data-testid="pr-metadata"]').exists()).toBe(false)
+  })
+
+  it('uses compact colored glyphs for pull request status', () => {
+    const failing = mountItem({ payload: { ...baseItem.payload as object, ci: 'failing', review: 'open' } })
+    expect(failing.get('[data-testid="pr-ci"]').classes()).toContain('text-severity-error/80')
+    expect(failing.find('[data-testid="metadata-separator"]').exists()).toBe(false)
+
+    const pending = mountItem({ payload: { ...baseItem.payload as object, ci: 'pending' } })
+    expect(pending.get('[data-testid="pr-ci"]').classes()).toContain('text-severity-warning/80')
+    expect(pending.get('[data-testid="pr-ci"] svg').classes()).toContain('motion-safe:animate-spin')
+  })
+
+  it('shows only approved and draft review states beside the author', () => {
+    const draft = mountItem({ payload: { ...baseItem.payload as object, review: 'draft' } })
+    expect(draft.get('[data-testid="pr-review"]').text()).toBe('Draft')
+
+    for (const review of ['open', 'review_required', 'changes_requested']) {
+      const wrapper = mountItem({ payload: { ...baseItem.payload as object, review } })
+      expect(wrapper.find('[data-testid="pr-review"]').exists()).toBe(false)
+    }
+  })
+
+  it('omits metadata for notification PRs and hides the no-CI state', () => {
+    const notification = mountItem({ payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42 } })
+    expect(notification.find('[data-testid="pr-metadata"]').exists()).toBe(false)
+
+    const noChecks = mountItem({ payload: { ...baseItem.payload as object, ci: 'none', review: 'open', additions: 0, deletions: 0 } })
+    expect(noChecks.find('[data-testid="pr-ci"]').exists()).toBe(false)
+    expect(noChecks.find('[data-testid="pr-review"]').exists()).toBe(false)
+    expect(noChecks.get('[data-testid="pr-lines"]').text()).toContain('+0')
+    expect(noChecks.get('[data-testid="pr-lines"]').text()).toContain('−0')
   })
 
   it('uses archive reason only in archived presentation and keeps selection styling', () => {

@@ -147,12 +147,17 @@ second-line`
 			for i, req := range tt.reqs {
 				index := strconv.Itoa(i)
 				assert.Contains(t, doc, "$q"+index+": String!")
-				assert.Contains(t, doc, "s"+index+": search(query: $q"+index+", type: ISSUE, first: "+strconv.Itoa(req.Limit)+")")
+				assert.Contains(t, doc, "$after"+index+": String")
+				assert.Contains(t, doc, "s"+index+": search(query: $q"+index+", type: ISSUE, first: "+strconv.Itoa(min(req.Limit, searchPageSize))+", after: $after"+index+")")
 				assert.Equal(t, req.Query+" sort:updated-desc", variables["q"+index])
+				assert.Nil(t, variables["after"+index])
 			}
 			assert.Contains(t, doc, "... on Issue {")
 			assert.Contains(t, doc, "... on PullRequest {")
 			assert.Contains(t, doc, "labels(first: 20)")
+			assert.Contains(t, doc, "reviewDecision additions deletions")
+			assert.Contains(t, doc, "statusCheckRollup { state }")
+			assert.Contains(t, doc, "pageInfo { endCursor hasNextPage }")
 			assert.NotContains(t, doc, metacharacters)
 			assert.NotContains(t, doc, "quoted")
 			assert.Equal(t, len(tt.reqs), strings.Count(doc, "search(query:"))
@@ -177,11 +182,11 @@ func TestSearchIssuesBatch(t *testing.T) {
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 		assert.Equal(t, "is:open sort:updated-desc", request.Variables["q0"])
 		assert.Equal(t, "is:pr sort:updated-desc", request.Variables["q1"])
-		assert.Contains(t, request.Query, "s0: search(query: $q0, type: ISSUE, first: 25)")
-		assert.Contains(t, request.Query, "s1: search(query: $q1, type: ISSUE, first: 50)")
+		assert.Contains(t, request.Query, "s0: search(query: $q0, type: ISSUE, first: 25, after: $after0)")
+		assert.Contains(t, request.Query, "s1: search(query: $q1, type: ISSUE, first: 25, after: $after1)")
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"s0":{"nodes":[{"__typename":"Issue","number":7,"title":"Docs pass","body":"Update docs","state":"OPEN","url":"https://github.com/o/docs/issues/7","createdAt":"2026-07-16T09:00:00Z","updatedAt":"2026-07-18T09:00:00Z","author":{"login":"mira"},"repository":{"nameWithOwner":"o/docs"},"labels":{"nodes":[{"name":"docs"}]}}]},"s1":{"nodes":[{"__typename":"PullRequest","number":42,"title":"Fix spawn env","body":"Fix it","state":"OPEN","url":"https://github.com/o/hive/pull/42","isDraft":true,"createdAt":"2026-07-17T10:00:00Z","updatedAt":"2026-07-18T10:00:00Z","author":{"login":"lena"},"repository":{"nameWithOwner":"o/hive"},"labels":{"nodes":[{"name":"bug"},{"name":"desktop"}]}}]}}}`))
+		_, _ = w.Write([]byte(`{"data":{"s0":{"nodes":[{"__typename":"Issue","number":7,"title":"Docs pass","body":"Update docs","state":"OPEN","url":"https://github.com/o/docs/issues/7","createdAt":"2026-07-16T09:00:00Z","updatedAt":"2026-07-18T09:00:00Z","author":{"login":"mira"},"repository":{"nameWithOwner":"o/docs"},"labels":{"nodes":[{"name":"docs"}]}}]},"s1":{"nodes":[{"__typename":"PullRequest","number":42,"title":"Fix spawn env","body":"Fix it","state":"OPEN","url":"https://github.com/o/hive/pull/42","isDraft":true,"reviewDecision":"APPROVED","additions":42,"deletions":7,"statusCheckRollup":{"state":"SUCCESS"},"createdAt":"2026-07-17T10:00:00Z","updatedAt":"2026-07-18T10:00:00Z","author":{"login":"lena"},"repository":{"nameWithOwner":"o/hive"},"labels":{"nodes":[{"name":"bug"},{"name":"desktop"}]}}]}}}`))
 	}))
 	defer server.Close()
 
@@ -205,9 +210,98 @@ func TestSearchIssuesBatch(t *testing.T) {
 	pr := results[1][0]
 	assert.True(t, pr.IsPullRequest)
 	assert.True(t, pr.Draft)
+	assert.Equal(t, ReviewStateDraft, pr.Review)
+	assert.Equal(t, CheckStatePassing, pr.Checks)
+	assert.Equal(t, 42, pr.Additions)
+	assert.Equal(t, 7, pr.Deletions)
 	assert.Equal(t, "o/hive", pr.Repo)
 	assert.Equal(t, "lena", pr.Author)
 	assert.Equal(t, []Label{{Name: "bug"}, {Name: "desktop"}}, pr.Labels)
+}
+
+func TestSearchIssuesBatch_SplitsAliasBatches(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var request struct {
+			Query string `json:"query"`
+		}
+		if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&request)) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			assert.Contains(t, request.Query, "s0: search")
+			assert.Contains(t, request.Query, "s1: search")
+			assert.NotContains(t, request.Query, "s2: search")
+			_, _ = w.Write([]byte(`{"data":{"s0":{"nodes":[]},"s1":{"nodes":[]}}}`))
+			return
+		}
+		assert.Equal(t, 2, calls)
+		assert.Contains(t, request.Query, "s0: search")
+		assert.NotContains(t, request.Query, "s1: search")
+		_, _ = w.Write([]byte(`{"data":{"s0":{"nodes":[]}}}`))
+	}))
+	defer server.Close()
+
+	results, err := NewClient(WithAPIBase(server.URL)).SearchIssuesBatch(t.Context(), []SearchRequest{
+		{Query: "repo:o/one", Limit: 1},
+		{Query: "repo:o/two", Limit: 1},
+		{Query: "repo:o/three", Limit: 1},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls)
+	assert.Len(t, results, 3)
+}
+
+func TestSearchIssuesBatch_PaginatesLargeSearches(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var request struct {
+			Query     string         `json:"query"`
+			Variables map[string]any `json:"variables"`
+		}
+		if !assert.NoError(t, json.NewDecoder(r.Body).Decode(&request)) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		if calls == 1 {
+			assert.Contains(t, request.Query, "s0: search(query: $q0, type: ISSUE, first: 25, after: $after0)")
+			assert.Contains(t, request.Query, "s1: search(query: $q1, type: ISSUE, first: 25, after: $after1)")
+			assert.Nil(t, request.Variables["after0"])
+			assert.Nil(t, request.Variables["after1"])
+			_, _ = w.Write([]byte(`{"data":{"s0":{"pageInfo":{"endCursor":"cursor-25","hasNextPage":true},"nodes":[{"__typename":"PullRequest","number":1}]},"s1":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"Issue","number":2}]}}}`))
+			return
+		}
+
+		assert.Equal(t, 2, calls)
+		assert.Contains(t, request.Query, "s0: search(query: $q0, type: ISSUE, first: 25, after: $after0)")
+		assert.NotContains(t, request.Query, "s1: search")
+		assert.Equal(t, "cursor-25", request.Variables["after0"])
+		_, _ = w.Write([]byte(`{"data":{"s0":{"pageInfo":{"hasNextPage":false},"nodes":[{"__typename":"PullRequest","number":51}]}}}`))
+	}))
+	defer server.Close()
+
+	results, err := NewClient(WithAPIBase(server.URL)).SearchIssuesBatch(t.Context(), []SearchRequest{
+		{Query: "is:pr", Limit: 100},
+		{Query: "is:issue", Limit: 25},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 2, calls)
+	require.Len(t, results, 2)
+	require.Len(t, results[0], 2)
+	assert.Equal(t, 1, results[0][0].Number)
+	assert.Equal(t, 51, results[0][1].Number)
+	require.Len(t, results[1], 1)
+	assert.Equal(t, 2, results[1][0].Number)
 }
 
 func TestSearchIssuesBatch_Empty(t *testing.T) {

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import ActionCard from './ActionCard.vue'
 import ItemActionMenu from './ItemActionMenu.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
+import PullRequestMetadata from './PullRequestMetadata.vue'
 import SourceMark from './SourceMark.vue'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { body, byline, container, containerLine, kind, kindIcon, kindLabel, kindStyle, presentationFor } from '../lib/itemPresentation'
@@ -134,6 +135,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
         </div>
         <h1 class="text-[17px] font-semibold leading-[1.3] tracking-[-.01em]">{{ item.title }}</h1>
         <p class="mt-[9px] text-xs text-text-3"><template v-if="itemByline"><span class="text-text-2">{{ itemByline }}</span> · </template>{{ relativeAge(item.lastEventAt) === 'now' ? 'now' : `${relativeAge(item.lastEventAt)} ago` }}</p>
+        <PullRequestMetadata :item="item" class="mt-3" />
         <div v-if="bodyHtml" class="markdown-body hive-scroll mt-3 overflow-y-auto text-[14px] leading-[1.65] text-text-2" :style="{ height: bodyHeight + 'px' }" data-testid="detail-body" @click="onBodyClick" v-html="bodyHtml" />
         <!-- The border-b line below is draggable: it sets the description's
              reading-pane height (persisted), so long bodies never bury the actions. -->

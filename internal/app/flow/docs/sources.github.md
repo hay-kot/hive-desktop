@@ -14,4 +14,6 @@ A **GitHub source** node emits messages from an embedded GitHub search or notifi
 
 The source itself runs in the backend: Go polls every enabled flow's source nodes and appends each item to the event log under topic `source:<flowId>/<nodeId>`. This node has one output — every item becomes a `msg` whose payload mirrors the normalized PR/Issue/notification shape.
 
+Search-backed pull requests include `ci` (`passing`, `pending`, `failing`, or `none`), `review` (`open`, `draft`, `approved`, `changes_requested`, or `review_required`), `additions`, and `deletions`. Function nodes can use the line totals directly from `msg.Payload`. Notification-backed items omit these fields.
+
 `credential` is a reference, never a token. Flow files are meant to live in a dotfiles repo, so the secret stays in the OS keychain and only the account name is written here. Sources on different accounts fetch independently — separate caches, separate rate limits — so one account being throttled does not stall another.

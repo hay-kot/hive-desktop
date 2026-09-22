@@ -31,6 +31,8 @@ Connect with GitHub's device flow or a classic personal access token. Hive reque
 
 Use `sources.github` in a flow. Choose `search` and provide a query, or choose `notifications`.
 
+Search results for pull requests include CI and review status plus added and deleted line counts. These values appear in the feed and detail pane. Function nodes can read `ci`, `review`, `additions`, and `deletions` from the item payload. Notification results do not include these fields.
+
 Hive does not update read, archive, or notification state on GitHub.
 
 ## Gitea and Forgejo

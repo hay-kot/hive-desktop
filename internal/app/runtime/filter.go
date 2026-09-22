@@ -22,6 +22,8 @@ type filterableItem struct {
 	Labels []string `json:"labels"`
 	Kind   string   `json:"kind"`
 	Reason string   `json:"reason"`
+	CI     string   `json:"ci"`
+	Review string   `json:"review"`
 }
 
 // filterProcessor evaluates one github-filter node. Its globs are compiled
@@ -36,6 +38,8 @@ type filterProcessor struct {
 	excludeLabels  []*regexp.Regexp
 	types          []string
 	reasons        []string
+	ci             []string
+	review         []string
 }
 
 // newFilterNode builds a github-filter node's processor. Its globs compile
@@ -56,6 +60,8 @@ func newFilterNode(_ *Runner, _ string, config flow.NodeConfig) (processor, erro
 		excludeLabels:  compileGlobs(cfg.ExcludeLabels, false),
 		types:          lowerAll(cfg.Types),
 		reasons:        lowerAll(cfg.Reasons),
+		ci:             lowerAll(cfg.CI),
+		review:         lowerAll(cfg.Review),
 	}, nil
 }
 
@@ -109,6 +115,12 @@ func (p *filterProcessor) matches(item filterableItem) bool {
 		return false
 	}
 	if len(p.reasons) > 0 && !containsFold(p.reasons, item.Reason) {
+		return false
+	}
+	if len(p.ci) > 0 && !containsFold(p.ci, item.CI) {
+		return false
+	}
+	if len(p.review) > 0 && !containsFold(p.review, item.Review) {
 		return false
 	}
 	return true

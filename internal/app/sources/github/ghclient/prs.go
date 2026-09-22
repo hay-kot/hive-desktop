@@ -26,6 +26,17 @@ const (
 	CheckStateFailing CheckState = "failing"
 )
 
+// ReviewState condenses GitHub's draft and review-decision fields.
+type ReviewState string
+
+const (
+	ReviewStateOpen             ReviewState = "open"
+	ReviewStateDraft            ReviewState = "draft"
+	ReviewStateApproved         ReviewState = "approved"
+	ReviewStateChangesRequested ReviewState = "changes_requested"
+	ReviewStateReviewRequired   ReviewState = "review_required"
+)
+
 // PullRequest is the branch's most recently updated pull request. Found is
 // false when the branch has none; the caller must keep that distinct from a
 // failed lookup, which arrives as an error instead.
@@ -129,6 +140,22 @@ func checkState(state string) CheckState {
 		return CheckStateFailing
 	default:
 		return CheckStatePending
+	}
+}
+
+func reviewState(draft bool, decision string) ReviewState {
+	if draft {
+		return ReviewStateDraft
+	}
+	switch decision {
+	case "APPROVED":
+		return ReviewStateApproved
+	case "CHANGES_REQUESTED":
+		return ReviewStateChangesRequested
+	case "REVIEW_REQUIRED":
+		return ReviewStateReviewRequired
+	default:
+		return ReviewStateOpen
 	}
 }
 

@@ -127,69 +127,127 @@ type SearchRequest struct {
 	Limit int    // max items for this search (GraphQL `first`)
 }
 
-// SearchIssuesBatch runs every request as an aliased search field of a single
-// GraphQL query, newest-updated first. Results map back to requests by index:
-// out[i] answers reqs[i]. Query text is passed via GraphQL variables ($q0,
-// $q1, ...), never interpolated.
+const (
+	searchPageSize          = 25
+	searchAliasesPerRequest = 2
+)
+
+type searchPageRequest struct {
+	query       string
+	limit       int
+	resultIndex int
+	after       string
+}
+
+// SearchIssuesBatch runs requests as aliased search fields, newest-updated
+// first. GitHub times out when statusCheckRollup is resolved for large search
+// batches, so each request carries at most two aliases with pages of 25.
+// Results map back by request index: out[i] answers reqs[i].
 func (c *Client) SearchIssuesBatch(ctx context.Context, reqs []SearchRequest) ([][]SearchItem, error) {
 	if len(reqs) == 0 {
 		return nil, nil
 	}
 
-	doc, variables := buildSearchQuery(reqs)
-	var data map[string]gqlSearchResult
-	if err := c.postGraphQL(ctx, doc, variables, &data, false); err != nil {
-		return nil, err
+	results := make([][]SearchItem, len(reqs))
+	pages := make([]searchPageRequest, 0, len(reqs))
+	for i, req := range reqs {
+		pages = append(pages, searchPageRequest{
+			query:       req.Query,
+			limit:       min(req.Limit, searchPageSize),
+			resultIndex: i,
+		})
 	}
 
-	results := make([][]SearchItem, len(reqs))
-	for i := range reqs {
-		nodes := data[fmt.Sprintf("s%d", i)].Nodes
-		items := make([]SearchItem, 0, len(nodes))
-		for _, node := range nodes {
-			author := ""
-			if node.Author != nil {
-				author = node.Author.Login
+	for len(pages) > 0 {
+		next := make([]searchPageRequest, 0, len(pages))
+		for start := 0; start < len(pages); start += searchAliasesPerRequest {
+			batch := pages[start:min(start+searchAliasesPerRequest, len(pages))]
+			doc, variables := buildSearchPageQuery(batch)
+			var data map[string]gqlSearchResult
+			if err := c.postGraphQL(ctx, doc, variables, &data, false); err != nil {
+				return nil, err
 			}
-			items = append(items, SearchItem{
-				Number:        node.Number,
-				Title:         node.Title,
-				Body:          node.Body,
-				State:         node.State,
-				URL:           node.URL,
-				Repo:          node.Repository.NameWithOwner,
-				Author:        author,
-				Labels:        node.Labels.Nodes,
-				IsPullRequest: node.Type == "PullRequest",
-				Draft:         node.Draft,
-				CreatedAt:     node.CreatedAt,
-				UpdatedAt:     node.UpdatedAt,
-			})
+
+			for i, pageRequest := range batch {
+				page := data[fmt.Sprintf("s%d", i)]
+				resultIndex := pageRequest.resultIndex
+				results[resultIndex] = append(results[resultIndex], searchItems(page.Nodes)...)
+				remaining := reqs[resultIndex].Limit - len(results[resultIndex])
+				if remaining > 0 && page.PageInfo.HasNextPage {
+					next = append(next, searchPageRequest{
+						query:       reqs[resultIndex].Query,
+						limit:       min(remaining, searchPageSize),
+						resultIndex: resultIndex,
+						after:       page.PageInfo.EndCursor,
+					})
+				}
+			}
 		}
-		results[i] = items
+		pages = next
 	}
 	return results, nil
 }
 
-// buildSearchQuery constructs the aliased GraphQL document and its variable
-// map for a batch of search requests. Alias sN and variable $qN correspond to
-// reqs[N]; each variable value is the request's query with
-// " sort:updated-desc" appended.
+func searchItems(nodes []gqlSearchNode) []SearchItem {
+	items := make([]SearchItem, 0, len(nodes))
+	for _, node := range nodes {
+		author := ""
+		if node.Author != nil {
+			author = node.Author.Login
+		}
+		items = append(items, SearchItem{
+			Number:        node.Number,
+			Title:         node.Title,
+			Body:          node.Body,
+			State:         node.State,
+			URL:           node.URL,
+			Repo:          node.Repository.NameWithOwner,
+			Author:        author,
+			Labels:        node.Labels.Nodes,
+			IsPullRequest: node.Type == "PullRequest",
+			Draft:         node.Draft,
+			Review:        reviewState(node.Draft, node.ReviewDecision),
+			Checks:        checkState(node.rollupState()),
+			Additions:     node.Additions,
+			Deletions:     node.Deletions,
+			CreatedAt:     node.CreatedAt,
+			UpdatedAt:     node.UpdatedAt,
+		})
+	}
+	return items
+}
+
 func buildSearchQuery(reqs []SearchRequest) (doc string, variables map[string]any) {
-	variables = make(map[string]any, len(reqs))
+	pages := make([]searchPageRequest, len(reqs))
+	for i, req := range reqs {
+		pages[i] = searchPageRequest{query: req.Query, limit: min(req.Limit, searchPageSize), resultIndex: i}
+	}
+	return buildSearchPageQuery(pages)
+}
+
+// buildSearchPageQuery constructs one aliased GraphQL page. Query text and
+// cursors use variables and are never interpolated into the document.
+func buildSearchPageQuery(reqs []searchPageRequest) (doc string, variables map[string]any) {
+	variables = make(map[string]any, len(reqs)*2)
 	var b strings.Builder
 	b.WriteString("query (")
 	for i := range reqs {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		fmt.Fprintf(&b, "$q%d: String!", i)
-		variables[fmt.Sprintf("q%d", i)] = reqs[i].Query + " sort:updated-desc"
+		fmt.Fprintf(&b, "$q%d: String!, $after%d: String", i, i)
+		variables[fmt.Sprintf("q%d", i)] = reqs[i].query + " sort:updated-desc"
+		if reqs[i].after == "" {
+			variables[fmt.Sprintf("after%d", i)] = nil
+		} else {
+			variables[fmt.Sprintf("after%d", i)] = reqs[i].after
+		}
 	}
 	b.WriteString(") {\n")
 	for i, req := range reqs {
-		fmt.Fprintf(&b, "  s%d: search(query: $q%d, type: ISSUE, first: %d) {\n", i, i, req.Limit)
-		b.WriteString(`    nodes {
+		fmt.Fprintf(&b, "  s%d: search(query: $q%d, type: ISSUE, first: %d, after: $after%d) {\n", i, i, req.limit, i)
+		b.WriteString(`    pageInfo { endCursor hasNextPage }
+    nodes {
       __typename
       ... on Issue {
         number title body state url createdAt updatedAt
@@ -198,7 +256,8 @@ func buildSearchQuery(reqs []SearchRequest) (doc string, variables map[string]an
         labels(first: 20) { nodes { name } }
       }
       ... on PullRequest {
-        number title body state url isDraft createdAt updatedAt
+        number title body state url isDraft reviewDecision additions deletions createdAt updatedAt
+        statusCheckRollup { state }
         author { login }
         repository { nameWithOwner }
         labels(first: 20) { nodes { name } }
@@ -212,22 +271,43 @@ func buildSearchQuery(reqs []SearchRequest) (doc string, variables map[string]an
 }
 
 type gqlSearchResult struct {
-	Nodes []gqlSearchNode `json:"nodes"`
+	Nodes    []gqlSearchNode `json:"nodes"`
+	PageInfo gqlPageInfo     `json:"pageInfo"`
+}
+
+type gqlPageInfo struct {
+	EndCursor   string `json:"endCursor"`
+	HasNextPage bool   `json:"hasNextPage"`
 }
 
 type gqlSearchNode struct {
-	Type       string           `json:"__typename"`
-	Number     int              `json:"number"`
-	Title      string           `json:"title"`
-	Body       string           `json:"body"`
-	State      string           `json:"state"`
-	URL        string           `json:"url"`
-	Draft      bool             `json:"isDraft"`
-	CreatedAt  time.Time        `json:"createdAt"`
-	UpdatedAt  time.Time        `json:"updatedAt"`
-	Author     *gqlSearchAuthor `json:"author"`
-	Repository gqlRepository    `json:"repository"`
-	Labels     gqlSearchLabels  `json:"labels"`
+	Type              string                `json:"__typename"`
+	Number            int                   `json:"number"`
+	Title             string                `json:"title"`
+	Body              string                `json:"body"`
+	State             string                `json:"state"`
+	URL               string                `json:"url"`
+	Draft             bool                  `json:"isDraft"`
+	ReviewDecision    string                `json:"reviewDecision"`
+	Additions         int                   `json:"additions"`
+	Deletions         int                   `json:"deletions"`
+	StatusCheckRollup *gqlStatusCheckRollup `json:"statusCheckRollup"`
+	CreatedAt         time.Time             `json:"createdAt"`
+	UpdatedAt         time.Time             `json:"updatedAt"`
+	Author            *gqlSearchAuthor      `json:"author"`
+	Repository        gqlRepository         `json:"repository"`
+	Labels            gqlSearchLabels       `json:"labels"`
+}
+
+func (n gqlSearchNode) rollupState() string {
+	if n.StatusCheckRollup == nil {
+		return ""
+	}
+	return n.StatusCheckRollup.State
+}
+
+type gqlStatusCheckRollup struct {
+	State string `json:"state"`
 }
 
 type gqlSearchAuthor struct {

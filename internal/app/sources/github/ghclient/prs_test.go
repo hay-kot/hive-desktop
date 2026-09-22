@@ -97,6 +97,17 @@ func TestPullRequestsByBranchToleratesAnInaccessibleRepository(t *testing.T) {
 	assert.Equal(t, CheckStateNone, results[1].Checks)
 }
 
+func TestReviewStatePrefersDraftAndNormalizesDecisions(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, ReviewStateDraft, reviewState(true, "APPROVED"))
+	assert.Equal(t, ReviewStateApproved, reviewState(false, "APPROVED"))
+	assert.Equal(t, ReviewStateChangesRequested, reviewState(false, "CHANGES_REQUESTED"))
+	assert.Equal(t, ReviewStateReviewRequired, reviewState(false, "REVIEW_REQUIRED"))
+	assert.Equal(t, ReviewStateOpen, reviewState(false, ""))
+	assert.Equal(t, ReviewStateOpen, reviewState(false, "A_FUTURE_STATE"))
+}
+
 func TestCheckStateNeverReadsAnUnknownRollupAsPassing(t *testing.T) {
 	t.Parallel()
 

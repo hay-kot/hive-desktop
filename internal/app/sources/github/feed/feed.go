@@ -19,10 +19,14 @@ type Item struct {
 	Unread    bool   `json:"unread"`
 	// Reason is the GitHub notification reason (e.g. "review_requested"),
 	// empty for items known only from search.
-	Reason string   `json:"reason,omitempty"`
-	Labels []string `json:"labels"`
-	Branch string   `json:"branch"`
-	Body   string   `json:"body"`
-	Prompt string   `json:"prompt"`
-	URL    string   `json:"url"`
+	Reason    string   `json:"reason,omitempty"`
+	Labels    []string `json:"labels"`
+	Branch    string   `json:"branch"`
+	CI        string   `json:"ci,omitempty"`
+	Review    string   `json:"review,omitempty"`
+	Additions *int     `json:"additions,omitempty"`
+	Deletions *int     `json:"deletions,omitempty"`
+	Body      string   `json:"body"`
+	Prompt    string   `json:"prompt"`
+	URL       string   `json:"url"`
 }

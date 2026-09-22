@@ -22,6 +22,8 @@ export interface Config {
   exclude_labels?: string[]
   types?: string[]
   reasons?: string[]
+  ci?: string[]
+  review?: string[]
 }
 
 // ── App-registry metadata ───────────────────────────────────────────────────
@@ -37,9 +39,8 @@ export const defaults: Config = {}
 /**
  * UX-only — an empty filter matches every message (the fail port never
  * fires), which is almost always an authoring mistake rather than intent,
- * so the drawer flags it. Go's SaveFlow validator does not reject this
- * (D1 lists "empty github-filter" as a hard error there, in fact — this
- * mirrors that rule for live feedback before Deploy).
+ * so the drawer flags it before Deploy. The backend validator enforces the
+ * same rule when it saves the flow.
  */
 export function validate(config: Config): string[] {
   const groups: Array<string[] | undefined> = [
@@ -51,6 +52,8 @@ export function validate(config: Config): string[] {
     config.exclude_labels,
     config.types,
     config.reasons,
+    config.ci,
+    config.review,
   ]
   const hasAny = groups.some((group) => group && group.length > 0)
   return hasAny ? [] : ['at least one filter group must be set']

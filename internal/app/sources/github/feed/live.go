@@ -224,9 +224,9 @@ func (p *LiveProvider) serveFetchError(ctx context.Context, src SourceDef, cache
 	return nil, err
 }
 
-// PrefetchSearch batch-fetches search defs in one GraphQL request and stores
-// their results in the SourceItems cache. A failed batch is retained per key
-// so draining the individual sources does not retry it during this tick.
+// PrefetchSearch batch-fetches search defs and stores their results in the
+// SourceItems cache. A failed batch is retained per key so draining the
+// individual sources does not retry it during this tick.
 func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) error {
 	representatives := make(map[string]SourceDef)
 	keys := make([]string, 0, len(defs))
@@ -478,7 +478,7 @@ func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []Item {
 			labels[i] = label.Name
 		}
 		repo := si.Repo
-		out = append(out, Item{
+		item := Item{
 			ID:        itemID(repo, si.Number),
 			Kind:      kind,
 			Repo:      repo,
@@ -493,7 +493,17 @@ func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []Item {
 			Body:      si.Body,
 			Prompt:    itemtext.Prompt(kind, si.Title, si.URL, si.Body),
 			URL:       si.URL,
-		})
+		}
+		if si.IsPullRequest {
+			item.CI = string(si.Checks)
+			if item.CI == "" {
+				item.CI = "none"
+			}
+			item.Review = string(si.Review)
+			item.Additions = &si.Additions
+			item.Deletions = &si.Deletions
+		}
+		out = append(out, item)
 	}
 	return out
 }
