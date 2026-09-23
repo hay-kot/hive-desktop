@@ -8,6 +8,11 @@ bin/
 node_modules/
 dist/
 
+# `wails3 generate bindings` stages into a temp directory beside the frontend
+# and swaps it into desktop/frontend/bindings/. An interrupted run leaves one
+# behind, and it is 68 files a `git add -A` will take.
+desktop/frontend/.bindings-tmp-*/
+
 # web/: the Zensical build and cache, the uv virtualenv, wrangler local dev state
 web/site/
 web/.cache/
