@@ -15,6 +15,7 @@ const enabled = ref(true)
 const configured = ref(false)
 const overridden = ref(false)
 const loading = ref(true)
+const saving = ref(false)
 const error = ref('')
 
 async function refresh(): Promise<void> {
@@ -33,6 +34,8 @@ async function refresh(): Promise<void> {
 }
 
 async function setEnabled(value: boolean): Promise<void> {
+  if (saving.value || loading.value || overridden.value) return
+  saving.value = true
   const previous = enabled.value
   enabled.value = value
   error.value = ''
@@ -44,6 +47,8 @@ async function setEnabled(value: boolean): Promise<void> {
   } catch (cause) {
     enabled.value = previous
     error.value = cause instanceof Error ? cause.message : String(cause)
+  } finally {
+    saving.value = false
   }
 }
 
@@ -73,7 +78,7 @@ onMounted(() => { void refresh() })
           </BaseBadge>
           <AppSwitch
             :model-value="enabled"
-            :disabled="loading || overridden"
+            :disabled="loading || saving || overridden"
             aria-label="Share daily activity"
             testid="analytics-enabled"
             @update:model-value="setEnabled"

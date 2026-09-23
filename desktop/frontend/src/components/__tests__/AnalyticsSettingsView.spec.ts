@@ -34,6 +34,34 @@ describe('AnalyticsSettingsView', () => {
     expect(wrapper.get('[data-testid="analytics-enabled"]').attributes('aria-checked')).toBe('false')
   })
 
+  it('blocks another toggle until the first preference save completes', async () => {
+    let finishSave!: () => void
+    mocks.SetAnalyticsEnabled.mockImplementation((enabled: boolean) => new Promise((resolve) => {
+      finishSave = () => resolve({ enabled, configured: true, overridden: false })
+    }))
+    const wrapper = mount(AnalyticsSettingsView)
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="analytics-enabled"]')
+    await toggle.trigger('click')
+    expect(toggle.attributes('disabled')).toBeDefined()
+    expect(toggle.attributes('aria-checked')).toBe('false')
+
+    await toggle.trigger('click')
+    expect(mocks.SetAnalyticsEnabled).toHaveBeenCalledTimes(1)
+
+    finishSave()
+    await flushPromises()
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-checked')).toBe('false')
+
+    await toggle.trigger('click')
+    expect(mocks.SetAnalyticsEnabled).toHaveBeenNthCalledWith(2, true)
+    finishSave()
+    await flushPromises()
+    expect(toggle.attributes('aria-checked')).toBe('true')
+  })
+
   it('restores the preference when saving fails', async () => {
     mocks.SetAnalyticsEnabled.mockRejectedValue(new Error('settings are read-only'))
     const wrapper = mount(AnalyticsSettingsView)
