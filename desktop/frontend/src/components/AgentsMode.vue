@@ -39,7 +39,8 @@ import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
 import { isEditableTarget } from '../lib/isEditableTarget'
-import { interceptPaste } from '../lib/terminalPaste'
+import { installTerminalImages } from '../lib/terminalImages'
+import { pasteTerminalImage } from '../lib/terminalImagesClient'
 import { silenceDeviceReports } from '../lib/terminalReports'
 import { watchTailPin } from '../lib/terminalTail'
 import type { AgentSession, AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
@@ -605,7 +606,18 @@ function attachStream(created: Terminal, terminalId: string, windowId: string, p
   panePaneId = paneId
   disposers.push(silenceDeviceReports(created))
   disposers.push(created.onData((data) => send(data)))
-  disposers.push({ dispose: interceptPaste(paneHost.value, sendPaste) })
+  disposers.push({ dispose: installTerminalImages(paneHost.value, {
+    pasteText: sendPaste,
+    capture: () => {
+      const capturedSocket = socket
+      const capturedPane = panePaneId
+      return {
+        current: () => socket === capturedSocket && capturedSocket?.readyState === WebSocket.OPEN && panePaneId === capturedPane && props.active !== false,
+        paste: (text, signal) => pasteTerminalImage(terminalId, capturedPane, text, signal),
+        focus: () => created.focus(),
+      }
+    },
+  }) })
   disposers.push(watchTailPin(created, paneHost.value, (scrolledUp) => { paneScrolledUp.value = scrolledUp }))
 
   const opened = client.value.openStream(terminalId)

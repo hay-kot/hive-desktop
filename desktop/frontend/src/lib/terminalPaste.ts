@@ -13,8 +13,23 @@
  * The listener captures on the host so it runs before xterm's own, which is
  * registered on the textarea inside it.
  */
-export function interceptPaste(host: HTMLElement, paste: (text: string) => void): () => void {
+export function interceptPaste(host: HTMLElement, paste: (text: string) => void, images?: (files: File[]) => void): () => void {
   const onPaste = (event: ClipboardEvent): void => {
+    const files = Array.from(event.clipboardData?.files ?? [])
+    if (!files.length) {
+      for (const item of Array.from(event.clipboardData?.items ?? [])) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile()
+          if (file) files.push(file)
+        }
+      }
+    }
+    if (images && files.length) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      images(files)
+      return
+    }
     const text = event.clipboardData?.getData('text/plain')
     if (!text) return
     event.preventDefault()

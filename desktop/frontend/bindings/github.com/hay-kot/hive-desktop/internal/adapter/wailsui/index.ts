@@ -97,6 +97,7 @@ export type {
     SystemInfo,
     TerminalAvailability,
     TerminalEndpoint,
+    TerminalFilesDropped,
     UpdateInfo,
     WebhookCaptureView,
     WebhookInfo,

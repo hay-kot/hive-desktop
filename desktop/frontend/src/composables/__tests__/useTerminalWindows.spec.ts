@@ -230,7 +230,7 @@ vi.mock('@xterm/addon-search', () => ({ SearchAddon: xterm.FakeSearchAddon }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }))
 vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeCanvasAddon }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: xterm.FakeWebLinksAddon }))
-vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: wails.OpenURL } }))
+vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: wails.OpenURL }, Events: { On: vi.fn(() => vi.fn()) } }))
 
 const encoder = new TextEncoder()
 

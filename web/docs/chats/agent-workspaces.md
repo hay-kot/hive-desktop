@@ -52,6 +52,10 @@ Create several named chats inside a workspace and use the sidebar to see whether
 
 Stopping an agent keeps its chat record. Restarting a stopped chat resumes the conversation when its command and agent support it. You can also rename or delete a chat, filter the sidebar, and open recent chats from the command palette.
 
+Drag image files or paste clipboard screenshots into a chat's terminal to give
+the agent visual context. See [Image input](../code/terminal-mode.md#image-input)
+for supported formats, limits, and saved clipboard images.
+
 An Inbox item's **…** menu offers **Create Session** for Code and **Create Chat**
 for Chats. Both open the same dialog on the requested target; use its compact
 **Code** / **Chats** switch to change targets. A chat keeps the generated item

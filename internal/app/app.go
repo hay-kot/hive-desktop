@@ -45,6 +45,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/rss"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
+	"github.com/hay-kot/hive-desktop/internal/app/terminalimg"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
@@ -70,9 +71,7 @@ type Config struct {
 	// CredentialKeyringService isolates development credentials from the installed app.
 	CredentialKeyringService string
 
-	// Notifier and Gate are driven ports the adapter fills. They are the one
-	// place a GUI-owned dependency legitimately enters the core, and they
-	// enter as interfaces defined by their consumer.
+	// GUI-owned dependencies enter through consumer-defined driven ports.
 	Notifier dispatch.SystemNotifier
 	Gate     dispatch.NotificationGate
 
@@ -112,8 +111,9 @@ type App struct {
 	Report       *ReportService
 	// ReleaseNotes serves the changelog embedded in this binary and remembers
 	// which version's notes the user has seen.
-	ReleaseNotes *ReleaseNotesService
-	Terminals    *TerminalsService
+	ReleaseNotes   *ReleaseNotesService
+	Terminals      *TerminalsService
+	TerminalImages *TerminalImagesService
 	// Perf records UI spans to a JSONL file when development.perf.enabled is
 	// on. Always non-nil; a disabled recorder is a no-op (ADR ui-performance-spans-are-recorded-to-jsonl).
 	Perf *PerfService
@@ -396,6 +396,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.Sources = newSourcesService(a.producer, a.fetchers, a.rssFetchers)
 	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
+	a.TerminalImages = &TerminalImagesService{store: terminalimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "terminal-images"))}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(FlowsDeps{

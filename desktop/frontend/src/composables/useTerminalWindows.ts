@@ -22,7 +22,8 @@ import { proposeGrid, terminalCellSize, type CellSize } from '../lib/terminalGri
 import { activePaneOf, paneGrids, windowPanes } from '../lib/terminalLayout'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
-import { interceptPaste } from '../lib/terminalPaste'
+import { installTerminalImages } from '../lib/terminalImages'
+import { pasteTerminalImage } from '../lib/terminalImagesClient'
 import { silenceDeviceReports } from '../lib/terminalReports'
 import { scrolledOffTail } from '../lib/terminalTail'
 import { paneMayAutoFocus } from '../lib/terminalTree'
@@ -562,7 +563,17 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     state.host = host
     state.term.open(host)
     watchViewportScroll(state, paneId, host)
-    const releasePaste = interceptPaste(host, (text) => sendPaste(paneId, text))
+    const releasePaste = installTerminalImages(host, {
+      pasteText: (text) => sendPaste(paneId, text),
+      capture: () => {
+        const capturedSocket = socket
+        return {
+          current: () => socket === capturedSocket && capturedSocket?.readyState === WebSocket.OPEN && panes.get(paneId) === state,
+          paste: (text, signal) => pasteTerminalImage(slug, paneId, text, signal),
+          focus: () => { void selectPane(paneId); state.term.focus() },
+        }
+      },
+    })
     state.disposers.push({ dispose: releasePaste })
     if (found.tab.windowId === activeWindowId.value) {
       // After open(), never before: an unopened Terminal defers addon

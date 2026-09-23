@@ -21,6 +21,7 @@ import (
 var _ = registerEvents()
 
 func registerEvents() struct{} {
+	application.RegisterEvent[TerminalFilesDropped]("terminal:files-dropped")
 	// connection:updated carries the provider whose credentials changed;
 	// log:appended carries the pipeline event log's new tail offset after a
 	// producer tick appends at least one row; flows:updated fires after a
@@ -326,5 +327,16 @@ var emitNotificationToast = func(toast NotificationToast) {
 var emitUpdateAvailable = func(info UpdateInfo) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("update:available", info)
+	}
+}
+
+type TerminalFilesDropped struct {
+	Target string   `json:"target"`
+	Paths  []string `json:"paths"`
+}
+
+func emitTerminalFilesDropped(drop TerminalFilesDropped) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("terminal:files-dropped", drop)
 	}
 }

@@ -251,6 +251,7 @@ func (u *UI) attachUpdater(opts MountOptions) {
 
 func (u *UI) buildWindow() {
 	u.window = u.app.Window.NewWithOptions(application.WebviewWindowOptions{
+		EnableFileDrop:   true,
 		Title:            "Hive",
 		Width:            1360,
 		Height:           864,
@@ -272,6 +273,12 @@ func (u *UI) buildWindow() {
 			},
 			InvisibleTitleBarHeight: 42,
 		},
+	})
+
+	u.window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		if target := event.Context().DropTargetDetails(); target != nil {
+			emitTerminalFilesDropped(TerminalFilesDropped{Target: target.ElementID, Paths: event.Context().DroppedFiles()})
+		}
 	})
 
 	// The sole owner of notification activation: a click brings the existing

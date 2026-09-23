@@ -14,6 +14,7 @@ import { xtermTheme } from '../lib/terminalTheme'
 import { decodeFrame, encodeInputFrames, type PopupTerminalState } from '../lib/popupTerminalClient'
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
+import { installTerminalImages } from '../lib/terminalImages'
 import '@xterm/xterm/css/xterm.css'
 
 // The floating pop-up terminal: one PTY this process owns, rendered over
@@ -187,6 +188,15 @@ function attachStream(created: Terminal, state: PopupTerminalState): void {
   }))
 
   socket = client.value.openStream(state.id)
+  const capturedSocket = socket
+  disposers.push({ dispose: installTerminalImages(host.value, {
+    pasteText: (text) => created.paste(text),
+    capture: () => ({
+      current: () => visible.value && socket === capturedSocket && capturedSocket.readyState === WebSocket.OPEN && terminal.value?.id === state.id,
+      paste: (text) => created.paste(text),
+      focus: () => created.focus(),
+    }),
+  }) })
   socket.onmessage = (event: MessageEvent<ArrayBuffer>) => {
     const frame = decodeFrame(event.data)
     if (!frame) return

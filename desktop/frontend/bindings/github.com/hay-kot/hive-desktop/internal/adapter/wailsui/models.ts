@@ -481,6 +481,11 @@ export interface TerminalEndpoint {
     "token": string;
 }
 
+export interface TerminalFilesDropped {
+    "target": string;
+    "paths": string[] | null;
+}
+
 /**
  * UpdateInfo is the frontend-facing view of the last check result plus the
  * current auto-update toggle state, so a single Status() call seeds both the
