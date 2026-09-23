@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -97,10 +98,6 @@ type App struct {
 	Actions  *ActionsService
 	Settings *SettingsService
 	System   *SystemService
-	// HiveConfig reads and writes the external Hive CLI configuration — the
-	// agents and repository folders the session launcher runs on. Separate
-	// from System, which owns this app's own locations: this file belongs to
-	// another product too.
 	HiveConfig *HiveConfigService
 	Webhooks   *WebhookService
 	GitHub     *GitHubService
@@ -219,11 +216,14 @@ type App struct {
 	// the bus subscribers already hold, and the resolved data directory.
 	hiveBus     *eventbus.EventBus
 	hiveDataDir string
+	// reloadMu serializes ReloadHiveRuntime. Each adapter swap is atomic on
+	// its own; the mutex is what makes the four swaps of one reload land
+	// together, so two overlapping saves cannot leave the launcher on one
+	// config and the manager on another.
+	reloadMu sync.Mutex
 
-	// agentCommands is agentCommands(hiveCfg)'s result: hive's agent profiles
-	// projected onto a full command line, for the workspace editor's presets.
-	// Behind an atomic pointer because ReloadHiveRuntime replaces it while
-	// AgentWorkspacesService is reading it.
+	// Full agent command lines are atomic because ReloadHiveRuntime replaces
+	// them while AgentWorkspacesService can read them.
 	agentCommands atomic.Pointer[map[string]string]
 
 	// hiveConfig is where the Hive config resolved on the last load. Atomic
@@ -425,13 +425,20 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		Settings: a.settingsStore,
 		Events:   a.Events,
 	})
+	if err := a.Flows.EnsureProfile(ctx); err != nil {
+		return nil, fmt.Errorf("create the default profile: %w", err)
+	}
 	a.Actions = newActionsService(a.actionStore, a.Events)
 	a.System = newSystemService(systemOptions{Paths: cfg.Paths, HiveConfig: a.HiveConfigLocation})
 	a.HiveConfig = newHiveConfigService(hiveConfigOptions{
 		Location:     a.HiveConfigLocation,
 		LookPath:     a.execEnv.LookPath,
 		DefaultAgent: defaultAgentEnvReader{env: a.execEnv},
-		Reload:       a.ReloadHiveRuntime,
+		Check: func(path string) error {
+			_, err := config.Load(path, a.hiveDataDir)
+			return err
+		},
+		Reload: a.ReloadHiveRuntime,
 	})
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
 	a.Webhooks = newWebhookService(WebhookDeps{Settings: cfg.SettingsStore, Captures: a.Stores.WebhookCaptures, Listener: a.webhook, Host: a.webhookHost, Port: a.webhookPort})
@@ -1147,11 +1154,22 @@ func resolveHiveConfigLocation(ctx context.Context, env hiveConfigEnvironment) H
 }
 
 func resolveHiveDefaultAgent(ctx context.Context, env hiveConfigEnvironment, configured string, profiles []string) string {
-	preferred := strings.TrimSpace(env.Getenv(ctx, config.EnvDefaultAgent))
-	if slices.Contains(profiles, preferred) {
+	if preferred := environmentAgentOverride(env.Getenv(ctx, config.EnvDefaultAgent), profiles); preferred != "" {
 		return preferred
 	}
 	return configured
+}
+
+// environmentAgentOverride answers the HIVE_DEFAULT_AGENT value when hive
+// would honour it — it names one of the configured profiles — and ""
+// otherwise. Hive's lookup is exact and it ignores an unknown name, so every
+// reader of the variable applies this one rule against the same profile list.
+func environmentAgentOverride(value string, profiles []string) string {
+	preferred := strings.TrimSpace(value)
+	if preferred == "" || !slices.Contains(profiles, preferred) {
+		return ""
+	}
+	return preferred
 }
 
 // openWebhook constructs the optional loopback listener without binding it.
@@ -1234,11 +1252,8 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// loadHiveConfig resolves where the Hive config is and loads it, applying the
-// HIVE_DEFAULT_AGENT override the CLI honours. It is separate from
-// openHiveRuntime because a reload has to redo exactly this much: the path can
-// change between calls when HIVE_CONFIG does, and a first run that creates the
-// file turns a resolved-but-absent path into a real one.
+// Reloads re-resolve HIVE_CONFIG because it can change between calls, and
+// first run can turn an absent path into a real file.
 func (a *App) loadHiveConfig(ctx context.Context, dataDir string) (*config.Config, error) {
 	location := resolveHiveConfigLocation(ctx, a.execEnv)
 	a.hiveConfig.Store(&location)
@@ -1272,9 +1287,8 @@ type hiveServices struct {
 //
 // Nothing here is closed on the way out of a reload, because nothing here owns
 // anything to close: the session, status and message services hold the handles
-// they were given and spawn per call. The one exception worth naming is the
-// tmux capture recorder, which appends to a file it reopens per write and is
-// off unless a config turns it on.
+// they were given and spawn per call, and the tmux capture recorder writes one
+// file per capture without keeping a handle.
 func (a *App) buildHiveServices(hiveCfg *config.Config, database *coredb.DB, bus *eventbus.EventBus) hiveServices {
 	profile := hiveCfg.Agents.DefaultProfile()
 	renderer := tmpl.New(tmpl.Config{
@@ -1343,6 +1357,8 @@ func (a *App) ReloadHiveRuntime(ctx context.Context) error {
 	if a.hiveDB == nil || a.hiveBus == nil {
 		return Errorf(KindInternal, "the Hive runtime is not open")
 	}
+	a.reloadMu.Lock()
+	defer a.reloadMu.Unlock()
 	hiveCfg, err := a.loadHiveConfig(ctx, a.hiveDataDir)
 	if err != nil {
 		return Wrap(err, KindInvalid, "reloading the Hive config")
@@ -1352,7 +1368,6 @@ func (a *App) ReloadHiveRuntime(ctx context.Context) error {
 	a.launcher.Rebind(built.sessions)
 	a.sessions.Rebind(built.sessions, built.statuses, built.git, built.pollInterval)
 	a.publisher.Rebind(built.messages)
-	a.Events.Publish(ctx, events.HiveConfigChanged{})
 	return nil
 }
 
@@ -1365,9 +1380,6 @@ func (a *App) HiveConfigLocation() HiveConfigLocation {
 	return HiveConfigLocation{}
 }
 
-// profileCommands is held by AgentWorkspacesService as a function rather than
-// as the map it returns, so a config reload reaches the preset list without
-// rebuilding the service.
 func (a *App) profileCommands() map[string]string {
 	if current := a.agentCommands.Load(); current != nil {
 		return *current

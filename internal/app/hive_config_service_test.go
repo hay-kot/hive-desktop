@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,9 +16,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
-// hiveSetupApp builds a real core against a temporary Hive config that does
-// not exist yet — the first-run state — and a workspace folder holding one
-// repository.
 func hiveSetupApp(t *testing.T) (core *App, configPath, workspace string) {
 	t.Helper()
 	root := t.TempDir()
@@ -42,10 +41,8 @@ func hiveSetupApp(t *testing.T) (core *App, configPath, workspace string) {
 	return core, configPath, workspace
 }
 
-// seedRepo makes a real git repository with an origin remote under parent.
-// Hive's scan reads the remote and skips a directory it cannot get one from,
-// so a bare .git directory would not be discovered — the repository has to be
-// real for the launch options to list it.
+// Hive skips repositories without readable origin remotes, so a bare .git
+// directory would not exercise launch-option discovery.
 func seedRepo(t *testing.T, parent, name string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -64,6 +61,15 @@ func seedRepo(t *testing.T, parent, name string) {
 	}
 }
 
+func TestNewCreatesTheDefaultProfile(t *testing.T) {
+	core, _, _ := hiveSetupApp(t)
+
+	statuses := core.Flows.Statuses(t.Context())
+
+	require.Len(t, statuses, 1)
+	assert.Equal(t, DefaultProfileName, statuses[0].Flow.Name)
+}
+
 func TestSetupReportsFirstRunWhenNoConfigExists(t *testing.T) {
 	core, configPath, _ := hiveSetupApp(t)
 
@@ -76,10 +82,6 @@ func TestSetupReportsFirstRunWhenNoConfigExists(t *testing.T) {
 	assert.Empty(t, setup.Config.Profiles, "hive's claude fallback is not a choice the user made")
 }
 
-// TestSaveTakesEffectWithoutARestart is the feature: the session launcher
-// reads the Hive config, the app can now write that config, and the two have
-// to agree in the same process — otherwise first run ends with a setup the
-// user cannot use until they quit and reopen.
 func TestSaveTakesEffectWithoutARestart(t *testing.T) {
 	core, _, workspace := hiveSetupApp(t)
 
@@ -105,9 +107,6 @@ func TestSaveTakesEffectWithoutARestart(t *testing.T) {
 	assert.Equal(t, "a-repo", after.Repositories[0].Name)
 }
 
-// TestSaveUpdatesTheWorkspacePresets: the agent workspace editor's preset list
-// is built from the same config, and it holds a function rather than a
-// captured map precisely so a reload reaches it.
 func TestSaveUpdatesTheWorkspacePresets(t *testing.T) {
 	core, _, workspace := hiveSetupApp(t)
 
@@ -140,6 +139,84 @@ func TestSaveRejectsAnEditThatWouldNotLoadAndLeavesTheRuntimeAlone(t *testing.T)
 	assert.Equal(t, KindInvalid, KindOf(err), "a default naming no chosen agent is the user's to fix, not a crash")
 	_, statErr := os.Stat(configPath)
 	assert.True(t, os.IsNotExist(statErr), "a rejected save writes no file at all")
+	after, err := core.Sessions.SessionLaunchOptions(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, after.Repositories, "and the runtime still serves the config it started with")
+}
+
+// hiveconf validates its owned keys, but only Hive's loader knows the rest of
+// the file. Here the process
+// environment forces an agent the edit is about to drop — the shape a terminal
+// launch with HIVE_DEFAULT_AGENT exported produces — and the write must be
+// refused rather than landing a file the next launch dies on.
+func TestSaveRefusesWhatHiveWouldNotLoad(t *testing.T) {
+	core, configPath, workspace := hiveSetupApp(t)
+	_, err := core.HiveConfig.Save(t.Context(), HiveSetupRequest{
+		DefaultAgent: "codex",
+		Profiles:     []hiveconf.Profile{{Name: "codex"}, {Name: "claude"}},
+		Workspaces:   []string{workspace},
+	})
+	require.NoError(t, err)
+	before, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	t.Setenv("HIVE_DEFAULT_AGENT", "claude")
+
+	_, err = core.HiveConfig.Save(t.Context(), HiveSetupRequest{
+		DefaultAgent: "codex",
+		Profiles:     []hiveconf.Profile{{Name: "codex"}},
+		Workspaces:   []string{workspace},
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "Hive would not load the result")
+	after, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after), "the refused edit changed nothing on disk")
+	require.NoError(t, core.ReloadHiveRuntime(t.Context()), "so the file still loads")
+}
+
+// A rule naming a profile is the one dependency between the keys this app
+// owns and the ones it does not; dropping the profile would strand the rule.
+func TestSaveRefusesToDropAProfileARuleUses(t *testing.T) {
+	core, configPath, workspace := hiveSetupApp(t)
+	require.NoError(t, os.WriteFile(configPath, []byte("rules:\n  - pattern: acme/*\n    agent: claude\nagents:\n  default: claude\n  claude: {}\n  codex: {}\nworkspaces:\n  - "+workspace+"\n"), 0o644))
+	require.NoError(t, core.ReloadHiveRuntime(t.Context()))
+
+	_, err := core.HiveConfig.Save(t.Context(), HiveSetupRequest{
+		DefaultAgent: "codex",
+		Profiles:     []hiveconf.Profile{{Name: "codex"}},
+		Workspaces:   []string{workspace},
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Contains(t, err.Error(), "acme/*")
+	options, err := core.Sessions.SessionLaunchOptions(t.Context())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"claude", "codex"}, options.Agents, "the runtime still serves both profiles")
+}
+
+// A reload that fails after the file landed is the one outcome Save cannot
+// undo, so it is reported as what it is: saved, not applied.
+func TestSaveReportsAWriteWhoseReloadFailed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	workspace := t.TempDir()
+	service := newHiveConfigService(hiveConfigOptions{
+		Location: staticHiveConfig(HiveConfigLocation{Path: path}),
+		Reload:   func(context.Context) error { return errors.New("boom") },
+	})
+
+	_, err := service.Save(t.Context(), HiveSetupRequest{
+		DefaultAgent: "claude",
+		Profiles:     []hiveconf.Profile{{Name: "claude"}},
+		Workspaces:   []string{workspace},
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, KindInternal, KindOf(err))
+	assert.Contains(t, err.Error(), "restart Hive")
+	assert.True(t, hiveconf.Load(path).Usable, "the write itself landed")
 }
 
 func TestSaveRewritesOnlyTheKeysItOwns(t *testing.T) {
@@ -208,8 +285,6 @@ func TestInspectWorkspaceAnswersBeforeTheSave(t *testing.T) {
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
-// TestReloadFailureLeavesTheRunningServicesServing: a config edited to
-// something hive refuses must not leave the process with no session service.
 func TestReloadFailureLeavesTheRunningServicesServing(t *testing.T) {
 	core, configPath, workspace := hiveSetupApp(t)
 	_, err := core.HiveConfig.Save(t.Context(), HiveSetupRequest{

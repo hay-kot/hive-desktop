@@ -45,9 +45,9 @@ You can skip this step. The Inbox half of Hive — feeds, sources, flows, notifi
 
 ## Changing it later
 
-**Settings ▸ Hive CLI** has the same two controls. Changes there apply straight away; you do not need to restart Hive.
+This screen is the only one that writes the file. To change either setting afterwards, edit the file yourself and restart Hive Desktop — **Settings ▸ Hive CLI** shows you where it is, opens it, and links to the hive CLI [configuration reference](https://colonyops.github.io/hive/configuration/).
 
-The file is shared with the `hive` command, so anything else in it — rules, tmux settings, keybindings, your own agent profiles — is kept exactly as written. Editing those by hand still needs a restart.
+The file is shared with the `hive` command, so anything else in it — rules, tmux settings, keybindings, your own agent profiles — is kept exactly as written.
 
 !!! tip "`HIVE_DEFAULT_AGENT`"
-    If that variable is set in your shell, it overrides the agent you choose here. Both screens say so when it is set.
+    If that variable is set in your shell, it overrides the agent you choose here. This screen says so when it is set.

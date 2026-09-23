@@ -193,11 +193,10 @@ func (d *devtools) prepare(fresh bool) error {
 	configDir := filepath.Join(d.instanceDir, "config")
 	agentWorkspacesDir := filepath.Join(configDir, "workspaces")
 	hiveDataDir := dataDir
-	if d.blank {
-		if err := os.MkdirAll(agentWorkspacesDir, 0o755); err != nil {
-			return err
-		}
-	} else {
+	// A blank instance leaves the agent workspace root for the app to create:
+	// the app seeds the Hive workspace only into a root it made itself, which
+	// is what a fresh install sees.
+	if !d.blank {
 		sourcePaths, err := installedPaths()
 		if err != nil {
 			return err

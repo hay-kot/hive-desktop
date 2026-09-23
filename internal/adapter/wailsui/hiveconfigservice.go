@@ -10,10 +10,6 @@ import (
 // HiveConfigService exposes the external Hive CLI configuration to first run
 // and to Settings ▸ Hive CLI: which agent starts a session and which folders
 // hold the repositories the session picker offers.
-//
-// Every method is a straight call into the core. The native folder picker the
-// workspace list uses is SystemService.ChooseDirectory, which already exists
-// for the data/config directory overrides.
 type HiveConfigService struct{ hive *app.HiveConfigService }
 
 func NewHiveConfigService(hive *app.HiveConfigService) *HiveConfigService {

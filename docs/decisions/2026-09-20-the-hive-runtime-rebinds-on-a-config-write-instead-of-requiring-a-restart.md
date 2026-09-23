@@ -39,12 +39,14 @@ nothing: the running services keep serving the config they were built from.
 
 ## Consequences
 
-- A config the app writes takes effect in the same process. The Settings pane
-  says edits there apply straight away.
+- The config first run writes takes effect in the same process, so setup never
+  ends by asking for a relaunch. First run is the only writer
+  (ADR hive-desktop-writes-the-hive-config-during-first-run-instead-of-requiring-a-hand-written-one),
+  so it is the only path that reaches this reload.
 - The reload covers exactly what `buildHiveServices` builds. The database pool
   (`database:`), the event bus, and the resolved data directory keep their
-  startup settings, so a hand edit to those still needs a restart — which is
-  what Settings ▸ Hive CLI now says, narrowed from "any change".
+  startup settings. Every later change is a hand edit, and Settings ▸ Hive CLI
+  says a hand edit needs a restart.
 - Adding a config-derived dependency means putting it in `hiveServices` and in
   the matching `Rebind`, or it silently keeps serving the startup config.
 - The adapters are the seam this lives in, which is the Anti-Corruption Layer's

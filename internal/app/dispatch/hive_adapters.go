@@ -249,23 +249,15 @@ type ItemSessionLinker interface {
 
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
 type HiveSessionLauncher struct {
-	// current is behind an atomic pointer because it is rebuilt from the Hive
-	// config, which the app can now rewrite while it runs (Rebind). recorder
-	// and links are not: they come from this app's own stores and outlive any
-	// config edit.
-	//
-	// Every constructor here Rebinds before returning, so the three hive()
-	// accessors load a non-nil pointer. Construct one of these adapters any
-	// other way and they panic.
+	// Config-derived state is atomic because Rebind can replace it at runtime.
+	// Recorder and links outlive config edits. Constructors must call Rebind
+	// before returning so hive() cannot load nil.
 	current  atomic.Pointer[launcherHive]
 	recorder activity.Recorder
 	links    ItemSessionLinker
 	logger   zerolog.Logger
 }
 
-// launcherHive is replaced whole rather than field by field, so a call that
-// reads it twice cannot straddle a Rebind. The manager and publisher below
-// hold their own for the same reason.
 type launcherHive struct{ sessions SessionCreator }
 
 func NewHiveSessionLauncher(sessions SessionCreator) *HiveSessionLauncher {

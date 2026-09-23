@@ -224,7 +224,7 @@ func TestSystemServiceOpenHiveConfig(t *testing.T) {
 	require.Equal(t, path, opened)
 	contents, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, initialHiveConfig, string(contents))
+	require.Contains(t, string(contents), "# Hive configuration")
 
 	require.NoError(t, os.WriteFile(path, []byte("agents:\n  default: pi\n"), 0o644))
 	require.NoError(t, s.OpenHiveConfig(t.Context()))

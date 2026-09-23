@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import IconCopy from '~icons/lucide/copy'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconFilePlus from '~icons/lucide/file-plus'
 import IconFolderOpen from '~icons/lucide/folder-open'
 import IconInfo from '~icons/lucide/info'
-import HiveSetupForm from './HiveSetupForm.vue'
 import SettingsError from './settings/SettingsError.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
@@ -24,24 +23,15 @@ const {
   revealPath,
   createOrOpenHiveConfig,
 } = useSystemSettings()
+// Settings reports parse failures but does not write the config; first run is
+// the only writer.
 const hive = useHiveSetup()
 const { copy } = useClipboard()
-
-// Confirmation that a save landed. It renders only while the draft still
-// matches disk, so editing the form retires it without anything clearing it.
-// The write is atomic and the reload is synchronous, so by the time this
-// shows, a new session picker would already list what was saved.
-const saved = ref(false)
 
 const hiveCLIDocsURL = 'https://colonyops.github.io/hive/'
 
 function openHiveCLIDocs(): void {
   void Browser.OpenURL(hiveCLIDocsURL)
-}
-
-async function save(): Promise<void> {
-  saved.value = await hive.save()
-  await refresh()
 }
 
 useCommands(() => {
@@ -99,50 +89,7 @@ onMounted(() => {
 <template>
   <SettingsPage testid="settings-hive">
     <SettingsError v-if="error" :message="error" testid="hive-settings-error" />
-    <SettingsError v-if="hive.unreadable.value" :message="`This config could not be read: ${hive.unreadable.value}. Fix it in your editor — Hive will not rewrite a file it cannot parse.`" testid="hive-unreadable" />
-
-    <SettingsSection
-      title="Agents and repositories"
-      description="What a new session runs, and where it can run. Saved here, these take effect immediately — no restart."
-      boxed
-      padded
-    >
-      <div v-if="hive.loading.value" class="text-[12.5px] text-text-3">Loading…</div>
-      <div v-else-if="hive.unreadable.value" class="text-[12.5px] leading-relaxed text-text-3">
-        Editing is unavailable until the file parses. Open it below to fix it.
-      </div>
-      <div v-else class="flex flex-col gap-6">
-        <HiveSetupForm
-          :agents="hive.agents.value"
-          :selected-agents="hive.selectedAgents.value"
-          :workspaces="hive.workspaces.value"
-          :default-agent="hive.defaultAgent.value"
-          :skip-permissions="hive.skipPermissions.value"
-          :custom-profiles="hive.customProfiles.value"
-          :default-agent-override="hive.defaultAgentOverride.value"
-          :busy="hive.saving.value"
-          @toggle-agent="hive.toggleAgent"
-          @set-default-agent="hive.setDefaultAgent"
-          @set-skip-permissions="hive.setSkipPermissions"
-          @add-workspace="() => void hive.addWorkspace()"
-          @add-workspace-path="(path) => void hive.addWorkspacePath(path)"
-          @remove-workspace="hive.removeWorkspace"
-        />
-
-        <div class="flex items-center gap-3 border-t border-row pt-4">
-          <button
-            type="button"
-            class="cursor-pointer rounded-[7px] bg-accent px-3.5 py-2 text-[12.5px] font-semibold text-accent-contrast transition-[filter] hover:brightness-110 disabled:cursor-default disabled:opacity-55"
-            :disabled="hive.saving.value || !hive.canSave.value || !hive.dirty.value"
-            data-testid="hive-config-save"
-            @click="save"
-          >{{ hive.saving.value ? 'Saving…' : 'Save changes' }}</button>
-          <span v-if="saved && !hive.dirty.value" class="text-[12px] text-severity-success" data-testid="hive-config-saved">Saved.</span>
-          <span v-else-if="!hive.canSave.value" class="text-[12px] text-text-4">Choose an agent and at least one folder.</span>
-          <span v-if="hive.error.value" class="text-[12px] text-kind-issue" data-testid="hive-config-error">{{ hive.error.value }}</span>
-        </div>
-      </div>
-    </SettingsSection>
+    <SettingsError v-if="hive.unreadable.value" :message="`This config could not be read: ${hive.unreadable.value}. Fix it in your editor, then restart Hive Desktop.`" testid="hive-unreadable" />
 
     <SettingsSection title="Included Hive runtime" boxed padded>
       <template #actions>
@@ -165,7 +112,7 @@ onMounted(() => {
     <SettingsSection
       v-if="info"
       title="Configuration file"
-      description="The same file the hive CLI reads. Everything above is written here."
+      description="The same file the hive CLI reads."
       boxed
     >
       <SettingsPathRow
@@ -189,7 +136,7 @@ onMounted(() => {
       >
         <IconInfo class="size-4 shrink-0 text-severity-info" />
         <div class="text-[12.5px] leading-relaxed text-text-2">
-          Changes made above apply straight away. Editing this file by hand needs a restart — Hive Desktop reads the rest of it at startup.
+          Edit this file in your own editor — the Hive CLI documentation above describes every key. Hive Desktop reads it at startup, so restart the app to apply a change.
         </div>
       </div>
       <div
@@ -198,7 +145,7 @@ onMounted(() => {
         data-testid="hive-config-missing"
       >
         <p class="min-w-0 flex-1 text-[12px] leading-5 text-text-3">
-          No configuration file yet. Saving above creates one; Hive uses built-in defaults until then.
+          No configuration file yet. Hive uses built-in defaults until you create one.
         </p>
         <button
           type="button"

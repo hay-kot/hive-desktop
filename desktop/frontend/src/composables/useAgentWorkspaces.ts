@@ -221,6 +221,14 @@ async function startSession(request: StartSessionRequest): Promise<AgentSession>
   return await client.value.startSession(request)
 }
 
+// Probes first: first run calls this before the Agents area has ever been
+// opened, so unlike the other launches nothing has resolved the transport yet.
+async function startFirstRunChat(): Promise<AgentSession> {
+  await ensureProbed()
+  if (!client.value) throw new Error(reason.value || 'The Agents area is unavailable.')
+  return await client.value.startFirstRunChat()
+}
+
 async function resumeSession(request: ResumeSessionRequest): Promise<AgentSession> {
   if (!client.value) throw new Error('The Agents area is unavailable.')
   return await client.value.resumeSession(request)
@@ -283,6 +291,7 @@ export function useAgentWorkspaces(): {
   openWorkspaceInEditor: (dir: string) => Promise<void>
   revealWorkspace: (dir: string) => Promise<void>
   startSession: (request: StartSessionRequest) => Promise<AgentSession>
+  startFirstRunChat: () => Promise<AgentSession>
   resumeSession: (request: ResumeSessionRequest) => Promise<AgentSession>
   closeSession: (id: number) => Promise<boolean>
   renameSession: (id: number, name: string) => Promise<void>
@@ -300,7 +309,7 @@ export function useAgentWorkspaces(): {
     reloadMCPCatalogue, importMCPServers, removeMCPServer,
     reloadSkillPackages, revealSkillPackages, revealSharedSkills,
     openWorkspaceInEditor, revealWorkspace,
-    startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
+    startSession, startFirstRunChat, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
   }
 }
 

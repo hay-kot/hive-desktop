@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/hiveconf"
 )
@@ -13,9 +12,7 @@ import (
 // whether the environment is overriding the choice.
 type HiveSetup struct {
 	Config hiveconf.Setup `json:"config"`
-	// Agents is the catalog to pick from, marked by what resolved on PATH. It
-	// travels with the setup because both screens that read one need the
-	// other, and the two are one question — which agent, from what is here.
+	// Agents is the catalog marked by what resolved on the launch PATH.
 	Agents []hiveconf.AgentOption `json:"agents"`
 	// DefaultAgentOverride is HIVE_DEFAULT_AGENT when it is set and names a
 	// profile the file declares — that is, when it would actually win over
@@ -36,18 +33,16 @@ type HiveSetupRequest struct {
 	Workspaces   []string           `json:"workspaces"`
 }
 
-// defaultAgentSource reads HIVE_DEFAULT_AGENT from the environment a launched
-// app resolves through the login shell. Declared here rather than reaching for
-// hive's own constant: the name of a variable is not worth an import across
-// the hivecore seam, and app.go already owns the one reader of it.
-type defaultAgentSource interface {
-	DefaultAgent(context.Context) string
-}
-
 type hiveConfigOptions struct {
-	Location     func() HiveConfigLocation
-	LookPath     hiveconf.LookPath
-	DefaultAgent defaultAgentSource
+	Location func() HiveConfigLocation
+	LookPath hiveconf.LookPath
+	// DefaultAgent reads HIVE_DEFAULT_AGENT the way the user's terminal would.
+	// nil means NopDefaultAgentReader.
+	DefaultAgent DefaultAgentReader
+	// Check is hive's own loader, run against a written candidate before it
+	// replaces the file. hiveconf validates the two keys it owns; only hive
+	// can say whether the whole file still loads.
+	Check hiveconf.Check
 	// Reload rebuilds the Hive-config-derived services. Save calls it so a
 	// write takes effect in the running process instead of at the next launch
 	// (ADR the-hive-runtime-rebinds-on-a-config-write-instead-of-requiring-a-restart).
@@ -64,15 +59,20 @@ type hiveConfigOptions struct {
 type HiveConfigService struct {
 	location     func() HiveConfigLocation
 	lookPath     hiveconf.LookPath
-	defaultAgent defaultAgentSource
+	defaultAgent DefaultAgentReader
+	check        hiveconf.Check
 	reload       func(context.Context) error
 }
 
 func newHiveConfigService(opts hiveConfigOptions) *HiveConfigService {
+	if opts.DefaultAgent == nil {
+		opts.DefaultAgent = NopDefaultAgentReader{}
+	}
 	return &HiveConfigService{
 		location:     opts.Location,
 		lookPath:     opts.LookPath,
 		defaultAgent: opts.DefaultAgent,
+		check:        opts.Check,
 		reload:       opts.Reload,
 	}
 }
@@ -81,29 +81,19 @@ func newHiveConfigService(opts hiveConfigOptions) *HiveConfigService {
 func (s *HiveConfigService) Setup(ctx context.Context) HiveSetup {
 	location := s.location()
 	setup := hiveconf.Load(location.Path)
-	view := HiveSetup{
-		Config: setup,
-		Agents: hiveconf.AgentOptions(ctx, s.lookPath),
+	names := make([]string, 0, len(setup.Profiles))
+	for _, profile := range setup.Profiles {
+		names = append(names, profile.Name)
 	}
-	// Reported only when it would actually win. Hive ignores the variable when
-	// it names no configured profile (resolveHiveDefaultAgent), so announcing
-	// one that does not would warn about an override that is not happening.
-	if s.defaultAgent != nil {
-		override := strings.TrimSpace(s.defaultAgent.DefaultAgent(ctx))
-		for _, profile := range setup.Profiles {
-			if profile.Name == override {
-				view.DefaultAgentOverride = override
-				break
-			}
-		}
+	return HiveSetup{
+		Config:               setup,
+		Agents:               hiveconf.AgentOptions(ctx, s.lookPath),
+		DefaultAgentOverride: environmentAgentOverride(s.defaultAgent.DefaultAgent(ctx), names),
 	}
-	return view
 }
 
-// InspectWorkspace validates a candidate parent folder and reports what is in
-// it. The repository count is the confirmation that matters: a folder with no
-// repositories in it is almost always the wrong folder, and saying so before
-// the save is cheaper than an empty session picker afterwards.
+// InspectWorkspace validates a candidate parent folder and reports its
+// immediate repository count.
 func (s *HiveConfigService) InspectWorkspace(_ context.Context, path string) (hiveconf.Workspace, error) {
 	if err := hiveconf.ValidateWorkspace(path); err != nil {
 		return hiveconf.Workspace{}, Wrap(err, KindInvalid, "%s", path)
@@ -113,43 +103,22 @@ func (s *HiveConfigService) InspectWorkspace(_ context.Context, path string) (hi
 
 // Save writes the edit and reloads the runtime from it.
 //
-// The write is validated first and is atomic, so a rejected edit leaves the
-// file exactly as it was. A reload failure after a successful write is
-// reported, not swallowed: the file on disk is the user's new configuration
-// either way, and the honest answer is that it needs a restart to take effect.
+// The write is validated first, checked against hive's loader, and atomic, so
+// a rejected edit leaves the file exactly as it was. A reload failure after
+// that is reported, not swallowed: the file on disk loads, so the honest
+// answer is that it needs a restart to take effect.
 func (s *HiveConfigService) Save(ctx context.Context, req HiveSetupRequest) (HiveSetup, error) {
-	location := s.location()
-	if location.Path == "" {
-		return HiveSetup{}, Errorf(KindInternal, "no Hive config path is available")
-	}
-
 	edit := hiveconf.Edit{
-		DefaultAgent: strings.TrimSpace(req.DefaultAgent),
-		Workspaces:   make([]string, 0, len(req.Workspaces)),
+		DefaultAgent: req.DefaultAgent,
+		Profiles:     req.Profiles,
+		Workspaces:   req.Workspaces,
 	}
-	seen := make(map[string]bool, len(req.Workspaces))
-	for _, workspace := range req.Workspaces {
-		trimmed := strings.TrimSpace(workspace)
-		if trimmed == "" || seen[trimmed] {
-			continue
-		}
-		seen[trimmed] = true
-		edit.Workspaces = append(edit.Workspaces, trimmed)
-	}
-	for _, profile := range req.Profiles {
-		edit.Profiles = append(edit.Profiles, hiveconf.Profile{
-			Name:    strings.TrimSpace(profile.Name),
-			Command: strings.TrimSpace(profile.Command),
-			Flags:   profile.Flags,
-		})
-	}
-
-	if err := hiveconf.Apply(location.Path, edit); err != nil {
+	if err := hiveconf.Apply(s.location().Path, edit, s.check); err != nil {
 		return HiveSetup{}, Wrap(err, hiveWriteKind(err), "saving the Hive configuration")
 	}
 	if s.reload != nil {
 		if err := s.reload(ctx); err != nil {
-			return s.Setup(ctx), Wrap(err, KindInternal, "the Hive configuration was saved, but reloading it failed — restart Hive to apply it")
+			return HiveSetup{}, Wrap(err, KindInternal, "the Hive configuration was saved, but reloading it failed — restart Hive to apply it")
 		}
 	}
 	return s.Setup(ctx), nil

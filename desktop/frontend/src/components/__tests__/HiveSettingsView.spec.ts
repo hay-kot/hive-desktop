@@ -87,126 +87,44 @@ beforeEach(() => {
 })
 
 describe('HiveSettingsView', () => {
-  it('explains the included runtime and that edits here need no restart', async () => {
+  // The pane points at the file and nothing more: first run is the only
+  // writer, so every change here is a hand edit followed by a restart.
+  it('explains the included runtime and sends edits to the file', async () => {
     mocks.Info.mockResolvedValue(info(true))
     const wrapper = mount(HiveSettingsView)
     await flushPromises()
 
     expect(wrapper.text()).toContain('does not require or invoke a separately installed Hive CLI')
-    // The restart caveat narrowed rather than disappeared: this pane writes
-    // the file and reloads the runtime, so only a hand edit still needs one.
     const notice = wrapper.get('[data-testid="hive-restart-notice"]').text()
-    expect(notice).toContain('apply straight away')
-    expect(notice).toContain('by hand needs a restart')
+    expect(notice).toContain('Edit this file in your own editor')
+    expect(notice).toContain('restart the app')
 
     await wrapper.get('[data-testid="hive-cli-docs"]').trigger('click')
     expect(mocks.OpenURL).toHaveBeenCalledWith('https://colonyops.github.io/hive/')
   })
 
-  it('shows what the config declares and marks installed agents', async () => {
+  it('offers no editor for the config', async () => {
     mocks.Info.mockResolvedValue(info(true))
     const wrapper = mount(HiveSettingsView)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="hive-agent-claude"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="hive-agent-opencode"]').attributes('aria-pressed')).toBe('false')
-    expect(wrapper.find('[data-testid="hive-agent-installed-claude"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="hive-agent-installed-opencode"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="hive-workspace-list"]').text()).toContain(WORKSPACE)
-    expect(wrapper.get('[data-testid="hive-workspace-list"]').text()).toContain('12 repositories')
+    expect(wrapper.find('[data-testid="hive-config-save"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="hive-setup-agents"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="hive-workspace-list"]').exists()).toBe(false)
+    expect(mocks.Save).not.toHaveBeenCalled()
   })
 
-  it('saves an edited agent and folder set', async () => {
-    mocks.Info.mockResolvedValue(info(true))
-    const wrapper = mount(HiveSettingsView)
-    await flushPromises()
-
-    // Nothing has changed yet, so there is nothing to save.
-    expect(wrapper.get('[data-testid="hive-config-save"]').attributes('disabled')).toBeDefined()
-
-    await wrapper.get('[data-testid="hive-agent-opencode"]').trigger('click')
-    await wrapper.get('[data-testid="hive-skip-permissions"]').setValue(true)
-    await flushPromises()
-    expect(wrapper.get('[data-testid="hive-config-save"]').attributes('disabled')).toBeUndefined()
-
-    await wrapper.get('[data-testid="hive-config-save"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.Save).toHaveBeenCalledWith({
-      defaultAgent: 'claude',
-      profiles: [
-        { name: 'claude', command: 'claude', flags: ['--dangerously-skip-permissions'] },
-        { name: 'opencode', command: 'opencode', flags: ['--agent', 'free-permissions-runner'] },
-      ],
-      workspaces: [WORKSPACE],
-    })
-    expect(wrapper.get('[data-testid="hive-config-saved"]').text()).toContain('Saved')
-  })
-
-  it('adds a folder through the native picker and counts what is in it', async () => {
-    mocks.Info.mockResolvedValue(info(true))
-    mocks.Setup.mockResolvedValue(setup({ workspaces: [], usable: false }))
-    mocks.ChooseDirectory.mockResolvedValue('/home/u/work')
-    mocks.InspectWorkspace.mockResolvedValue({ path: '/home/u/work', exists: true, repos: 3 })
-    const wrapper = mount(HiveSettingsView)
-    await flushPromises()
-
-    await wrapper.get('[data-testid="hive-add-workspace"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.InspectWorkspace).toHaveBeenCalledWith('/home/u/work')
-    expect(wrapper.get('[data-testid="hive-workspace-list"]').text()).toContain('3 repositories')
-  })
-
-  it('reports a rejected folder without adding it', async () => {
-    mocks.Info.mockResolvedValue(info(true))
-    mocks.ChooseDirectory.mockResolvedValue('/home/u/code/one-repo')
-    mocks.InspectWorkspace.mockRejectedValue(new Error('that is a repository, not the folder that holds your repositories'))
-    const wrapper = mount(HiveSettingsView)
-    await flushPromises()
-
-    await wrapper.get('[data-testid="hive-add-workspace"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.get('[data-testid="hive-config-error"]').text()).toContain('not the folder that holds your repositories')
-    expect(wrapper.get('[data-testid="hive-workspace-list"]').text()).not.toContain('one-repo')
-  })
-
-  // HIVE_DEFAULT_AGENT wins over agents.default at load, so a pane that let
-  // someone pick an agent without saying so would be lying to them.
-  it('warns when the environment is overriding the chosen agent', async () => {
-    mocks.Info.mockResolvedValue(info(true))
-    mocks.Setup.mockResolvedValue(setup({ defaultAgentOverride: 'opencode' }))
-    const wrapper = mount(HiveSettingsView)
-    await flushPromises()
-
-    const warning = wrapper.get('[data-testid="hive-default-agent-override"]').text()
-    expect(warning).toContain('HIVE_DEFAULT_AGENT')
-    expect(warning).toContain('opencode')
-  })
-
-  it('refuses to rewrite a config it could not parse', async () => {
+  // A file the user hand-edited into something Hive cannot parse stops
+  // sessions starting, and this pane is where they come to look.
+  it('reports a config it could not parse', async () => {
     mocks.Info.mockResolvedValue(info(true))
     mocks.Setup.mockResolvedValue(setup({ unreadable: 'yaml: line 4: mapping values are not allowed', usable: false }))
     const wrapper = mount(HiveSettingsView)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="hive-unreadable"]').text()).toContain('line 4')
-    expect(wrapper.find('[data-testid="hive-config-save"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="hive-setup-agents"]').exists()).toBe(false)
-  })
-
-  it('lists profiles it has no control for so a save is not a surprise', async () => {
-    mocks.Info.mockResolvedValue(info(true))
-    mocks.Setup.mockResolvedValue(setup({
-      defaultAgent: 'fable',
-      profiles: [{ name: 'fable', command: 'claude --model fable', flags: [] }],
-    }))
-    const wrapper = mount(HiveSettingsView)
-    await flushPromises()
-
-    expect(wrapper.get('[data-testid="hive-custom-profiles"]').text()).toContain('fable')
-    expect(wrapper.get('[data-testid="hive-custom-profiles"]').text()).toContain('kept as written')
+    const banner = wrapper.get('[data-testid="hive-unreadable"]').text()
+    expect(banner).toContain('line 4')
+    expect(banner).toContain('restart Hive Desktop')
   })
 
   it('opens and reveals an existing config', async () => {

@@ -104,13 +104,15 @@ const mocks = vi.hoisted(() => ({
   // agentsservice
   AgentsAvailable: vi.fn(),
   AgentsEndpoint: vi.fn(),
-  // hiveconfigservice. HiveSetup resolves to a usable config by default: the
-  // first-run Hive step is off for every test that is not about it, the same
-  // way a connected GitHub is the default elsewhere here.
+  // A usable Hive setup keeps first run off in unrelated tests, like the
+  // connected GitHub default elsewhere in this file.
   HiveSetup: vi.fn(),
   SaveHiveSetup: vi.fn(),
   InspectWorkspace: vi.fn(),
   ChooseDirectory: vi.fn(),
+  // First run defaults to completed so unrelated tests bypass it.
+  OnboardingSettings: vi.fn(),
+  SetOnboardingCompleted: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -181,6 +183,8 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   NotificationSettings: mocks.NotificationSettings,
   SetNotificationSettings: mocks.SetNotificationSettings,
+  OnboardingSettings: mocks.OnboardingSettings,
+  SetOnboardingCompleted: mocks.SetOnboardingCompleted,
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
   Fonts: vi.fn().mockResolvedValue({ all: [], monospace: [] }),
   SetTheme: vi.fn(),
@@ -326,9 +330,6 @@ function focusedPane(): HTMLElement {
 }
 
 describe('App', () => {
-  // usableHiveSetup is a Hive config that already declares an agent and a
-  // repository folder, so first run has no Hive step. Tests that want the step
-  // override Setup with a config that declares neither.
   function usableHiveSetup() {
     return {
       config: {
@@ -348,8 +349,6 @@ describe('App', () => {
     }
   }
 
-  // emptyHiveSetup is the first-run state: no file, so no agent and no
-  // repository folder is declared.
   function emptyHiveSetup() {
     const base = usableHiveSetup()
     return {
@@ -434,7 +433,25 @@ describe('App', () => {
     mocks.SaveHiveSetup.mockImplementation(async () => usableHiveSetup())
     mocks.InspectWorkspace.mockResolvedValue({ path: '/home/dev/code', exists: true, repos: 4 })
     mocks.ChooseDirectory.mockResolvedValue('/home/dev/code')
+    mocks.OnboardingSettings.mockResolvedValue({ completed: true })
+    mocks.SetOnboardingCompleted.mockResolvedValue(undefined)
   })
+
+  function firstRun() {
+    mocks.OnboardingSettings.mockResolvedValue({ completed: false })
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([{ id: 'default', name: 'Default', enabled: true, valid: true, nodes: 0 }])
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'default', name: 'Default', enabled: true, valid: true, nodes: 9 })
+  }
+
+  // Device-flow grants arrive through connection:updated, not a call result.
+  async function connectGitHub() {
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    expect(connection).toBeDefined()
+    connection?.({ data: 'github' })
+    await flushPromises()
+  }
 
   // A test that arms the deferred-sequence timer switches to fake timers; this
   // guarantees the next test always starts on real ones, even if an assertion
@@ -449,16 +466,14 @@ describe('App', () => {
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
-  // hive setup -> create profile -> connect GitHub -> feed. Nothing in the app
-  // is gated on GitHub, so the only steps that can hold the app back are the
-  // Hive config and having no profile.
+  // GitHub does not gate the app, and a Default profile already exists, so
+  // only the persisted marker gates first run.
 
   // The Hive step is first because it is the one answer the rest of the app
   // reads back: with no agent and no repository folder, the new session picker
   // has nothing in it.
-  it('walks first run from the hive step into the profile step', async () => {
-    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
-    mocks.ListFlows.mockResolvedValue([])
+  it('walks first run from the hive step into the connect step', async () => {
+    firstRun()
     mocks.HiveSetup.mockResolvedValue(emptyHiveSetup())
     mocks.ChooseDirectory.mockResolvedValue('/home/dev/code')
     mocks.InspectWorkspace.mockResolvedValue({ path: '/home/dev/code', exists: true, repos: 6 })
@@ -466,7 +481,7 @@ describe('App', () => {
 
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="hive-setup-agents"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="onboarding-profile-input"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
 
     expect(wrapper.get('[data-testid="hive-agent-claude"]').attributes('aria-pressed')).toBe('true')
     await wrapper.get('[data-testid="hive-add-workspace"]').trigger('click')
@@ -478,15 +493,13 @@ describe('App', () => {
       defaultAgent: 'claude',
       workspaces: ['/home/dev/code'],
     }))
-    // Saving hands off to the profile step rather than landing on the feed.
-    expect(wrapper.find('[data-testid="onboarding-profile-input"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(true)
 
     wrapper.unmount()
   })
 
-  it('skips the hive step onto the profile step, without writing anything', async () => {
-    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
-    mocks.ListFlows.mockResolvedValue([])
+  it('skips the hive step onto the connect step, without writing anything', async () => {
+    firstRun()
     mocks.HiveSetup.mockResolvedValue(emptyHiveSetup())
     const wrapper = await mountApp()
 
@@ -494,16 +507,13 @@ describe('App', () => {
     await flushPromises()
 
     expect(mocks.SaveHiveSetup).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="onboarding-profile-input"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(true)
 
     wrapper.unmount()
   })
 
-  // A hive CLI user's existing config is adopted, not replaced — they are told
-  // it was found and click through.
   it('confirms an existing hive config instead of asking for one', async () => {
-    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
-    mocks.ListFlows.mockResolvedValue([])
+    firstRun()
     const wrapper = await mountApp()
 
     expect(wrapper.get('[data-testid="onboarding-hive-existing"]').text()).toContain('claude')
@@ -511,18 +521,36 @@ describe('App', () => {
 
     await wrapper.get('[data-testid="onboarding-hive-continue"]').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[data-testid="onboarding-profile-input"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(true)
 
     wrapper.unmount()
   })
 
-  // A returning user is never taken over by the step, even with a config this
+  // A returning user is never taken over by the walk, even with a config this
   // build considers unusable: Settings ▸ Hive CLI is where that is repaired.
   it('leaves a returning user alone when the hive config is unusable', async () => {
     mocks.HiveSetup.mockResolvedValue(emptyHiveSetup())
     const wrapper = await mountApp()
 
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  // An install that predates the marker walks first run once, and every step
+  // with its own signal skips itself: a usable config is confirmed, a
+  // connected account and a resolved grant are not asked about again.
+  it('takes a configured install straight from the config confirmation to the hand-off', async () => {
+    mocks.OnboardingSettings.mockResolvedValue({ completed: false })
+    mocks.PermissionStatus.mockResolvedValue('granted')
+    const wrapper = await mountApp()
+
+    await passHiveStep(wrapper)
+
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="onboarding-permissions-allow"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="onboarding-agent-start"]').exists()).toBe(true)
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
 
     wrapper.unmount()
   })
@@ -539,6 +567,46 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // A file that exists but does not parse is not this app's to rewrite — the
+  // backend refuses every save of it — so the step would be a form that can
+  // only fail. First run goes straight to connecting; Settings ▸ Hive CLI
+  // shows the parse error.
+  it('skips the hive step when the config exists but does not parse', async () => {
+    firstRun()
+    const base = emptyHiveSetup()
+    mocks.HiveSetup.mockResolvedValue({
+      ...base,
+      config: { ...base.config, exists: true, unreadable: 'yaml: line 3: did not find expected key' },
+    })
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="hive-setup-agents"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="onboarding-hive-existing"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('keeps first run on the hive step when the save fails', async () => {
+    firstRun()
+    mocks.HiveSetup.mockResolvedValue(emptyHiveSetup())
+    mocks.ChooseDirectory.mockResolvedValue('/home/dev/code')
+    mocks.InspectWorkspace.mockResolvedValue({ path: '/home/dev/code', exists: true, repos: 6 })
+    mocks.SaveHiveSetup.mockRejectedValue(new Error('saving the Hive configuration: permission denied'))
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="hive-add-workspace"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="onboarding-hive-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="onboarding-hive-error"]').text()).toContain('permission denied')
+    expect(wrapper.find('[data-testid="hive-setup-agents"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('opens the feed with GitHub disconnected — the app is not gated on it', async () => {
     mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
     const wrapper = await mountApp()
@@ -549,73 +617,58 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  // passHiveStep clicks through the Hive confirmation a usable config shows.
-  // The walks below are about the steps after it.
   async function passHiveStep(wrapper: VueWrapper) {
     await wrapper.get('[data-testid="onboarding-hive-continue"]').trigger('click')
     await flushPromises()
   }
 
-  it('walks first run: profile first, then connect, which seeds the profile it made', async () => {
-    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
-    mocks.ListFlows.mockResolvedValue([])
-    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
-    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+  it('walks first run: connect seeds the default profile, then the grant, then the hand-off', async () => {
+    firstRun()
     const wrapper = await mountApp()
     await passHiveStep(wrapper)
 
-    // The profile is the step after Hive: it is the thing that exists without
-    // a credential.
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="onboarding-profile-input"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
-
-    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
-    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
-    await flushPromises()
-
-    // Step 2 is connecting, and the app has not fallen through to the feed.
-    expect(mocks.CreateFlow).toHaveBeenCalledWith('Frontend Triage')
     expect(wrapper.get('[data-testid="onboarding-connect"]').isVisible()).toBe(true)
+    expect(mocks.CreateFlow).not.toHaveBeenCalled()
     expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
 
-    // The device-flow grant lands as connection:updated, not as a call result.
-    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
-    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
-    expect(connection).toBeDefined()
-    connection?.({ data: 'github' })
-    await flushPromises()
+    await connectGitHub()
+    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('default')
 
-    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('personal')
-
-    // Step 3 is the notification grant — the last leg before the feed. Skipping
-    // it lands on the feed just as granting would.
     expect(wrapper.get('[data-testid="onboarding-permissions-allow"]').isVisible()).toBe(true)
     await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
     await flushPromises()
+
+    expect(wrapper.get('[data-testid="onboarding-agent-start"]').isVisible()).toBe(true)
+    expect(mocks.SetOnboardingCompleted).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="onboarding-agent-skip"]').trigger('click')
+    await flushPromises()
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(mocks.SetOnboardingCompleted).toHaveBeenCalledOnce()
+    expect(wrapper.find('[data-testid="sidebar-profile-name"]').text()).toBe('Default')
 
     wrapper.unmount()
   })
 
-  it('asks for notification permission as the last first-run step, then grants and lands on the feed', async () => {
-    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
-    mocks.ListFlows.mockResolvedValue([])
-    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
-    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+  it('does not seed a profile that already has nodes', async () => {
+    firstRun()
+    mocks.ListFlows.mockResolvedValue([{ id: 'default', name: 'Default', enabled: true, valid: true, nodes: 9 }])
     const wrapper = await mountApp()
     await passHiveStep(wrapper)
 
-    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
-    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
-    await flushPromises()
+    await connectGitHub()
 
-    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
-    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
-    connection?.({ data: 'github' })
-    await flushPromises()
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="onboarding-permissions-allow"]').isVisible()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('asks for notification permission after connecting, then grants and reaches the hand-off', async () => {
+    firstRun()
+    const wrapper = await mountApp()
+    await passHiveStep(wrapper)
+    await connectGitHub()
 
     // The permission prompt is asked here, deliberately — not lazily mid-usage.
     expect(wrapper.get('[data-testid="onboarding-permissions-allow"]').isVisible()).toBe(true)
@@ -626,31 +679,85 @@ describe('App', () => {
 
     await wrapper.get('[data-testid="onboarding-permissions-finish"]').trigger('click')
     await flushPromises()
+    expect(wrapper.find('[data-testid="onboarding-agent-start"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  // The hand-off opens the seeded Hive workspace on the interview chat. First
+  // run ends before the route changes, so the Agents area is not gated behind
+  // the screen handing off to it.
+  it('hands off into the Hive workspace chat and ends first run', async () => {
+    firstRun()
+    mocks.AgentsAvailable.mockResolvedValue({ available: true, reason: '' })
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/api/terminal/agents/sessions/first-run')) {
+        return new Response(JSON.stringify({ id: 7, workspace: 'hive', name: 'Getting started', agent: 'claude', lastOpenedAt: 0, slug: 'agentws-7', terminalId: '', windowId: '', paneId: '', cols: 0, rows: 0, resumeAttempted: true, notice: '', scheduleId: '' }), { status: 200 })
+      }
+      return new Response('{}', { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { wrapper, router } = await mountAppWithRouter()
+    const push = vi.spyOn(router, 'push').mockResolvedValue(undefined)
+    await passHiveStep(wrapper)
+    await connectGitHub()
+    await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="onboarding-agent-start"]').trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:1/api/terminal/agents/sessions/first-run',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(mocks.SetOnboardingCompleted).toHaveBeenCalledOnce()
+    expect(push).toHaveBeenCalledWith({ name: 'agents', params: { workspace: 'hive' }, query: { chat: '7' } })
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+
+  it('shows why the hand-off could not start and still offers the feed', async () => {
+    firstRun()
+    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'no ptyterm on this build.' })
+    const wrapper = await mountApp()
+    await passHiveStep(wrapper)
+    await connectGitHub()
+    await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="onboarding-agent-start"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="onboarding-error"]').text()).toContain('no ptyterm')
+    expect(mocks.SetOnboardingCompleted).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="onboarding-agent-start"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="onboarding-agent-skip"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(mocks.SetOnboardingCompleted).toHaveBeenCalledOnce()
 
     wrapper.unmount()
   })
 
   it('skipping the connect step lands on a feed whose empty state points at Integrations', async () => {
-    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
-    mocks.ListFlows.mockResolvedValue([])
-    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
-    // A profile created before an account was connected has no graph at all.
-    mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, nodes: [], wires: [] })
+    firstRun()
+    // A profile that was never seeded has no graph at all.
+    mocks.GetFlow.mockResolvedValue({ id: 'default', name: 'Default', enabled: true, nodes: [], wires: [] })
     const { wrapper, router } = await mountAppWithRouter()
     await passHiveStep(wrapper)
-
-    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
-    await wrapper.get('[data-testid="onboarding-profile-input"]').setValue('Frontend Triage')
-    await wrapper.get('[data-testid="onboarding-profile-submit"]').trigger('click')
-    await flushPromises()
 
     await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
     await wrapper.get('[data-testid="onboarding-skip-confirm"]').trigger('click')
     await flushPromises()
 
-    // Skipping connect advances to the notification grant; skip that too.
     await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="onboarding-agent-skip"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
@@ -2154,7 +2261,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('deletes the active profile from profile settings, then falls back to onboarding', async () => {
+  it('deletes the active profile from profile settings, then lands on the replacement', async () => {
     const wrapper = await mountApp()
 
     expect(wrapper.find('[data-testid="sidebar-delete-profile"]').exists()).toBe(false)
@@ -2166,15 +2273,14 @@ describe('App', () => {
     await flushPromises()
     expect(document.querySelector('[data-testid="delete-profile-modal"]')).not.toBeNull()
 
-    mocks.ListFlows.mockResolvedValue([])
+    mocks.ListFlows.mockResolvedValue([{ id: 'default', name: 'Default', enabled: true, valid: true, nodes: 0 }])
     document.querySelector<HTMLButtonElement>('[data-testid="delete-profile-confirm"]')?.click()
     await flushPromises()
 
     expect(mocks.DeleteFlow).toHaveBeenCalledWith('personal')
     expect(document.querySelector('[data-testid="delete-profile-modal"]')).toBeNull()
-    const onboarding = wrapper.get('[data-testid="onboarding"]')
-    expect(onboarding.text()).toContain('Name a profile to organize its feeds, sources, and rules.')
-    expect(onboarding.text()).not.toContain('Connect GitHub')
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sidebar-profile-name"]').text()).toBe('Default')
 
     wrapper.unmount()
   })

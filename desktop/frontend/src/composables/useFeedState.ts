@@ -288,9 +288,9 @@ export function useFeedState() {
   // the profile is selected (the rail only needs the letter/name). An
   // undefined tree is therefore "feeds not read yet", which is distinct from
   // a profile whose flow genuinely has no feed nodes.
-  function toProfileStub(flow: { id: string; name: string; enabled: boolean; image?: string }): Profile {
+  function toProfileStub(flow: { id: string; name: string; enabled: boolean; image?: string; nodes?: number }): Profile {
     const name = flow.name || flow.id
-    return { id: flow.id, letter: letter(name), image: flow.image || undefined, name, enabled: flow.enabled, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
+    return { id: flow.id, letter: letter(name), image: flow.image || undefined, name, enabled: flow.enabled, nodes: flow.nodes ?? 0, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
   }
 
   async function loadProfiles() {
@@ -320,7 +320,11 @@ export function useFeedState() {
     actions.value = []
   }
 
+  // Before the first load lands, a quiet reload is the first load: it takes
+  // over profilesSeq, so the load it supersedes returns without selecting a
+  // profile or setting profilesLoaded, and the shell would wait on it forever.
   async function reloadProfilesQuietly() {
+    if (!profilesLoaded.value) return await loadProfiles()
     const seq = ++profilesSeq
     try {
       const flows = (await ListFlows()) ?? []

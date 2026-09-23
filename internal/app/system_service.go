@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/colonyops/hive/pkg/osopen"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/hiveconf"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
@@ -126,32 +126,14 @@ func (s *SystemService) RevealPath(_ context.Context, path string) error {
 	return Wrap(s.revealPath(path), KindInternal, "revealing %s", path)
 }
 
-const initialHiveConfig = `# Hive configuration
-# Hive Desktop reads this file at startup. Restart Hive Desktop after saving changes.
-`
-
 // OpenHiveConfig creates the resolved Hive config when needed, then opens it
-// in the OS default application. O_EXCL preserves a file created between the
-// settings read and this call.
+// in the OS default application.
 func (s *SystemService) OpenHiveConfig(_ context.Context) error {
 	path := s.hiveConfig().Path
 	if path == "" {
 		return Errorf(KindInternal, "Hive config path is unavailable")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return Wrap(err, KindInternal, "creating the Hive config directory")
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err == nil {
-		if _, writeErr := file.WriteString(initialHiveConfig); writeErr != nil {
-			_ = file.Close()
-			_ = os.Remove(path)
-			return Wrap(writeErr, KindInternal, "creating the Hive config")
-		}
-		if closeErr := file.Close(); closeErr != nil {
-			return Wrap(closeErr, KindInternal, "creating the Hive config")
-		}
-	} else if !errors.Is(err, os.ErrExist) {
+	if err := hiveconf.Create(path); err != nil {
 		return Wrap(err, KindInternal, "creating the Hive config")
 	}
 	return Wrap(s.openPath(path), KindInternal, "opening %s", path)

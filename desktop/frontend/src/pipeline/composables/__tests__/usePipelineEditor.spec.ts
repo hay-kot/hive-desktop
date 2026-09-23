@@ -19,7 +19,7 @@ function wireFlow(overrides: Partial<WireFlow> = {}): WireFlow {
 }
 
 function summary(id: string, overrides: Partial<FlowSummary> = {}): FlowSummary {
-  return { id, name: id, enabled: true, valid: true, ...overrides }
+  return { id, name: id, enabled: true, valid: true, nodes: 0, ...overrides }
 }
 
 function fakeClient(overrides: Partial<PipelineEditorClient> = {}): PipelineEditorClient {

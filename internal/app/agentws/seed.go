@@ -122,13 +122,22 @@ func seedFileIfMissing(root, name, content string) error {
 	return nil
 }
 
+// HiveWorkspaceDir is the directory name of the seeded workspace, which first
+// run hands the user off into.
+const HiveWorkspaceDir = "hive"
+
 // hiveWorkspaceYAML is rendered at the current manifest version with the
 // shipped claude "Ask" preset as its command, so a first launch writes a file
 // that needs no migration and shows the user exactly what a command template
-// looks like.
+// looks like. It wires both app-hosted MCP servers: the skills describe the
+// app's files, the servers are how the agent reads the live app and draws
+// into a canvas, and a workspace meant to configure Hive needs both.
 var hiveWorkspaceYAML = fmt.Sprintf(`version: %d
 name: Hive
 command: %s
+mcps:
+  - hive-desktop
+  - hive-canvas
 skills:
   - hive
 `, configmigrate.AgentWorkspaceSet.Current, PresetCommand("claude-ask"))
@@ -137,7 +146,8 @@ const hiveAgentsMD = `# Hive
 
 This workspace drives Hive Desktop itself — settings, the feed, flows,
 actions, keybindings, and webhooks — through the "hive" skill package, which
-tracks the skills this build ships.
+tracks the skills this build ships, and the hive-desktop and hive-canvas MCP
+servers, which read the running app and draw into its canvases.
 
 Its command runs claude with no permission bypass, so nothing here happens
 unprompted. Edit "command" in agent-workspace.yaml to change that.
@@ -156,7 +166,7 @@ unprompted. Edit "command" in agent-workspace.yaml to change that.
 // time, never on every open: deleting the workspace must leave it deleted
 // (spec §14), and reseeding on every launch would contradict that.
 func SeedHiveWorkspace(root string) error {
-	dir := filepath.Join(root, "hive")
+	dir := filepath.Join(root, HiveWorkspaceDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create hive workspace dir: %w", err)
 	}

@@ -132,6 +132,64 @@ describe('useHiveSetup', () => {
     expect(hive.profiles.value).toEqual([{ name: 'claude', command: 'claude', flags: [] }])
   })
 
+  // Only the agent's own skip flags say anything about the toggle. Other
+  // flags on the same profile neither light it up nor get deleted by it.
+  it('tells the skip-permissions flag apart from the flags around it', async () => {
+    const hive = await loaded({ profiles: [{ name: 'claude', command: 'claude', flags: ['--model', 'opus'] }] })
+    expect(hive.skipPermissions.value).toBe(false)
+
+    hive.setSkipPermissions(true)
+    expect(hive.profiles.value[0].flags).toEqual(['--model', 'opus', '--dangerously-skip-permissions'])
+
+    hive.setSkipPermissions(false)
+    expect(hive.profiles.value[0].flags).toEqual(['--model', 'opus'])
+
+    // A two-token skip flag is one run: an unrelated --agent survives it.
+    const two = await loaded({
+      defaultAgent: 'opencode',
+      profiles: [{ name: 'opencode', command: 'opencode', flags: ['--agent', 'mine', '--agent', 'free-permissions-runner'] }],
+    })
+    expect(two.skipPermissions.value).toBe(true)
+    two.setSkipPermissions(false)
+    expect(two.profiles.value[0].flags).toEqual(['--agent', 'mine'])
+  })
+
+  it('reports when the read has finished, whether or not it succeeded', async () => {
+    const ok = useHiveSetup()
+    expect(ok.loaded.value).toBe(false)
+    mocks.Setup.mockResolvedValue(setup())
+    await ok.load()
+    expect(ok.loaded.value).toBe(true)
+
+    mocks.Setup.mockRejectedValue(new Error('boom'))
+    const failed = useHiveSetup()
+    await failed.load()
+    expect(failed.loaded.value).toBe(true)
+    expect(failed.setup.value).toBeNull()
+  })
+
+  // The backend refuses to rewrite a file it could not parse, so a save
+  // button for one is a save button that always fails.
+  it('cannot save a config that did not parse', async () => {
+    const hive = await loaded({ unreadable: 'yaml: line 3: did not find expected key' })
+
+    expect(hive.canSave.value).toBe(false)
+  })
+
+  it('holds the save while a typed folder is still being checked', async () => {
+    const hive = await loaded()
+    let settle: (w: { path: string, exists: boolean, repos: number }) => void = () => {}
+    mocks.InspectWorkspace.mockReturnValue(new Promise((resolve) => { settle = resolve }))
+
+    const adding = hive.addWorkspacePath('/home/u/more')
+    expect(hive.canSave.value).toBe(false)
+
+    settle({ path: '/home/u/more', exists: true, repos: 1 })
+    await adding
+    expect(hive.canSave.value).toBe(true)
+    expect(hive.workspaces.value.map(w => w.path)).toEqual(['/home/u/code', '/home/u/more'])
+  })
+
   // An agent with no known flag must not get an empty toggle that writes
   // nothing — selecting it produces a plain profile either way.
   it('leaves an agent with no skip-permission flag alone', async () => {
@@ -163,20 +221,6 @@ describe('useHiveSetup', () => {
     expect(hive.workspaces.value).toHaveLength(1)
   })
 
-  it('knows when nothing has changed', async () => {
-    const hive = await loaded()
-    expect(hive.dirty.value).toBe(false)
-
-    hive.toggleAgent(AGENTS[1], true)
-    expect(hive.dirty.value).toBe(true)
-
-    hive.toggleAgent(AGENTS[1], false)
-    expect(hive.dirty.value).toBe(false)
-
-    hive.removeWorkspace('/home/u/code')
-    expect(hive.dirty.value).toBe(true)
-  })
-
   it('reports a failed save without discarding the draft', async () => {
     const hive = await loaded()
     mocks.Save.mockRejectedValue(new Error('saving the Hive configuration: permission denied'))
@@ -185,7 +229,6 @@ describe('useHiveSetup', () => {
     expect(await hive.save()).toBe(false)
     expect(hive.error.value).toContain('permission denied')
     expect(hive.selectedAgents.value.has('opencode')).toBe(true)
-    expect(hive.dirty.value).toBe(true)
   })
 
   it('leaves the draft empty when the config could not be read', async () => {

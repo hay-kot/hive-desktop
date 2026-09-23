@@ -511,6 +511,48 @@ func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "tmux already ended the session when its command exited")
 }
 
+// Nothing has opened this workspace before, so the launch must generate its
+// wiring. The missing agent binary makes the session exit without leaving a
+// tmux server behind.
+func TestStartFirstRunChatOpensTheHiveWorkspaceOnTheInterview(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	agentCmd := "this-binary-does-not-exist-anywhere-12345"
+	writeAgentWorkspaceManifest(t, root, agentws.HiveWorkspaceDir, agentWorkspaceYAML("Hive", agentCmd+agentws.PromptTail, ""))
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": agentCmd})
+
+	started, err := svc.StartFirstRunChat(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, agentws.HiveWorkspaceDir, started.Workspace)
+	assert.Equal(t, firstRunChatName, started.Name)
+	assert.Empty(t, started.TerminalID, "a detached launch hands back no pane; the route attaches")
+	assert.FileExists(t, filepath.Join(root, agentws.HiveWorkspaceDir, ".mcp.json"), "the workspace was generated before the launch")
+
+	_, err = svc.StartFirstRunChat(t.Context())
+	require.NoError(t, err, "a second hand-off is another chat, not a conflict")
+}
+
+// The startup seed runs only when the root is created, so a root that
+// something else made first has no Hive workspace. The hand-off puts it back
+// rather than telling the user the workspace the card promised is missing.
+func TestStartFirstRunChatSeedsAMissingHiveWorkspace(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "this-binary-does-not-exist-anywhere-12345"})
+	_, ok := svc.store.Status(agentws.HiveWorkspaceDir)
+	require.False(t, ok)
+
+	started, err := svc.StartFirstRunChat(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, agentws.HiveWorkspaceDir, started.Workspace)
+	st, ok := svc.store.Status(agentws.HiveWorkspaceDir)
+	require.True(t, ok, "the seeded workspace is in the store")
+	assert.True(t, st.Valid)
+	assert.Equal(t, []string{"hive-desktop", "hive-canvas"}, st.Workspace.MCPs)
+	assert.FileExists(t, filepath.Join(root, agentws.HiveWorkspaceDir, "AGENTS.md"))
+}
+
 // TestDetachedLaunchThatNeverStartedLeavesNoRecord: the session row is written
 // before tmux is asked for anything, so a launch that fails there leaves a
 // record for a chat that does not exist. A user-driven launch keeps it -- the

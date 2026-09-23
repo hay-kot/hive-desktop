@@ -7,6 +7,7 @@ const profiles = [{
   letter: 'P',
   name: 'Personal',
   enabled: true,
+  nodes: 0,
   sourceSummary: '2 sources',
   totalCount: 3,
   unreadCount: 1,

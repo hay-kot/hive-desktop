@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -202,4 +203,50 @@ func TestSessionGitStatusAgainstARealCheckout(t *testing.T) {
 	// claim the zero value would otherwise make.
 	assert.NotEmpty(t, got.Error)
 	assert.False(t, got.Unpushed)
+}
+
+// rebindingManagement rebinds the manager from inside GetSession, which is the
+// interleaving Rebind's contract is about: a reload landing between two reads
+// of one call.
+type rebindingManagement struct {
+	SessionManagement
+	session session.Session
+	rebind  func()
+}
+
+func (m rebindingManagement) GetSession(context.Context, string) (session.Session, error) {
+	m.rebind()
+	return m.session, nil
+}
+
+func TestSessionGitStatusReadsOneSnapshotAcrossARebind(t *testing.T) {
+	t.Parallel()
+
+	var manager *HiveSessionManager
+	manager = NewHiveSessionManager(rebindingManagement{session: activeSession(), rebind: func() {
+		manager.Rebind(oneSessionManagement{session: activeSession()}, nil, stubGit{branch: "after"}, 0)
+	}}, nil, nil, stubGit{branch: "before"}, 0)
+
+	got, err := manager.SessionGitStatus(t.Context(), "s1")
+	require.NoError(t, err)
+	assert.Equal(t, "before", got.Branch, "the git executor paired with the session service that answered")
+
+	got, err = manager.SessionGitStatus(t.Context(), "s1")
+	require.NoError(t, err)
+	assert.Equal(t, "after", got.Branch, "the next call sees the rebound config")
+}
+
+func TestSessionStatusesReportTheRebindedPollInterval(t *testing.T) {
+	t.Parallel()
+
+	manager := NewHiveSessionManager(oneSessionManagement{}, nil, nil, stubGit{}, 5*time.Second)
+	before, err := manager.SessionStatuses(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 5*time.Second, before.PollInterval)
+
+	manager.Rebind(oneSessionManagement{}, nil, stubGit{}, 9*time.Second)
+
+	after, err := manager.SessionStatuses(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 9*time.Second, after.PollInterval)
 }

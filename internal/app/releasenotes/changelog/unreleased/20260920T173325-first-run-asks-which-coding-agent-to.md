@@ -6,5 +6,5 @@ kind: added
 agent should start a session and which folders hold your repositories, then
 writes the Hive config for you — so the new session picker has something in it
 straight away. Already use the `hive` CLI? Hive finds your config and says so
-instead of touching it. Settings ▸ Hive CLI edits the same two settings later,
-and changes there apply without a restart.
+instead of touching it. To change either setting later, edit the config
+yourself and restart — Settings ▸ Hive CLI points you at the file.

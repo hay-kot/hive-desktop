@@ -2,6 +2,7 @@ package hiveconf_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 )
 
-// write puts contents at dir/config.yaml and returns the path.
 func write(t *testing.T, dir, contents string) string {
 	t.Helper()
 	path := filepath.Join(dir, "config.yaml")
@@ -23,8 +23,6 @@ func write(t *testing.T, dir, contents string) string {
 	return path
 }
 
-// workspaceDir makes a parent folder holding `repos` git repositories, which
-// is the shape every workspace assertion here needs.
 func workspaceDir(t *testing.T, repos int) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -34,18 +32,24 @@ func workspaceDir(t *testing.T, repos int) string {
 	return dir
 }
 
-// loadHive loads the written file through hive's own loader, which is the
-// only check that matters: hive fails the whole config when agents.default
-// names no profile. HIVE_DEFAULT_AGENT is cleared because it overrides
-// agents.default at load time, and a developer who has it exported would
-// otherwise see these tests pass or fail on their shell rather than on the
-// file under test.
+// Clear HIVE_DEFAULT_AGENT because Hive applies it before validation; ambient
+// shell state must not decide whether these tests pass.
 func loadHive(t *testing.T, path string) *config.Config {
 	t.Helper()
 	t.Setenv("HIVE_DEFAULT_AGENT", "")
 	loaded, err := config.Load(path, t.TempDir())
 	require.NoError(t, err)
 	return loaded
+}
+
+func apply(t *testing.T, path string, edit hiveconf.Edit) error {
+	t.Helper()
+	t.Setenv("HIVE_DEFAULT_AGENT", "")
+	dataDir := t.TempDir()
+	return hiveconf.Apply(path, edit, func(candidate string) error {
+		_, err := config.Load(candidate, dataDir)
+		return err
+	})
 }
 
 func TestLoadReportsAMissingFileAsTheOrdinaryFirstRun(t *testing.T) {
@@ -85,17 +89,22 @@ agents:
 	assert.Equal(t, 3, setup.Workspaces[0].Repos)
 }
 
-// TestLoadReportsAConfigWithNoWorkspacesAsUnusable is the case first run turns
-// on: the file is present, so "do they have a config?" says yes, while the
-// session launcher it feeds has nothing to list.
-func TestLoadReportsAConfigWithNoWorkspacesAsUnusable(t *testing.T) {
-	path := write(t, t.TempDir(), "agents:\n  default: claude\n  claude: {}\n")
+// A file that declares only one of the two keys leaves the session launcher
+// as empty as no file at all, so first run treats it the same way.
+func TestLoadReportsAConfigMissingEitherKeyAsUnusable(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	for name, contents := range map[string]string{
+		"profiles but no workspaces": "agents:\n  default: claude\n  claude: {}\n",
+		"workspaces but no profiles": "workspaces:\n  - " + repos + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			setup := hiveconf.Load(write(t, t.TempDir(), contents))
 
-	setup := hiveconf.Load(path)
-
-	assert.True(t, setup.Exists)
-	assert.False(t, setup.Usable)
-	assert.Len(t, setup.Profiles, 1, "what it does declare is still reported")
+			assert.True(t, setup.Exists)
+			assert.False(t, setup.Usable)
+			assert.True(t, len(setup.Profiles) > 0 || len(setup.Workspaces) > 0, "what it does declare is still reported")
+		})
+	}
 }
 
 func TestLoadReadsHivesDeprecatedRepoDirsSpelling(t *testing.T) {
@@ -107,9 +116,8 @@ func TestLoadReadsHivesDeprecatedRepoDirsSpelling(t *testing.T) {
 	assert.True(t, setup.Usable, "an older config is not an unconfigured one")
 }
 
-// TestLoadReportsAnUnparseableFileWithoutClaimingItIsEmpty: the caller must be
-// able to tell "no config" from "a config this app could not read", because
-// only one of those is safe to write over.
+// Callers must distinguish no config from unreadable config because only one
+// is safe to overwrite.
 func TestLoadReportsAnUnparseableFileWithoutClaimingItIsEmpty(t *testing.T) {
 	path := write(t, t.TempDir(), "workspaces: [\n")
 
@@ -165,14 +173,12 @@ func TestValidateWorkspaceRejectsARepositoryItself(t *testing.T) {
 	require.NoError(t, hiveconf.ValidateWorkspace(t.TempDir()))
 }
 
-// TestApplyWritesAConfigHiveCanLoad is the contract that matters most: hive
-// fails the whole file when agents.default names no profile, so a config this
-// app writes and cannot load again would stop the next launch.
+// Hive rejects the whole file when agents.default names no profile.
 func TestApplyWritesAConfigHiveCanLoad(t *testing.T) {
 	repos := workspaceDir(t, 1)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+	require.NoError(t, apply(t, path, hiveconf.Edit{
 		DefaultAgent: "opencode",
 		Profiles: []hiveconf.Profile{
 			{Name: "opencode", Command: "opencode", Flags: []string{"--agent", "free-permissions-runner"}},
@@ -191,9 +197,8 @@ func TestApplyWritesAConfigHiveCanLoad(t *testing.T) {
 	assert.Contains(t, string(raw), "# Hive configuration", "a created file explains itself")
 }
 
-// TestApplyKeepsEverythingItDoesNotOwn: the file is shared with the hive CLI,
-// so a write that dropped a user's rules or comments would be destroying work
-// this app never asked about.
+// Pin the whole output because Contains cannot detect a moved key or misplaced
+// comment. yaml.v3 does not preserve blank lines between keys.
 func TestApplyKeepsEverythingItDoesNotOwn(t *testing.T) {
 	repos := workspaceDir(t, 1)
 	path := write(t, t.TempDir(), `# my hive setup
@@ -215,7 +220,7 @@ workspaces:
   - /old/place
 `)
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+	require.NoError(t, apply(t, path, hiveconf.Edit{
 		DefaultAgent: "codex",
 		Profiles:     []hiveconf.Profile{{Name: "codex", Command: "codex", Flags: []string{"--full-auto"}}},
 		Workspaces:   []string{repos},
@@ -223,25 +228,57 @@ workspaces:
 
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	out := string(raw)
-	assert.Contains(t, out, "# my hive setup")
-	assert.Contains(t, out, "# these matter to me")
-	assert.Contains(t, out, "pbcopy")
-	assert.Contains(t, out, "max_recycled: 3")
-	assert.Contains(t, out, "agent_selector: true", "a reserved key is not a profile to reconcile away")
-	assert.NotContains(t, out, "/old/place")
-	assert.NotContains(t, out, "claude", "a profile the edit dropped is gone, not left as a second default")
+	assert.Equal(t, `# my hive setup
+copy_command: pbcopy
+# these matter to me
+rules:
+  - pattern: ""
+    max_recycled: 3
+agents:
+  default: codex
+  agent_selector: true
+  codex:
+    command: codex
+    flags: [--full-auto]
+workspaces:
+  - `+repos+`
+`, string(raw))
 
 	loaded := loadHive(t, path)
 	assert.Equal(t, "codex", loaded.Agents.Default)
 	assert.Len(t, loaded.Rules, 1)
 }
 
-// TestApplyKeepsAYAMLMergeKeyInsideAgents: "<<" is not a profile name this app
-// invented, and reconciling it away would edit a line the user wrote for
-// reasons of their own. Hive does not resolve a merge key inside agents — its
-// own UnmarshalYAML reads "<<" as a profile key — so preserving it is about
-// not destroying someone's text, not about making the merge work.
+// Settings > Hive CLI after first run is an edit of the file first run
+// rendered, so the template's own comments have to survive an in-place edit.
+func TestApplyEditsTheFileItRenderedWithoutLosingItsComments(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	more := workspaceDir(t, 2)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	edit := hiveconf.Edit{
+		DefaultAgent: "claude",
+		Profiles:     []hiveconf.Profile{{Name: "claude"}},
+		Workspaces:   []string{repos},
+	}
+	require.NoError(t, apply(t, path, edit))
+
+	edit.Workspaces = []string{repos, more}
+	require.NoError(t, apply(t, path, edit))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "# Hive configuration")
+	assert.Contains(t, string(raw), "# Parent folders that hold your git repositories.")
+	assert.Equal(t, []string{repos, more}, loadHive(t, path).Workspaces)
+}
+
+// "<<" is not a profile name this app invented, so reconciling it away would
+// edit a line the user wrote for their own reasons. Hive does not resolve a
+// merge key inside agents — its own UnmarshalYAML reads "<<" as a profile key —
+// so preserving it is about
+// not destroying someone's text, not about making the merge work. Load does
+// not report it as a profile either, or a save of exactly what was loaded
+// would replace the alias with a mapping.
 func TestApplyKeepsAYAMLMergeKeyInsideAgents(t *testing.T) {
 	repos := workspaceDir(t, 1)
 	path := write(t, t.TempDir(), `shared: &shared
@@ -257,9 +294,12 @@ agents:
     flags: []
 `)
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
-		DefaultAgent: "claude",
-		Profiles:     []hiveconf.Profile{{Name: "claude", Command: "claude"}},
+	setup := hiveconf.Load(path)
+	assert.Equal(t, []hiveconf.Profile{{Name: "claude", Command: "claude", Flags: []string{}}}, setup.Profiles)
+
+	require.NoError(t, apply(t, path, hiveconf.Edit{
+		DefaultAgent: setup.DefaultAgent,
+		Profiles:     setup.Profiles,
 		Workspaces:   []string{repos},
 	}))
 
@@ -269,6 +309,29 @@ agents:
 
 	loaded := loadHive(t, path)
 	assert.Equal(t, "claude", loaded.Agents.Default, "the file still loads, which is the contract that matters")
+}
+
+// An anchor on a node the edit replaces has to move to the replacement, or
+// the alias that referenced it turns a loadable file into an unreadable one.
+func TestApplyKeepsAnAnchorAnAliasStillNeeds(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	path := write(t, t.TempDir(), `workspaces: &ws
+  - /old/place
+mirror: *ws
+agents:
+  default: claude
+  claude: {}
+`)
+
+	require.NoError(t, apply(t, path, hiveconf.Edit{
+		DefaultAgent: "claude",
+		Profiles:     []hiveconf.Profile{{Name: "claude"}},
+		Workspaces:   []string{repos},
+	}))
+
+	setup := hiveconf.Load(path)
+	assert.Empty(t, setup.Unreadable)
+	assert.Equal(t, []string{repos}, loadHive(t, path).Workspaces)
 }
 
 func TestApplyPreservesAnUnknownKeyInsideAProfileItRewrites(t *testing.T) {
@@ -281,7 +344,7 @@ func TestApplyPreservesAnUnknownKeyInsideAProfileItRewrites(t *testing.T) {
     future_hive_key: keep-me
 `)
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+	require.NoError(t, apply(t, path, hiveconf.Edit{
 		DefaultAgent: "claude",
 		Profiles:     []hiveconf.Profile{{Name: "claude", Command: "claude", Flags: []string{"--dangerously-skip-permissions"}}},
 		Workspaces:   []string{repos},
@@ -293,14 +356,13 @@ func TestApplyPreservesAnUnknownKeyInsideAProfileItRewrites(t *testing.T) {
 	assert.Contains(t, string(raw), "--dangerously-skip-permissions")
 }
 
-// TestApplyDropsTheDeprecatedRepoDirsKeyItReplaces: hive reads repo_dirs only
-// when workspaces is empty, so leaving it is not harmless duplication — it is
-// what an older hive would read instead of the edit.
+// Hive reads repo_dirs when workspaces is empty, so leaving it would make an
+// older Hive read stale data instead of the edit.
 func TestApplyDropsTheDeprecatedRepoDirsKeyItReplaces(t *testing.T) {
 	repos := workspaceDir(t, 1)
 	path := write(t, t.TempDir(), "repo_dirs:\n  - /old\nagents:\n  default: claude\n  claude: {}\n")
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+	require.NoError(t, apply(t, path, hiveconf.Edit{
 		DefaultAgent: "claude",
 		Profiles:     []hiveconf.Profile{{Name: "claude"}},
 		Workspaces:   []string{repos},
@@ -312,9 +374,9 @@ func TestApplyDropsTheDeprecatedRepoDirsKeyItReplaces(t *testing.T) {
 	assert.Contains(t, string(raw), repos)
 }
 
-// TestApplyFillsAFileHiveCreatedButLeftEmpty: a file with comments but no keys
-// is rendered whole, not edited in place. yaml.v3 attaches a keyless
-// document's comments to no node, so an in-place edit would drop them and
+// A file with comments but no keys is rendered whole because yaml.v3 attaches
+// a keyless document's comments to no node, so an in-place edit would drop
+// them and
 // leave a config with no header at all.
 func TestApplyFillsAFileHiveCreatedButLeftEmpty(t *testing.T) {
 	repos := workspaceDir(t, 1)
@@ -325,7 +387,7 @@ func TestApplyFillsAFileHiveCreatedButLeftEmpty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			path := write(t, t.TempDir(), existing)
 
-			require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+			require.NoError(t, apply(t, path, hiveconf.Edit{
 				DefaultAgent: "claude",
 				Profiles:     []hiveconf.Profile{{Name: "claude"}},
 				Workspaces:   []string{repos},
@@ -356,6 +418,21 @@ func TestApplyRefusesAnEditThatWouldNotLoadAndLeavesTheFileAlone(t *testing.T) {
 			DefaultAgent: "claude",
 			Workspaces:   []string{repos},
 		},
+		"an agent with no name": {
+			DefaultAgent: "claude",
+			Profiles:     []hiveconf.Profile{{Name: "claude"}, {Name: "  "}},
+			Workspaces:   []string{repos},
+		},
+		"a hive setting as an agent name": {
+			DefaultAgent: "claude",
+			Profiles:     []hiveconf.Profile{{Name: "claude"}, {Name: "agent_selector"}},
+			Workspaces:   []string{repos},
+		},
+		"a merge key as an agent name": {
+			DefaultAgent: "claude",
+			Profiles:     []hiveconf.Profile{{Name: "claude"}, {Name: "<<"}},
+			Workspaces:   []string{repos},
+		},
 		"no workspaces": {
 			DefaultAgent: "claude",
 			Profiles:     []hiveconf.Profile{{Name: "claude"}},
@@ -372,12 +449,133 @@ func TestApplyRefusesAnEditThatWouldNotLoadAndLeavesTheFileAlone(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			require.Error(t, hiveconf.Apply(path, edit))
+			err := apply(t, path, edit)
+			require.Error(t, err)
+			require.ErrorAs(t, err, new(hiveconf.InvalidEditError), "the user can fix this one")
 			raw, err := os.ReadFile(path)
 			require.NoError(t, err)
 			assert.Equal(t, original, string(raw), "a rejected edit writes nothing")
 		})
 	}
+}
+
+// Hive validates rules[].agent against the profile map exactly as it does
+// agents.default, and this package owns neither the rules nor a way to repair
+// them — so an edit that would strand one is refused, not written.
+func TestApplyRefusesToDropAProfileARuleUses(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	original := `rules:
+  - pattern: acme/*
+    agent: claude
+agents:
+  default: claude
+  claude: {}
+  codex: {}
+`
+	path := write(t, t.TempDir(), original)
+
+	err := apply(t, path, hiveconf.Edit{
+		DefaultAgent: "codex",
+		Profiles:     []hiveconf.Profile{{Name: "codex"}},
+		Workspaces:   []string{repos},
+	})
+
+	require.Error(t, err)
+	require.ErrorAs(t, err, new(hiveconf.InvalidEditError))
+	assert.Contains(t, err.Error(), `"acme/*"`)
+	assert.Contains(t, err.Error(), `"claude"`)
+	raw, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, original, string(raw))
+}
+
+func TestApplyLetsTheCheckRefuseTheCandidateBeforeItLands(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	original := "agents:\n  default: claude\n  claude: {}\n"
+	path := write(t, t.TempDir(), original)
+
+	var candidate string
+	err := hiveconf.Apply(path, hiveconf.Edit{
+		DefaultAgent: "claude",
+		Profiles:     []hiveconf.Profile{{Name: "claude"}},
+		Workspaces:   []string{repos},
+	}, func(p string) error {
+		raw, readErr := os.ReadFile(p)
+		require.NoError(t, readErr)
+		candidate = string(raw)
+		return errors.New("hive says no")
+	})
+
+	require.Error(t, err)
+	require.ErrorAs(t, err, new(hiveconf.InvalidEditError))
+	assert.Contains(t, err.Error(), "hive says no")
+	assert.Contains(t, candidate, repos, "the check saw the edit it was asked about")
+	raw, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, original, string(raw))
+	entries, readErr := os.ReadDir(filepath.Dir(path))
+	require.NoError(t, readErr)
+	assert.Len(t, entries, 1, "no temp file is left behind")
+}
+
+func TestApplyRefusesAFileWhoseRootIsNotAMapping(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	original := "- not\n- a\n- config\n"
+	path := write(t, t.TempDir(), original)
+
+	require.Error(t, apply(t, path, hiveconf.Edit{
+		DefaultAgent: "claude",
+		Profiles:     []hiveconf.Profile{{Name: "claude"}},
+		Workspaces:   []string{repos},
+	}))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(raw))
+}
+
+// Hive's profile lookup is exact, so the edit that is validated has to be the
+// edit that is written: a padded default that validates trimmed and lands
+// padded fails the next load. Two spellings of one folder would have hive scan
+// it twice.
+func TestApplyNormalizesTheEditItWrites(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	require.NoError(t, apply(t, path, hiveconf.Edit{
+		DefaultAgent: " claude ",
+		Profiles:     []hiveconf.Profile{{Name: "claude "}, {Name: " codex", Command: " codex "}},
+		Workspaces:   []string{" " + repos + " ", repos + "/", "", repos},
+	}))
+
+	loaded := loadHive(t, path)
+	assert.Equal(t, "claude", loaded.Agents.Default)
+	assert.Equal(t, "codex", loaded.Agents.Profiles["codex"].Command)
+	assert.Equal(t, []string{repos}, loaded.Workspaces)
+}
+
+func TestApplyKeepsASymlinkedConfigASymlink(t *testing.T) {
+	repos := workspaceDir(t, 1)
+	dotfiles := t.TempDir()
+	target := write(t, dotfiles, "agents:\n  default: claude\n  claude: {}\n")
+	link := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.Symlink(target, link))
+
+	require.NoError(t, apply(t, link, hiveconf.Edit{
+		DefaultAgent: "claude",
+		Profiles:     []hiveconf.Profile{{Name: "claude"}},
+		Workspaces:   []string{repos},
+	}))
+
+	info, err := os.Lstat(link)
+	require.NoError(t, err)
+	assert.NotZero(t, info.Mode()&os.ModeSymlink, "the dotfiles link is still a link")
+	raw, err := os.ReadFile(target)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), repos, "and the dotfiles repository holds the edit")
+	entries, err := os.ReadDir(dotfiles)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "no temp file is left beside the target")
 }
 
 func TestApplyQuotesAPathThatWouldChangeMeaningUnquoted(t *testing.T) {
@@ -386,7 +584,7 @@ func TestApplyQuotesAPathThatWouldChangeMeaningUnquoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(odd, 0o755))
 	path := filepath.Join(dir, "config.yaml")
 
-	require.NoError(t, hiveconf.Apply(path, hiveconf.Edit{
+	require.NoError(t, apply(t, path, hiveconf.Edit{
 		DefaultAgent: "claude",
 		Profiles:     []hiveconf.Profile{{Name: "claude"}},
 		Workspaces:   []string{odd},
@@ -394,6 +592,26 @@ func TestApplyQuotesAPathThatWouldChangeMeaningUnquoted(t *testing.T) {
 
 	loaded := loadHive(t, path)
 	assert.Equal(t, []string{odd}, loaded.Workspaces)
+}
+
+// O_EXCL preserves a file created between the settings read and the click.
+func TestCreateWritesTheHeaderOnceAndLeavesAnExistingFileAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "config.yaml")
+
+	require.NoError(t, hiveconf.Create(path))
+	created, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(created), "# Hive configuration"))
+	setup := hiveconf.Load(path)
+	assert.True(t, setup.Exists)
+	assert.Empty(t, setup.Unreadable)
+	assert.False(t, setup.Usable)
+
+	require.NoError(t, os.WriteFile(path, []byte("agents:\n  default: pi\n"), 0o644))
+	require.NoError(t, hiveconf.Create(path))
+	kept, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "agents:\n  default: pi\n", string(kept))
 }
 
 func TestExpandTildeResolvesAgainstHome(t *testing.T) {

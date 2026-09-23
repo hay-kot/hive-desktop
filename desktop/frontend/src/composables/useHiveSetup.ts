@@ -12,6 +12,25 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+function flagRunAt(flags: string[], run: string[], at: number): boolean {
+  return run.every((flag, j) => flags[at + j] === flag)
+}
+
+function hasFlagRun(flags: string[] | null | undefined, run: string[]): boolean {
+  if (!flags || !run.length) return false
+  return flags.some((_, i) => flagRunAt(flags, run, i))
+}
+
+function withoutFlagRun(flags: string[], run: string[]): string[] {
+  if (!run.length) return flags
+  const out = [...flags]
+  for (let i = 0; i + run.length <= out.length;) {
+    if (flagRunAt(out, run, i)) out.splice(i, run.length)
+    else i++
+  }
+  return out
+}
+
 /**
  * A workspace in the draft. `repos` is the count the backend found when the
  * folder was added or loaded; it is a confirmation that the folder is the one
@@ -24,29 +43,29 @@ export interface DraftWorkspace {
 }
 
 /**
- * useHiveSetup holds an editable draft of the Hive CLI configuration — the
- * agents a session can start with and the folders holding the repositories it
- * can start in.
- *
  * The draft is deliberately whole rather than a set of pending changes: the
  * backend reconciles the file to exactly what it is given, so the profiles
  * this never shows a control for (a hand-written one with a custom command)
  * ride along untouched instead of being dropped by a save about workspaces.
  *
- * Every caller gets its own instance. The two screens that use it — first run
- * and Settings ▸ Hive CLI — are never open at the same time, and a shared
- * draft between them would mean a half-finished first run leaking into the
- * settings form.
+ * First run is the only screen that edits the draft. Settings ▸ Hive CLI reads
+ * one to report a config that would not parse, and points at the file for
+ * every change. Every caller gets its own instance, so neither can see the
+ * other's draft.
  */
 export function useHiveSetup() {
   const setup = ref<HiveSetup | null>(null)
-  const loading = ref(false)
+  // loaded is "the read finished", success or not; setup is "it succeeded".
+  // A shell waiting on the first cannot flash a step in behind a rendered
+  // feed, while a step gated on the second stays down for a config that
+  // could not be read.
+  const loaded = ref(false)
   const saving = ref(false)
+  // Folders still being checked by the backend. A save sent while one is in
+  // flight would land without it and then overwrite the draft it arrives in.
+  const inspecting = ref(0)
   const error = ref('')
 
-  // The draft. `profiles` holds every profile the file declares, keyed edits
-  // included; `selected` is the subset of catalog agents the picker shows as
-  // chosen, derived from it.
   const profiles = ref<Profile[]>([])
   const workspaces = ref<DraftWorkspace[]>([])
   const defaultAgent = ref('')
@@ -58,7 +77,6 @@ export function useHiveSetup() {
   const unreadable = computed(() => setup.value?.config.unreadable ?? '')
   const defaultAgentOverride = computed(() => setup.value?.defaultAgentOverride ?? '')
 
-  /** The catalog agents currently in the draft, by name. */
   const selectedAgents = computed(() => new Set(profiles.value.map(p => p.name)))
 
   /**
@@ -71,37 +89,17 @@ export function useHiveSetup() {
     return profiles.value.filter(p => !known.has(p.name))
   })
 
-  /**
-   * Whether the draft differs from what is on disk. Compared field by field
-   * rather than by a JSON round-trip so key order in the generated bindings
-   * cannot make an untouched form look edited.
-   */
-  const dirty = computed(() => {
-    const saved = setup.value?.config
-    if (!saved) return false
-    if ((saved.defaultAgent || '') !== defaultAgent.value) return true
-    const savedWorkspaces = (saved.workspaces ?? []).map(w => w.path)
-    if (savedWorkspaces.length !== workspaces.value.length) return true
-    if (savedWorkspaces.some((path, i) => path !== workspaces.value[i]?.path)) return true
-    const savedProfiles = saved.profiles ?? []
-    if (savedProfiles.length !== profiles.value.length) return true
-    return savedProfiles.some((saved, i) => {
-      const draft = profiles.value[i]
-      if (!draft || saved.name !== draft.name || saved.command !== draft.command) return true
-      const a = saved.flags ?? []
-      const b = draft.flags ?? []
-      return a.length !== b.length || a.some((flag, j) => flag !== b[j])
-    })
-  })
-
+  // A file that did not parse is the user's to fix in an editor: the backend
+  // refuses to rewrite it, so offering a save would offer a save that fails.
   const canSave = computed(() =>
-    profiles.value.length > 0
+    !unreadable.value
+    && inspecting.value === 0
+    && profiles.value.length > 0
     && workspaces.value.length > 0
     && profiles.value.some(p => p.name === defaultAgent.value),
   )
 
   async function load(): Promise<void> {
-    loading.value = true
     error.value = ''
     try {
       const next = await Setup()
@@ -110,7 +108,7 @@ export function useHiveSetup() {
     } catch (err) {
       error.value = errText(err)
     } finally {
-      loading.value = false
+      loaded.value = true
     }
   }
 
@@ -122,11 +120,14 @@ export function useHiveSetup() {
     // off: a user who turned skip-permissions on should not have it silently
     // turned back off by opening the form and saving.
     //
-    // Read from catalog profiles only. A hand-written profile carrying flags
-    // of its own says nothing about this toggle, and letting it light the box
-    // up would arm a control that then rewrites the profiles it does own.
-    const known = new Set((next.agents ?? []).map(a => a.name))
-    skipPermissions.value = profiles.value.some(p => known.has(p.name) && (p.flags?.length ?? 0) > 0)
+    // Only the agent's own skip flags count. A profile carrying other flags
+    // (`--model opus`) says nothing about this toggle, and letting them light
+    // the box up would arm a control that then deletes them on the way off.
+    const catalog = new Map((next.agents ?? []).map(a => [a.name, a]))
+    skipPermissions.value = profiles.value.some((p) => {
+      const agent = catalog.get(p.name)
+      return !!agent && hasFlagRun(p.flags, agent.skipPermissionFlags ?? [])
+    })
     if (!profiles.value.length) seedFromInstalledAgent(next)
   }
 
@@ -145,16 +146,19 @@ export function useHiveSetup() {
     return { path: w.path, exists: w.exists, repos: w.repos }
   }
 
-  /** Flags for an agent under the current skip-permissions setting. */
-  function flagsFor(agent: AgentOption): string[] | null {
-    if (!skipPermissions.value) return []
-    return agent.skipPermissionFlags?.length ? [...agent.skipPermissionFlags] : []
+  // Skip flags are handled as one contiguous run. For example, removing
+  // `--agent free-permissions-runner` token by token could also strip an
+  // unrelated `--agent` the user wrote.
+  function flagsFor(agent: AgentOption, existing: string[] | null): string[] {
+    const skip = agent.skipPermissionFlags ?? []
+    const kept = withoutFlagRun(existing ?? [], skip)
+    return skipPermissions.value && skip.length ? [...kept, ...skip] : kept
   }
 
   function toggleAgent(agent: AgentOption, on: boolean): void {
     if (on) {
       if (selectedAgents.value.has(agent.name)) return
-      profiles.value = [...profiles.value, { name: agent.name, command: agent.name, flags: flagsFor(agent) }]
+      profiles.value = [...profiles.value, { name: agent.name, command: agent.name, flags: flagsFor(agent, []) }]
       if (!defaultAgent.value) defaultAgent.value = agent.name
       return
     }
@@ -168,21 +172,17 @@ export function useHiveSetup() {
     defaultAgent.value = name
   }
 
-  /**
-   * Re-derive flags for every catalog profile in the draft. A custom profile
-   * keeps whatever flags it was written with: the toggle is about the presets
-   * this app offers, not about rewriting someone's own command line.
-   */
+  // Custom profiles keep their flags because this toggle controls only the
+  // presets this app offers.
   function setSkipPermissions(on: boolean): void {
     skipPermissions.value = on
     const catalog = new Map(agents.value.map(a => [a.name, a]))
     profiles.value = profiles.value.map((p) => {
       const agent = catalog.get(p.name)
-      return agent ? { ...p, flags: flagsFor(agent) } : p
+      return agent ? { ...p, flags: flagsFor(agent, p.flags) } : p
     })
   }
 
-  /** Opens the native folder picker and adds what it returns. */
   async function addWorkspace(): Promise<void> {
     error.value = ''
     let chosen = ''
@@ -201,11 +201,14 @@ export function useHiveSetup() {
     if (!trimmed) return
     if (workspaces.value.some(w => w.path === trimmed)) return
     error.value = ''
+    inspecting.value++
     try {
       const found = await InspectWorkspace(trimmed)
       workspaces.value = [...workspaces.value, toDraftWorkspace(found)]
     } catch (err) {
       error.value = errText(err)
+    } finally {
+      inspecting.value--
     }
   }
 
@@ -241,7 +244,7 @@ export function useHiveSetup() {
 
   return {
     setup,
-    loading,
+    loaded,
     saving,
     error,
     agents,
@@ -252,7 +255,6 @@ export function useHiveSetup() {
     selectedAgents,
     customProfiles,
     canSave,
-    dirty,
     path,
     usable,
     unreadable,

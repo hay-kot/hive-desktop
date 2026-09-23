@@ -216,6 +216,23 @@ func (s *SettingsService) SetNotificationSettings(ctx context.Context, in Notifi
 	})
 }
 
+// OnboardingSettings is whether first run has been walked to its end.
+type OnboardingSettings struct {
+	Completed bool `json:"completed"`
+}
+
+func (s *SettingsService) OnboardingSettings(ctx context.Context) (OnboardingSettings, error) {
+	completed, err := s.settings.OnboardingCompleted(ctx)
+	if err != nil {
+		return OnboardingSettings{}, err
+	}
+	return OnboardingSettings{Completed: completed}, nil
+}
+
+func (s *SettingsService) SetOnboardingCompleted(ctx context.Context) error {
+	return s.settings.SetOnboardingCompleted(ctx)
+}
+
 // EditorChoice is one editor the selector offers: its CLI command, display
 // title, and whether the command resolves on the subprocess PATH right now.
 type EditorChoice struct {

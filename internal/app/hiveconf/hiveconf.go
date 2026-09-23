@@ -1,16 +1,8 @@
-// Package hiveconf reads and writes the external Hive CLI configuration the
-// desktop shares with the `hive` binary.
-//
-// The desktop does not require this file — hive's own defaults apply when it
-// is absent. It requires it to be *useful*: with no file, hive defaults to a
-// single "claude" profile whether or not claude is installed, and to no
-// workspaces at all, which leaves the session launcher with an empty
-// repository list. Setup exists to answer those two questions.
-//
-// Nothing here exposes a vendored hive type. The package reads the file's own
-// YAML to report what the user declared, rather than the merged config, so
-// "hive would fall back to claude" is never mistaken for "the user chose
-// claude" (Bounded Context, architecture.md).
+// Package hiveconf reads and writes the external Hive CLI configuration shared
+// with the `hive` binary. It reports raw declarations rather than Hive's merged
+// defaults, so a fallback is never mistaken for a user choice (Bounded Context,
+// architecture.md). An absent file is valid but not usable for repository
+// sessions.
 package hiveconf
 
 import (
@@ -22,14 +14,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// KnownAgents is the catalog setup offers, in the order it offers them. It
-// mirrors `hive init`'s own list so the two tools agree on what an agent is
-// called; the label is this app's, because a picker needs a name a person
-// recognises.
-//
-// An agent missing from this list is not unsupported — it is only absent from
-// the picker. Any profile already in the file round-trips untouched.
-var KnownAgents = []AgentKind{
+// Keep names and order aligned with `hive init`. Unlisted profiles remain
+// supported and round-trip unchanged.
+var knownAgents = []AgentKind{
 	{Name: "claude", Label: "Claude Code", SkipPermissionFlags: []string{"--dangerously-skip-permissions"}},
 	{Name: "opencode", Label: "OpenCode", SkipPermissionFlags: []string{"--agent", "free-permissions-runner"}},
 	{Name: "codex", Label: "Codex", SkipPermissionFlags: []string{"--full-auto"}},
@@ -103,7 +90,6 @@ type Setup struct {
 	Workspaces   []Workspace `json:"workspaces"`
 }
 
-// document is the narrow slice of the Hive config this package reads.
 type document struct {
 	Agents     yaml.Node `yaml:"agents"`
 	Workspaces []string  `yaml:"workspaces"`
@@ -142,25 +128,24 @@ func Load(path string) Setup {
 		paths = doc.RepoDirs
 	}
 	for _, p := range paths {
-		setup.Workspaces = append(setup.Workspaces, describeWorkspace(p))
+		setup.Workspaces = append(setup.Workspaces, Inspect(p))
 	}
 	setup.Usable = len(setup.Profiles) > 0 && len(setup.Workspaces) > 0
 	return setup
 }
 
-// decodeAgents splits hive's agents mapping into the reserved "default" key
-// and the profile entries beside it. It mirrors hive's own UnmarshalYAML
-// rather than calling it, so hive and this package disagree about no key.
+// Reading the raw mapping preserves declarations that Hive's unmarshaller
+// would merge with defaults.
 func decodeAgents(node yaml.Node) (defaultAgent string, profiles []Profile) {
 	if node.Kind != yaml.MappingNode {
 		return "", nil
 	}
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		key, value := node.Content[i].Value, node.Content[i+1]
-		switch key {
-		case "default":
+		switch {
+		case key == "default":
 			defaultAgent = value.Value
-		case "agent_selector":
+		case reservedAgentKeys[key]:
 		default:
 			var p struct {
 				Command string   `yaml:"command"`
@@ -179,11 +164,9 @@ func decodeAgents(node yaml.Node) (defaultAgent string, profiles []Profile) {
 	return defaultAgent, profiles
 }
 
-// Inspect reports what is at a candidate workspace path without reading the
-// config, for a folder the user has chosen but not saved.
-func Inspect(path string) Workspace { return describeWorkspace(path) }
-
-func describeWorkspace(path string) Workspace {
+// Inspect reports whether a workspace exists and counts its immediate Git
+// repositories.
+func Inspect(path string) Workspace {
 	expanded := ExpandTilde(path)
 	w := Workspace{Path: path}
 	info, err := os.Stat(expanded)
@@ -216,8 +199,8 @@ type LookPath func(ctx context.Context, name string) (string, error)
 // agents are not floated to the top, because a picker whose rows move between
 // launches is harder to use than one that does not.
 func AgentOptions(ctx context.Context, lookPath LookPath) []AgentOption {
-	options := make([]AgentOption, 0, len(KnownAgents))
-	for _, kind := range KnownAgents {
+	options := make([]AgentOption, 0, len(knownAgents))
+	for _, kind := range knownAgents {
 		installed := false
 		if lookPath != nil {
 			_, err := lookPath(ctx, kind.Name)

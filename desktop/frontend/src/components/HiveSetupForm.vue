@@ -1,9 +1,7 @@
 <script setup lang="ts">
-// The Hive CLI configuration editor: which agents can start a session, and
-// which folders hold the repositories one can start in. It is one component
-// because first run and Settings ▸ Hive CLI ask the same two questions — the
-// only difference is the frame around them.
-import { computed, ref } from 'vue'
+// First run is the only surface that writes the Hive config; Settings points
+// at the file instead.
+import { computed, ref, watch } from 'vue'
 import IconCheck from '~icons/lucide/check'
 import IconFolder from '~icons/lucide/folder'
 import IconFolderPlus from '~icons/lucide/folder-plus'
@@ -11,6 +9,7 @@ import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconX from '~icons/lucide/x'
 import type { AgentOption, Profile } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/hiveconf/models'
 import type { DraftWorkspace } from '../composables/useHiveSetup'
+import AppCheckbox from './AppCheckbox.vue'
 import AppSelect from './AppSelect.vue'
 
 const props = defineProps<{
@@ -45,8 +44,14 @@ function submitTyped(): void {
   const path = typed.value.trim()
   if (!path) return
   emit('addWorkspacePath', path)
-  typed.value = ''
 }
+
+// The input clears once the folder shows up in the list, not on submit: the
+// parent checks the path asynchronously, and a typo should stay in the field
+// beside its error rather than have to be typed again.
+watch(() => props.workspaces, (workspaces) => {
+  if (workspaces.some(w => w.path === typed.value.trim())) typed.value = ''
+})
 
 const defaultAgentOptions = computed(() => [...props.selectedAgents].map(name => ({
   value: name,
@@ -62,7 +67,6 @@ function repoLabel(count: number): string {
 
 <template>
   <div class="flex flex-col gap-7">
-    <!-- Agents -->
     <section class="flex flex-col gap-3" data-testid="hive-setup-agents">
       <div>
         <h3 class="text-[13.5px] font-semibold text-text">Coding agent</h3>
@@ -106,7 +110,6 @@ function repoLabel(count: number): string {
         None of these were found on your PATH. Pick the one you plan to use — Hive will find it once it is installed.
       </p>
 
-      <!-- Default agent: only a question once more than one is chosen. -->
       <div v-if="selectedAgents.size > 1" class="flex flex-col gap-2" data-testid="hive-default-agent">
         <span class="text-[12px] font-medium text-text-3">Start new sessions with</span>
         <AppSelect
@@ -131,23 +134,16 @@ function repoLabel(count: number): string {
         </span>
       </p>
 
-      <label class="flex cursor-pointer items-start gap-2.5 text-[12.5px] leading-relaxed text-text-2">
-        <input
-          type="checkbox"
-          class="mt-0.5 size-3.5 shrink-0 accent-[var(--color-accent)]"
-          :checked="skipPermissions"
-          :disabled="busy"
-          data-testid="hive-skip-permissions"
-          @change="emit('setSkipPermissions', ($event.target as HTMLInputElement).checked)"
-        >
-        <span>
-          Skip the agent's permission prompts
-          <span class="mt-0.5 block text-[12px] text-text-4">Adds the flag that lets the agent act without asking — <span class="font-mono">--dangerously-skip-permissions</span> for Claude Code, and the equivalent for others that have one. Off is the safe default.</span>
-        </span>
-      </label>
+      <AppCheckbox
+        :model-value="skipPermissions"
+        :disabled="busy"
+        label="Skip the agent's permission prompts"
+        hint="Adds the flag that lets the agent act without asking — --dangerously-skip-permissions for Claude Code, and the equivalent for others that have one. Off is the safe default."
+        testid="hive-skip-permissions"
+        @update:model-value="emit('setSkipPermissions', $event)"
+      />
     </section>
 
-    <!-- Workspaces -->
     <section class="flex flex-col gap-3" data-testid="hive-setup-workspaces">
       <div>
         <h3 class="text-[13.5px] font-semibold text-text">Where your repositories are</h3>
@@ -216,7 +212,6 @@ function repoLabel(count: number): string {
       </div>
     </section>
 
-    <!-- What a save will keep but not show a control for. -->
     <p
       v-if="customProfiles.length"
       class="text-[12px] leading-relaxed text-text-4"
