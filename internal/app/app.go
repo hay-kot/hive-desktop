@@ -92,12 +92,12 @@ type App struct {
 	// The per-domain services. Driving adapters call these — never the
 	// unexported domain stores further down, which is what they are built
 	// over.
-	Inbox    *InboxService
-	Sessions *SessionsService
-	Flows    *FlowsService
-	Actions  *ActionsService
-	Settings *SettingsService
-	System   *SystemService
+	Inbox      *InboxService
+	Sessions   *SessionsService
+	Flows      *FlowsService
+	Actions    *ActionsService
+	Settings   *SettingsService
+	System     *SystemService
 	HiveConfig *HiveConfigService
 	Webhooks   *WebhookService
 	GitHub     *GitHubService
