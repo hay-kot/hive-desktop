@@ -198,6 +198,12 @@ export interface FlowSummary {
      * inline keeps the rail a pure prop render with no second fetch.
      */
     "image"?: string;
+
+    /**
+     * Nodes counts the flow's nodes. First run reads it to seed the starter
+     * graph only into a profile that has none.
+     */
+    "nodes": number;
     "error"?: string;
     "warnings"?: string[] | null;
 }
@@ -296,6 +302,13 @@ export interface ObservabilitySettings {
     "otlp": ExportStatus;
     "profiles": ExportStatus;
     "startError": string;
+}
+
+/**
+ * OnboardingSettings is whether first run has been walked to its end.
+ */
+export interface OnboardingSettings {
+    "completed": boolean;
 }
 
 /**

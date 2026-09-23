@@ -63,6 +63,10 @@ agent_workspaces:
                            # (a scheduled chat does when its task is done) and
                            # the session being ended
 
+onboarding:
+  completed: false         # written by the app when first run ends; remove the
+                           # key to walk first run again
+
 telemetry:
   enabled: false           # export the app's own metrics, logs and traces over OTLP
   endpoint: ""             # signal-less OTLP base, https only; no collector needed

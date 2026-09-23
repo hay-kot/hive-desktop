@@ -350,6 +350,8 @@ export interface AgentWorkspacesClient {
   /** Every session across every workspace, newest first in stable creation order. */
   allSessions(): Promise<AgentSession[]>
   startSession(request: StartSessionRequest): Promise<AgentSession>
+  /** Opens the seeded Hive workspace on the interview that ends first run; detached, so route to it to attach. */
+  startFirstRunChat(): Promise<AgentSession>
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
@@ -472,6 +474,11 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async startSession(request) {
       const body = await post<AgentSession>('/sessions/start', request)
+      if (!body) throw new AgentRequestError('the session did not start', '')
+      return body
+    },
+    async startFirstRunChat() {
+      const body = await post<AgentSession>('/sessions/first-run', {})
       if (!body) throw new AgentRequestError('the session did not start', '')
       return body
     },

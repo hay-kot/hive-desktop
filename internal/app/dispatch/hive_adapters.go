@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -248,15 +249,31 @@ type ItemSessionLinker interface {
 
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
 type HiveSessionLauncher struct {
-	sessions SessionCreator
+	// Config-derived state is atomic because Rebind can replace it at runtime.
+	// Recorder and links outlive config edits. Constructors must call Rebind
+	// before returning so hive() cannot load nil.
+	current  atomic.Pointer[launcherHive]
 	recorder activity.Recorder
 	links    ItemSessionLinker
 	logger   zerolog.Logger
 }
 
+type launcherHive struct{ sessions SessionCreator }
+
 func NewHiveSessionLauncher(sessions SessionCreator) *HiveSessionLauncher {
-	return &HiveSessionLauncher{sessions: sessions}
+	l := &HiveSessionLauncher{}
+	l.Rebind(sessions)
+	return l
 }
+
+// Rebind points the launcher at a Hive session service built from a freshly
+// loaded config. In-flight calls finish against the service they started
+// with; the next call takes the new one.
+func (l *HiveSessionLauncher) Rebind(sessions SessionCreator) {
+	l.current.Store(&launcherHive{sessions: sessions})
+}
+
+func (l *HiveSessionLauncher) hive() SessionCreator { return l.current.Load().sessions }
 
 // SetRecorder attaches an activity recorder so created sessions surface in the
 // Activity view. Optional: nil (the default) records nothing.
@@ -270,11 +287,12 @@ func (l *HiveSessionLauncher) SetItemSessionLinker(links ItemSessionLinker, logg
 }
 
 func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessionRequest) (SessionExecutionOutcome, error) {
-	if l.sessions == nil {
+	sessions := l.hive()
+	if sessions == nil {
 		return SessionExecutionOutcome{}, fmt.Errorf("launch session: hive session service is unavailable")
 	}
 	remote, source := req.Repo, ""
-	if known, ok := l.sessions.(sessionLaunchOptionsSource); ok {
+	if known, ok := sessions.(sessionLaunchOptionsSource); ok {
 		repo, err := known.ResolveSessionLaunchRepository(ctx, req.Repo)
 		if err != nil {
 			return SessionExecutionOutcome{}, fmt.Errorf("resolve launch repository: %w", err)
@@ -292,7 +310,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	// failed but not the step, so without this a clone failure arrives as
 	// "clone repository: git clone: exec git: exit status 1" and nothing else.
 	progress := &sessionProgress{}
-	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags, Progress: progress})
+	s, err := sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags, Progress: progress})
 	if err != nil {
 		if errors.Is(err, session.ErrDuplicateName) {
 			return SessionExecutionOutcome{}, fmt.Errorf("%w: %w", ErrDuplicateSessionName, err)
@@ -356,7 +374,8 @@ func uniqueKnownOrigins(origins []models.ItemRef) []models.ItemRef {
 // SessionLaunchOptions exposes only labels, remotes, and configured agent keys
 // to the desktop; local source paths remain in the Hive service.
 func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (SessionLaunchOptions, error) {
-	known, ok := l.sessions.(sessionLaunchOptionsSource)
+	sessions := l.hive()
+	known, ok := sessions.(sessionLaunchOptionsSource)
 	if !ok {
 		return SessionLaunchOptions{}, fmt.Errorf("session launch options are unavailable")
 	}
@@ -381,9 +400,16 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 // not: the launcher is what an output command reaches for, and widening it
 // would hand every action executor a delete.
 type HiveSessionManager struct {
+	// current holds everything derived from the Hive config, swapped whole on
+	// Rebind. windows is outside it: the tmux control-client pool is this
+	// app's own and a config reload must not disturb a live attach.
+	current atomic.Pointer[managerHive]
+	windows sessionWindowSource
+}
+
+type managerHive struct {
 	sessions           SessionManagement
 	statuses           sessionStatusSource
-	windows            sessionWindowSource
 	git                sessionGit
 	statusPollInterval time.Duration
 }
@@ -401,14 +427,27 @@ type sessionGit interface {
 var _ sessionGit = git.Git(nil)
 
 func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, windows sessionWindowSource, gitExec sessionGit, statusPollInterval time.Duration) *HiveSessionManager {
-	return &HiveSessionManager{sessions: sessions, statuses: statuses, windows: windows, git: gitExec, statusPollInterval: statusPollInterval}
+	m := &HiveSessionManager{windows: windows}
+	m.Rebind(sessions, statuses, gitExec, statusPollInterval)
+	return m
 }
+
+// Rebind points the manager at services built from a freshly loaded Hive
+// config. Every method takes one snapshot and works from it, so a reload
+// mid-call cannot pair a session service with the git executor of another
+// config.
+func (m *HiveSessionManager) Rebind(sessions SessionManagement, statuses sessionStatusSource, gitExec sessionGit, statusPollInterval time.Duration) {
+	m.current.Store(&managerHive{sessions: sessions, statuses: statuses, git: gitExec, statusPollInterval: statusPollInterval})
+}
+
+func (m *HiveSessionManager) hive() *managerHive { return m.current.Load() }
 
 // ListSessions returns every session, recycled and corrupted included: an
 // unattachable session still has to be manageable, which is the whole point of
 // listing it.
 func (m *HiveSessionManager) ListSessions(ctx context.Context) ([]SessionSummary, error) {
-	sessions, err := m.sessions.ListSessions(ctx)
+	h := m.hive()
+	sessions, err := h.sessions.ListSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list hive sessions: %w", err)
 	}
@@ -422,15 +461,16 @@ func (m *HiveSessionManager) ListSessions(ctx context.Context) ([]SessionSummary
 // SessionStatuses projects Hive's terminal detection without exposing pane
 // content or vendored status types beyond this anti-corruption layer.
 func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatusSnapshot, error) {
+	h := m.hive()
 	snapshot := SessionStatusSnapshot{
 		Items:        []SessionStatus{},
-		PollInterval: m.statusPollInterval,
+		PollInterval: h.statusPollInterval,
 	}
-	if m.statuses == nil || !m.statuses.Available() {
+	if h.statuses == nil || !h.statuses.Available() {
 		return snapshot, nil
 	}
 
-	sessions, err := m.sessions.ListSessions(ctx)
+	sessions, err := h.sessions.ListSessions(ctx)
 	if err != nil {
 		return SessionStatusSnapshot{}, fmt.Errorf("list hive sessions for status: %w", err)
 	}
@@ -440,7 +480,7 @@ func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatus
 			active = append(active, &sessions[i])
 		}
 	}
-	statuses := m.statuses.FetchBatch(ctx, active, nil)
+	statuses := h.statuses.FetchBatch(ctx, active, nil)
 	windowSets, err := m.sessionWindows(ctx, active)
 	if err != nil {
 		return SessionStatusSnapshot{}, fmt.Errorf("list tmux windows for status: %w", err)
@@ -533,15 +573,16 @@ func desktopAgentStatus(status terminal.Status) string {
 // An unavailable status source is data, not a failure — nothing is reported
 // running, which is what "we cannot see tmux from here" honestly looks like.
 func (m *HiveSessionManager) RunningSessions(ctx context.Context, ids []string) (map[string]bool, error) {
+	h := m.hive()
 	running := map[string]bool{}
-	if len(ids) == 0 || m.statuses == nil || !m.statuses.Available() {
+	if len(ids) == 0 || h.statuses == nil || !h.statuses.Available() {
 		return running, nil
 	}
 	wanted := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		wanted[id] = struct{}{}
 	}
-	sessions, err := m.sessions.ListSessions(ctx)
+	sessions, err := h.sessions.ListSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list hive sessions for status: %w", err)
 	}
@@ -564,14 +605,15 @@ func (m *HiveSessionManager) RunningSessions(ctx context.Context, ids []string) 
 		}
 		return running, nil
 	}
-	for id, status := range m.statuses.FetchBatch(ctx, subset, nil) {
+	for id, status := range h.statuses.FetchBatch(ctx, subset, nil) {
 		running[id] = status.Status != terminal.StatusMissing
 	}
 	return running, nil
 }
 
 func (m *HiveSessionManager) SessionDetail(ctx context.Context, id string) (SessionDetail, error) {
-	s, err := m.sessions.GetSession(ctx, id)
+	h := m.hive()
+	s, err := h.sessions.GetSession(ctx, id)
 	if err != nil {
 		return SessionDetail{}, fmt.Errorf("get hive session: %w", err)
 	}
@@ -594,11 +636,12 @@ func (m *HiveSessionManager) SessionDetail(ctx context.Context, id string) (Sess
 // no risk for a non-active session, which is correct — there is no live clone
 // left to hold unsaved work.
 func (m *HiveSessionManager) SessionRisk(ctx context.Context, id string) (SessionRisk, error) {
-	s, err := m.sessions.GetSession(ctx, id)
+	h := m.hive()
+	s, err := h.sessions.GetSession(ctx, id)
 	if err != nil {
 		return SessionRisk{}, fmt.Errorf("get hive session: %w", err)
 	}
-	risk, err := m.sessions.CheckSessionRisk(ctx, id)
+	risk, err := h.sessions.CheckSessionRisk(ctx, id)
 	if err != nil {
 		return SessionRisk{}, fmt.Errorf("check hive session risk: %w", err)
 	}
@@ -618,21 +661,22 @@ func (m *HiveSessionManager) SessionRisk(ctx context.Context, id string) (Sessio
 // over-warn; a badge claiming "dirty" on a git that never ran is a lie the
 // user acts on.
 func (m *HiveSessionManager) SessionGitStatus(ctx context.Context, id string) (SessionGitStatus, error) {
-	s, err := m.sessions.GetSession(ctx, id)
+	h := m.hive()
+	s, err := h.sessions.GetSession(ctx, id)
 	if err != nil {
 		return SessionGitStatus{}, fmt.Errorf("get hive session: %w", err)
 	}
 	if s.State != session.StateActive || s.Path == "" {
 		return SessionGitStatus{}, nil
 	}
-	if m.git == nil {
+	if h.git == nil {
 		return SessionGitStatus{Error: "git is unavailable"}, nil
 	}
 
 	host, owner, repo := remoteCoordinates(s.Remote)
 	status := SessionGitStatus{Path: s.Path, Host: host, Owner: owner, Repo: repo}
 
-	branch, err := m.git.Branch(ctx, s.Path)
+	branch, err := h.git.Branch(ctx, s.Path)
 	if err != nil {
 		// Every other read needs the working checkout Branch proves, so its
 		// failure stands for the whole status.
@@ -641,19 +685,19 @@ func (m *HiveSessionManager) SessionGitStatus(ctx context.Context, id string) (S
 	status.Branch = branch
 	status.Resolved = true
 
-	if clean, err := m.git.IsClean(ctx, s.Path); err == nil {
+	if clean, err := h.git.IsClean(ctx, s.Path); err == nil {
 		status.Dirty = !clean
 	} else {
 		status.Error = err.Error()
 	}
-	if unpushed, err := m.git.HasUnpushedCommits(ctx, s.Path); err == nil {
+	if unpushed, err := h.git.HasUnpushedCommits(ctx, s.Path); err == nil {
 		status.Unpushed = unpushed
 	} else if status.Error == "" {
 		// A worktree with no upstream reaches here on every read, so it must
 		// not displace a real error above.
 		status.Error = err.Error()
 	}
-	if additions, deletions, err := m.git.DiffStats(ctx, s.Path); err == nil {
+	if additions, deletions, err := h.git.DiffStats(ctx, s.Path); err == nil {
 		status.Additions, status.Deletions = additions, deletions
 	} else if status.Error == "" {
 		status.Error = err.Error()
@@ -689,21 +733,24 @@ func remoteCoordinates(remote string) (host, owner, repo string) {
 // spawn would hand the session to whatever terminal launched the app — or fail
 // for a launcher that has none.
 func (m *HiveSessionManager) SpawnTmuxSession(ctx context.Context, name, path, repo string) error {
-	if err := m.sessions.OpenTmuxSession(ctx, name, path, repo, "", true); err != nil {
+	h := m.hive()
+	if err := h.sessions.OpenTmuxSession(ctx, name, path, repo, "", true); err != nil {
 		return fmt.Errorf("open hive tmux session: %w", err)
 	}
 	return nil
 }
 
 func (m *HiveSessionManager) RenameSession(ctx context.Context, id, name string) error {
-	if err := m.sessions.RenameSession(ctx, id, name); err != nil {
+	h := m.hive()
+	if err := h.sessions.RenameSession(ctx, id, name); err != nil {
 		return fmt.Errorf("rename hive session: %w", err)
 	}
 	return nil
 }
 
 func (m *HiveSessionManager) DeleteSession(ctx context.Context, id string) error {
-	if err := m.sessions.DeleteSession(ctx, id); err != nil {
+	h := m.hive()
+	if err := h.sessions.DeleteSession(ctx, id); err != nil {
 		return fmt.Errorf("delete hive session: %w", err)
 	}
 	return nil
@@ -713,7 +760,8 @@ func (m *HiveSessionManager) DeleteSession(ctx context.Context, id string) error
 // user's own (hive's recycle_commands), and the job records whether they
 // succeeded; streaming their stdout would need a job log to stream into.
 func (m *HiveSessionManager) RecycleSession(ctx context.Context, id string) error {
-	if err := m.sessions.RecycleSession(ctx, id, io.Discard); err != nil {
+	h := m.hive()
+	if err := h.sessions.RecycleSession(ctx, id, io.Discard); err != nil {
 		return fmt.Errorf("recycle hive session: %w", err)
 	}
 	return nil
@@ -724,7 +772,8 @@ func (m *HiveSessionManager) RecycleSession(ctx context.Context, id string) erro
 // reconciliation, not something a menu entry can honestly name, so the desktop
 // exposes the unambiguous one.
 func (m *HiveSessionManager) PruneSessions(ctx context.Context) (int, error) {
-	count, err := m.sessions.Prune(ctx, true)
+	h := m.hive()
+	count, err := h.sessions.Prune(ctx, true)
 	if err != nil {
 		return count, fmt.Errorf("prune hive sessions: %w", err)
 	}
@@ -760,17 +809,32 @@ func ValidateSessionName(name string) error {
 type DurableMessageService interface {
 	Publish(context.Context, messaging.Message, []string) (messaging.PublishResult, error)
 }
-type HiveMessagePublisher struct{ messages DurableMessageService }
+type HiveMessagePublisher struct{ current atomic.Pointer[publisherHive] }
+
+// publisherHive carries the configured retention cap, so a reload is what
+// makes a changed messaging.max_messages take effect.
+type publisherHive struct{ messages DurableMessageService }
 
 func NewHiveMessagePublisher(messages DurableMessageService) *HiveMessagePublisher {
-	return &HiveMessagePublisher{messages: messages}
+	p := &HiveMessagePublisher{}
+	p.Rebind(messages)
+	return p
 }
 
+// Rebind points the publisher at a message service built from a freshly
+// loaded Hive config.
+func (p *HiveMessagePublisher) Rebind(messages DurableMessageService) {
+	p.current.Store(&publisherHive{messages: messages})
+}
+
+func (p *HiveMessagePublisher) hive() DurableMessageService { return p.current.Load().messages }
+
 func (p *HiveMessagePublisher) PublishMessage(ctx context.Context, payload, topic string) (string, error) {
-	if p.messages == nil {
+	messages := p.hive()
+	if messages == nil {
 		return "", fmt.Errorf("publish message: hive message service is unavailable")
 	}
-	result, err := p.messages.Publish(ctx, messaging.Message{Payload: payload, Sender: "hive-desktop", SessionID: ""}, []string{topic})
+	result, err := messages.Publish(ctx, messaging.Message{Payload: payload, Sender: "hive-desktop", SessionID: ""}, []string{topic})
 	if err != nil {
 		return "", fmt.Errorf("publish message: %w", err)
 	}

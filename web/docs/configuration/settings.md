@@ -33,7 +33,7 @@ Hive Desktop and the hive CLI use separate configuration paths. They share Code 
 | Hive CLI and Code session engine | `~/.config/hive/config.yaml` | Repositories, agent profiles, clone and recycle rules, setup commands, starting tmux windows, and shared session behavior |
 | Hive Desktop | `~/.config/hive/desktop/` | Inbox, Code presentation, Chats, notifications, integrations, shortcuts, and app behavior |
 
-The hive CLI config honors `HIVE_CONFIG` and `XDG_CONFIG_HOME`. The Desktop config honors `HIVE_DESKTOP_CONFIG_DIR` and `XDG_CONFIG_HOME`. Restart Hive Desktop after changing the hive CLI configuration.
+The hive CLI config honors `HIVE_CONFIG` and `XDG_CONFIG_HOME`. The Desktop config honors `HIVE_DESKTOP_CONFIG_DIR` and `XDG_CONFIG_HOME`. Hive Desktop reads the hive CLI configuration at startup, so restart it after editing that file.
 
 Session and task sharing also depends on the data root. The common default is `~/.local/share/hive/`. If you move it, point the hive CLI's `HIVE_DATA_DIR` and Hive Desktop's `HIVE_DESKTOP_HIVE_DATA_DIR` at the same directory. See the hive CLI [configuration reference](https://colonyops.github.io/hive/configuration/) and [repository rules](https://colonyops.github.io/hive/configuration/rules/).
 
@@ -59,9 +59,13 @@ Hive Desktop includes the Hive runtime it needs. A separately installed Hive CLI
 
 If you use the Hive CLI, Desktop also reads its optional configuration file at startup. It checks `HIVE_CONFIG` first, then looks for `config.yaml`, `config.yml`, `hive.yaml`, or `hive.yml` under `$XDG_CONFIG_HOME/hive/` with `~/.config/hive/` as the fallback. No file is required. Hive uses built-in defaults when none exists.
 
-**Settings ▸ Hive CLI** shows the exact path selected at startup. From there you can copy the path, open or reveal an existing file, or create a missing file and open it. Restart Hive Desktop after editing the file.
+First run asks for the two settings Hive Desktop needs from that file — the agents a session can start with, and the parent folders holding your repositories — and writes them; see [Set up your agent and code](../getting-started/agent-and-repos.md). Everything else in the file is left as written: rules, tmux settings, keybindings, user commands, and any agent profile with a command of its own.
 
-To choose a default agent, set `agents.default` to a configured agent profile. `HIVE_DEFAULT_AGENT` takes precedence when it names a configured profile.
+Change any of it later by editing the file yourself, then restarting Hive Desktop. The hive CLI [configuration reference](https://colonyops.github.io/hive/configuration/) describes every key.
+
+**Settings ▸ Hive CLI** shows the exact path selected at startup, and lets you copy it, open or reveal an existing file, or create a missing one and open it. It also tells you when the file no longer parses, which is worth checking after a hand edit.
+
+`HIVE_DEFAULT_AGENT` takes precedence over the default agent you choose, when it names a configured profile. The screen says so when the variable is set.
 
 ## Advanced configuration
 

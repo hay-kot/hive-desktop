@@ -123,13 +123,32 @@ func (s *FlowsService) Statuses(context.Context) []flow.FlowStatus {
 	return s.flows.Statuses()
 }
 
+// DefaultProfileName names the profile the app creates so that one always
+// exists. First run never asks for a name: a profile is the container the
+// starter feeds land in, and there is nothing to say about it before there is
+// anything in it.
+const DefaultProfileName = "Default"
+
+// EnsureProfile creates the default profile when the flows directory holds no
+// flow file at all. It runs at startup and after a delete, the two moments
+// the set can be empty, so neither the rail nor first run ever faces an app
+// with no profile. A broken file counts as a profile: it is listed with its
+// error, and writing a Default beside it would hide that.
+func (s *FlowsService) EnsureProfile(ctx context.Context) error {
+	if len(s.flows.Statuses()) > 0 {
+		return nil
+	}
+	_, err := s.Create(ctx, DefaultProfileName)
+	return err
+}
+
 // Create makes a new flow named name, seeded with the starter graph when
 // exactly one GitHub account is connected and empty otherwise.
 //
-// Creating is never refused for want of a credential. First run creates the
-// profile before it offers to connect anything, so the unseeded case is the
-// expected one there, not a failure — SeedStarter is what fills it in once
-// the account exists.
+// Creating is never refused for want of a credential. First run has the
+// default profile before it offers to connect anything, so the unseeded case
+// is the expected one there, not a failure — SeedStarter is what fills it in
+// once the account exists.
 func (s *FlowsService) Create(ctx context.Context, name string) (flow.Flow, error) {
 	credential, err := s.seedCredential()
 	if err != nil {
@@ -257,6 +276,9 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	}
 	// A leftover avatar is orphaned data, never a reason to fail the delete.
 	_ = s.images.Delete(id)
+	if err := s.EnsureProfile(ctx); err != nil {
+		return Wrap(err, KindInternal, "replacing the last profile")
+	}
 	s.notifyUpdated(ctx)
 	return Wrap(s.purgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
 }

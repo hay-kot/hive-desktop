@@ -198,6 +198,7 @@ column is the section that specifies it.
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
 | A new **command the app spawns on the user's behalf** | Resolved environment — `execenv` supplies `Cmd.Env` and resolves the binary; never the inherited PATH, and never a login shell in place of it | [Subprocess environment](#subprocess-environment) |
+| A change to the **external Hive config** | Anti-Corruption Layer; in-place `yaml.Node` edit (the `flow/yamldoc.go` pattern); `Rebind` so the running process sees it | [The external Hive config](#the-external-hive-config) |
 | A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR yaml-config-migration |
 
 If what you are building is not on this list, it is probably a service method
@@ -715,13 +716,16 @@ OS keychain — is not observed until the cache's own TTL (one poll interval, by
 default) elapses on its own.
 
 **GitHub is a connector, not a login.** Nothing in the app is gated on being
-connected to it. First run is create profile → connect GitHub → feed: the
-profile is the one thing that exists without a credential, so it goes first,
-and connecting is what seeds its starter graph. Bypassing that step is possible
-past a warning, and lands on a feed whose empty state points at Settings ▸
-Integrations — itself a projection of the connector registry, joined to what
-the credential store holds. ADR credential-store records why this is a new store rather
-than an extension of the vendored single-slot one.
+connected to it. First run is Hive config → connect GitHub → notifications →
+a chat with the agent: a profile named Default exists before the walk starts
+(`FlowsService.EnsureProfile`, ADR first-run-ends-in-a-chat-with-the-agent-instead-of-asking-for-a-profile-name),
+and connecting is what seeds its starter graph. Bypassing the connect step is
+possible past a warning, and lands on a feed whose empty state points at
+Settings ▸ Integrations — itself a projection of the connector registry, joined
+to what the credential store holds. First run is recorded in
+`settings.yaml` (`onboarding.completed`), never inferred. ADR credential-store
+records why this is a new store rather than an extension of the vendored
+single-slot one.
 
 ### Config versus data
 
@@ -835,6 +839,48 @@ Normal development shares the OS keychain and fixed bootstrap pointer with the
 installed app. The onboarding launch uses its isolated keychain service; other
 tests that need credential isolation use mock mode.
 
+### The external Hive config
+
+The `hive` CLI's own config (`$XDG_CONFIG_HOME/hive/config.yaml`, or
+`HIVE_CONFIG`) is not this app's file, and the desktop is the second writer of
+it. It is still load-bearing here: hive's `SessionLaunchOptions` builds the new
+session dialog's repository list from `workspaces` and its agent list from
+`agents`, and neither has a useful default — an absent file means an empty
+repository list and an invented `claude` profile.
+
+First run therefore asks for those two values and writes them, and is the only
+thing that writes them
+(ADR hive-desktop-writes-the-hive-config-during-first-run-instead-of-requiring-a-hand-written-one).
+Three rules hold for anything that touches this file:
+
+- **Own two keys, `workspaces` and `agents`, and nothing else.** A file with
+  keys in it is edited through its parsed `yaml.Node` tree (the
+  `flow/yamldoc.go` pattern, in `internal/app/hiveconf`), so comments, key
+  order, and keys this build does not know survive; the deprecated
+  `repo_dirs` is the one key it retires, because hive reads it in place of an
+  empty `workspaces`. A file this app creates, or one that exists with no keys
+  (the header `hiveconf.Create` leaves for a hand edit), is rendered from the
+  template, header included. Every write goes through `hiveconf`.
+- **Validate before writing.** Hive fails the whole config when
+  `agents.default` or a `rules[].agent` names no profile, so an invalid write
+  does not degrade the app, it stops the next launch. `hiveconf` checks the
+  keys it owns; the app then runs hive's own loader over the written candidate
+  before the rename, so anything else hive would refuse is a rejected edit
+  rather than a fatal launch. Writes are atomic, follow a symlinked config to
+  its target, and a rejected edit writes nothing.
+- **Read the file, not the merged config,** when reporting what the user
+  chose. `config.Load` fills in defaults, and a default reported as a choice is
+  how "they already have a config" becomes wrong.
+
+`App.ReloadHiveRuntime` makes a write take effect in the running process. The
+config-derived services — session launcher, session manager, message
+publisher, agent command set — are rebuilt by `buildHiveServices` and swapped
+into the `dispatch` adapters through `Rebind`; the database, the event bus and
+the honeycomb store are opened once and keep their startup settings
+(ADR the-hive-runtime-rebinds-on-a-config-write-instead-of-requiring-a-restart). A new
+config-derived dependency belongs in `hiveServices` and its `Rebind`, or it
+silently keeps serving the config the process started with.
+
 Two databases remain separate on purpose: `hive.db` is shared with the
 external `hive` CLI, and `desktop-pipeline.db` isolates desktop write traffic
 from it. Their locations resolve independently: `desktop-pipeline.db` follows
@@ -861,8 +907,11 @@ in **General** (the editor command); **Observability** is runtime cost and the
 install's telemetry exports; **System** is this install — storage, diagnostics,
 the problem reporter; **About** is the running build. **Hive CLI**
 is the compatibility boundary for the included Hive runtime: it shows the exact
-external Hive config loaded at startup and creates or opens that file without
-making it required. Changes to that file require a Desktop restart. There is no
+external Hive config loaded at startup, reports one that would not parse, and
+creates or opens that file without making it required. It does not edit it —
+first run is the only writer, and a change made later is a hand edit plus a
+restart
+(ADR hive-desktop-writes-the-hive-config-during-first-run-instead-of-requiring-a-hand-written-one). There is no
 leftover group — a section that fits nowhere means the grouping is wrong. A
 ships-dark opt-in, if one is ever reintroduced, is a posture rather than a
 category: it renders on the pane for the feature it gates
@@ -2313,9 +2362,9 @@ The target is reached in this order; each step is independently shippable.
    keychain-backed store and its ref index, one fetcher per account, and
    GitHub demoted from a login to a connector. A source node's `credential:`
    is required, which breaks any existing `flows/*.yaml` a second time.
-   First run creates the profile before it offers to connect anything, and
-   `flow` no longer names a connector: `FlowStore.Create` takes its starter
-   graph from its caller.
+   The default profile exists before first run offers to connect anything,
+   and `flow` no longer names a connector: `FlowStore.Create` takes its
+   starter graph from its caller.
 7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle
    (the lifecycle half is blocked on appkit — see
    [Background lifecycle](#background-lifecycle)). **Done** for the agent

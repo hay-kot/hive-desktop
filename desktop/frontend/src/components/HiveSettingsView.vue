@@ -12,6 +12,7 @@ import SettingsPathRow from './settings/SettingsPathRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import { useClipboard } from '../composables/useClipboard'
 import { useCommands, type Command } from '../composables/useCommands'
+import { useHiveSetup } from '../composables/useHiveSetup'
 import { useSystemSettings } from '../composables/useSystemSettings'
 
 const {
@@ -22,6 +23,9 @@ const {
   revealPath,
   createOrOpenHiveConfig,
 } = useSystemSettings()
+// Settings reports parse failures but does not write the config; first run is
+// the only writer.
+const hive = useHiveSetup()
 const { copy } = useClipboard()
 
 const hiveCLIDocsURL = 'https://colonyops.github.io/hive/'
@@ -78,22 +82,14 @@ useCommands(() => {
 
 onMounted(() => {
   void refresh()
+  void hive.load()
 })
 </script>
 
 <template>
   <SettingsPage testid="settings-hive">
-    <div
-      class="flex items-center gap-3 rounded-lg border border-border bg-severity-info-tint p-3.5"
-      data-testid="hive-restart-notice"
-    >
-      <IconInfo class="size-4 shrink-0 text-severity-info" />
-      <div class="text-[12.5px] text-text-2">
-        Hive Desktop reads this file at startup. Restart Hive Desktop after saving changes.
-      </div>
-    </div>
-
     <SettingsError v-if="error" :message="error" testid="hive-settings-error" />
+    <SettingsError v-if="hive.unreadable.value" :message="`This config could not be read: ${hive.unreadable.value}. Fix it in your editor, then restart Hive Desktop.`" testid="hive-unreadable" />
 
     <SettingsSection title="Included Hive runtime" boxed padded>
       <template #actions>
@@ -109,14 +105,14 @@ onMounted(() => {
       </template>
       <div class="flex flex-col gap-2 text-[12.5px] leading-5 text-text-2">
         <p>Hive Desktop includes the Hive runtime it needs. It does not require or invoke a separately installed Hive CLI.</p>
-        <p>If you use the Hive CLI, Desktop stays compatible with its optional configuration file.</p>
+        <p>If you use the Hive CLI, Desktop shares this configuration file with it and leaves everything it does not ask about alone.</p>
       </div>
     </SettingsSection>
 
     <SettingsSection
       v-if="info"
       title="Configuration file"
-      description="No file is required. Hive defaults apply when this path has not been created."
+      description="The same file the hive CLI reads."
       boxed
     >
       <SettingsPathRow
@@ -135,12 +131,21 @@ onMounted(() => {
         @reveal="revealPath(info.hiveConfig.path)"
       />
       <div
+        class="flex items-center gap-3 px-4 py-3.5"
+        data-testid="hive-restart-notice"
+      >
+        <IconInfo class="size-4 shrink-0 text-severity-info" />
+        <div class="text-[12.5px] leading-relaxed text-text-2">
+          Edit this file in your own editor — the Hive CLI documentation above describes every key. Hive Desktop reads it at startup, so restart the app to apply a change.
+        </div>
+      </div>
+      <div
         v-if="!info.hiveConfig.exists"
         class="flex flex-col items-start gap-3 px-4 py-3.5 @[600px]/pane:flex-row @[600px]/pane:items-center"
         data-testid="hive-config-missing"
       >
         <p class="min-w-0 flex-1 text-[12px] leading-5 text-text-3">
-          No configuration file was found. Hive Desktop is using built-in defaults.
+          No configuration file yet. Hive uses built-in defaults until you create one.
         </p>
         <button
           type="button"
@@ -149,13 +154,6 @@ onMounted(() => {
           @click="createOrOpenHiveConfig"
         >Create and open</button>
       </div>
-    </SettingsSection>
-
-    <SettingsSection title="Default agent" boxed padded>
-      <p class="text-[12.5px] leading-5 text-text-2">
-        Set <code class="font-mono text-[12px] text-text">agents.default</code> to the name of a configured agent profile.
-        <code class="font-mono text-[12px] text-text">HIVE_DEFAULT_AGENT</code> takes precedence when it names a configured profile.
-      </p>
     </SettingsSection>
   </SettingsPage>
 </template>

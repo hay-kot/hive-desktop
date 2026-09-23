@@ -41,13 +41,19 @@ Hive updates itself. You can change the release channel under **Settings ▸ Abo
 
 ## First run
 
-1. Create a workspace.
+1. Choose a coding agent and the folders holding your repositories.
 2. Connect GitHub, or skip it and connect another [source](../inbox/sources.md).
 3. Allow notifications if you want system banners.
-4. Open a feed and select an item.
+4. Start a chat with your agent, or open the feed.
+
+Hive creates a profile named **Default** for you; connecting GitHub fills it
+with the starter feeds. The last step opens the built-in **Hive** workspace,
+where your agent asks how you work and offers to set up your profiles and
+feeds. Select **Not now** to go straight to the feed instead.
 
 These pages cover each step:
 
+- [Set up your agent and code](agent-and-repos.md)
 - [Sign in to GitHub](sign-in.md)
 - [Turn on notifications](notifications.md)
 - [See your first items](first-feed.md)

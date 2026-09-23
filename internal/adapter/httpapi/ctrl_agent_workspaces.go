@@ -611,6 +611,20 @@ func (ctrl *Controller) AgentSessionStart(w http.ResponseWriter, r *http.Request
 	return server.JSON(w, http.StatusOK, toAgentSessionView(view))
 }
 
+// AgentSessionStartFirstRun opens the seeded Hive workspace on the first-run
+// interview. The workspace, the name and the prompt are the app's, so the
+// request carries nothing.
+func (ctrl *Controller) AgentSessionStartFirstRun(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	view, err := ctrl.core.AgentWorkspaces.StartFirstRunChat(r.Context())
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, toAgentSessionView(view))
+}
+
 type agentSessionResumeRequest struct {
 	ID   int64 `json:"id"`
 	Cols int   `json:"cols"`

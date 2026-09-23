@@ -161,6 +161,14 @@ type EditorSettings struct {
 	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
 }
 
+// OnboardingSettings records that first run was walked to its end. It is the
+// one thing first run cannot infer: every other step has its own signal (a
+// usable Hive config, a connected account, a resolved notification grant),
+// but the closing hand-off to the agent leaves nothing behind to read.
+type OnboardingSettings struct {
+	Completed bool `yaml:"completed,omitempty"`
+}
+
 // TelemetrySettings configures OTLP export of the app's own signals. It is
 // top-level rather than under development because it is the user's own
 // observability, not a debug facility.
@@ -294,6 +302,7 @@ type Settings struct {
 	Paths           PathsSettings           `yaml:"paths,omitempty"`
 	Editor          EditorSettings          `yaml:"editor,omitempty"`
 	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`
+	Onboarding      OnboardingSettings      `yaml:"onboarding,omitempty"`
 	Development     DevelopmentSettings     `yaml:"development"`
 
 	overrides map[string]bool

@@ -29,6 +29,9 @@ import ToastStack from './components/ToastStack.vue'
 import SequenceHint from './components/SequenceHint.vue'
 import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useNotificationSettings } from './composables/useNotificationSettings'
+import { useAgentWorkspaces } from './composables/useAgentWorkspaces'
+import { useFirstRun } from './composables/useFirstRun'
+import { useHiveSetup } from './composables/useHiveSetup'
 import { useAgentCanvasRoute } from './composables/useAgentCanvasRoute'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
@@ -658,34 +661,82 @@ watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (k
 })
 
 // ── First run ────────────────────────────────────────────────────────────────
-// create profile -> connect GitHub -> feed. The profile goes first because
-// it is the one thing that exists without a credential; connecting is the
-// expected next step but can be skipped past a warning, and skipping lands on
-// a feed whose empty state points at Integrations.
-
-// Step 1: no profile exists yet. This is also where deleting the last profile
-// lands.
-const needsProfile = computed(() => profilesLoaded.value && profiles.value.length === 0)
-
-// Step 2. It is the tail of one continuous first run rather than a state the
-// app persists: set when the first profile is created with nothing
-// connected, cleared by connecting or skipping. Disconnecting later never
-// sets it — Settings ▸ Integrations is where that is repaired.
+// hive setup -> connect GitHub -> notifications -> meet the agent. Hive setup
+// goes first because it is the one answer the rest of the app reads back — the
+// new session picker is built from it — and because abandoning it costs
+// nothing that early: no credential stored. Connecting can be skipped past a
+// warning. The hand-off to the agent is last because it needs everything
+// before it: the agent it opens is the one the Hive step chose, and the
+// profile it builds on is the one connecting seeded.
+//
+// A profile is not a step. One exists before the app opens
+// (FlowsService.EnsureProfile), so nothing here asks for a name.
+//
+// The walk is gated on a persisted marker, not inferred: with a profile always
+// present, nothing in the app's state says whether the agent hand-off has
+// happened. Each step's flag is then the tail of one walk, and the steps that
+// have their own signal (a usable config, a connected account, a resolved
+// grant) skip themselves.
+const hive = useHiveSetup()
+const firstRun = useFirstRun()
+const { startFirstRunChat } = useAgentWorkspaces()
+const hiveStepDone = ref(false)
+// The step runs when the read succeeded, the file is one this app may write,
+// and the step has not been retired. A config this app could not read is not
+// a reason to hold a first run in front of the whole app — Settings ▸ Hive
+// CLI shows the parse error. Whether the config is usable picks which body
+// the step renders, not whether it is up.
+const hiveStepActive = computed(() =>
+  firstRun.completed.value === false && !!hive.setup.value && !hive.unreadable.value && !hiveStepDone.value,
+)
 const firstRunConnect = ref(false)
-
-// Step 3: the OS notification grant. Like firstRunConnect it is the tail of
-// one first run, not persisted state — set when the connect step resolves and
-// cleared once the user grants, denies, or skips. Requesting it here is the
-// only place onboarding pops the OS prompt; a returning user whose permission
-// is already resolved never sees this step (advanceToPermissions gates on it).
+// The OS notification grant. Requesting it here is the only place onboarding
+// pops the OS prompt; a user whose permission is already resolved never sees
+// this step (advanceToPermissions gates on it).
 const firstRunPermissions = ref(false)
-const onboardingActive = computed(() => needsProfile.value || firstRunConnect.value || firstRunPermissions.value)
+const firstRunAgent = ref(false)
+const firstRunAgentError = ref<string | null>(null)
+const startingFirstRunAgent = ref(false)
+const onboardingActive = computed(() => hiveStepActive.value || firstRunConnect.value || firstRunPermissions.value || firstRunAgent.value)
 
-// Move off the connect step onto the permissions step, unless the OS decision
-// is already made — a grant or a denial has nothing left to ask, so first run
-// ends and the feed takes over.
+// The walk starts once every read it branches on has landed: the marker, the
+// Hive config, and the GitHub status. Starting on a status that has not
+// arrived would put the connect card up for an account that is connected.
+const firstRunReady = computed(() => firstRun.completed.value !== null && hive.loaded.value && githubStatus.value !== null)
+let firstRunStarted = false
+watch(firstRunReady, (ready) => {
+  if (!ready || firstRunStarted || firstRun.completed.value !== false) return
+  firstRunStarted = true
+  if (!hiveStepActive.value) advanceToConnect()
+}, { immediate: true })
+
+function advanceToConnect(): void {
+  firstRunConnect.value = !githubConnected.value
+  if (!firstRunConnect.value) advanceToPermissions()
+}
+
+// Move onto the permissions step, unless the OS decision is already made — a
+// grant or a denial has nothing left to ask, so the hand-off comes next.
 function advanceToPermissions(): void {
   firstRunPermissions.value = notificationPermission.value === 'not-requested'
+  if (!firstRunPermissions.value) firstRunAgent.value = true
+}
+
+function finishPermissions(): void {
+  firstRunPermissions.value = false
+  firstRunAgent.value = true
+}
+
+async function submitHiveSetup(): Promise<void> {
+  if (await hive.save()) finishHiveStep()
+}
+
+// Leaving the step — saved, confirmed, or skipped — ends it. A skip means "not
+// now, and not here again": the repository picker's empty state is what points
+// at Settings ▸ Hive CLI afterwards.
+function finishHiveStep(): void {
+  hiveStepDone.value = true
+  advanceToConnect()
 }
 
 function skipConnectStep(): void {
@@ -693,23 +744,39 @@ function skipConnectStep(): void {
   advanceToPermissions()
 }
 
-async function submitOnboardingProfile(name: string): Promise<void> {
-  // Claim the connect step before creating: the profiles list gains the new
-  // profile partway through createProfile, and without this the feed would
-  // render for a frame in between.
-  firstRunConnect.value = !githubConnected.value
-  if (!(await createProfile(name))) firstRunConnect.value = false
+// The hand-off opens the seeded Hive workspace on the interview chat. First
+// run ends before the route changes so the Agents area is not gated behind
+// the screen that is handing off to it.
+async function startFirstRunAgent(): Promise<void> {
+  startingFirstRunAgent.value = true
+  firstRunAgentError.value = null
+  try {
+    const session = await startFirstRunChat()
+    await finishFirstRun()
+    await router.push({ name: 'agents', params: { workspace: session.workspace }, query: { chat: String(session.id) } })
+  } catch (error) {
+    firstRunAgentError.value = error instanceof Error && error.message ? error.message : 'Could not start the chat.'
+  } finally {
+    startingFirstRunAgent.value = false
+  }
 }
 
-// Connecting during first run seeds the profile made a step earlier. It was
-// made empty because a source node names the account it fetches as and there
-// was none; this is the moment there is one. The connect card stays up until
-// the seed lands, so the feed is never rendered sourceless on the way through.
+async function finishFirstRun(): Promise<void> {
+  firstRunAgent.value = false
+  await firstRun.complete()
+}
+
+// Connecting during first run seeds the default profile. It was made empty
+// because a source node names the account it fetches as and there was none;
+// this is the moment there is one. Only an empty profile is seeded: a walk
+// replayed on an install whose profile already has feeds must not try to
+// append a second starter graph. The connect card stays up until the seed
+// lands, so the feed is never rendered sourceless on the way through.
 watch(githubConnected, async (connected) => {
   if (!connected || !firstRunConnect.value) return
-  const profileId = activeProfileId.value
+  const profile = profiles.value.find((p) => p.id === activeProfileId.value)
   try {
-    if (profileId) await seedStarterFlow(profileId)
+    if (profile && profile.nodes === 0) await seedStarterFlow(profile.id)
   } catch (error) {
     console.warn('Unable to seed the starter flow', error)
     showToast('Starter feeds were not added', {
@@ -741,7 +808,10 @@ const mode = computed<'hub' | 'terminal' | 'agents'>(() => {
 // siblings, not branches of one chain, so hubActive is written as the
 // positive case rather than "not terminal": a third route with no explicit
 // case here would otherwise render the hub underneath it.
-const shellLoaded = computed(() => profilesLoaded.value || !!profilesError.value)
+// Deliberately not gated on the GitHub status: nothing in the app waits on
+// being connected. The first-run chain waits for it itself before choosing
+// the connect card.
+const shellLoaded = computed(() => (profilesLoaded.value || !!profilesError.value) && hive.loaded.value && firstRun.completed.value !== null)
 const terminalActive = computed(() => mode.value === 'terminal' && shellLoaded.value && !onboardingActive.value)
 const agentsActive = computed(() => mode.value === 'agents' && shellLoaded.value && !onboardingActive.value)
 const hubActive = computed(() => mode.value === 'hub' && shellLoaded.value && !onboardingActive.value)
@@ -874,6 +944,14 @@ const {
   dismiss: dismissWhatsNew,
 } = useReleaseNotes()
 onMounted(() => { void checkReleaseNotes() })
+// The Hive config decides whether first run has a step at all, so it is read
+// alongside the profiles rather than when the step would render — the shell
+// holds its empty frame until profilesLoaded, and a step that resolved after
+// that would flash in behind it.
+onMounted(() => {
+  void hive.load()
+  void firstRun.load()
+})
 const {
   open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, initialTarget: newSessionInitialTarget, busy: newSessionBusy, error: newSessionError,
   failure: newSessionFailure, formKey: newSessionFormKey,
@@ -1357,20 +1435,24 @@ onUnmounted(() => {
       <div v-if="!shellLoaded" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
         v-else-if="onboardingActive"
-        :card="needsProfile ? 'profile' : firstRunConnect ? connectCard : 'permissions'"
+        :card="hiveStepActive ? 'hive' : firstRunConnect ? connectCard : firstRunPermissions ? 'permissions' : 'agent'"
         :device-flow="deviceFlow"
-        :error="needsProfile ? createProfileError : firstRunConnect ? connectError : notificationError"
-        :busy="needsProfile ? creatingProfile : firstRunConnect ? connectBusy : requestingPermission"
+        :error="hiveStepActive ? hive.error.value : firstRunConnect ? connectError : firstRunPermissions ? notificationError : firstRunAgentError"
+        :busy="hiveStepActive ? hive.saving.value : firstRunConnect ? connectBusy : firstRunPermissions ? requestingPermission : startingFirstRunAgent"
         :github-connected="githubConnected"
         :permission="notificationPermission"
+        :hive="hive"
+        @save-hive="submitHiveSetup"
+        @finish-hive="finishHiveStep"
         @start-device-flow="startDeviceFlow"
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"
         @submit-token="submitToken"
-        @create-profile="submitOnboardingProfile"
         @skip-connect="skipConnectStep"
         @request-permission="requestPermission"
-        @finish-permissions="firstRunPermissions = false"
+        @finish-permissions="finishPermissions"
+        @start-agent="startFirstRunAgent"
+        @finish-agent="finishFirstRun"
       />
       <!-- Terminal mode takes the whole frame under the title bar, spaces rail
            included: nothing in it is workspace-scoped, and the always-live mode

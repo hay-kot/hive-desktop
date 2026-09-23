@@ -127,6 +127,15 @@ linters:
             - "!**/internal/app/dispatch/launch_session_executor_test.go"
             - "!**/internal/app/data/queries/dbext.go"
             - "!**/internal/app/data/queries/dbext_test.go"
+            # hiveconf writes the external Hive config, and the one invariant
+            # that matters is that hive's own loader accepts what it produced:
+            # config.Load fails the whole file when agents.default names no
+            # profile, so a config this app writes and hive cannot read stops
+            # the next launch. Only the test crosses the seam — package
+            # hiveconf itself decodes the file's own YAML and exports no
+            # vendored type. Same shape as dbext_test.go, which exercises the
+            # vendored migration runner directly.
+            - "!**/internal/app/hiveconf/hiveconf_test.go"
           deny:
             - pkg: github.com/hay-kot/hive-desktop/internal/hivecore
               desc: |

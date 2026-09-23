@@ -186,6 +186,11 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
 		},
 		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/first-run", Summary: "Open the seeded Hive workspace on the interview that ends first run: regenerates the workspace, then launches a detached session named \"Getting started\" whose opening message is the app's own first-run prompt. The caller attaches by routing to the returned session.",
+			Response: agentSessionView{}, Handler: ctrl.AgentSessionStartFirstRun,
+			Errors: agentErrors("the seeded Hive workspace is gone", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
+		},
+		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resume", Summary: "Reattach a session's live tmux session if it still has one, or relaunch it — resuming the agent's own conversation when it has a resume form (resumeAttempted), and starting a fresh one with a notice when it does not.",
 			Request: agentSessionResumeRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionResume,
 			Errors: agentErrors("no such session, or its workspace is gone", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),

@@ -5,7 +5,7 @@ description: Connect a GitHub account during first run or from Settings.
 
 # Sign in to GitHub
 
-Create a workspace during first run, then select **Connect GitHub**. Copy the displayed code, open `github.com/login/device`, and approve access.
+Select **Connect GitHub** during first run. Copy the displayed code, open `github.com/login/device`, and approve access.
 
 Hive requests the `repo` and `notifications` scopes to read issues, pull requests, and GitHub notifications. It stores the token in the OS keychain.
 

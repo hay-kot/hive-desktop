@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"github.com/colonyops/hive/pkg/osopen"
 
 	"github.com/hay-kot/hive-desktop/internal/app/data/queries"
+	"github.com/hay-kot/hive-desktop/internal/app/hiveconf"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
@@ -21,8 +21,11 @@ type HiveConfigLocation struct {
 }
 
 type systemOptions struct {
-	Paths      settings.Paths
-	HiveConfig HiveConfigLocation
+	Paths settings.Paths
+	// HiveConfig reads the location rather than holding it: the Hive config is
+	// reloadable, and a first run that creates the file changes where it
+	// resolves while this service is on screen.
+	HiveConfig func() HiveConfigLocation
 	OpenPath   func(string) error
 	RevealPath func(string) error
 }
@@ -39,7 +42,7 @@ type systemOptions struct {
 // not domain.
 type SystemService struct {
 	paths      settings.Paths
-	hiveConfig HiveConfigLocation
+	hiveConfig func() HiveConfigLocation
 	openPath   func(string) error
 	revealPath func(string) error
 }
@@ -54,6 +57,9 @@ func newSystemService(opts systemOptions) *SystemService {
 	}
 	if opts.RevealPath == nil {
 		opts.RevealPath = osopen.Reveal
+	}
+	if opts.HiveConfig == nil {
+		opts.HiveConfig = func() HiveConfigLocation { return HiveConfigLocation{} }
 	}
 	return &SystemService{
 		paths:      opts.Paths,
@@ -86,13 +92,14 @@ type SystemInfo struct {
 // Info returns the effective locations for this process and their override
 // state.
 func (s *SystemService) Info(context.Context) SystemInfo {
+	hiveConfig := s.hiveConfig()
 	return SystemInfo{
 		DataDir:         pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
 		ConfigDir:       pathInfo(s.paths.ConfigDir, s.paths.ConfigDirOverridden),
 		LogFile:         pathInfo(s.paths.LogFile, false),
 		Database:        pathInfo(queries.DatabasePath(s.paths.StateDir), false),
 		AgentWorkspaces: pathInfo(s.paths.AgentWorkspacesDir, false),
-		HiveConfig:      pathInfo(s.hiveConfig.Path, s.hiveConfig.EnvironmentOverride),
+		HiveConfig:      pathInfo(hiveConfig.Path, hiveConfig.EnvironmentOverride),
 	}
 }
 
@@ -119,32 +126,14 @@ func (s *SystemService) RevealPath(_ context.Context, path string) error {
 	return Wrap(s.revealPath(path), KindInternal, "revealing %s", path)
 }
 
-const initialHiveConfig = `# Hive configuration
-# Hive Desktop reads this file at startup. Restart Hive Desktop after saving changes.
-`
-
 // OpenHiveConfig creates the resolved Hive config when needed, then opens it
-// in the OS default application. O_EXCL preserves a file created between the
-// settings read and this call.
+// in the OS default application.
 func (s *SystemService) OpenHiveConfig(_ context.Context) error {
-	path := s.hiveConfig.Path
+	path := s.hiveConfig().Path
 	if path == "" {
 		return Errorf(KindInternal, "Hive config path is unavailable")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return Wrap(err, KindInternal, "creating the Hive config directory")
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err == nil {
-		if _, writeErr := file.WriteString(initialHiveConfig); writeErr != nil {
-			_ = file.Close()
-			_ = os.Remove(path)
-			return Wrap(writeErr, KindInternal, "creating the Hive config")
-		}
-		if closeErr := file.Close(); closeErr != nil {
-			return Wrap(closeErr, KindInternal, "creating the Hive config")
-		}
-	} else if !errors.Is(err, os.ErrExist) {
+	if err := hiveconf.Create(path); err != nil {
 		return Wrap(err, KindInternal, "creating the Hive config")
 	}
 	return Wrap(s.openPath(path), KindInternal, "opening %s", path)
@@ -210,8 +199,8 @@ func (s *SystemService) checkAllowed(path string) error {
 		filepath.Clean(s.paths.AgentWorkspacesDir):             {},
 		filepath.Clean(s.paths.ReportsDir):                     {},
 	}
-	if s.hiveConfig.Path != "" {
-		allowed[filepath.Clean(s.hiveConfig.Path)] = struct{}{}
+	if hiveConfig := s.hiveConfig(); hiveConfig.Path != "" {
+		allowed[filepath.Clean(hiveConfig.Path)] = struct{}{}
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

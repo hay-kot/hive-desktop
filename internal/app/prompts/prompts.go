@@ -175,7 +175,24 @@ type Service struct {
 
 // frames are the templates rendered at runtime around text the app is about to
 // hand an agent, as opposed to the copyable prompts the registry lists.
-var frames = template.Must(template.New("frames").Funcs(funcs()).ParseFS(templatesFS, "templates/scheduled-run.tmpl"))
+var frames = template.Must(template.New("frames").Funcs(funcs()).ParseFS(templatesFS, "templates/scheduled-run.tmpl", "templates/first-run.tmpl"))
+
+type FirstRunData struct {
+	// DefaultProfile is the name of the profile the app created, so the
+	// interview builds on it instead of leaving it beside what it makes.
+	DefaultProfile string
+}
+
+// FirstRun is the opening message of the chat first run hands off into: an
+// interview about how the person works, then a proposal for their profiles
+// and feeds.
+func FirstRun(data FirstRunData) (string, error) {
+	var buf strings.Builder
+	if err := frames.ExecuteTemplate(&buf, "first-run.tmpl", data); err != nil {
+		return "", fmt.Errorf("prompts: rendering the first-run frame: %w", err)
+	}
+	return buf.String(), nil
+}
 
 type ScheduledRunData struct {
 	ScheduleName  string

@@ -115,6 +115,24 @@ describe('useFeedState', () => {
     expect(get().activeProfile.value?.feeds[0]?.name).toBe('New name')
   })
 
+  // The app writes the default profile at startup, and the flows watcher
+  // reports that write while the first load is still reading. App.vue holds
+  // the shell on "Loading…" until profilesLoaded, so a reload that supersedes
+  // the first load must finish it.
+  it('finishes the first load when flows:updated lands while it is reading', async () => {
+    const handlers: Record<string, () => void> = {}; mocks.On.mockImplementation((name: string, callback: () => void) => { handlers[name] = callback; return () => {} })
+    let releaseFirst!: (value: unknown) => void
+    mocks.ListFlows.mockImplementationOnce(() => new Promise(r => { releaseFirst = r }))
+    const get = mountState(); await flushPromises()
+
+    handlers['flows:updated']!(); await flushPromises()
+    releaseFirst([{ id: 'triage', name: 'Frontend Triage', enabled: true, valid: true }]); await flushPromises()
+
+    expect(get().profilesLoaded.value).toBe(true)
+    expect(get().activeProfileId.value).toBe('triage')
+    expect(get().selection.value).toEqual({ type: 'feed', feedId: 'triage/my-prs' })
+  })
+
   // A profile whose flow has no feed nodes has to be distinguishable from
   // one whose feeds simply have not been read yet — App.vue's empty state
   // hangs off that difference, and a stub mid-reload must not trip it.

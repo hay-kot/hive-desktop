@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -240,11 +239,7 @@ func (s *SessionsService) withEnvironmentDefaultAgent(ctx context.Context, opts 
 // LaunchSessionRequest.Agent it does not recognize with `unknown agent %q`,
 // which would turn a harmless preselection into a failed launch.
 func (s *SessionsService) preferredEnvAgent(ctx context.Context, agents []string) string {
-	preferred := strings.TrimSpace(s.defaultAgentEnv.DefaultAgent(ctx))
-	if preferred == "" || !slices.Contains(agents, preferred) {
-		return ""
-	}
-	return preferred
+	return environmentAgentOverride(s.defaultAgentEnv.DefaultAgent(ctx), agents)
 }
 
 // resolveLaunchAgent answers the agent a launch should run when the request

@@ -79,6 +79,15 @@ func TestScheduledRunFramesThePrompt(t *testing.T) {
 	assert.NotContains(t, quiet, "curl")
 }
 
+func TestFirstRunNamesTheDefaultProfile(t *testing.T) {
+	text, err := FirstRun(FirstRunData{DefaultProfile: "Default"})
+	require.NoError(t, err)
+	assert.Contains(t, text, `A profile named "Default" already exists`)
+	assert.Contains(t, text, "interview")
+	assert.Contains(t, text, "ask before you create or change anything")
+	assert.NotContains(t, text, "<no value>")
+}
+
 func TestRenderRejectsUnknownID(t *testing.T) {
 	_, err := newTestService(t).Render("not-a-prompt", testInput())
 	require.Error(t, err)

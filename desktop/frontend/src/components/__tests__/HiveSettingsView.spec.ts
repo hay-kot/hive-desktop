@@ -8,8 +8,12 @@ const mocks = vi.hoisted(() => ({
   OpenHiveConfig: vi.fn(),
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
+  ChooseDirectory: vi.fn(),
   OpenURL: vi.fn(),
   SetText: vi.fn(),
+  Setup: vi.fn(),
+  Save: vi.fn(),
+  InspectWorkspace: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
@@ -17,6 +21,12 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   OpenHiveConfig: mocks.OpenHiveConfig,
   OpenPath: mocks.OpenPath,
   RevealPath: mocks.RevealPath,
+  ChooseDirectory: mocks.ChooseDirectory,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/hiveconfigservice', () => ({
+  Setup: mocks.Setup,
+  Save: mocks.Save,
+  InspectWorkspace: mocks.InspectWorkspace,
 }))
 vi.mock('@wailsio/runtime', () => ({
   Browser: { OpenURL: mocks.OpenURL },
@@ -24,6 +34,7 @@ vi.mock('@wailsio/runtime', () => ({
 }))
 
 const CONFIG = '/home/u/.config/hive/config.yaml'
+const WORKSPACE = '/home/u/code'
 
 function info(exists: boolean, overridden = false) {
   return {
@@ -36,26 +47,84 @@ function info(exists: boolean, overridden = false) {
   }
 }
 
+function setup(over: Partial<{
+  exists: boolean
+  usable: boolean
+  unreadable: string
+  defaultAgent: string
+  profiles: Array<{ name: string, command: string, flags: string[] | null }>
+  workspaces: Array<{ path: string, exists: boolean, repos: number }>
+  defaultAgentOverride: string
+}> = {}) {
+  return {
+    config: {
+      path: CONFIG,
+      exists: over.exists ?? true,
+      usable: over.usable ?? true,
+      unreadable: over.unreadable ?? '',
+      defaultAgent: over.defaultAgent ?? 'claude',
+      profiles: over.profiles ?? [{ name: 'claude', command: 'claude', flags: [] }],
+      workspaces: over.workspaces ?? [{ path: WORKSPACE, exists: true, repos: 12 }],
+    },
+    agents: [
+      { name: 'claude', label: 'Claude Code', skipPermissionFlags: ['--dangerously-skip-permissions'], installed: true },
+      { name: 'opencode', label: 'OpenCode', skipPermissionFlags: ['--agent', 'free-permissions-runner'], installed: false },
+      { name: 'copilot', label: 'GitHub Copilot', skipPermissionFlags: [], installed: false },
+    ],
+    defaultAgentOverride: over.defaultAgentOverride ?? '',
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.OpenHiveConfig.mockResolvedValue(undefined)
   mocks.OpenPath.mockResolvedValue(undefined)
   mocks.RevealPath.mockResolvedValue(undefined)
+  mocks.Setup.mockResolvedValue(setup())
+  mocks.Save.mockImplementation(async () => setup())
+  mocks.InspectWorkspace.mockResolvedValue({ path: WORKSPACE, exists: true, repos: 12 })
+  mocks.ChooseDirectory.mockResolvedValue(WORKSPACE)
 })
 
 describe('HiveSettingsView', () => {
-  it('explains the included runtime, restart requirement, and default-agent precedence', async () => {
+  // The pane points at the file and nothing more: first run is the only
+  // writer, so every change here is a hand edit followed by a restart.
+  it('explains the included runtime and sends edits to the file', async () => {
     mocks.Info.mockResolvedValue(info(true))
     const wrapper = mount(HiveSettingsView)
     await flushPromises()
 
     expect(wrapper.text()).toContain('does not require or invoke a separately installed Hive CLI')
-    expect(wrapper.get('[data-testid="hive-restart-notice"]').text()).toContain('Restart Hive Desktop')
-    expect(wrapper.text()).toContain('agents.default')
-    expect(wrapper.text()).toContain('HIVE_DEFAULT_AGENT')
+    const notice = wrapper.get('[data-testid="hive-restart-notice"]').text()
+    expect(notice).toContain('Edit this file in your own editor')
+    expect(notice).toContain('restart the app')
 
     await wrapper.get('[data-testid="hive-cli-docs"]').trigger('click')
     expect(mocks.OpenURL).toHaveBeenCalledWith('https://colonyops.github.io/hive/')
+  })
+
+  it('offers no editor for the config', async () => {
+    mocks.Info.mockResolvedValue(info(true))
+    const wrapper = mount(HiveSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="hive-config-save"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="hive-setup-agents"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="hive-workspace-list"]').exists()).toBe(false)
+    expect(mocks.Save).not.toHaveBeenCalled()
+  })
+
+  // A file the user hand-edited into something Hive cannot parse stops
+  // sessions starting, and this pane is where they come to look.
+  it('reports a config it could not parse', async () => {
+    mocks.Info.mockResolvedValue(info(true))
+    mocks.Setup.mockResolvedValue(setup({ unreadable: 'yaml: line 4: mapping values are not allowed', usable: false }))
+    const wrapper = mount(HiveSettingsView)
+    await flushPromises()
+
+    const banner = wrapper.get('[data-testid="hive-unreadable"]').text()
+    expect(banner).toContain('line 4')
+    expect(banner).toContain('restart Hive Desktop')
   })
 
   it('opens and reveals an existing config', async () => {
@@ -84,10 +153,11 @@ describe('HiveSettingsView', () => {
 
   it('creates a missing config, opens it, and refreshes its state', async () => {
     mocks.Info.mockResolvedValueOnce(info(false)).mockResolvedValueOnce(info(true))
+    mocks.Setup.mockResolvedValue(setup({ exists: false, usable: false, workspaces: [], profiles: [] }))
     const wrapper = mount(HiveSettingsView)
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="hive-config-missing"]').text()).toContain('using built-in defaults')
+    expect(wrapper.get('[data-testid="hive-config-missing"]').text()).toContain('built-in defaults')
     expect(wrapper.find('[data-testid="hive-config-open"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="hive-config-reveal"]').exists()).toBe(false)
 
@@ -113,6 +183,7 @@ describe('HiveSettingsView', () => {
 
   it('refreshes file state while preserving an open failure', async () => {
     mocks.Info.mockResolvedValueOnce(info(false)).mockResolvedValueOnce(info(true))
+    mocks.Setup.mockResolvedValue(setup({ exists: false, usable: false, workspaces: [], profiles: [] }))
     mocks.OpenHiveConfig.mockRejectedValue(new Error('the file was created but no editor opened'))
     const wrapper = mount(HiveSettingsView)
     await flushPromises()

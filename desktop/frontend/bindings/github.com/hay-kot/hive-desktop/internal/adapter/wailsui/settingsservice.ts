@@ -48,6 +48,10 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
     return $Call.ByID(256290300);
 }
 
+export function OnboardingSettings(): $CancellablePromise<$models.OnboardingSettings> {
+    return $Call.ByID(3298805650);
+}
+
 export function SetCanvasFontSize(size: string): $CancellablePromise<void> {
     return $Call.ByID(3357552462, size);
 }
@@ -86,6 +90,10 @@ export function SetMonoFontFamily(family: string): $CancellablePromise<void> {
 
 export function SetNotificationSettings($in: $models.NotificationSettings): $CancellablePromise<void> {
     return $Call.ByID(460333036, $in);
+}
+
+export function SetOnboardingCompleted(): $CancellablePromise<void> {
+    return $Call.ByID(3271096168);
 }
 
 export function SetTerminalFontFamily(family: string): $CancellablePromise<void> {

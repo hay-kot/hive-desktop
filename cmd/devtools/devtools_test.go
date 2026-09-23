@@ -121,7 +121,7 @@ func TestPrepareOnboardingUsesBlankIsolatedState(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "data", "desktop", "desktop-pipeline.db"))
 	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "config", "flows", "work.yaml"))
 	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "config", "actions.yml"))
-	assert.DirExists(t, filepath.Join(tools.instanceDir, "config", "workspaces"))
+	assert.NoDirExists(t, filepath.Join(tools.instanceDir, "config", "workspaces"))
 
 	ref := credentials.Ref{Provider: "github", Account: "octocat"}
 	store := credentials.NewKeychainStoreWithService(

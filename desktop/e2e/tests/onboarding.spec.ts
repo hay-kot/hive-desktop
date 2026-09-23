@@ -15,11 +15,9 @@ const onboardingPorts: Record<string, number> = {
   webkit: 8933,
 }
 
-// The first-run story is one ordered walk on a per-browser onboarding server:
-// create a profile, then connect the account that fills it, then the feed.
-// Splitting it into named steps that share one page pins any failure to a
-// specific step (profile-create vs. connect vs. flow-edit vs. delete)
-// instead of a line deep inside one giant test.
+// The first-run story is one ordered walk on a per-browser onboarding server.
+// Splitting it into named steps pins failures to a specific transition instead
+// of a line deep inside one giant test.
 //
 // The steps share a page and run serially because the device-flow grant is a
 // one-way server state change: the group therefore opts out of retries (a
@@ -54,33 +52,43 @@ test.describe.serial('first-run onboarding, then profile and flow management', (
     await page.close()
   })
 
-  test('starts at the profile step, which needs no account', async () => {
+  // Setup comes first because sessions need an agent and a repository folder.
+  // The folder is typed rather than picked. The native directory dialog needs
+  // a GUI, and this suite drives the headless server build, which has none;
+  // the typed input exists for that reason as much as for keyboard users.
+  test('starts at the hive setup step and writes a config from it', async () => {
     await page.goto('/')
 
-    // The profile is the one thing that exists without a credential, so it
-    // is step 1 — the connect cards are not on screen yet.
     const onboarding = page.getByTestId('onboarding')
     await expect(onboarding).toBeVisible()
     await expect(onboarding).toContainText('Triage GitHub and')
-    await expect(onboarding).toContainText('Create your first profile')
-    await expect(onboarding).toContainText('Tokens are stored in your OS keychain.')
+    await expect(onboarding).toContainText('Set up your agent and code')
+    await expect(page.getByTestId('hive-setup-agents')).toBeVisible()
     await expect(page.getByTestId('onboarding-connect')).toBeHidden()
     // No profile chrome in the title bar while onboarding (gated on profileName).
     await expect(page.getByTestId('titlebar-activity')).toBeHidden()
 
-    const profileInput = page.getByTestId('onboarding-profile-input')
-    await expect(page.getByText('Profile name', { exact: true })).toBeVisible()
-    await expect(profileInput).toBeFocused()
-    await expect(page.getByTestId('onboarding-profile-submit')).toBeDisabled()
+    // Agent availability varies in the container, so select instead of toggle.
+    const claude = page.getByTestId('hive-agent-claude')
+    if (await claude.getAttribute('aria-pressed') !== 'true') await claude.click()
+    await expect(claude).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('onboarding-hive-submit')).toBeDisabled()
+
     await mkdir(screenshotsDir, { recursive: true })
-    await page.screenshot({ path: join(screenshotsDir, `onboarding-profile-${projectName}.png`), fullPage: true })
+    await page.screenshot({ path: join(screenshotsDir, `onboarding-hive-${projectName}.png`), fullPage: true })
 
-    await profileInput.fill('Frontend Triage')
-    await page.getByTestId('onboarding-profile-submit').click()
+    // /tmp exists in the container, is not a repository, and should report no
+    // repositories of its own.
+    await page.getByTestId('hive-workspace-path').fill('/tmp')
+    await page.getByTestId('hive-workspace-path-add').click()
+    await expect(page.getByTestId('hive-workspace-list')).toContainText('/tmp')
+    await expect(page.getByTestId('onboarding-hive-submit')).toBeEnabled()
 
-    // Step 2, not the feed: the profile exists but has no sources yet.
+    await page.getByTestId('onboarding-hive-submit').click()
+
     await expect(page.getByTestId('onboarding-connect')).toBeVisible({ timeout: 15_000 })
     await expect(onboarding).toContainText('Connect to GitHub')
+    await expect(onboarding).toContainText('Tokens are stored in your OS keychain.')
   })
 
   test('offers the token fallback and warns before the connect step can be skipped', async () => {
@@ -113,20 +121,18 @@ test.describe.serial('first-run onboarding, then profile and flow management', (
     await expect(page.getByTestId('onboarding')).toContainText('Waiting for authorization…')
     await page.screenshot({ path: join(screenshotsDir, `onboarding-device-flow-${projectName}.png`), fullPage: true })
 
-    // Step 3 stands between the grant and the feed: the OS notification
-    // prompt. Skipping is the path that needs no OS grant, so it is the one a
-    // headless run can take.
+    // A headless run can neither grant OS permission nor rely on an agent
+    // binary, so it skips both steps.
     await expect(page.getByTestId('onboarding-permissions-skip')).toHaveText('Not now')
     await page.getByTestId('onboarding-permissions-skip').click()
+    await expect(page.getByTestId('onboarding-agent-start')).toBeVisible()
+    await page.screenshot({ path: join(screenshotsDir, `onboarding-agent-${projectName}.png`), fullPage: true })
+    await page.getByTestId('onboarding-agent-skip').click()
 
-    // Connecting is what fills the profile: it was created empty because a
-    // source node names the account it fetches as. The starter graph is three
-    // sources.github -> feed pairs plus a "Review requests" feed and notify
-    // node behind a filter. Nothing has polled GitHub yet in mock mode
-    // (buildPipelineProducer is skipped, and only the fixture flow
-    // desktop/mockseed.go targets gets seeded feed_item rows), so the feeds
-    // start with zero items.
-    await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Frontend Triage', { timeout: 15_000 })
+    // The starter graph is three sources.github -> feed pairs plus a "Review
+    // requests" feed and notify node behind a filter. Mock mode skips polling,
+    // and the e2e seeder targets another flow, so these feeds start empty.
+    await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Default', { timeout: 15_000 })
     await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
     await expect(page.getByTestId('feed-item')).toHaveCount(0)
   })
@@ -221,6 +227,6 @@ test.describe.serial('first-run onboarding, then profile and flow management', (
     await expect(deleteProfileModal).toBeHidden()
     await expect(page.getByTestId('toast').last()).toContainText('Profile deleted')
     await expect(page.getByTestId('profile-tile')).toHaveCount(1)
-    await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Frontend Triage')
+    await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Default')
   })
 })

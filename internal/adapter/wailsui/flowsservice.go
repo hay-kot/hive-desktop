@@ -19,7 +19,10 @@ type FlowSummary struct {
 	// Image is the profile's avatar as a data URL, or empty when it has none
 	// (the rail falls back to the letter chip). Encoding the small stored PNG
 	// inline keeps the rail a pure prop render with no second fetch.
-	Image    string   `json:"image,omitempty"`
+	Image string `json:"image,omitempty"`
+	// Nodes counts the flow's nodes. First run reads it to seed the starter
+	// graph only into a profile that has none.
+	Nodes    int      `json:"nodes"`
 	Error    string   `json:"error,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -42,6 +45,7 @@ func (s *FlowsService) ListFlows(ctx context.Context) ([]FlowSummary, error) {
 		if st.Valid {
 			summary.Name = st.Flow.Name
 			summary.Enabled = st.Flow.Enabled
+			summary.Nodes = len(st.Flow.Nodes)
 			if st.Flow.Image != "" {
 				summary.Image = s.imageDataURL(ctx, st.ID)
 			}

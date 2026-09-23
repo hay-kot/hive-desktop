@@ -68,12 +68,10 @@ type AgentWorkspacesService struct {
 	schedules *stores.ScheduleStore
 	history   scheduleHistory
 	skills    *SkillsService
-	// profileCommands is agentCommands' result (app.go): hive's configured
-	// agent profiles projected onto a full command line, flags included. It
-	// seeds the editor's preset list and nothing else — no launch reads it, so
-	// a hive.yaml edit cannot change what an existing workspace runs
+	// This is a function so config reloads update editor presets. Launches do
+	// not read it, so edits cannot change an existing workspace's command
 	// (ADR the-workspace-command-is-a-template).
-	profileCommands map[string]string
+	profileCommands func() map[string]string
 	// rootProblem carries EnsureRoot's error, verbatim, when the configured
 	// root could not be created or opened at startup -- empty otherwise.
 	rootProblem string
@@ -137,7 +135,7 @@ type AgentWorkspacesDeps struct {
 	// workspace delete spans them with.
 	Stores          *stores.Stores
 	Skills          *SkillsService
-	ProfileCommands map[string]string
+	ProfileCommands func() map[string]string
 	RootProblem     string
 	ExecEnv         *execenv.Resolver
 	// EditorCommand nil means NopEditorCommandReader.
@@ -606,6 +604,45 @@ func (s *AgentWorkspacesService) StartScheduledSession(ctx context.Context, req 
 	})
 }
 
+const firstRunChatName = "Getting started"
+
+// StartFirstRunChat opens the seeded Hive workspace on the interview that
+// ends first run. The workspace is regenerated first, as a scheduled launch
+// is: on a fresh install nothing has opened it yet, so its .mcp.json and
+// skills do not exist until this does. The launch is detached because the
+// onboarding screen has no pane; the route it hands off to attaches.
+func (s *AgentWorkspacesService) StartFirstRunChat(ctx context.Context) (SessionView, error) {
+	if err := s.ensureHiveWorkspace(); err != nil {
+		return SessionView{}, err
+	}
+	if _, err := s.regenerate(ctx, agentws.HiveWorkspaceDir); err != nil {
+		return SessionView{}, err
+	}
+	prompt, err := prompts.FirstRun(prompts.FirstRunData{DefaultProfile: DefaultProfileName})
+	if err != nil {
+		return SessionView{}, Wrap(err, KindInternal, "rendering the first-run prompt")
+	}
+	return s.StartSession(ctx, StartSession{
+		Workspace: agentws.HiveWorkspaceDir, Name: firstRunChatName, Prompt: prompt, Detached: true,
+	})
+}
+
+// Startup seeds only a newly created root, so first run repairs a missing
+// Hive workspace. An existing workspace with a broken manifest is left alone;
+// regenerate reports it.
+func (s *AgentWorkspacesService) ensureHiveWorkspace() error {
+	if _, ok := s.store.Status(agentws.HiveWorkspaceDir); ok {
+		return nil
+	}
+	if err := agentws.SeedHiveWorkspace(s.store.Root()); err != nil {
+		return Wrap(err, KindInternal, "seeding the Hive workspace")
+	}
+	if err := s.store.Reload(); err != nil {
+		return Wrap(err, KindInternal, "reloading agent workspaces")
+	}
+	return nil
+}
+
 func (s *AgentWorkspacesService) sessionEndURL(ctx context.Context) string {
 	base := s.mcpBase.MCPBaseURL(ctx)
 	if base == "" {
@@ -864,7 +901,7 @@ func (s *AgentWorkspacesService) Presets(context.Context) []agentws.Preset {
 	for _, p := range presets {
 		shipped[p.Agent] = true
 	}
-	for agent, command := range s.profileCommands {
+	for agent, command := range s.profileCommands() {
 		if shipped[agent] {
 			// A shipped agent already has postures spelled out; hive's single
 			// profile line would only duplicate one of them, less precisely.

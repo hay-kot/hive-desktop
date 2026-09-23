@@ -389,6 +389,55 @@ func TestFlowsServiceDeleteReportsAnUnknownProfileAsNotFound(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(service.Delete(t.Context(), "never-existed")))
 }
 
+// A profile always exists: first run never asks for one, and the rail never
+// renders empty. A broken file is a profile too - it is listed with its error,
+// and a Default written beside it would hide that.
+func TestFlowsServiceEnsureProfileMakesADefaultOnlyWhenThereAreNone(t *testing.T) {
+	t.Run("empty directory", func(t *testing.T) {
+		flows := flow.NewFlowStore(t.TempDir(), nil)
+		service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: credentials.NewMemoryStore(), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+
+		require.NoError(t, service.EnsureProfile(t.Context()))
+
+		statuses := flows.Statuses()
+		require.Len(t, statuses, 1)
+		assert.Equal(t, "default", statuses[0].ID)
+		assert.Equal(t, DefaultProfileName, statuses[0].Flow.Name)
+		assert.Empty(t, statuses[0].Flow.Nodes, "with no account connected there is nothing to seed")
+		require.NoError(t, service.EnsureProfile(t.Context()))
+		assert.Len(t, flows.Statuses(), 1, "a second call is a no-op")
+	})
+
+	t.Run("only a broken file", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("version: 1\nnodes: [\n"), 0o600))
+		flows := flow.NewFlowStore(dir, nil)
+		service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: credentials.NewMemoryStore(), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+
+		require.NoError(t, service.EnsureProfile(t.Context()))
+
+		assert.NoFileExists(t, filepath.Join(dir, "default.yaml"))
+	})
+}
+
+func TestFlowsServiceDeleteOfTheLastProfileLeavesADefaultBehind(t *testing.T) {
+	flows := flow.NewFlowStore(t.TempDir(), nil)
+	db, err := queries.Open(t.Context(), t.TempDir(), queries.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	st := stores.New(db, stores.Options{})
+	service := testFlowsService(t, FlowsDeps{Flows: flows, Stores: st, Creds: credentials.NewMemoryStore(), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})
+	created, err := service.Create(t.Context(), "Only one")
+	require.NoError(t, err)
+
+	require.NoError(t, service.Delete(t.Context(), created.ID))
+
+	statuses := flows.Statuses()
+	require.Len(t, statuses, 1)
+	assert.Equal(t, DefaultProfileName, statuses[0].Flow.Name)
+	assert.NotEqual(t, created.ID, statuses[0].ID)
+}
+
 func TestFlowsServiceCreateSeedsWithTheOneConnectedAccount(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
 	service := testFlowsService(t, FlowsDeps{Flows: flows, Creds: seededCreds(t), Images: testImages(t), Marks: testMarks(t), Scripts: testScripts()})

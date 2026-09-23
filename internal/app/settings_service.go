@@ -252,6 +252,25 @@ func (s *SettingsService) SetNotifications(_ context.Context, in NotificationSet
 	return Wrap(err, KindInternal, "saving settings")
 }
 
+// OnboardingCompleted reports whether first run has been walked to its end.
+func (s *SettingsService) OnboardingCompleted(context.Context) (bool, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return false, Wrap(err, KindInternal, "reading settings")
+	}
+	return cfg.Onboarding.Completed, nil
+}
+
+// SetOnboardingCompleted retires first run. There is no way back through the
+// API on purpose: a person who wants to walk it again deletes the key.
+func (s *SettingsService) SetOnboardingCompleted(context.Context) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Onboarding.Completed = true
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
 // GithubSettings is the GitHub integration's polling configuration. It is
 // carried as a Duration: the seconds encoding is a wire concern.
 type GithubSettings struct {
