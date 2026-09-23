@@ -12,6 +12,7 @@ import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
 import AboutSettingsView from './AboutSettingsView.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
+import AnalyticsSettingsView from './AnalyticsSettingsView.vue'
 import AppearanceSettingsView from './AppearanceSettingsView.vue'
 import AgentsSettingsView from './AgentsSettingsView.vue'
 import GeneralSettingsView from './GeneralSettingsView.vue'
@@ -61,7 +62,7 @@ const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection
   { title: 'Inbox', ids: ['integrations', 'actions'] },
   { title: 'Code', ids: ['terminal', 'launchers', 'hive'] },
   { title: 'Chats', ids: ['agents'] },
-  { title: 'Advanced', ids: ['system', 'observability', 'about'] },
+  { title: 'Advanced', ids: ['system', 'analytics', 'observability', 'about'] },
 ]
 const sectionTitle = computed(() => applicationSettingsSectionMeta[props.activeCategory].title)
 
@@ -197,6 +198,7 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
     <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
     <LauncherSettingsView v-else-if="props.activeCategory === 'launchers'" />
 
+    <AnalyticsSettingsView v-else-if="props.activeCategory === 'analytics'" />
     <ObservabilitySettingsView v-else-if="props.activeCategory === 'observability'" />
     <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
     <AboutSettingsView v-else-if="props.activeCategory === 'about'" />

@@ -20,6 +20,9 @@ notifications:
   delivery: auto          # auto, system, or app
   sound: true
 
+analytics:
+  enabled: true           # personless daily adoption event when configured
+
 appearance:
   theme: dark             # frontend theme id
   canvas_font_size: ""    # small, medium, large, or xl; empty means medium
@@ -106,6 +109,7 @@ development:
 - `polling.interval` below 60s is rejected.
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
+- `analytics.enabled` is the opt-out for the personless daily adoption event and applies immediately. A build with no embedded PostHog destination sends nothing either way.
 - `telemetry.enabled` requires `telemetry.endpoint`, `telemetry.instance_id` and `telemetry.token`, and the endpoint must be https. It is the one URL setting that is deliberately not loopback-only.
 - `telemetry.host_id` is optional. When set, it becomes the OpenTelemetry `host.id` resource attribute and the `host_id` profile label. Use a stable unique id for the machine, not the OTLP `instance_id` username. Hive generates a new OpenTelemetry `service.instance.id` for each launch.
 - `telemetry.token` must be a reference (`env:`, `file:`, `op://`), never a pasted credential; a literal is a validation error. `telemetry.endpoint` and `telemetry.instance_id` accept either a reference or a written-out value, so one secret can hold a whole destination. Prefer `file:` or `op://` for an installed app, since a launched .app inherits almost no environment.

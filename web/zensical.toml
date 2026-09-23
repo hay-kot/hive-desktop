@@ -45,6 +45,7 @@ nav = [
   { "Configuration" = [
     "configuration/settings.md",
     "configuration/keybindings.md",
+    "configuration/privacy.md",
   ]},
 ]
 

@@ -71,6 +71,55 @@ func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T
 	require.Equal(t, settings.DeliveryAuto, got.Notifications.Delivery)
 }
 
+type settingsAdoption struct {
+	configured bool
+	enabled    bool
+}
+
+func (a *settingsAdoption) Configured() bool        { return a.configured }
+func (a *settingsAdoption) SetEnabled(enabled bool) { a.enabled = enabled }
+
+func TestSettingsServiceAnalyticsOptOutAppliesImmediately(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	adoption := &settingsAdoption{configured: true, enabled: true}
+	service := newSettingsService(SettingsDeps{
+		Store:    settings.NewStore(settings.SettingsPath()),
+		Adoption: adoption,
+	})
+
+	current, err := service.Analytics(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, AnalyticsSettings{Enabled: true, Configured: true, Overridden: false}, current)
+
+	current, err = service.SetAnalyticsEnabled(t.Context(), false)
+	require.NoError(t, err)
+	require.Equal(t, AnalyticsSettings{Enabled: false, Configured: true, Overridden: false}, current)
+	require.False(t, adoption.enabled)
+
+	persisted, err := settings.LoadPersistedSettings()
+	require.NoError(t, err)
+	require.False(t, persisted.Analytics.Enabled)
+}
+
+func TestSettingsServiceAnalyticsReportsEnvironmentOverride(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	t.Setenv(settings.EnvAnalyticsEnabled, "false")
+	adoption := &settingsAdoption{configured: true, enabled: true}
+	service := newSettingsService(SettingsDeps{
+		Store:    settings.NewStore(settings.SettingsPath()),
+		Adoption: adoption,
+	})
+
+	current, err := service.SetAnalyticsEnabled(t.Context(), true)
+	require.NoError(t, err)
+	require.Equal(t, AnalyticsSettings{Enabled: false, Configured: true, Overridden: true}, current)
+	require.False(t, adoption.enabled)
+
+	persisted, err := settings.LoadPersistedSettings()
+	require.NoError(t, err)
+	require.True(t, persisted.Analytics.Enabled)
+}
+
 func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	cfg := settings.DefaultSettings()

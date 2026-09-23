@@ -26,6 +26,7 @@ export const applicationSettingsSections = [
   'hive',
   'agents',
   'system',
+  'analytics',
   'observability',
   'about',
 ] as const

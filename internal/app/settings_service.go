@@ -20,6 +20,7 @@ type SettingsService struct {
 	store    *settings.Store
 	producer *ingest.Producer
 	fetchers *ghsource.Fetchers
+	adoption adoptionController
 	// lookPath resolves an editor command against the subprocess PATH
 	// (execenv.Resolver.LookPath); nil falls back to this process's own PATH.
 	lookPath func(context.Context, string) (string, error)
@@ -30,11 +31,17 @@ type SettingsDeps struct {
 	Store    *settings.Store
 	Producer *ingest.Producer
 	Fetchers *ghsource.Fetchers
+	Adoption adoptionController
 	LookPath func(context.Context, string) (string, error)
 }
 
+type adoptionController interface {
+	Configured() bool
+	SetEnabled(bool)
+}
+
 func newSettingsService(d SettingsDeps) *SettingsService {
-	return &SettingsService{store: d.Store, producer: d.Producer, fetchers: d.Fetchers, lookPath: d.LookPath}
+	return &SettingsService{store: d.Store, producer: d.Producer, fetchers: d.Fetchers, adoption: d.Adoption, lookPath: d.LookPath}
 }
 
 // NewSettingsService builds the settings-only service an adapter can use
@@ -250,6 +257,44 @@ func (s *SettingsService) SetNotifications(_ context.Context, in NotificationSet
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")
+}
+
+// AnalyticsSettings is the resolved adoption preference and whether this build
+// carries a destination that can use it.
+type AnalyticsSettings struct {
+	Enabled    bool
+	Configured bool
+	Overridden bool
+}
+
+func (s *SettingsService) Analytics(context.Context) (AnalyticsSettings, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return AnalyticsSettings{}, Wrap(err, KindInternal, "reading settings")
+	}
+	return AnalyticsSettings{
+		Enabled:    cfg.Analytics.Enabled,
+		Configured: s.adoption != nil && s.adoption.Configured(),
+		Overridden: cfg.EnvironmentOverridden(settings.EnvAnalyticsEnabled),
+	}, nil
+}
+
+func (s *SettingsService) SetAnalyticsEnabled(_ context.Context, enabled bool) (AnalyticsSettings, error) {
+	effective, err := s.store.Update(func(current *settings.Settings) error {
+		current.Analytics.Enabled = enabled
+		return nil
+	})
+	if err != nil {
+		return AnalyticsSettings{}, Wrap(err, KindInternal, "saving settings")
+	}
+	if s.adoption != nil {
+		s.adoption.SetEnabled(effective.Analytics.Enabled)
+	}
+	return AnalyticsSettings{
+		Enabled:    effective.Analytics.Enabled,
+		Configured: s.adoption != nil && s.adoption.Configured(),
+		Overridden: effective.EnvironmentOverridden(settings.EnvAnalyticsEnabled),
+	}, nil
 }
 
 // OnboardingCompleted reports whether first run has been walked to its end.

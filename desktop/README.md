@@ -105,6 +105,31 @@ goroutine), `log:appended` carries the pipeline event log's new tail offset,
 `flows:updated` fires after a flows/*.yaml reload, and `actions:updated` fires
 after an actions.yml reload so the detail pane can re-read configured actions.
 
+## Adoption analytics
+
+Production desktop builds can embed an anonymous PostHog adoption destination:
+
+```sh
+HIVE_DESKTOP_POSTHOG_PROJECT_TOKEN=phc_... \
+HIVE_DESKTOP_POSTHOG_ENDPOINT=https://us.i.posthog.com \
+mise run build
+```
+
+Use a PostHog project token, not a personal API key. The project token is a
+client-side write token and is present in the built binary. Both values are
+required; if either is absent, the app sends nothing and creates no analytics
+state. Mock modes and the server build also send nothing.
+
+An enabled build sends `app_daily_active` at most once per UTC day while the
+process is running, unless the user turns off **Settings ▸ Analytics ▸ Share
+daily activity**. The toggle writes `analytics.enabled` and applies immediately.
+The event uses a random installation UUID from
+`<StateDir>/adoption.json` and carries only the app version, release channel,
+OS, and architecture. It disables PostHog person profiles and GeoIP enrichment.
+In PostHog, graph `app_daily_active` as **Unique users** with a daily interval to
+get daily active installations. Person views stay empty by design.
+See [ADR shipped-builds-report-anonymous-daily-installation-activity-to-posthog](../docs/decisions/2026-09-23-shipped-builds-report-anonymous-daily-installation-activity-to-posthog.md).
+
 The GitHub fetch layer lives in `internal/app/sources/github/feed`: mock fixtures in
 `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` modes, or the GitHub-backed `LiveProvider`. Live data is
 acquired per embedded flow **source** (a search query or the notifications
@@ -184,6 +209,8 @@ notifications:
   enabled: true
   delivery: auto # auto, system, or app
   sound: true
+analytics:
+  enabled: true # personless daily adoption event when this build has a destination
 appearance:
   theme: ""
   canvas_font_size: "" # small, medium, large, or xl; empty means medium

@@ -23,6 +23,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/adoption"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
@@ -197,7 +198,15 @@ func main() {
 		Notifier:                 ui.Notifier(),
 		Gate:                     ui.Gate(),
 		Build:                    report.Build{Version: version, Commit: commit, Date: date},
-		TelemetryRuntime:         telemetryRuntime,
+		Adoption: adoption.Options{
+			ProjectToken: posthogProjectToken,
+			Endpoint:     posthogEndpoint,
+			StateDir:     paths.StateDir,
+			Version:      version,
+			Channel:      environment,
+			Enabled:      cfg.Analytics.Enabled,
+		},
+		TelemetryRuntime: telemetryRuntime,
 	})
 	coreSpan.End()
 	if err != nil {

@@ -1,6 +1,6 @@
 # Distribution Reference
 
-Concrete infrastructure and runbook for shipping the desktop app. Decisions behind this: [r2-manifest-distribution](decisions/2026-07-23-r2-manifest-distribution.md) (R2 + manifests), [release-channels](decisions/2026-07-23-release-channels.md) (channels), [in-app-problem-reporting](decisions/2026-07-27-in-app-problem-reporting.md) (problem reporting).
+Concrete infrastructure and runbook for shipping the desktop app. Decisions behind this: [r2-manifest-distribution](decisions/2026-07-23-r2-manifest-distribution.md) (R2 + manifests), [release-channels](decisions/2026-07-23-release-channels.md) (channels), [in-app-problem-reporting](decisions/2026-07-27-in-app-problem-reporting.md) (problem reporting), and [shipped-builds-report-anonymous-daily-installation-activity-to-posthog](decisions/2026-09-23-shipped-builds-report-anonymous-daily-installation-activity-to-posthog.md) (adoption analytics).
 
 ## Infrastructure
 
@@ -150,6 +150,13 @@ Building the non-host architecture (amd64 on Apple Silicon) works but runs the i
 The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`mise run install && mise run deploy` from inside `web/`, which builds the Zensical site and runs `wrangler deploy`) and verifies the worker is live (`GET /api/latest?channel=__probe__` must return `400`; an unknown channel stops at the worker's own validation without reading the manifest bucket, and a missing worker falls through to the static assets and answers `404`). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
 
 **Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise):
+
+Set `HIVE_DESKTOP_POSTHOG_PROJECT_TOKEN` to the PostHog project token and
+`HIVE_DESKTOP_POSTHOG_ENDPOINT` to its ingestion origin, for example
+`https://us.i.posthog.com`. Both values are stamped into the macOS and Linux
+binaries. The project token is a public client-side write token, not a PostHog
+personal API key. Leaving either value empty produces a build with adoption
+reporting disabled.
 
 ```bash
 mise release                         # select the channel and patch/minor/major increment

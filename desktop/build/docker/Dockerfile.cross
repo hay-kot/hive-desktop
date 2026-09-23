@@ -196,8 +196,9 @@ EXT=""
 LDFLAGS="-s -w"
 if [ "$GOOS" = "windows" ]; then
     EXT=".exe"
-    LDFLAGS="-s -w -H windowsgui"
+    LDFLAGS="$LDFLAGS -H windowsgui"
 fi
+LDFLAGS="$LDFLAGS -X main.version=${HIVE_DESKTOP_VERSION:-dev} -X main.commit=${HIVE_DESKTOP_COMMIT:-HEAD} -X main.date=${HIVE_DESKTOP_DATE:-now} -X main.posthogProjectToken=${HIVE_DESKTOP_POSTHOG_PROJECT_TOKEN:-} -X main.posthogEndpoint=${HIVE_DESKTOP_POSTHOG_ENDPOINT:-}"
 
 TAGS="production"
 if [ -n "$EXTRA_TAGS" ]; then

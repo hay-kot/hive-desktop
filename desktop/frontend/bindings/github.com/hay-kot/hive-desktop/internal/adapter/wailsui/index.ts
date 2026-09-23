@@ -65,6 +65,7 @@ export {
 export type {
     AgentsAvailability,
     AgentsEndpoint,
+    AnalyticsSettings,
     AppearanceSettings,
     BuildInfo,
     CanvasToggle,

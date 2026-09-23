@@ -216,6 +216,30 @@ func (s *SettingsService) SetNotificationSettings(ctx context.Context, in Notifi
 	})
 }
 
+// AnalyticsSettings reports the user's preference and whether this build has
+// an adoption destination.
+type AnalyticsSettings struct {
+	Enabled    bool `json:"enabled"`
+	Configured bool `json:"configured"`
+	Overridden bool `json:"overridden"`
+}
+
+func (s *SettingsService) AnalyticsSettings(ctx context.Context) (AnalyticsSettings, error) {
+	current, err := s.settings.Analytics(ctx)
+	if err != nil {
+		return AnalyticsSettings{}, err
+	}
+	return AnalyticsSettings{Enabled: current.Enabled, Configured: current.Configured, Overridden: current.Overridden}, nil
+}
+
+func (s *SettingsService) SetAnalyticsEnabled(ctx context.Context, enabled bool) (AnalyticsSettings, error) {
+	current, err := s.settings.SetAnalyticsEnabled(ctx, enabled)
+	if err != nil {
+		return AnalyticsSettings{}, err
+	}
+	return AnalyticsSettings{Enabled: current.Enabled, Configured: current.Configured, Overridden: current.Overridden}, nil
+}
+
 // OnboardingSettings is whether first run has been walked to its end.
 type OnboardingSettings struct {
 	Completed bool `json:"completed"`

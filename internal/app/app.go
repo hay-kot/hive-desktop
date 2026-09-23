@@ -20,6 +20,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/adoption"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
@@ -79,6 +80,9 @@ type Config struct {
 
 	// Build stamps the running binary into report bundles.
 	Build report.Build
+
+	// Adoption configures build-time anonymous installation reporting.
+	Adoption adoption.Options
 
 	// TelemetryRuntime is the startup result for exporters constructed before
 	// App so their log writer can participate in logger construction.
@@ -189,6 +193,7 @@ type App struct {
 	// for now — see the note on Close.
 	producer *ingest.Producer
 	engine   *runtime.Engine
+	adoption *adoption.Reporter
 	// scripts is the one script-language registry in the process. The engine's
 	// runners and a dry run's throwaway runner resolve `function` nodes through
 	// the same one, so a flow cannot execute differently depending on which
@@ -301,6 +306,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	a.pollInterval = cfg.Settings.Polling.Interval.Duration()
+	if cfg.MockMode != "" {
+		cfg.Adoption = adoption.Options{}
+	}
+	adoptionReporter, err := adoption.New(cfg.Adoption, cfg.Logger)
+	if err != nil {
+		cfg.Logger.Warn().Err(err).Msg("anonymous adoption reporting disabled")
+	}
+	a.adoption = adoptionReporter
 	a.tmux = tmuxbin.NewResolver(cfg.Settings.Paths.Tmux)
 	a.execEnv = execenv.NewResolver(execenv.Options{Logger: cfg.Logger})
 
@@ -412,7 +425,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Sources = newSourcesService(a.producer, a.fetchers, a.rssFetchers)
-	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, LookPath: a.execEnv.LookPath})
+	a.Settings = newSettingsService(SettingsDeps{Store: cfg.SettingsStore, Producer: a.producer, Fetchers: a.fetchers, Adoption: a.adoption, LookPath: a.execEnv.LookPath})
 	a.TerminalImages = &TerminalImagesService{store: terminalimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "terminal-images"))}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
@@ -635,6 +648,7 @@ func (a *App) Start(ctx context.Context) error {
 	if a.mock == "" {
 		go func() { _ = a.execEnv.Path(a.ctx) }()
 	}
+	a.adoption.Start(ctx)
 	return nil
 }
 
@@ -690,6 +704,14 @@ func (a *App) HiveConn() *sql.DB {
 // tolerates it or a plugs release makes signal registration optional.
 func (a *App) Close() error {
 	a.cancel()
+
+	if a.adoption != nil {
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 2*time.Second)
+		if err := a.adoption.Stop(stopCtx); err != nil {
+			a.logger.Debug().Err(err).Msg("stop anonymous adoption reporting")
+		}
+		cancel()
+	}
 
 	if a.Observability != nil {
 		if err := a.Observability.close(); err != nil {

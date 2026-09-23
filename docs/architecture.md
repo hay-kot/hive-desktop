@@ -378,6 +378,8 @@ internal/
     secrets/                      # config holds a reference (env:, file:,
                                   #   op://) and this resolves it; a literal is
                                   #   rejected (ADR config-holds-secret-references-not-secrets-and-1password-is-one-of-the-sources)
+    adoption/                     # build-gated, personless PostHog daily active
+                                  #   installation reporting
     telemetry/                    # the app's own metrics, logs and traces over
                                   #   OTLP, profiles over Pyroscope, and the local
                                   #   /metrics scrape; the only package that
@@ -778,8 +780,8 @@ picker (`pipeline/fields/MarkImageField.vue`) over one pair of RPCs on
 `FlowsService`.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
-`notifications`, `appearance`, `http`, `telemetry`, `keybindings`, and
-`development` sections. Resolution is deterministic: safe compiled defaults, one strictly
+`notifications`, `analytics`, `appearance`, `http`, `telemetry`, `keybindings`,
+and `development` sections. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof
@@ -900,7 +902,7 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 | Inbox | Integrations · Actions |
 | Code | Terminal · Quick terminals · Hive CLI |
 | Chats | Chats |
-| Advanced | System · Observability · About |
+| Advanced | System · Analytics · Observability · About |
 
 A value one surface uses lives on that surface's pane; a value several use lives
 in **General** (the editor command); **Observability** is runtime cost and the
@@ -1066,6 +1068,24 @@ empty values.
 gcx resources, and its README maps each instrument to the series a backend
 stores. A change that adds, renames, or removes an instrument, a trigger span,
 or a profile type updates the panel that reads it.
+
+### Adoption analytics
+
+Adoption reporting is separate from the user-configured operational telemetry
+above. A shipped build may carry a PostHog project token and ingestion origin;
+without both, the subsystem is a no-op and writes no state. `analytics.enabled`
+defaults on and Settings ▸ Analytics applies an opt-out to the running reporter
+as well as persisting it. The reporter sends one `app_daily_active` event per
+installation per UTC day while the process runs, using a random installation
+UUID stored under `StateDir`. The event is
+personless and GeoIP processing is disabled. It contains only the build version,
+release channel, OS, and architecture (ADR
+[shipped-builds-report-anonymous-daily-installation-activity-to-posthog](decisions/2026-09-23-shipped-builds-report-anonymous-daily-installation-activity-to-posthog.md)).
+
+`internal/app/adoption` owns the capture client, local state, cadence, and
+lifecycle. `App.Start` starts it last and `App.Close` stops it first. A capture
+failure is debug-only and remains due; adoption reporting must never block or
+fail startup.
 
 ### Source HTTP
 

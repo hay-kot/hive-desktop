@@ -11,9 +11,11 @@ import "runtime/debug"
 //
 // A plain source build reports "dev".
 var (
-	version = "dev"
-	commit  = "HEAD"
-	date    = "now"
+	version             = "dev"
+	commit              = "HEAD"
+	date                = "now"
+	posthogProjectToken = ""
+	posthogEndpoint     = ""
 )
 
 // resolvedBuildInfo returns the effective version, commit, and date for the

@@ -83,6 +83,14 @@ type NotificationSettings struct {
 	Sound    bool   `yaml:"sound"    env:"HIVE_DESKTOP_NOTIFICATIONS_SOUND"`
 }
 
+const EnvAnalyticsEnabled = "HIVE_DESKTOP_ANALYTICS_ENABLED"
+
+// AnalyticsSettings controls the anonymous daily adoption event. The build
+// still needs an embedded PostHog destination before this can send anything.
+type AnalyticsSettings struct {
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_ANALYTICS_ENABLED"`
+}
+
 type Appearance struct {
 	Theme string `yaml:"theme,omitempty" env:"HIVE_DESKTOP_APPEARANCE_THEME"`
 	// FontFamily names the family the app's chrome draws with and
@@ -292,6 +300,7 @@ type Settings struct {
 	Polling       PollingSettings      `yaml:"polling"`
 	Updates       UpdateSettings       `yaml:"updates"`
 	Notifications NotificationSettings `yaml:"notifications"`
+	Analytics     AnalyticsSettings    `yaml:"analytics"`
 	// No omitempty: with terminal_show_windows off and nothing else set the
 	// struct is all-zero, and an omitted section would read back as defaults.
 	Appearance      Appearance              `yaml:"appearance"`
@@ -314,6 +323,7 @@ func DefaultSettings() Settings {
 		Polling:         PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:         UpdateSettings{Enabled: true},
 		Notifications:   NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
+		Analytics:       AnalyticsSettings{Enabled: true},
 		Appearance:      Appearance{TerminalShowWindows: true, TerminalShowStatusBar: true, TerminalPoolSize: 3},
 		HTTP:            HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
 		Telemetry:       TelemetrySettings{Enabled: false},

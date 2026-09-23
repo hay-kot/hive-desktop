@@ -16,6 +16,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function AnalyticsSettings(): $CancellablePromise<$models.AnalyticsSettings> {
+    return $Call.ByID(2856137311);
+}
+
 export function AppearanceSettings(): $CancellablePromise<$models.AppearanceSettings> {
     return $Call.ByID(2122138421);
 }
@@ -50,6 +54,10 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
 
 export function OnboardingSettings(): $CancellablePromise<$models.OnboardingSettings> {
     return $Call.ByID(3298805650);
+}
+
+export function SetAnalyticsEnabled(enabled: boolean): $CancellablePromise<$models.AnalyticsSettings> {
+    return $Call.ByID(4133924167, enabled);
 }
 
 export function SetCanvasFontSize(size: string): $CancellablePromise<void> {

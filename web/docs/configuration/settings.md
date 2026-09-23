@@ -16,6 +16,7 @@ Settings shows or changes:
 - terminal spacing, visible windows, and the status bar;
 - keyboard shortcuts;
 - notification delivery and sound;
+- anonymous adoption analytics;
 - connected source accounts and the local webhook listener;
 - actions and quick terminals;
 - the agent workspace folder location;
@@ -84,6 +85,8 @@ editor:
   command: ""
 agent_workspaces:
   dir: ""
+analytics:
+  enabled: true
 ```
 
 - `polling.interval` has a minimum of 60 seconds.
@@ -91,6 +94,7 @@ agent_workspaces:
 - `paths.tmux` accepts an absolute path when Hive cannot find tmux.
 - `editor.command` accepts an executable name or absolute path without arguments.
 - `agent_workspaces.dir` changes where Chats workspaces are stored.
+- `analytics.enabled` controls the personless daily adoption event. The **Settings ▸ Analytics** toggle changes it immediately.
 
 Every scalar setting can be overridden for one launch with an environment variable based on its YAML path. For example, `polling.interval` becomes `HIVE_DESKTOP_POLLING_INTERVAL`.
 
@@ -106,6 +110,15 @@ updates:
 ```
 
 Available channels are Stable, Beta, and Dev. An omitted channel follows the channel used for the current build.
+
+## Analytics
+
+**Settings ▸ Analytics** controls the anonymous daily adoption event. Turning
+**Share daily activity** off takes effect immediately. See [Privacy and
+analytics](privacy.md) for the exact fields Hive sends and where the random
+installation ID is stored.
+
+This is separate from the user-configured operational telemetry below.
 
 ## Telemetry
 

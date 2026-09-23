@@ -29,6 +29,16 @@ export interface AgentsEndpoint {
 }
 
 /**
+ * AnalyticsSettings reports the user's preference and whether this build has
+ * an adoption destination.
+ */
+export interface AnalyticsSettings {
+    "enabled": boolean;
+    "configured": boolean;
+    "overridden": boolean;
+}
+
+/**
  * AppearanceSettings is the frontend's presentation configuration. String
  * values are carried verbatim: the frontend owns each valid set and heals
  * unknown values, so an empty field means "nothing persisted yet" rather than

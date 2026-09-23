@@ -112,7 +112,8 @@ docker run --rm \
   -e HIVE_DESKTOP_VERSION="${HIVE_DESKTOP_VERSION:-dev}" \
   -e HIVE_DESKTOP_COMMIT="${HIVE_DESKTOP_COMMIT:-$(git rev-parse HEAD)}" \
   -e HIVE_DESKTOP_DATE="${HIVE_DESKTOP_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" \
-  -e HIVE_DESKTOP_REPORT_TOKEN="${HIVE_DESKTOP_REPORT_TOKEN:-}" \
+  -e HIVE_DESKTOP_POSTHOG_PROJECT_TOKEN="${HIVE_DESKTOP_POSTHOG_PROJECT_TOKEN:-}" \
+  -e HIVE_DESKTOP_POSTHOG_ENDPOINT="${HIVE_DESKTOP_POSTHOG_ENDPOINT:-}" \
   "$IMAGE" wails3 task linux:build
 
 echo "==> built desktop/bin/hive-desktop for linux/$ARCH"

@@ -11,6 +11,8 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
+  AnalyticsSettings: vi.fn().mockResolvedValue({ enabled: true, configured: true, overridden: false }),
+  SetAnalyticsEnabled: vi.fn(),
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
   Fonts: vi.fn().mockResolvedValue({ all: [], monospace: [] }),
   SetTheme: vi.fn(),
@@ -80,7 +82,7 @@ describe('SettingsView', () => {
     const rendered = wrapper.findAll('[data-testid^="settings-category-"]')
       .map((item) => item.attributes('data-testid')!.replace('settings-category-', ''))
 
-    expect(rendered.slice(-3)).toEqual(['system', 'observability', 'about'])
+    expect(rendered.slice(-4)).toEqual(['system', 'analytics', 'observability', 'about'])
     expect([...rendered].sort()).toEqual([...applicationSettingsSections].sort())
     expect(new Set(rendered).size).toBe(rendered.length)
   })
@@ -308,6 +310,15 @@ describe('SettingsView', () => {
 
     expect(wrapper.find('[data-testid="settings-category-notifications"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="notification-settings"]').exists()).toBe(true)
+  })
+
+  it('exposes an analytics section with the opt-out control', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'analytics' } })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="settings-category-analytics"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-analytics"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="analytics-enabled"]').exists()).toBe(true)
   })
 
   it('exposes a keybindings section that renders the editor', () => {

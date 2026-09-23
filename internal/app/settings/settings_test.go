@@ -126,6 +126,8 @@ notifications:
   enabled: true
   delivery: app
   sound: false
+analytics:
+  enabled: false
 http:
   enabled: true
   host: 127.0.0.1
@@ -148,6 +150,7 @@ development:
 	t.Setenv("HIVE_DESKTOP_HTTP_PORT", "25002")
 	t.Setenv("HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE", "feed")
 	t.Setenv("HIVE_DESKTOP_DEVELOPMENT_VITE_PORT", "43123")
+	t.Setenv("HIVE_DESKTOP_ANALYTICS_ENABLED", "true")
 
 	cfg, err := LoadSettings()
 	require.NoError(t, err)
@@ -156,12 +159,15 @@ development:
 	assert.Equal(t, 25002, cfg.HTTP.Port)
 	assert.Equal(t, MockFeed, cfg.Development.Mocks.Mode)
 	assert.Equal(t, 43123, cfg.Development.Vite.Port)
+	assert.True(t, cfg.Analytics.Enabled)
 	assert.True(t, cfg.EnvironmentOverridden(EnvHTTPPort))
+	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_ANALYTICS_ENABLED"))
 
 	persisted, err := LoadPersistedSettings()
 	require.NoError(t, err)
 	assert.Equal(t, 24001, persisted.HTTP.Port)
 	assert.Equal(t, MockPipeline, persisted.Development.Mocks.Mode)
+	assert.False(t, persisted.Analytics.Enabled)
 }
 
 func TestLoadSettingsRejectsUnknownFields(t *testing.T) {
