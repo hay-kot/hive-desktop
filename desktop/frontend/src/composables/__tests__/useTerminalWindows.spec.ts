@@ -13,7 +13,7 @@ import {
   setTerminalLetterSpacing,
   setTerminalLineHeight,
   terminalCellMetrics,
-  terminalFontSizePx,
+  defaultTerminalFontSizePx,
 } from '../useTerminalFont'
 import { SYMBOL_FONT, TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 import { TerminalRequestError, type PaneLayout, type TerminalClient } from '../../lib/terminalClient'
@@ -777,7 +777,7 @@ describe('useTerminalWindows', () => {
     const { client } = await attached()
 
     const stack = terminalFontStack('')
-    const px = terminalFontSizePx.medium
+    const px = defaultTerminalFontSizePx
     expect(loadedFaces).toEqual([
       `${defaultTerminalFontWeight} ${px}px ${stack}`,
       `italic ${defaultTerminalFontWeight} ${px}px ${stack}`,
@@ -912,12 +912,12 @@ describe('useTerminalWindows', () => {
     client.resize.mockClear()
     resizeHost(host, 100, 30)
 
-    setTerminalFontSize('xl')
+    setTerminalFontSize(16)
     await flushPromises()
     await vi.advanceTimersByTimeAsync(100)
 
     for (const term of xterm.FakeTerminal.instances) {
-      expect(term.options.fontSize).toBe(terminalFontSizePx.xl)
+      expect(term.options.fontSize).toBe(16)
     }
     expect(client.resize).toHaveBeenCalledWith('hive-abc', 100, 30)
     for (const term of xterm.FakeTerminal.instances) {
@@ -925,7 +925,7 @@ describe('useTerminalWindows', () => {
     }
 
     // currentSize is a module singleton; put the default back for later tests.
-    setTerminalFontSize('medium')
+    setTerminalFontSize(defaultTerminalFontSizePx)
     await flushPromises()
   })
 
@@ -962,7 +962,7 @@ describe('useTerminalWindows', () => {
     for (const term of xterm.FakeTerminal.instances) {
       expect(term.options.fontWeight).toBe(700)
     }
-    expect(loadedFaces).toContain(`700 ${terminalFontSizePx.medium}px ${terminalFontStack('')}`)
+    expect(loadedFaces).toContain(`700 ${defaultTerminalFontSizePx}px ${terminalFontStack('')}`)
     expect(client.resize).toHaveBeenCalledWith('hive-abc', 100, 30)
 
     setTerminalFontWeight(defaultTerminalFontWeight)

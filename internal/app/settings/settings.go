@@ -90,8 +90,11 @@ type Appearance struct {
 	// touches a terminal — that has its own family below. Empty is the bundled
 	// face; a CSS generic keyword (system-ui, ui-monospace) is the platform
 	// stack.
-	FontFamily       string `yaml:"font_family,omitempty"        env:"HIVE_DESKTOP_APPEARANCE_FONT_FAMILY"`
-	MonoFontFamily   string `yaml:"mono_font_family,omitempty"   env:"HIVE_DESKTOP_APPEARANCE_MONO_FONT_FAMILY"`
+	FontFamily     string `yaml:"font_family,omitempty"      env:"HIVE_DESKTOP_APPEARANCE_FONT_FAMILY"`
+	MonoFontFamily string `yaml:"mono_font_family,omitempty" env:"HIVE_DESKTOP_APPEARANCE_MONO_FONT_FAMILY"`
+	// TerminalFontSize is the terminal's text size: a pixel count between 8 and
+	// 64, or one of the names small, medium, large, xl and xxl. Empty is the
+	// shipped default. See terminalfontsize.go.
 	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE"`
 	// TerminalFontFamily names an installed monospace family for the terminal
 	// only, leaving the rest of the UI alone. Empty is the bundled face.

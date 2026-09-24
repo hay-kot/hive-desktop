@@ -49,9 +49,9 @@ type AppearanceSettings struct {
 	// generic keyword (system-ui, ui-monospace) is the platform stack.
 	FontFamily     string `json:"fontFamily"`
 	MonoFontFamily string `json:"monoFontFamily"`
-	// TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
-	// pixel count — the frontend owns the mapping.
-	TerminalFontSize string `json:"terminalFontSize"`
+	// TerminalFontSizePx is the terminal's text size in pixels, resolved from
+	// whichever spelling settings.yaml uses.
+	TerminalFontSizePx int `json:"terminalFontSizePx"`
 	// TerminalFontFamily is an installed monospace family for the terminal
 	// alone; empty is the bundled face.
 	TerminalFontFamily string `json:"terminalFontFamily"`
@@ -110,7 +110,7 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		Theme:                  current.Theme,
 		FontFamily:             current.FontFamily,
 		MonoFontFamily:         current.MonoFontFamily,
-		TerminalFontSize:       current.TerminalFontSize,
+		TerminalFontSizePx:     current.TerminalFontSizePx,
 		TerminalFontFamily:     current.TerminalFontFamily,
 		TerminalFontWeight:     current.TerminalFontWeight,
 		TerminalFontWeightBold: current.TerminalFontWeightBold,
@@ -156,8 +156,8 @@ func (s *SettingsService) SetMonoFontFamily(ctx context.Context, family string) 
 	return s.settings.SetMonoFontFamily(ctx, family)
 }
 
-func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) error {
-	return s.settings.SetTerminalFontSize(ctx, size)
+func (s *SettingsService) SetTerminalFontSize(ctx context.Context, px int) error {
+	return s.settings.SetTerminalFontSize(ctx, px)
 }
 
 func (s *SettingsService) SetTerminalFontFamily(ctx context.Context, family string) error {

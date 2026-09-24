@@ -9,28 +9,14 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { TERMINAL_FONT } from '../lib/terminalFaces'
 
-export const terminalFontSizes = ['small', 'medium', 'large', 'xl', 'xxl'] as const
-export type TerminalFontSize = (typeof terminalFontSizes)[number]
-
-export const terminalFontSizeLabels: Record<TerminalFontSize, string> = {
-  small: 'Small',
-  medium: 'Medium',
-  large: 'Large',
-  xl: 'XL',
-  xxl: 'XXL',
-}
-
-// Presets rather than a free number so every size has known-good cell metrics.
-// Medium is the default — one notch above the 12px the terminal shipped with.
-export const terminalFontSizePx: Record<TerminalFontSize, number> = {
-  small: 12,
-  medium: 13,
-  large: 14,
-  xl: 16,
-  xxl: 18,
-}
-
-export const defaultTerminalFontSize: TerminalFontSize = 'medium'
+// settings.yaml also accepts a name here, which the Go settings package
+// resolves, so a size only ever arrives as a number
+// (ADR the-terminal-text-size-is-pixels-with-names-as-input). The bounds repeat
+// settings.MinTerminalFontSizePx / MaxTerminalFontSizePx, which govern the file.
+export const minTerminalFontSizePx = 8
+export const maxTerminalFontSizePx = 64
+export const terminalFontSizeStepPx = 2
+export const defaultTerminalFontSizePx = 13
 
 // The weights the bundled face ships, which is what makes each one a distinct
 // rendering rather than a label over the same outlines: CSS matches a requested
@@ -75,9 +61,10 @@ export const defaultTerminalLineHeight: TerminalLineHeight = 1.2
 // Must stay 0: it doubles as the "nothing persisted" value in settings.yaml.
 export const defaultTerminalLetterSpacing: TerminalLetterSpacing = 0
 
-function isTerminalFontSize(value: string | null): value is TerminalFontSize {
-  return terminalFontSizes.includes(value as TerminalFontSize)
+export function clampTerminalFontSize(px: number): number {
+  return Math.min(maxTerminalFontSizePx, Math.max(minTerminalFontSizePx, Math.round(px)))
 }
+
 
 function isTerminalFontWeight(value: number | null): value is TerminalFontWeight {
   return terminalFontWeights.includes(value as TerminalFontWeight)
@@ -95,7 +82,7 @@ function isTerminalLetterSpacing(value: number | null): value is TerminalLetterS
 // pickers and every open terminal. No first-paint cache: a terminal that opens
 // before hydration lands at the defaults and the watchers in useTerminalWindows
 // re-apply, so the durable record in settings.yaml is the only store.
-const currentSize: Ref<TerminalFontSize> = ref(defaultTerminalFontSize)
+const currentSizePx: Ref<number> = ref(defaultTerminalFontSizePx)
 // Empty is the bundled face rather than a sentinel name, so a settings.yaml
 // written before this setting existed reads as "shipped default".
 const currentFamily: Ref<string> = ref('')
@@ -115,7 +102,9 @@ async function hydrate(): Promise<void> {
   try {
     const settings = await GetAppearanceSettings()
     if (version !== started) return
-    if (isTerminalFontSize(settings.terminalFontSize)) currentSize.value = settings.terminalFontSize
+    if (settings.terminalFontSizePx > 0) {
+      currentSizePx.value = clampTerminalFontSize(settings.terminalFontSizePx)
+    }
     if (settings.terminalFontFamily) currentFamily.value = settings.terminalFontFamily
     if (isTerminalFontWeight(settings.terminalFontWeight)) {
       currentWeight.value = settings.terminalFontWeight
@@ -148,21 +137,22 @@ function persist(write: () => Promise<void>): void {
   })
 }
 
-export function setTerminalFontSize(next: TerminalFontSize): void {
-  currentSize.value = next
+export function setTerminalFontSize(px: number): void {
+  const next = clampTerminalFontSize(px)
+  if (next === currentSizePx.value) return
+  currentSizePx.value = next
   persist(() => PersistTerminalFontSize(next))
 }
 
 // Waits for hydration because the step is relative: taken from the unhydrated
-// default it would write a neighbour of medium over whatever settings.yaml holds.
+// default it would write a neighbour of 13px over whatever settings.yaml holds.
 export async function stepTerminalFontSize(delta: 1 | -1): Promise<void> {
   await ensureHydrated()
-  const next = terminalFontSizes[terminalFontSizes.indexOf(currentSize.value) + delta]
-  if (next) setTerminalFontSize(next)
+  setTerminalFontSize(currentSizePx.value + delta * terminalFontSizeStepPx)
 }
 
 export function resetTerminalFontSize(): void {
-  setTerminalFontSize(defaultTerminalFontSize)
+  setTerminalFontSize(defaultTerminalFontSizePx)
 }
 
 export function setTerminalFontFamily(next: string): void {
@@ -200,7 +190,7 @@ export function setTerminalLetterSpacing(next: TerminalLetterSpacing): void {
  */
 export function terminalCellMetrics(): string {
   return [
-    terminalFontSizePx[currentSize.value],
+    currentSizePx.value,
     currentFamily.value,
     currentWeight.value,
     currentWeightBold.value,
@@ -210,8 +200,7 @@ export function terminalCellMetrics(): string {
 }
 
 export function useTerminalFont(): {
-  size: Ref<TerminalFontSize>
-  px: ComputedRef<number>
+  px: Ref<number>
   family: Ref<string>
   /** The family to show selected: the bundled face stands in for empty. */
   selectedFamily: ComputedRef<string>
@@ -222,8 +211,7 @@ export function useTerminalFont(): {
 } {
   void ensureHydrated()
   return {
-    size: currentSize,
-    px: computed(() => terminalFontSizePx[currentSize.value]),
+    px: currentSizePx,
     family: currentFamily,
     selectedFamily: computed(() => currentFamily.value || TERMINAL_FONT),
     weight: currentWeight,
@@ -234,7 +222,7 @@ export function useTerminalFont(): {
 }
 
 export function resetTerminalFontForTests(): void {
-  currentSize.value = defaultTerminalFontSize
+  currentSizePx.value = defaultTerminalFontSizePx
   currentFamily.value = ''
   currentWeight.value = defaultTerminalFontWeight
   currentWeightBold.value = defaultTerminalFontWeightBold

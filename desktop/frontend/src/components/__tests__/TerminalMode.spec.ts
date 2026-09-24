@@ -280,7 +280,7 @@ describe('TerminalMode', () => {
     // The bar ships on, but the fixture keeps it off so tests that do not care
     // about it see a bare terminal; a test that wants it turns it on.
     mocks.AppearanceSettings.mockResolvedValue({
-      theme: '', terminalFontSize: '', terminalShowWindows: true, terminalShowStatusBar: false, terminalPoolSize: 3,
+      theme: '', terminalFontSizePx: 13, terminalShowWindows: true, terminalShowStatusBar: false, terminalPoolSize: 3,
     })
     mocks.EditorSettings.mockResolvedValue({ command: 'zed', title: 'Zed', choices: [] })
     mocks.SessionGitStatus.mockResolvedValue({

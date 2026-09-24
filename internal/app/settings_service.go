@@ -73,11 +73,16 @@ func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string
 // AppearanceSettings is the persisted presentation configuration. The string
 // values are opaque here: the frontend owns each valid set and heals unknown
 // values, so "" means "nothing persisted" rather than an error.
+//
+// TerminalFontSizePx is the exception. The file and the environment both accept
+// a name there as well as a number, so resolving it is the settings package's
+// job and the frontend receives pixels
+// (ADR the-terminal-text-size-is-pixels-with-names-as-input).
 type AppearanceSettings struct {
 	Theme                  string
 	FontFamily             string
 	MonoFontFamily         string
-	TerminalFontSize       string
+	TerminalFontSizePx     int
 	TerminalFontFamily     string
 	TerminalFontWeight     int
 	TerminalFontWeightBold int
@@ -99,7 +104,7 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 		Theme:                  cfg.Appearance.Theme,
 		FontFamily:             cfg.Appearance.FontFamily,
 		MonoFontFamily:         cfg.Appearance.MonoFontFamily,
-		TerminalFontSize:       cfg.Appearance.TerminalFontSize,
+		TerminalFontSizePx:     settings.TerminalFontSizePx(cfg.Appearance.TerminalFontSize),
 		TerminalFontFamily:     cfg.Appearance.TerminalFontFamily,
 		TerminalFontWeight:     cfg.Appearance.TerminalFontWeight,
 		TerminalFontWeightBold: cfg.Appearance.TerminalFontWeightBold,
@@ -137,9 +142,11 @@ func (s *SettingsService) SetMonoFontFamily(_ context.Context, family string) er
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) error {
+// SetTerminalFontSize writes whichever spelling the file is already using —
+// see settings.TerminalFontSizeValue.
+func (s *SettingsService) SetTerminalFontSize(_ context.Context, px int) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
-		current.Appearance.TerminalFontSize = size
+		current.Appearance.TerminalFontSize = settings.TerminalFontSizeValue(current.Appearance.TerminalFontSize, px)
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")
