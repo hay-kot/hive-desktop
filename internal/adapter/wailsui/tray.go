@@ -149,9 +149,6 @@ func (t *MenuBarTray) menu() *application.Menu {
 			t.open(MenuBarNavigation{Settings: true})
 		})
 		menu.AddSeparator()
-	} else {
-		menu.Add(traySummary(snapshot.Pinned)).SetEnabled(false)
-		menu.AddSeparator()
 	}
 	for _, feed := range snapshot.Pinned {
 		t.addPinnedFeed(menu, feed)
@@ -169,7 +166,7 @@ func (t *MenuBarTray) menu() *application.Menu {
 
 func (t *MenuBarTray) addPinnedFeed(menu *application.Menu, feed app.MenuBarFeedView) {
 	feedNav := MenuBarNavigation{ProfileID: feed.ProfileID, FeedID: feed.Feed}
-	menu.Add(trayFeedHeader(feed)).OnClick(func(*application.Context) { t.open(feedNav) })
+	menu.Add(trayFeedPath(feed.MenuBarFeedName)).OnClick(func(*application.Context) { t.open(feedNav) })
 	if len(feed.Items) == 0 {
 		menu.Add("Nothing here").SetBitmap(trayBlankMark).SetEnabled(false)
 		return
@@ -179,7 +176,7 @@ func (t *MenuBarTray) addPinnedFeed(menu *application.Menu, feed app.MenuBarFeed
 		if item.Unread {
 			mark = trayUnreadMark
 		}
-		row := application.NewSubMenuItem(trayItemLabel(item)).SetBitmap(mark)
+		row := application.NewSubMenuItem(truncateRunes(item.Title, trayTitleLimit)).SetBitmap(mark)
 		menu.Append(application.NewMenuFromItems(row))
 		t.addItemActions(row.GetSubmenu(), feed.ProfileID, item)
 	}
@@ -263,25 +260,6 @@ func (t *MenuBarTray) open(nav MenuBarNavigation) {
 	emitMenuBarOpen(nav)
 }
 
-// traySummary totals the pinned feeds. It is only shown when something is
-// pinned; the empty menu offers to pin a feed instead.
-func traySummary(pinned []app.MenuBarFeedView) string {
-	var total, unread int64
-	for _, feed := range pinned {
-		total += feed.Total
-		unread += feed.Unread
-	}
-	return fmt.Sprintf("%d pinned · %d unread", total, unread)
-}
-
-func trayFeedHeader(feed app.MenuBarFeedView) string {
-	path := trayFeedPath(feed.MenuBarFeedName)
-	if feed.Unread == 0 {
-		return path
-	}
-	return fmt.Sprintf("%s (%d unread)", path, feed.Unread)
-}
-
 // trayFeedPath reads "Profile › Folder › Feed", the way the sidebar nests it.
 // A feed outside any folder skips that segment.
 func trayFeedPath(name app.MenuBarFeedName) string {
@@ -295,36 +273,6 @@ func trayFeedPath(name app.MenuBarFeedName) string {
 }
 
 const trayTitleLimit = 60
-
-// trayItemLabel reads "owner/repo #412 Title · review". The reference and
-// reason appear only when the source's payload carries them; unread is the
-// row's image, not part of its label.
-func trayItemLabel(item app.MenuBarItem) string {
-	label := ""
-	if item.Repo != "" {
-		label += item.Repo + " "
-	}
-	if item.Number > 0 {
-		label += fmt.Sprintf("#%d ", item.Number)
-	}
-	label += truncateRunes(item.Title, trayTitleLimit)
-	if reason := trayReasons[item.Reason]; reason != "" {
-		label += " · " + reason
-	}
-	return label
-}
-
-// trayReasons shortens GitHub's notification reasons to the words a menu row
-// has room for. A reason missing here is left off rather than shown raw.
-var trayReasons = map[string]string{
-	"approval_requested": "approval",
-	"assign":             "assigned",
-	"author":             "author",
-	"comment":            "comment",
-	"mention":            "mentioned",
-	"review_requested":   "review",
-	"team_mention":       "team",
-}
 
 func trayUpdated(polled, now time.Time) string {
 	if polled.IsZero() {

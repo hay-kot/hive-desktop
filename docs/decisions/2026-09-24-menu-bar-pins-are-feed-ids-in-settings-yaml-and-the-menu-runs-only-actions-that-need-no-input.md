@@ -18,8 +18,9 @@ Store pins as `menu_bar.feeds` in settings.yaml: a list of feed ids
 three and the limit at ten. A pin that names no loaded feed is skipped when
 read, like `profiles.order`.
 
-The summary counts items and unread items in the pinned feeds only. The
-feeds themselves are the buckets; unpinned feeds do not appear in the menu.
+The feeds themselves are the buckets; unpinned feeds do not appear in the
+menu. The menu is an at-a-glance view: an item row shows its title and an
+unread marker, and the menu shows no counts.
 
 The item submenu offers an action only when it is shown in detail, applies to
 the item, and needs no input: it is headless-capable, or a clipboard render
@@ -35,5 +36,4 @@ as enable toggles.
 
 Pins sync with the rest of settings.yaml. A feed renamed by id drops out of the
 menu until it is pinned again. Actions that need input are reachable only from
-the main window. Tray labels decode `repo`, `num` and `reason` from the item
-payload, so a source that omits them renders by title alone.
+the main window.

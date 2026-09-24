@@ -93,7 +93,7 @@ func TestMenuBarSnapshotListsPinnedFeedUpToItsLimit(t *testing.T) {
 	assert.Equal(t, polled, snapshot.LastPolled)
 }
 
-func TestMenuBarItemCarriesForgeFieldsAndApplicableActions(t *testing.T) {
+func TestMenuBarItemCarriesApplicableActions(t *testing.T) {
 	f := newMenuBarFixture(t, nil)
 	pr := insertActionItemSource(t, f.db, "github", "pr-1", "PR", "Add retry budget", map[string]any{"repo": "acme/api", "num": 412, "reason": "review_requested"})
 	row, err := stores.New(f.db, stores.Options{}).InboxItems.GetByID(t.Context(), pr)
@@ -101,9 +101,6 @@ func TestMenuBarItemCarriesForgeFieldsAndApplicableActions(t *testing.T) {
 
 	item := menuBarItem(row, f.service.runnableActions())
 
-	assert.Equal(t, "acme/api", item.Repo)
-	assert.Equal(t, 412, item.Number)
-	assert.Equal(t, "review_requested", item.Reason)
 	assert.Equal(t, []MenuBarAction{
 		{ID: "review-pr", Label: "Review PR"},
 		{ID: "deploy-repo", Label: "Deploy"},
@@ -112,7 +109,7 @@ func TestMenuBarItemCarriesForgeFieldsAndApplicableActions(t *testing.T) {
 	}, item.Actions)
 }
 
-func TestMenuBarSnapshotCountsUnreadInPinnedFeeds(t *testing.T) {
+func TestMenuBarSnapshotMarksUnreadItems(t *testing.T) {
 	f := newMenuBarFixture(t, nil)
 	row, err := stores.NewSeed(f.db).InboxItem(t.Context(), stores.InboxItem{ProfileID: "p", SourceKind: "github", ExternalID: "x", Title: "Unread", Payload: []byte(`{}`), Unread: true, Lifecycle: "active"})
 	require.NoError(t, err)
@@ -123,7 +120,6 @@ func TestMenuBarSnapshotCountsUnreadInPinnedFeeds(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, snapshot.Pinned, 1)
-	assert.EqualValues(t, 1, snapshot.Pinned[0].Unread)
 	assert.True(t, snapshot.Pinned[0].Items[0].Unread)
 	assert.True(t, snapshot.LastPolled.IsZero(), "no producer means no poll time")
 }

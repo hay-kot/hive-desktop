@@ -3,7 +3,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -75,22 +74,15 @@ type MenuBarFeedView struct {
 	ProfileID string
 	Feed      string
 	MenuBarFeedName
-	Unread int64
-	Total  int64
-	Items  []MenuBarItem
+	Total int64
+	Items []MenuBarItem
 }
 
-// MenuBarItem carries the forge fields a source may put in its payload
-// (repo, number, notification reason); a source without them leaves them
-// empty and the item renders by title alone.
 type MenuBarItem struct {
 	ID      int64
 	Title   string
 	URL     string
 	Unread  bool
-	Repo    string
-	Number  int
-	Reason  string
 	Actions []MenuBarAction
 }
 
@@ -181,7 +173,7 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 			return MenuBarSnapshot{}, Wrap(err, KindInternal, "listing feed %q", pin.Feed)
 		}
 		view := MenuBarFeedView{
-			ProfileID: profileID, Feed: pin.Feed, MenuBarFeedName: feedName(f, node, s.feedFolders(profileID)), Unread: count.Unread,
+			ProfileID: profileID, Feed: pin.Feed, MenuBarFeedName: feedName(f, node, s.feedFolders(profileID)),
 			Total: count.Total,
 			Items: make([]MenuBarItem, 0, len(rows)),
 		}
@@ -217,16 +209,8 @@ func (s *MenuBarService) runnableActions() []actions.Action {
 }
 
 func menuBarItem(row stores.InboxItem, runnable []actions.Action) MenuBarItem {
-	var fields struct {
-		Repo   string `json:"repo"`
-		Num    int    `json:"num"`
-		Reason string `json:"reason"`
-	}
-	_ = json.Unmarshal(row.Payload, &fields)
-
 	item := MenuBarItem{
 		ID: row.ID, Title: row.Title, URL: row.URL, Unread: row.Unread,
-		Repo: fields.Repo, Number: fields.Num, Reason: fields.Reason,
 		Actions: []MenuBarAction{},
 	}
 	decoded, err := dispatch.DecodeActionItem(row.Payload, row.ExternalID)
