@@ -137,7 +137,7 @@ const (
 	// MaxMenuBarFeeds keeps the menu bar dropdown short enough to scan; the
 	// full inbox is the main window's job.
 	MaxMenuBarFeeds         = 3
-	DefaultMenuBarItemLimit = 5
+	DefaultMenuBarItemLimit = 3
 	MaxMenuBarItemLimit     = 10
 )
 

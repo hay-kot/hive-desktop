@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -167,7 +168,7 @@ func (t *MenuBarTray) menu() *application.Menu {
 		others := menu.AddSubmenu(fmt.Sprintf("Other feeds (%d unread)", snapshot.OtherUnread))
 		for _, feed := range snapshot.Others {
 			nav := MenuBarNavigation{ProfileID: feed.ProfileID, FeedID: feed.Feed}
-			others.Add(fmt.Sprintf("%s (%d)", feed.Name, feed.Unread)).OnClick(func(*application.Context) { t.open(nav) })
+			others.Add(fmt.Sprintf("%s (%d)", trayFeedPath(feed.MenuBarFeedName), feed.Unread)).OnClick(func(*application.Context) { t.open(nav) })
 		}
 	}
 	menu.Add("Refresh").OnClick(func(*application.Context) { t.refreshSources() })
@@ -286,10 +287,23 @@ func traySummary(s app.MenuBarSnapshot) string {
 }
 
 func trayFeedHeader(feed app.MenuBarFeedView) string {
+	path := trayFeedPath(feed.MenuBarFeedName)
 	if feed.Unread == 0 {
-		return feed.Name
+		return path
 	}
-	return fmt.Sprintf("%s (%d unread)", feed.Name, feed.Unread)
+	return fmt.Sprintf("%s (%d unread)", path, feed.Unread)
+}
+
+// trayFeedPath reads "Profile › Folder › Feed", the way the sidebar nests it.
+// A feed outside any folder skips that segment.
+func trayFeedPath(name app.MenuBarFeedName) string {
+	parts := make([]string, 0, 3)
+	for _, part := range []string{name.ProfileName, name.Folder, name.Name} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, " › ")
 }
 
 const trayTitleLimit = 60

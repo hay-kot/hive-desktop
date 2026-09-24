@@ -20,7 +20,7 @@ const pins = ref<MenuBarPin[]>([])
 const choices = ref<MenuBarFeedChoice[]>([])
 const maxFeeds = ref(3)
 const maxItemLimit = ref(10)
-const defaultItemLimit = ref(5)
+const defaultItemLimit = ref(3)
 const loaded = ref(false)
 const error = ref('')
 
@@ -60,13 +60,20 @@ async function save(next: MenuBarPin[]): Promise<void> {
   }
 }
 
+// Mirrors the tray's heading: Profile › Folder › Feed, skipping an empty folder.
+function feedPath(choice: MenuBarFeedChoice, withName = true): string {
+  return [choice.profileName, choice.folder, withName ? choice.name : '']
+    .filter((part) => part !== '')
+    .join(' › ')
+}
+
 const choiceByFeed = computed(() => new Map(choices.value.map((choice) => [choice.feed, choice])))
 
 const addOptions = computed(() => {
   const pinned = new Set(pins.value.map((pin) => pin.feed))
   return choices.value
     .filter((choice) => !pinned.has(choice.feed))
-    .map((choice) => ({ value: choice.feed, label: `${choice.profileName} · ${choice.name}` }))
+    .map((choice) => ({ value: choice.feed, label: feedPath(choice) }))
 })
 
 const limitOptions = computed(() => Array.from({ length: maxItemLimit.value }, (_, index) => {
@@ -114,7 +121,7 @@ onMounted(() => { void load() })
         v-for="(pin, index) in pins"
         :key="pin.feed"
         :label="choiceByFeed.get(pin.feed)?.name ?? pin.feed"
-        :hint="choiceByFeed.get(pin.feed)?.profileName ?? 'This feed no longer exists, so the menu bar skips it.'"
+        :hint="choiceByFeed.has(pin.feed) ? feedPath(choiceByFeed.get(pin.feed)!, false) : 'This feed no longer exists, so the menu bar skips it.'"
         :testid="`menubar-pin-${index}`"
       >
         <div class="flex items-center gap-1.5">

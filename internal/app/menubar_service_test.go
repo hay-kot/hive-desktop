@@ -23,9 +23,10 @@ type fixedTicker time.Time
 func (f fixedTicker) LastTick() time.Time { return time.Time(f) }
 
 type menuBarFixture struct {
-	service *MenuBarService
-	db      *queries.DB
-	bus     *events.Bus
+	service  *MenuBarService
+	flowsDir string
+	db       *queries.DB
+	bus      *events.Bus
 }
 
 // newMenuBarFixture loads one profile "p" whose graph declares two feeds,
@@ -59,7 +60,7 @@ wires:
 		Polls:    polls,
 		Events:   bus,
 	})
-	return menuBarFixture{service: service, db: db, bus: bus}
+	return menuBarFixture{service: service, flowsDir: dir, db: db, bus: bus}
 }
 
 func (f menuBarFixture) claim(t *testing.T, feedID string, itemID int64) {
@@ -124,7 +125,7 @@ func TestMenuBarSnapshotTalliesUnreadInUnpinnedFeeds(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Empty(t, snapshot.Pinned)
-	assert.Equal(t, []MenuBarFeedTally{{ProfileID: "p", Feed: "p/other", Name: "other", Unread: 1}}, snapshot.Others)
+	assert.Equal(t, []MenuBarFeedTally{{ProfileID: "p", Feed: "p/other", ProfileName: "Work", Name: "other", Unread: 1}}, snapshot.Others)
 	assert.EqualValues(t, 1, snapshot.OtherUnread)
 	assert.True(t, snapshot.LastPolled.IsZero(), "no producer means no poll time")
 }
@@ -188,4 +189,20 @@ func TestMenuBarFeedChoicesListEveryDeclaredFeed(t *testing.T) {
 		{Feed: "p/prs", ProfileName: "Work", Name: "Reviews"},
 		{Feed: "p/other", ProfileName: "Work", Name: "other"},
 	}, f.service.FeedChoices(t.Context()))
+}
+
+func TestMenuBarFeedNamesCarryTheirSidebarFolder(t *testing.T) {
+	f := newMenuBarFixture(t, nil)
+	require.NoError(t, os.WriteFile(filepath.Join(f.flowsDir, "p.sidebar.yaml"), []byte(`items:
+  - folder: { id: f1, name: Code review, feeds: [prs] }
+  - feed: other
+`), 0o644))
+	require.NoError(t, f.service.SetPins(t.Context(), []MenuBarPin{{Feed: "p/prs"}}))
+
+	snapshot, err := f.service.Snapshot(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, snapshot.Pinned, 1)
+	assert.Equal(t, MenuBarFeedName{ProfileName: "Work", Folder: "Code review", Name: "Reviews"}, snapshot.Pinned[0].MenuBarFeedName)
+	assert.Equal(t, "Code review", f.service.FeedChoices(t.Context())[0].Folder)
 }

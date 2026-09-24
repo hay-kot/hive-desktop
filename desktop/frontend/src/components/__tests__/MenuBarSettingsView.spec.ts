@@ -13,15 +13,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/menubarservice', () => mocks)
 
 const choices = [
-  { feed: 'work/reviews', profileName: 'Work', name: 'Reviews' },
-  { feed: 'work/mentions', profileName: 'Work', name: 'Mentions' },
-  { feed: 'oss/issues', profileName: 'OSS', name: 'Issues' },
-  { feed: 'oss/prs', profileName: 'OSS', name: 'PRs' },
+  { feed: 'work/reviews', profileName: 'Work', folder: 'Code review', name: 'Reviews' },
+  { feed: 'work/mentions', profileName: 'Work', folder: '', name: 'Mentions' },
+  { feed: 'oss/issues', profileName: 'OSS', folder: '', name: 'Issues' },
+  { feed: 'oss/prs', profileName: 'OSS', folder: 'Deps', name: 'PRs' },
 ]
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.Limits.mockResolvedValue({ maxFeeds: 3, defaultItemLimit: 5, maxItemLimit: 10 })
+  mocks.Limits.mockResolvedValue({ maxFeeds: 3, defaultItemLimit: 3, maxItemLimit: 10 })
   mocks.Pins.mockResolvedValue([{ feed: 'work/reviews', limit: 5 }, { feed: 'oss/issues', limit: 3 }])
   mocks.FeedChoices.mockResolvedValue(choices)
   mocks.SetPins.mockResolvedValue(undefined)
@@ -39,10 +39,11 @@ describe('MenuBarSettingsView', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="menubar-pin-0"]').text()).toContain('Reviews')
+    expect(wrapper.get('[data-testid="menubar-pin-0"]').text()).toContain('Work › Code review')
     expect(wrapper.get('[data-testid="menubar-pin-1"]').text()).toContain('OSS')
     expect(selectIn(wrapper, 'menubar-add').props('options')).toEqual([
-      { value: 'work/mentions', label: 'Work · Mentions' },
-      { value: 'oss/prs', label: 'OSS · PRs' },
+      { value: 'work/mentions', label: 'Work › Mentions' },
+      { value: 'oss/prs', label: 'OSS › Deps › PRs' },
     ])
   })
 
@@ -56,7 +57,7 @@ describe('MenuBarSettingsView', () => {
     expect(mocks.SetPins).toHaveBeenCalledWith([
       { feed: 'work/reviews', limit: 5 },
       { feed: 'oss/issues', limit: 3 },
-      { feed: 'oss/prs', limit: 5 },
+      { feed: 'oss/prs', limit: 3 },
     ])
     expect(wrapper.find('[data-testid="menubar-add"]').exists()).toBe(false)
   })

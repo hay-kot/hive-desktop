@@ -54,8 +54,15 @@ type MenuBarPin struct {
 
 // MenuBarFeedChoice is a feed that can be pinned.
 type MenuBarFeedChoice struct {
-	Feed        string `json:"feed"`
+	Feed string `json:"feed"`
+	MenuBarFeedName
+}
+
+// MenuBarFeedName is where a feed sits: its profile, the sidebar folder
+// holding it (empty at the top level), and its own name.
+type MenuBarFeedName struct {
 	ProfileName string `json:"profileName"`
+	Folder      string `json:"folder"`
 	Name        string `json:"name"`
 }
 
@@ -77,8 +84,8 @@ type MenuBarFeedView struct {
 type MenuBarFeedTally struct {
 	ProfileID string `json:"profileId"`
 	Feed      string `json:"feed"`
-	Name      string `json:"name"`
-	Unread    int64  `json:"unread"`
+	MenuBarFeedName
+	Unread int64 `json:"unread"`
 }
 
 // MenuBarItem carries the forge fields a source may put in its payload
@@ -147,12 +154,9 @@ func (s *MenuBarService) SetPins(ctx context.Context, pins []MenuBarPin) error {
 func (s *MenuBarService) FeedChoices(context.Context) []MenuBarFeedChoice {
 	choices := make([]MenuBarFeedChoice, 0)
 	for _, f := range s.flows.List() {
+		folders := s.feedFolders(f.ID)
 		for _, node := range f.FeedNodes() {
-			choices = append(choices, MenuBarFeedChoice{
-				Feed:        f.FeedID(node.ID),
-				ProfileName: cmp.Or(f.Name, f.ID),
-				Name:        cmp.Or(node.Name, node.ID),
-			})
+			choices = append(choices, MenuBarFeedChoice{Feed: f.FeedID(node.ID), MenuBarFeedName: feedName(f, node, folders)})
 		}
 	}
 	return choices
@@ -190,7 +194,7 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 			return MenuBarSnapshot{}, Wrap(err, KindInternal, "listing feed %q", pin.Feed)
 		}
 		view := MenuBarFeedView{
-			ProfileID: profileID, Feed: pin.Feed, Name: cmp.Or(node.Name, node.ID), Unread: count.Unread,
+			ProfileID: profileID, Feed: pin.Feed, MenuBarFeedName: feedName(f, node, s.feedFolders(profileID)), Unread: count.Unread,
 			Total: count.Total,
 			Items: make([]MenuBarItem, 0, len(rows)),
 		}
@@ -204,6 +208,7 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 		if !f.Enabled {
 			continue
 		}
+		folders := s.feedFolders(f.ID)
 		for _, node := range f.FeedNodes() {
 			id := f.FeedID(node.ID)
 			if pinned[id] {
@@ -216,7 +221,7 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 			if count.Unread == 0 {
 				continue
 			}
-			snapshot.Others = append(snapshot.Others, MenuBarFeedTally{ProfileID: f.ID, Feed: id, Name: cmp.Or(node.Name, node.ID), Unread: count.Unread})
+			snapshot.Others = append(snapshot.Others, MenuBarFeedTally{ProfileID: f.ID, Feed: id, MenuBarFeedName: feedName(f, node, folders), Unread: count.Unread})
 			snapshot.OtherUnread += count.Unread
 		}
 	}
@@ -274,6 +279,25 @@ func menuBarItem(row stores.InboxItem, runnable []actions.Action) MenuBarItem {
 		item.Actions = append(item.Actions, MenuBarAction{ID: action.ID, Label: action.Label, Clipboard: clipboard})
 	}
 	return item
+}
+
+// feedFolders maps a profile's feed node ids to the sidebar folder holding
+// them. The sidebar layout is cosmetic, so a missing file means no folders.
+func (s *MenuBarService) feedFolders(profileID string) map[string]string {
+	folders := map[string]string{}
+	for _, item := range s.flows.GetSidebar(profileID).Items {
+		if item.Folder == nil {
+			continue
+		}
+		for _, nodeID := range item.Folder.Feeds {
+			folders[nodeID] = item.Folder.Name
+		}
+	}
+	return folders
+}
+
+func feedName(f flow.Flow, node flow.Node, folders map[string]string) MenuBarFeedName {
+	return MenuBarFeedName{ProfileName: cmp.Or(f.Name, f.ID), Folder: folders[node.ID], Name: cmp.Or(node.Name, node.ID)}
 }
 
 func feedNode(f flow.Flow, nodeID string) (flow.Node, bool) {

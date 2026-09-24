@@ -81,6 +81,7 @@ export interface Integration {
 export interface MenuBarFeedChoice {
     "feed": string;
     "profileName": string;
+    "folder": string;
     "name": string;
 }
 

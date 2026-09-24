@@ -65,3 +65,11 @@ func TestTrayUpdated(t *testing.T) {
 	assert.Equal(t, "Updated at 3:04 PM", trayUpdated(time.Date(2026, 9, 24, 15, 4, 0, 0, time.UTC), now))
 	assert.Equal(t, "Updated Sep 23, 3:04 PM", trayUpdated(time.Date(2026, 9, 23, 15, 4, 0, 0, time.UTC), now))
 }
+
+func TestTrayFeedHeader(t *testing.T) {
+	inFolder := app.MenuBarFeedView{ProfileName: "Work", Folder: "Deps", Name: "Renovate PRs", Unread: 3}
+	assert.Equal(t, "Work › Deps › Renovate PRs (3 unread)", trayFeedHeader(inFolder))
+
+	topLevel := app.MenuBarFeedView{ProfileName: "Work", Name: "Open PRs"}
+	assert.Equal(t, "Work › Open PRs", trayFeedHeader(topLevel))
+}

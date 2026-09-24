@@ -9,9 +9,9 @@ The Hive icon in the menu bar lists the feeds you pin, so you can see what is wa
 
 ## Pin feeds
 
-Open **Settings ▸ Menu bar** and choose up to three feeds. Each pinned feed lists its newest items, five by default. You can set the limit per feed, from 1 to 10. Reorder the list with the arrows. The menu shows feeds in the same order.
+Open **Settings ▸ Menu bar** and choose up to three feeds. Each pinned feed lists its newest items, three by default. You can set the limit per feed, from 1 to 10. Reorder the list with the arrows. The menu shows feeds in the same order.
 
-When a feed has more items than its limit, the menu adds a **more** entry that opens the feed in Hive. Click a feed's name to open the whole feed.
+Each feed's heading shows where it lives, as **Profile › Folder › Feed**. A feed outside a folder shows **Profile › Feed**. Click the heading to open the whole feed. When a feed has more items than its limit, the menu adds a **more** entry that also opens it.
 
 ## The dropdown
 
@@ -40,8 +40,8 @@ Pins are stored in `settings.yaml`, so they sync with the rest of your settings:
 menu_bar:
   feeds:
     - feed: work/reviews # <profile id>/<feed node id>
-      limit: 3
-    - feed: work/mentions
+      limit: 5
+    - feed: work/mentions # three items, the default
 ```
 
 A pin that names a feed that no longer exists is skipped.
