@@ -13,7 +13,7 @@ import (
 func TestTrayProfilesIncludesValidAndInvalidFlows(t *testing.T) {
 	summaries := []FlowSummary{
 		{ID: "broken", Valid: false},
-		{ID: "triage-id", Name: "Triage", Enabled: false, Valid: true},
+		{ID: "triage-id", Name: "Triage", Valid: true},
 	}
 
 	assert.Equal(t, []trayProfile{

@@ -104,7 +104,6 @@ func TestMenuBarItemCarriesForgeFieldsAndApplicableActions(t *testing.T) {
 	assert.Equal(t, "acme/api", item.Repo)
 	assert.Equal(t, 412, item.Number)
 	assert.Equal(t, "review_requested", item.Reason)
-	assert.Equal(t, "PR", item.Kind)
 	assert.Equal(t, []MenuBarAction{
 		{ID: "review-pr", Label: "Review PR"},
 		{ID: "deploy-repo", Label: "Deploy"},

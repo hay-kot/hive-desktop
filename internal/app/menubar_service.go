@@ -67,41 +67,40 @@ type MenuBarFeedName struct {
 }
 
 type MenuBarSnapshot struct {
-	Pinned     []MenuBarFeedView `json:"pinned"`
-	LastPolled time.Time         `json:"lastPolled"`
+	Pinned     []MenuBarFeedView
+	LastPolled time.Time
 }
 
 type MenuBarFeedView struct {
-	ProfileID string `json:"profileId"`
-	Feed      string `json:"feed"`
+	ProfileID string
+	Feed      string
 	MenuBarFeedName
-	Unread int64         `json:"unread"`
-	Total  int64         `json:"total"`
-	Items  []MenuBarItem `json:"items"`
+	Unread int64
+	Total  int64
+	Items  []MenuBarItem
 }
 
 // MenuBarItem carries the forge fields a source may put in its payload
 // (repo, number, notification reason); a source without them leaves them
 // empty and the item renders by title alone.
 type MenuBarItem struct {
-	ID      int64           `json:"id"`
-	Title   string          `json:"title"`
-	URL     string          `json:"url"`
-	Unread  bool            `json:"unread"`
-	Kind    string          `json:"kind"`
-	Repo    string          `json:"repo"`
-	Number  int             `json:"number"`
-	Reason  string          `json:"reason"`
-	Actions []MenuBarAction `json:"actions"`
+	ID      int64
+	Title   string
+	URL     string
+	Unread  bool
+	Repo    string
+	Number  int
+	Reason  string
+	Actions []MenuBarAction
 }
 
 // MenuBarAction is an action a menu click can run with no further input.
 // Clipboard actions are included: they render text for the caller to copy
 // rather than enqueueing a command.
 type MenuBarAction struct {
-	ID        string `json:"id"`
-	Label     string `json:"label"`
-	Clipboard bool   `json:"clipboard"`
+	ID        string
+	Label     string
+	Clipboard bool
 }
 
 func (s *MenuBarService) Pins(context.Context) ([]MenuBarPin, error) {
@@ -234,7 +233,6 @@ func menuBarItem(row stores.InboxItem, runnable []actions.Action) MenuBarItem {
 	if err != nil {
 		return item
 	}
-	item.Kind = decoded.Kind
 	for _, action := range runnable {
 		if ok, _ := dispatch.ActionApplicability(action, decoded); !ok {
 			continue

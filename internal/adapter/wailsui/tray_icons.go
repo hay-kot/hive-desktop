@@ -51,9 +51,8 @@ func fillCircle(img *image.NRGBA, cx, cy, r float64, c color.NRGBA) {
 			if a == 0 {
 				continue
 			}
-			under := img.NRGBAAt(x, y)
 			out := c
-			out.A = uint8(math.Round(float64(c.A)*a + float64(under.A)*(1-a)))
+			out.A = uint8(math.Round(float64(c.A) * a))
 			img.SetNRGBA(x, y, out)
 		}
 	}

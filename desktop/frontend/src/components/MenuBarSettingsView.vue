@@ -115,7 +115,7 @@ onMounted(() => { void load() })
       boxed
     >
       <div v-if="loaded && pins.length === 0" class="px-4 py-3.5 text-xs text-text-3" data-testid="menubar-empty">
-        No feeds are pinned. Until you pin one, the menu bar offers links to your profiles.
+        No feeds are pinned. The menu bar links here until you pin one.
       </div>
       <SettingsRow
         v-for="(pin, index) in pins"
