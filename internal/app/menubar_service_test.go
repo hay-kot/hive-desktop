@@ -91,8 +91,6 @@ func TestMenuBarSnapshotListsPinnedFeedUpToItsLimit(t *testing.T) {
 	assert.EqualValues(t, 2, feed.Total, "the total counts past the item limit so the menu can offer the rest")
 	require.Len(t, feed.Items, 1)
 	assert.Equal(t, polled, snapshot.LastPolled)
-
-	assert.Empty(t, snapshot.Others, "seeded items are read, so no unpinned feed has anything unread")
 }
 
 func TestMenuBarItemCarriesForgeFieldsAndApplicableActions(t *testing.T) {
@@ -115,18 +113,19 @@ func TestMenuBarItemCarriesForgeFieldsAndApplicableActions(t *testing.T) {
 	}, item.Actions)
 }
 
-func TestMenuBarSnapshotTalliesUnreadInUnpinnedFeeds(t *testing.T) {
+func TestMenuBarSnapshotCountsUnreadInPinnedFeeds(t *testing.T) {
 	f := newMenuBarFixture(t, nil)
 	row, err := stores.NewSeed(f.db).InboxItem(t.Context(), stores.InboxItem{ProfileID: "p", SourceKind: "github", ExternalID: "x", Title: "Unread", Payload: []byte(`{}`), Unread: true, Lifecycle: "active"})
 	require.NoError(t, err)
 	f.claim(t, "p/other", row.ID)
+	require.NoError(t, f.service.SetPins(t.Context(), []MenuBarPin{{Feed: "p/other"}}))
 
 	snapshot, err := f.service.Snapshot(t.Context())
 	require.NoError(t, err)
 
-	assert.Empty(t, snapshot.Pinned)
-	assert.Equal(t, []MenuBarFeedTally{{ProfileID: "p", Feed: "p/other", ProfileName: "Work", Name: "other", Unread: 1}}, snapshot.Others)
-	assert.EqualValues(t, 1, snapshot.OtherUnread)
+	require.Len(t, snapshot.Pinned, 1)
+	assert.EqualValues(t, 1, snapshot.Pinned[0].Unread)
+	assert.True(t, snapshot.Pinned[0].Items[0].Unread)
 	assert.True(t, snapshot.LastPolled.IsZero(), "no producer means no poll time")
 }
 

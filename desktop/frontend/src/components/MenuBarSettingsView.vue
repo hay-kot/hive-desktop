@@ -111,11 +111,11 @@ onMounted(() => { void load() })
 
     <SettingsSection
       title="Pinned feeds"
-      :description="`Up to ${maxFeeds} feeds listed in the menu bar dropdown, top first. Everything else is tallied under Other feeds.`"
+      :description="`Up to ${maxFeeds} feeds listed in the menu bar dropdown, top first.`"
       boxed
     >
       <div v-if="loaded && pins.length === 0" class="px-4 py-3.5 text-xs text-text-3" data-testid="menubar-empty">
-        No feeds are pinned. The menu bar shows an unread count and profile toggles until you pin one.
+        No feeds are pinned. Until you pin one, the menu bar offers links to your profiles.
       </div>
       <SettingsRow
         v-for="(pin, index) in pins"

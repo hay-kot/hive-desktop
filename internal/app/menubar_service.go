@@ -17,7 +17,7 @@ import (
 
 // MenuBarService owns the feeds pinned to the menu bar and the read that
 // renders them: each pinned feed's newest items with the actions a click can
-// run on them, and a tally of what is unread everywhere else.
+// run on them.
 type MenuBarService struct {
 	settings *settings.Store
 	flows    *flow.FlowStore
@@ -67,25 +67,17 @@ type MenuBarFeedName struct {
 }
 
 type MenuBarSnapshot struct {
-	Pinned []MenuBarFeedView `json:"pinned"`
-	// Others are the unpinned feeds of enabled profiles that have unread
-	// items, in rail then declaration order.
-	Others      []MenuBarFeedTally `json:"others"`
-	OtherUnread int64              `json:"otherUnread"`
-	LastPolled  time.Time          `json:"lastPolled"`
+	Pinned     []MenuBarFeedView `json:"pinned"`
+	LastPolled time.Time         `json:"lastPolled"`
 }
 
 type MenuBarFeedView struct {
-	MenuBarFeedTally
-	Total int64         `json:"total"`
-	Items []MenuBarItem `json:"items"`
-}
-
-type MenuBarFeedTally struct {
 	ProfileID string `json:"profileId"`
 	Feed      string `json:"feed"`
 	MenuBarFeedName
-	Unread int64 `json:"unread"`
+	Unread int64         `json:"unread"`
+	Total  int64         `json:"total"`
+	Items  []MenuBarItem `json:"items"`
 }
 
 // MenuBarItem carries the forge fields a source may put in its payload
@@ -170,10 +162,7 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 	counts := feedCountCache{items: s.items, byProfile: map[string]map[string]stores.FeedCount{}}
 	runnable := s.runnableActions()
 
-	snapshot := MenuBarSnapshot{Pinned: []MenuBarFeedView{}, Others: []MenuBarFeedTally{}}
-	snapshot.LastPolled = s.LastPolled()
-
-	pinned := make(map[string]bool, len(cfg.MenuBar.Feeds))
+	snapshot := MenuBarSnapshot{Pinned: []MenuBarFeedView{}, LastPolled: s.LastPolled()}
 	for _, pin := range cfg.MenuBar.Feeds {
 		profileID, nodeID, _ := strings.Cut(pin.Feed, "/")
 		f, ok := s.flows.Get(profileID)
@@ -184,7 +173,6 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 		if !ok {
 			continue
 		}
-		pinned[pin.Feed] = true
 		count, err := counts.get(ctx, profileID, pin.Feed)
 		if err != nil {
 			return MenuBarSnapshot{}, err
@@ -204,27 +192,6 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 		snapshot.Pinned = append(snapshot.Pinned, view)
 	}
 
-	for _, f := range s.flows.List() {
-		if !f.Enabled {
-			continue
-		}
-		folders := s.feedFolders(f.ID)
-		for _, node := range f.FeedNodes() {
-			id := f.FeedID(node.ID)
-			if pinned[id] {
-				continue
-			}
-			count, err := counts.get(ctx, f.ID, id)
-			if err != nil {
-				return MenuBarSnapshot{}, err
-			}
-			if count.Unread == 0 {
-				continue
-			}
-			snapshot.Others = append(snapshot.Others, MenuBarFeedTally{ProfileID: f.ID, Feed: id, MenuBarFeedName: feedName(f, node, folders), Unread: count.Unread})
-			snapshot.OtherUnread += count.Unread
-		}
-	}
 	return snapshot, nil
 }
 

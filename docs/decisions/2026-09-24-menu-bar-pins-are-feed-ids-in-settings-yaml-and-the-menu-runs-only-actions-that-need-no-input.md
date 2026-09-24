@@ -18,8 +18,8 @@ Store pins as `menu_bar.feeds` in settings.yaml: a list of feed ids
 three and the limit at ten. A pin that names no loaded feed is skipped when
 read, like `profiles.order`.
 
-The summary counts items in pinned feeds and unread items in every other feed
-of an enabled profile. The feeds themselves are the buckets.
+The summary counts items and unread items in the pinned feeds only. The
+feeds themselves are the buckets; unpinned feeds do not appear in the menu.
 
 The item submenu offers an action only when it is shown in detail, applies to
 the item, and is headless-capable or a clipboard render. A rerun that needs
@@ -27,7 +27,8 @@ confirmation, or a failed run, opens the item in Hive.
 
 `app.MenuBarService` builds the snapshot. The tray in `wailsui` renders it and
 rebuilds on inbox, flows, actions and pin changes, and when the producer's
-last tick moves.
+last tick moves. Profiles appear as links that open the profile in Hive, not
+as enable toggles.
 
 ## Consequences
 

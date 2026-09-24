@@ -15,11 +15,10 @@ Each feed's heading shows where it lives, as **Profile › Folder › Feed**. A 
 
 ## The dropdown
 
-- The top line counts the items in your pinned feeds and the unread items everywhere else.
+- The top line counts the items in your pinned feeds and how many of them are unread.
 - Each item row shows the repository, the number, the title, and why it reached you (for example **review** or **mentioned**) when the source provides them. A dot marks an unread item.
-- **Other feeds** lists the unpinned feeds that have unread items. Click one to open it.
 - **Refresh** polls every source now.
-- **Profiles** turns profiles on and off.
+- **Profiles** lists your profiles. Click one to open it in Hive.
 - The footer shows when Hive last polled your sources.
 
 ## Item actions

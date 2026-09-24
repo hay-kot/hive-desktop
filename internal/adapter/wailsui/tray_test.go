@@ -18,7 +18,7 @@ func TestTrayProfilesIncludesValidAndInvalidFlows(t *testing.T) {
 
 	assert.Equal(t, []trayProfile{
 		{ID: "broken", Label: "broken (invalid)"},
-		{ID: "triage-id", Label: "Triage", Enabled: false, Valid: true},
+		{ID: "triage-id", Label: "Triage", Valid: true},
 	}, trayProfiles(summaries))
 }
 
@@ -52,10 +52,9 @@ func TestTrayItemLabel(t *testing.T) {
 }
 
 func TestTraySummary(t *testing.T) {
-	assert.Equal(t, "4 unread", traySummary(app.MenuBarSnapshot{OtherUnread: 4}))
-	assert.Equal(t, "5 pinned · 4 unread elsewhere", traySummary(app.MenuBarSnapshot{
-		Pinned:      []app.MenuBarFeedView{{Total: 2}, {Total: 3}},
-		OtherUnread: 4,
+	assert.Equal(t, "5 pinned · 3 unread", traySummary([]app.MenuBarFeedView{
+		{Total: 2, Unread: 1},
+		{Total: 3, Unread: 2},
 	}))
 }
 

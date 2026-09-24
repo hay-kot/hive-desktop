@@ -16,24 +16,22 @@ import (
 )
 
 type trayProfile struct {
-	ID      string
-	Label   string
-	Enabled bool
-	Valid   bool
+	ID    string
+	Label string
+	Valid bool
 }
 
-// trayProfiles projects a flow listing onto the tray's checkbox rows: a valid
+// trayProfiles projects a flow listing onto the tray's profile links: a valid
 // flow shows its name, an invalid one is disabled and labeled with its id so
 // a broken flow file stays visible instead of vanishing from the menu.
 //
 // It takes []FlowSummary — the same DTO FlowsService.ListFlows returns to the
-// frontend — so the tray and the frontend read "is this flow valid, is it
-// enabled" through one projection.
+// frontend — so the tray lists profiles in rail order through one projection.
 func trayProfiles(summaries []FlowSummary) []trayProfile {
 	profiles := make([]trayProfile, 0, len(summaries))
 	for _, s := range summaries {
 		if s.Valid {
-			profiles = append(profiles, trayProfile{ID: s.ID, Label: s.Name, Enabled: s.Enabled, Valid: true})
+			profiles = append(profiles, trayProfile{ID: s.ID, Label: s.Name, Valid: true})
 			continue
 		}
 		profiles = append(profiles, trayProfile{ID: s.ID, Label: s.ID + " (invalid)"})
@@ -57,12 +55,7 @@ type TrayDeps struct {
 }
 
 // MenuBarTray owns the dynamic native tray menu: the pinned feeds and their
-// items, a tally of unread items elsewhere, and the profile checkboxes.
-//
-// Profile toggles go through FlowsService rather than a raw *flow.FlowStore:
-// toggling a checkbox is the same "enable/disable a flow" operation the
-// frontend performs, and FlowsService.SetFlowEnabled already publishes the
-// flows-updated event this tray's own Refresh subscribes to.
+// items, and links that open each profile in Hive.
 type MenuBarTray struct {
 	deps   TrayDeps
 	tray   *application.SystemTray
@@ -151,26 +144,20 @@ func (t *MenuBarTray) menu() *application.Menu {
 	}
 	t.lastPolled = snapshot.LastPolled
 
-	menu.Add(traySummary(snapshot)).SetEnabled(false)
-	menu.AddSeparator()
-
 	if len(snapshot.Pinned) == 0 {
 		menu.Add("Pin feeds to the menu bar…").OnClick(func(*application.Context) {
 			t.open(MenuBarNavigation{Settings: true})
 		})
+		menu.AddSeparator()
+	} else {
+		menu.Add(traySummary(snapshot.Pinned)).SetEnabled(false)
+		menu.AddSeparator()
 	}
 	for _, feed := range snapshot.Pinned {
 		t.addPinnedFeed(menu, feed)
 		menu.AddSeparator()
 	}
 
-	if len(snapshot.Others) > 0 {
-		others := menu.AddSubmenu(fmt.Sprintf("Other feeds (%d unread)", snapshot.OtherUnread))
-		for _, feed := range snapshot.Others {
-			nav := MenuBarNavigation{ProfileID: feed.ProfileID, FeedID: feed.Feed}
-			others.Add(fmt.Sprintf("%s (%d)", trayFeedPath(feed.MenuBarFeedName), feed.Unread)).OnClick(func(*application.Context) { t.open(nav) })
-		}
-	}
 	menu.Add("Refresh").OnClick(func(*application.Context) { t.refreshSources() })
 	t.addProfiles(menu.AddSubmenu("Profiles"))
 	menu.AddSeparator()
@@ -222,17 +209,11 @@ func (t *MenuBarTray) addProfiles(sub *application.Menu) {
 		t.deps.Logger.Warn().Err(err).Msg("tray: listing flows failed")
 	}
 	for _, profile := range trayProfiles(summaries) {
-		item := sub.AddCheckbox(profile.Label, profile.Enabled).SetEnabled(profile.Valid)
-		if !profile.Valid {
-			continue
+		item := sub.Add(profile.Label).SetEnabled(profile.Valid)
+		if profile.Valid {
+			nav := MenuBarNavigation{ProfileID: profile.ID}
+			item.OnClick(func(*application.Context) { t.open(nav) })
 		}
-		id := profile.ID
-		enabled := !profile.Enabled
-		item.OnClick(func(*application.Context) {
-			if _, err := t.deps.Flows.SetFlowEnabled(context.Background(), id, enabled); err != nil {
-				t.deps.Logger.Warn().Err(err).Str("profile", id).Msg("tray: updating profile enablement failed")
-			}
-		})
 	}
 }
 
@@ -275,15 +256,15 @@ func (t *MenuBarTray) open(nav MenuBarNavigation) {
 	emitMenuBarOpen(nav)
 }
 
-func traySummary(s app.MenuBarSnapshot) string {
-	if len(s.Pinned) == 0 {
-		return fmt.Sprintf("%d unread", s.OtherUnread)
+// traySummary totals the pinned feeds. It is only shown when something is
+// pinned; the empty menu offers to pin a feed instead.
+func traySummary(pinned []app.MenuBarFeedView) string {
+	var total, unread int64
+	for _, feed := range pinned {
+		total += feed.Total
+		unread += feed.Unread
 	}
-	var pinned int64
-	for _, feed := range s.Pinned {
-		pinned += feed.Total
-	}
-	return fmt.Sprintf("%d pinned · %d unread elsewhere", pinned, s.OtherUnread)
+	return fmt.Sprintf("%d pinned · %d unread", total, unread)
 }
 
 func trayFeedHeader(feed app.MenuBarFeedView) string {
