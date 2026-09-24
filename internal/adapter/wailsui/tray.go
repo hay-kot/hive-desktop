@@ -255,6 +255,7 @@ func (t *MenuBarTray) refreshSources() {
 	if _, err := t.deps.Sources.Refresh(context.Background()); err != nil {
 		t.deps.Logger.Warn().Err(err).Msg("tray: refreshing sources failed")
 	}
+	t.Refresh()
 }
 
 func (t *MenuBarTray) open(nav MenuBarNavigation) {
