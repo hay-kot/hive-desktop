@@ -171,14 +171,20 @@ func (t *MenuBarTray) addPinnedFeed(menu *application.Menu, feed app.MenuBarFeed
 	feedNav := MenuBarNavigation{ProfileID: feed.ProfileID, FeedID: feed.Feed}
 	menu.Add(trayFeedHeader(feed)).OnClick(func(*application.Context) { t.open(feedNav) })
 	if len(feed.Items) == 0 {
-		menu.Add("    Nothing here").SetEnabled(false)
+		menu.Add("Nothing here").SetBitmap(trayBlankMark).SetEnabled(false)
 		return
 	}
 	for _, item := range feed.Items {
-		t.addItemActions(menu.AddSubmenu(trayItemLabel(item)), feed.ProfileID, item)
+		mark := trayBlankMark
+		if item.Unread {
+			mark = trayUnreadMark
+		}
+		row := application.NewSubMenuItem(trayItemLabel(item)).SetBitmap(mark)
+		menu.Append(application.NewMenuFromItems(row))
+		t.addItemActions(row.GetSubmenu(), feed.ProfileID, item)
 	}
 	if more := feed.Total - int64(len(feed.Items)); more > 0 {
-		menu.Add(fmt.Sprintf("    %d more…", more)).OnClick(func(*application.Context) { t.open(feedNav) })
+		menu.Add(fmt.Sprintf("%d more…", more)).SetBitmap(trayBlankMark).OnClick(func(*application.Context) { t.open(feedNav) })
 	}
 }
 
@@ -289,14 +295,11 @@ func trayFeedPath(name app.MenuBarFeedName) string {
 
 const trayTitleLimit = 60
 
-// trayItemLabel reads "● owner/repo #412 Title · review". The dot marks an
-// unread item; the reference and reason appear only when the source's payload
-// carries them.
+// trayItemLabel reads "owner/repo #412 Title · review". The reference and
+// reason appear only when the source's payload carries them; unread is the
+// row's image, not part of its label.
 func trayItemLabel(item app.MenuBarItem) string {
-	label := "    "
-	if item.Unread {
-		label = "  ● "
-	}
+	label := ""
 	if item.Repo != "" {
 		label += item.Repo + " "
 	}

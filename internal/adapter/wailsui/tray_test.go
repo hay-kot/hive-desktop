@@ -29,19 +29,19 @@ func TestTrayItemLabel(t *testing.T) {
 	}{
 		"forge item": {
 			item: app.MenuBarItem{Title: "Add retry budget", Repo: "acme/api", Number: 412, Reason: "review_requested", Unread: true},
-			want: "  ● acme/api #412 Add retry budget · review",
+			want: "acme/api #412 Add retry budget · review",
 		},
 		"title only": {
 			item: app.MenuBarItem{Title: "Rotate credentials"},
-			want: "    Rotate credentials",
+			want: "Rotate credentials",
 		},
 		"unknown reason is left off": {
 			item: app.MenuBarItem{Title: "CI", Repo: "acme/api", Reason: "ci_activity"},
-			want: "    acme/api CI",
+			want: "acme/api CI",
 		},
 		"long title": {
 			item: app.MenuBarItem{Title: strings.Repeat("x", 70)},
-			want: "    " + strings.Repeat("x", trayTitleLimit-1) + "…",
+			want: strings.Repeat("x", trayTitleLimit-1) + "…",
 		},
 	}
 	for name, tc := range cases {
