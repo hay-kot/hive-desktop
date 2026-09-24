@@ -62,7 +62,7 @@ import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import { Feed, FindItems } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
-import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
+import type { MenuBarNavigation, NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
   isApplicationSettingsSection,
   isProfileSettingsSection,
@@ -528,6 +528,21 @@ async function revealNotification(activation: NotificationActivation): Promise<v
   await revealInboxItem(profileId, itemId)
 }
 
+// A menu bar click has already raised the window; what is left is routing to
+// the item, feed, or settings pane it named.
+async function openFromMenuBar(nav: MenuBarNavigation): Promise<void> {
+  if (nav.settings) {
+    selectApplicationSettingsSection('menubar')
+    return
+  }
+  if (!nav.profileId) return
+  if (nav.itemId > 0) {
+    await revealInboxItem(nav.profileId, nav.itemId)
+    return
+  }
+  await router.push({ name: 'feed', params: { profileId: nav.profileId }, query: nav.feedId ? { feed: nav.feedId } : {} })
+}
+
 async function openActivityItem(link: ActivityItemLink): Promise<void> {
   try {
     const candidates = (await FindItems(link.profileId, link.externalId)) ?? []
@@ -549,6 +564,7 @@ let unsubscribeFlowsUpdated: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
 let unsubscribeNotification: (() => void) | undefined
 let unsubscribeNotificationToast: (() => void) | undefined
+let unsubscribeMenuBar: (() => void) | undefined
 
 // Go speaks the notify vocabulary (info/success/warning/error); the toast
 // stack speaks its own. Anything unrecognized reads as info rather than
@@ -584,6 +600,10 @@ onMounted(() => {
     const payload = Array.isArray(event.data) ? event.data[0] : event.data
     if (payload) void revealNotification(payload)
   })
+  unsubscribeMenuBar = Events.On('menubar:open', (event: { data: MenuBarNavigation | MenuBarNavigation[] }) => {
+    const payload = Array.isArray(event.data) ? event.data[0] : event.data
+    if (payload) void openFromMenuBar(payload)
+  })
   // A flow notification the user chose to receive in-app rather than as an OS
   // banner (Settings -> Notifications -> Delivery). Go has already applied the
   // kill switch and picked this channel; the toast stack is the same one every
@@ -598,6 +618,7 @@ onUnmounted(() => {
   unsubscribeFlowsUpdated?.()
   unsubscribeUpdate?.()
   unsubscribeNotification?.()
+  unsubscribeMenuBar?.()
   unsubscribeNotificationToast?.()
 })
 

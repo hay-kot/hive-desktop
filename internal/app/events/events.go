@@ -41,6 +41,9 @@ type FlowsUpdated struct{ Reason string }
 // ActionsUpdated reports that the actions catalog was reloaded or mutated.
 type ActionsUpdated struct{ Count int }
 
+// MenuBarUpdated reports that the feeds pinned to the menu bar changed.
+type MenuBarUpdated struct{}
+
 // AgentWorkspacesUpdated reports that the workspace set was reloaded.
 type AgentWorkspacesUpdated struct{ Count int }
 
@@ -94,6 +97,7 @@ func (JobsUpdated) eventName() string            { return "jobs.updated" }
 func (SessionCreateFailed) eventName() string    { return "session.create-failed" }
 func (FlowsUpdated) eventName() string           { return "flows.updated" }
 func (ActionsUpdated) eventName() string         { return "actions.updated" }
+func (MenuBarUpdated) eventName() string         { return "menu-bar.updated" }
 func (AgentWorkspacesUpdated) eventName() string { return "agent-workspaces.updated" }
 func (CanvasUpdated) eventName() string          { return "canvas.updated" }
 func (CanvasToggleRequested) eventName() string  { return "canvas.toggle-requested" }

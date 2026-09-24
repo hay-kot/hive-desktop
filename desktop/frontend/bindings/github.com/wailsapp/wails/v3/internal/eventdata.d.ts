@@ -21,6 +21,7 @@ declare module "@wailsio/runtime" {
             "inbox:updated": string;
             "jobs:updated": string;
             "log:appended": number;
+            "menubar:open": wailsui$0.MenuBarNavigation;
             "notification:activated": wailsui$0.NotificationActivation;
             "notification:toast": wailsui$0.NotificationToast;
             "schedules:updated": string;

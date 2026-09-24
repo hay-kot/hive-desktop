@@ -60,6 +60,7 @@ type Producer struct {
 	scheduleMu  sync.Mutex
 	lastRun     map[string]time.Time
 	lastFailure map[string]time.Time
+	lastTick    time.Time
 
 	// writeSlot holds concurrent drains to one write at a time. SQLite admits
 	// one writer anyway; racing for it only parks the losers in the busy
@@ -246,10 +247,22 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 		attribute.Int(attrAppended, summary.Appended),
 	)
 
+	pr.scheduleMu.Lock()
+	pr.lastTick = pr.now()
+	pr.scheduleMu.Unlock()
+
 	if summary.Appended > 0 && pr.notifier != nil {
 		pr.notifier.PublishLogAppended(lastOffset)
 	}
 	return summary
+}
+
+// LastTick is when the most recent tick finished, whether or not it found
+// anything; zero before the first.
+func (pr *Producer) LastTick() time.Time {
+	pr.scheduleMu.Lock()
+	defer pr.scheduleMu.Unlock()
+	return pr.lastTick
 }
 
 // A kind is overridable per message and so can be absent; a trailing space in

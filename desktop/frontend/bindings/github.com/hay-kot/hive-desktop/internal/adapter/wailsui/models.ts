@@ -248,6 +248,26 @@ export interface MarkImageView {
 }
 
 /**
+ * MenuBarLimits are the bounds the pane enforces before Go does.
+ */
+export interface MenuBarLimits {
+    "maxFeeds": number;
+    "defaultItemLimit": number;
+    "maxItemLimit": number;
+}
+
+/**
+ * MenuBarNavigation is the menubar:open payload. ItemID wins over FeedID;
+ * Settings opens the Menu bar settings pane and ignores the rest.
+ */
+export interface MenuBarNavigation {
+    "profileId": string;
+    "feedId": string;
+    "itemId": number;
+    "settings": boolean;
+}
+
+/**
  * NotificationActivation is the notification:activated payload: which
  * workspace and inbox item a clicked notification came from. ItemID is 0 when
  * the notification had no item behind it (an app-level notification, or one

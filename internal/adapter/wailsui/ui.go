@@ -37,7 +37,7 @@ type UI struct {
 	trayIconLinux []byte
 	app           *application.App
 	window        *application.WebviewWindow
-	tray          *ProfileTray
+	tray          *MenuBarTray
 	updater       *UpdaterService
 	cancelEvents  func()
 }
@@ -165,6 +165,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewSystemService(core.System, opts.Build.Version, opts.Build.Commit, opts.Build.Date)),
 		application.NewService(NewHiveConfigService(core.HiveConfig)),
 		application.NewService(NewSettingsService(core.Settings)),
+		application.NewService(NewMenuBarService(core.MenuBar)),
 		application.NewService(NewWebhookService(core.Webhooks)),
 		application.NewService(NewPromptsService(core.Prompts)),
 		application.NewService(NewReportService(core.Report)),
@@ -339,28 +340,30 @@ func (u *UI) buildWindow() {
 }
 
 // buildTray is not rooted at Mount's ctx: like attachUpdater above, the tray
-// it builds outlives Mount's call — clicks and flows-watcher-triggered
-// refreshes fire for the rest of the process's life, long past setup, so
-// FlowsService's calls below root their own context rather than reuse one
-// that is about to go out of scope.
+// it builds outlives Mount's call — clicks and event-triggered refreshes fire
+// for the rest of the process's life, long past setup, so the tray's calls
+// root their own context rather than reuse one that is about to go out of
+// scope.
 //
 //nolint:contextcheck // see above; the tray's lifetime is Close, not a call
 func (u *UI) buildTray(core *app.App) {
-	u.tray = NewProfileTray(
-		u.app,
-		NewFlowsService(core.Flows),
-		u.logger,
-		u.trayIcon,
-		u.trayIconLinux,
-		u.reveal,
-		u.app.Quit,
-	)
+	u.tray = NewMenuBarTray(TrayDeps{
+		App:          u.app,
+		Flows:        NewFlowsService(core.Flows),
+		MenuBar:      core.MenuBar,
+		Inbox:        core.Inbox,
+		Sources:      core.Sources,
+		Logger:       u.logger,
+		TemplateIcon: u.trayIcon,
+		LinuxIcon:    u.trayIconLinux,
+		Show:         u.reveal,
+		Quit:         u.app.Quit,
+	})
 	u.app.OnShutdown(u.tray.Close)
 }
 
-// refreshTray re-renders the tray's checkbox rows from the current flow
-// listing. Not rooted at Subscribe's ctx for the same reason as buildTray:
-// the flows watcher can fire this long after Mount returns.
+// refreshTray re-renders the tray menu. Not rooted at Subscribe's ctx for the
+// same reason as buildTray: events fire long after Mount returns.
 //
 //nolint:contextcheck // see above; the tray's lifetime is Close, not a call
 func (u *UI) refreshTray() {

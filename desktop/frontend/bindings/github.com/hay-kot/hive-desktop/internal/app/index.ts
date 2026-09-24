@@ -5,6 +5,8 @@ export type {
     HiveSetup,
     HiveSetupRequest,
     Integration,
+    MenuBarFeedChoice,
+    MenuBarPin,
     PopupLauncher,
     ScratchTerminal
 } from "./models.js";

@@ -896,7 +896,7 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 
 | Group | Sections |
 | --- | --- |
-| Preferences | General · Appearance · Notifications · Keyboard |
+| Preferences | General · Appearance · Notifications · Menu bar · Keyboard |
 | Inbox | Integrations · Actions |
 | Code | Terminal · Quick terminals · Hive CLI |
 | Chats | Chats |

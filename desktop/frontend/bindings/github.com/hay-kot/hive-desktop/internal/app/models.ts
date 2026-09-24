@@ -76,6 +76,23 @@ export interface Integration {
 }
 
 /**
+ * MenuBarFeedChoice is a feed that can be pinned.
+ */
+export interface MenuBarFeedChoice {
+    "feed": string;
+    "profileName": string;
+    "name": string;
+}
+
+/**
+ * MenuBarPin is one pinned feed. Limit is always resolved, never zero.
+ */
+export interface MenuBarPin {
+    "feed": string;
+    "limit": number;
+}
+
+/**
  * PopupLauncher is one configured launcher, as much of it as a menu needs.
  * What it runs is deliberately absent: a caller invokes it by id.
  */
