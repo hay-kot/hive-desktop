@@ -22,8 +22,9 @@ The summary counts items and unread items in the pinned feeds only. The
 feeds themselves are the buckets; unpinned feeds do not appear in the menu.
 
 The item submenu offers an action only when it is shown in detail, applies to
-the item, and is headless-capable or a clipboard render. A rerun that needs
-confirmation, or a failed run, opens the item in Hive.
+the item, and needs no input: it is headless-capable, or a clipboard render
+whose inputs all have defaults. A rerun that needs confirmation, or a failed
+run, opens the item in Hive.
 
 `app.MenuBarService` builds the snapshot. The tray in `wailsui` renders it and
 rebuilds on inbox, flows, actions and pin changes, and when the producer's

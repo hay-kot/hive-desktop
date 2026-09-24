@@ -205,15 +205,12 @@ func (s *MenuBarService) LastPolled() time.Time {
 }
 
 // runnableActions is the catalog subset a menu click can run: offered on
-// items, and either headless or a clipboard render. An action that needs a
-// form or the New Session dialog stays in the main window.
+// items and needing no input. An action that needs a form or the New Session
+// dialog stays in the main window.
 func (s *MenuBarService) runnableActions() []actions.Action {
 	out := make([]actions.Action, 0)
 	for _, action := range s.actions.List() {
-		if !action.ShowInDetail {
-			continue
-		}
-		if _, clipboard := action.Config.(*actions.ClipboardConfig); clipboard || action.HeadlessCapable() {
+		if action.ShowInDetail && action.RunsWithoutInput() {
 			out = append(out, action)
 		}
 	}

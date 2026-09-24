@@ -293,6 +293,15 @@ func (a Action) HeadlessCapable() bool {
 	}
 }
 
+// RunsWithoutInput reports whether one click can run this action: it is
+// headless-capable, or a clipboard render whose inputs all resolve unasked.
+func (a Action) RunsWithoutInput() bool {
+	if _, clipboard := a.Config.(*ClipboardConfig); clipboard {
+		return a.inputsHeadlessCapable()
+	}
+	return a.HeadlessCapable()
+}
+
 func (a Action) RequiresSessionInput() bool {
 	c, ok := a.Config.(*LaunchSessionConfig)
 	return ok && strings.TrimSpace(c.RepoTemplate) == "" && strings.TrimSpace(c.Workspace) == ""
