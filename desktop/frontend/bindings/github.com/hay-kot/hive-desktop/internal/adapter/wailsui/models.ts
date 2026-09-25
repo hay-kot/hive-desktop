@@ -247,9 +247,6 @@ export interface MarkImageView {
     "image": string;
 }
 
-/**
- * MenuBarLimits are the bounds the pane enforces before Go does.
- */
 export interface MenuBarLimits {
     "maxFeeds": number;
     "defaultItemLimit": number;
@@ -257,8 +254,7 @@ export interface MenuBarLimits {
 }
 
 /**
- * MenuBarNavigation is the menubar:open payload. ItemID wins over FeedID;
- * Settings opens the Menu bar settings pane and ignores the rest.
+ * MenuBarNavigation routes Settings before ItemID, and ItemID before FeedID.
  */
 export interface MenuBarNavigation {
     "profileId": string;

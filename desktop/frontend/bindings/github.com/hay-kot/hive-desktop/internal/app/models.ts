@@ -75,9 +75,6 @@ export interface Integration {
     "envOverride": boolean;
 }
 
-/**
- * MenuBarFeedChoice is a feed that can be pinned.
- */
 export interface MenuBarFeedChoice {
     "feed": string;
     "profileName": string;
@@ -85,9 +82,6 @@ export interface MenuBarFeedChoice {
     "name": string;
 }
 
-/**
- * MenuBarPin is one pinned feed. Limit is always resolved, never zero.
- */
 export interface MenuBarPin {
     "feed": string;
     "limit": number;
