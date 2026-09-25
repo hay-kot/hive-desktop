@@ -47,9 +47,9 @@ type AppearanceSettings struct {
 	// FontFamily is the family the app's chrome draws with and MonoFontFamily
 	// the one its monospace text draws with. Empty is the bundled face; a
 	// generic keyword (system-ui, ui-monospace) is the platform stack.
-	FontFamily     string `json:"fontFamily"`
-	MonoFontFamily string `json:"monoFontFamily"`
-	TerminalFontSizePx int `json:"terminalFontSizePx"`
+	FontFamily         string `json:"fontFamily"`
+	MonoFontFamily     string `json:"monoFontFamily"`
+	TerminalFontSizePx int    `json:"terminalFontSizePx"`
 	// TerminalFontFamily is an installed monospace family for the terminal
 	// alone; empty is the bundled face.
 	TerminalFontFamily string `json:"terminalFontFamily"`
