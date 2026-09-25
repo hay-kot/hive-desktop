@@ -118,8 +118,8 @@ describe('bodySnippet', () => {
 })
 
 describe('searchText', () => {
-  it('joins title, container, byline, kind label, source label, and snippet', () => {
-    expect(searchText(baseItem)).toBe('Add desktop shell colonyops/hive octocat Pull Request GitHub First line')
+  it('joins title, numbered container line, byline, kind label, source label, and snippet', () => {
+    expect(searchText(baseItem)).toBe('Add desktop shell colonyops/hive #42 octocat Pull Request GitHub First line')
   })
 })
 
