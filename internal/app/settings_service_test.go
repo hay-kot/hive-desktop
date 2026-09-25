@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -209,7 +210,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "midnight", got.Appearance.Theme)
-	require.Equal(t, "14", got.Appearance.TerminalFontSize)
+	require.Equal(t, 14, got.Appearance.TerminalFontSize)
 	require.Equal(t, "xl", got.Appearance.CanvasFontSize)
 	require.Equal(t, "relaxed", got.Appearance.CanvasLineSpacing)
 	require.False(t, got.Appearance.TerminalShowWindows)
@@ -227,34 +228,23 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.Equal(t, 5, roundTripped.TerminalPoolSize)
 }
 
-// Otherwise every ⌘+ quietly rewrites a field the user chose to write in words.
-func TestSettingsServiceTerminalFontSizeKeepsTheSpellingTheFileUses(t *testing.T) {
+// A preset name written by an older build still loads, and the next write
+// stores the integer the migration produced.
+func TestSettingsServiceTerminalFontSizeReadsALegacyName(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	cfg := settings.DefaultSettings()
-	cfg.Appearance.TerminalFontSize = "large"
-	require.NoError(t, settings.SaveSettings(cfg))
-	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
+	path := settings.SettingsPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("version: 5\nappearance:\n  terminal_font_size: large\n"), 0o600))
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(path)})
 
 	got, err := service.Appearance(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, 14, got.TerminalFontSizePx, "large resolves to pixels for the frontend")
+	require.Equal(t, 14, got.TerminalFontSizePx)
 
 	require.NoError(t, service.SetTerminalFontSize(t.Context(), 16))
 	stored, err := settings.LoadSettings()
 	require.NoError(t, err)
-	require.Equal(t, "xl", stored.Appearance.TerminalFontSize, "16px has a name, so the file keeps names")
-
-	// 15px has no name, and the file stays numeric afterwards rather than
-	// flipping back the next time the ladder passes a named size.
-	require.NoError(t, service.SetTerminalFontSize(t.Context(), 15))
-	stored, err = settings.LoadSettings()
-	require.NoError(t, err)
-	require.Equal(t, "15", stored.Appearance.TerminalFontSize)
-
-	require.NoError(t, service.SetTerminalFontSize(t.Context(), 14))
-	stored, err = settings.LoadSettings()
-	require.NoError(t, err)
-	require.Equal(t, "14", stored.Appearance.TerminalFontSize)
+	require.Equal(t, 16, stored.Appearance.TerminalFontSize)
 }
 
 func TestSettingsServiceTerminalShowWindowsOffSurvivesUnrelatedSaves(t *testing.T) {

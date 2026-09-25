@@ -30,9 +30,9 @@ medium. The presets stay because each one has known-good cell metrics, and
 because `appearance.terminal_font_size` then keeps its format. A wider range is
 more presets, not a free pixel count.
 
-*Superseded by ADR the-terminal-text-size-is-pixels-with-names-as-input:* the
+*Superseded by ADR the-terminal-text-size-is-a-pixel-count:* the
 size is a pixel count now, stepped by two. Five presets were too few to keep
-pressing ⌘+. The names are still valid in settings.yaml. The rest of this
+pressing ⌘+. A settings migration turns a saved name into pixels. The rest of this
 decision stands.
 
 The commands run in an `any-terminal` context: an attached Code session, the

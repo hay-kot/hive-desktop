@@ -1,4 +1,4 @@
-# The terminal text size is pixels, with names as input
+# The terminal text size is a pixel count
 
 - **Status:** accepted
 - **Date:** 2026-09-23
@@ -16,8 +16,7 @@ chords were bound to answer.
 
 Nothing in the renderer needs the size to be one of five values: xterm measures
 the cell from the resident face at whatever size it is given, and the atlas
-rasterises per size (ADR terminal-atlas-renderer). But the names are still the
-readable way to write this by hand, and `settings.yaml` is a file people edit.
+rasterises per size (ADR terminal-atlas-renderer).
 
 ## Decision
 
@@ -25,31 +24,31 @@ readable way to write this by hand, and `settings.yaml` is a file people edit.
 8–64, where the bounds are legibility at the bottom and a usable grid at the
 top. The frontend deals only in pixels.
 
-**`appearance.terminal_font_size` and its `HIVE_DESKTOP_*` override accept
-either spelling, permanently.** `internal/app/settings/terminalfontsize.go`
-holds the one name table — small 12, medium 13, large 14, xl 16, xxl 18 —
-resolves a name or a number to pixels, and clamps. This is not a migration and
-there is no rewriting pass: a name is valid input for good.
+**`appearance.terminal_font_size` is an integer.** Zero means the default,
+13px, like `terminal_font_weight`. Settings version 6 rewrites a name the preset
+UI wrote — small 12, medium 13, large 14, xl 16, xxl 18 — to its pixel count,
+and drops a value that is neither a name nor a number.
 
-**A file keeps the spelling it already uses.** `SetTerminalFontSize` takes
-pixels and asks `TerminalFontSizeValue` what to write: a file spelled with a
-name keeps names while the size has one, and goes numeric when the ladder steps
-off them. It then stays numeric, because a size with no name is what the user
-asked for and drifting back to a name would rewrite a field they did not touch.
+Keeping the names as permanent input was considered and rejected. The store
+re-marshals the whole file on every save, so a name would survive a UI change
+while the comments and layout around it did not. The 2px ladder from 13px also
+steps off the named sizes on the first press, so most files would go numeric
+anyway. A migration is one step in a mechanism that already exists.
 
 **Settings ▸ Terminal ▸ Font size is a stepper** (`SettingsStepper.vue`), since
 a segmented control would need a button per rung.
 
 ## Consequences
 
-- **The names are input, not state.** Nothing in the UI offers them and the
-  frontend cannot spell them, which is what keeps one table in one language.
+- **The names are gone.** A name in `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE`
+  now fails to parse, since the migration only rewrites the file.
+- A settings file at version 6 is rejected by an older build, as with every
+  settings migration.
 - **The bounds are stated twice** — `settings.MinTerminalFontSizePx` /
   `MaxTerminalFontSizePx` govern the file, and the frontend constants hold the
   ladder and the stepper. The Go pair is the one that decides what persists.
-- **An unreadable size reads as the default** rather than failing the load. One
-  mistyped appearance field is not worth refusing to start, and the default is
-  visibly wrong to whoever mistyped it.
+- **An out-of-range size is clamped** rather than failing the load. One
+  mistyped appearance field is not worth refusing to start.
 - Canvas reader typography keeps its own preset names in the frontend
   (`useCanvasTypography.ts`). The terminal size diverges because a chord steps
   it; a picker-only setting has no reason to leave its names behind.

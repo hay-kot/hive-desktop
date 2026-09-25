@@ -76,9 +76,20 @@ describe('useTerminalFont', () => {
     await settle()
 
     setTerminalFontSize(32)
-    resetTerminalFontSize()
+    await resetTerminalFontSize()
 
     expect(px.value).toBe(defaultTerminalFontSizePx)
+  })
+
+  it('resets a persisted size even when nothing has hydrated yet', async () => {
+    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSizePx: 18 })
+    const { defaultTerminalFontSizePx, resetTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
+
+    await resetTerminalFontSize()
+    await settle()
+
+    expect(useTerminalFont().px.value).toBe(defaultTerminalFontSizePx)
+    expect(mocks.SetTerminalFontSize).toHaveBeenCalledWith(defaultTerminalFontSizePx)
   })
 
   it('steps from the persisted size when nothing has hydrated yet', async () => {

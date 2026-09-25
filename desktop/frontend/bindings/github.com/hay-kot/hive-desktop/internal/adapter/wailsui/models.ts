@@ -46,8 +46,8 @@ export interface AppearanceSettings {
     "monoFontFamily": string;
 
     /**
-     * TerminalFontSizePx is the terminal's text size in pixels, resolved from
-     * whichever spelling settings.yaml uses.
+     * TerminalFontSizePx is the terminal's text size in pixels, with the
+     * default and bounds already applied.
      */
     "terminalFontSizePx": number;
 

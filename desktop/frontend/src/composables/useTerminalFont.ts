@@ -1,4 +1,4 @@
-import { computed, ref, type ComputedRef, type Ref } from 'vue'
+import { computed, readonly, ref, type ComputedRef, type Ref } from 'vue'
 import {
   AppearanceSettings as GetAppearanceSettings,
   SetTerminalFontFamily as PersistTerminalFontFamily,
@@ -9,10 +9,8 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { TERMINAL_FONT } from '../lib/terminalFaces'
 
-// settings.yaml also accepts a name here, which the Go settings package
-// resolves, so a size only ever arrives as a number
-// (ADR the-terminal-text-size-is-pixels-with-names-as-input). The bounds repeat
-// settings.MinTerminalFontSizePx / MaxTerminalFontSizePx, which govern the file.
+// The bounds repeat settings.MinTerminalFontSizePx / MaxTerminalFontSizePx,
+// which govern the file (ADR the-terminal-text-size-is-a-pixel-count).
 export const minTerminalFontSizePx = 8
 export const maxTerminalFontSizePx = 64
 export const terminalFontSizeStepPx = 2
@@ -64,7 +62,6 @@ export const defaultTerminalLetterSpacing: TerminalLetterSpacing = 0
 export function clampTerminalFontSize(px: number): number {
   return Math.min(maxTerminalFontSizePx, Math.max(minTerminalFontSizePx, Math.round(px)))
 }
-
 
 function isTerminalFontWeight(value: number | null): value is TerminalFontWeight {
   return terminalFontWeights.includes(value as TerminalFontWeight)
@@ -151,7 +148,11 @@ export async function stepTerminalFontSize(delta: 1 | -1): Promise<void> {
   setTerminalFontSize(currentSizePx.value + delta * terminalFontSizeStepPx)
 }
 
-export function resetTerminalFontSize(): void {
+// Waits for the same reason: before hydration the current size is already the
+// default, so setTerminalFontSize would skip the write and hydration would then
+// restore the persisted size.
+export async function resetTerminalFontSize(): Promise<void> {
+  await ensureHydrated()
   setTerminalFontSize(defaultTerminalFontSizePx)
 }
 
@@ -200,7 +201,7 @@ export function terminalCellMetrics(): string {
 }
 
 export function useTerminalFont(): {
-  px: Ref<number>
+  px: Readonly<Ref<number>>
   family: Ref<string>
   /** The family to show selected: the bundled face stands in for empty. */
   selectedFamily: ComputedRef<string>
@@ -211,7 +212,7 @@ export function useTerminalFont(): {
 } {
   void ensureHydrated()
   return {
-    px: currentSizePx,
+    px: readonly(currentSizePx),
     family: currentFamily,
     selectedFamily: computed(() => currentFamily.value || TERMINAL_FONT),
     weight: currentWeight,

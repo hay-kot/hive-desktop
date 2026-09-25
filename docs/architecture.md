@@ -1325,9 +1325,8 @@ any of them (ADR the-sidebar-tree-is-the-only-window-list). A new style option t
 also has a keyboard ladder, and it writes that same setting rather than a second
 piece of state (ADR the-zoom-chords-step-the-terminal-text-size-instead-of-magnifying-the-webview).
 Text size is the one typography setting the app holds as a free value rather
-than a preset list, because a chord steps it; settings.yaml still accepts the
-names, which Go resolves to pixels before the frontend sees them
-(ADR the-terminal-text-size-is-pixels-with-names-as-input). The chrome's own
+than a preset list, because a chord steps it
+(ADR the-terminal-text-size-is-a-pixel-count). The chrome's own
 faces are a separate pair of settings on a separate pane — `appearance.
 font_family` and `mono_font_family`, written from Settings ▸ Appearance — and a
 terminal takes nothing from them (ADR the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set).
