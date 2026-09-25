@@ -228,8 +228,6 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.Equal(t, 5, roundTripped.TerminalPoolSize)
 }
 
-// A preset name written by an older build still loads, and the next write
-// stores the integer the migration produced.
 func TestSettingsServiceTerminalFontSizeReadsALegacyName(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	path := settings.SettingsPath()

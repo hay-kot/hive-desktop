@@ -148,9 +148,7 @@ export async function stepTerminalFontSize(delta: 1 | -1): Promise<void> {
   setTerminalFontSize(currentSizePx.value + delta * terminalFontSizeStepPx)
 }
 
-// Waits for the same reason: before hydration the current size is already the
-// default, so setTerminalFontSize would skip the write and hydration would then
-// restore the persisted size.
+// Before hydration the size already equals the default, so the write would be skipped.
 export async function resetTerminalFontSize(): Promise<void> {
   await ensureHydrated()
   setTerminalFontSize(defaultTerminalFontSizePx)

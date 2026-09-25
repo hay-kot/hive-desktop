@@ -44,11 +44,6 @@ export interface AppearanceSettings {
      */
     "fontFamily": string;
     "monoFontFamily": string;
-
-    /**
-     * TerminalFontSizePx is the terminal's text size in pixels, with the
-     * default and bounds already applied.
-     */
     "terminalFontSizePx": number;
 
     /**

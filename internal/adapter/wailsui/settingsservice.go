@@ -49,8 +49,6 @@ type AppearanceSettings struct {
 	// generic keyword (system-ui, ui-monospace) is the platform stack.
 	FontFamily     string `json:"fontFamily"`
 	MonoFontFamily string `json:"monoFontFamily"`
-	// TerminalFontSizePx is the terminal's text size in pixels, with the
-	// default and bounds already applied.
 	TerminalFontSizePx int `json:"terminalFontSizePx"`
 	// TerminalFontFamily is an installed monospace family for the terminal
 	// alone; empty is the bundled face.

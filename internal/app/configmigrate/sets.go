@@ -169,14 +169,8 @@ func dropDevelopmentInstance(doc map[string]any) error {
 	return nil
 }
 
-// terminalFontSizeToPixels rewrites `appearance.terminal_font_size` from a
-// name or a quoted number to an integer pixel count.
-//
-// The table is the one the preset UI shipped, hardcoded here because nothing
-// else reads it anymore. A value that is neither is dropped rather than failing
-// the migration: the strict decoder would otherwise refuse to start over one
-// hand-typed appearance field, and the default is visibly wrong to whoever
-// typed it.
+// The name table is frozen here on purpose. A value that is neither a name nor
+// a number is dropped; the strict decoder would otherwise refuse to start.
 func terminalFontSizeToPixels(doc map[string]any) error {
 	appearance, ok := doc["appearance"].(map[string]any)
 	if !ok {
