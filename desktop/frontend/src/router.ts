@@ -18,6 +18,7 @@ export const applicationSettingsSections = [
   'general',
   'appearance',
   'notifications',
+  'menubar',
   'keybindings',
   'integrations',
   'actions',

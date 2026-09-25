@@ -12,6 +12,7 @@ import * as GrafanaService from "./grafanaservice.js";
 import * as HiveConfigService from "./hiveconfigservice.js";
 import * as IntegrationsService from "./integrationsservice.js";
 import * as JobService from "./jobservice.js";
+import * as MenuBarService from "./menubarservice.js";
 import * as NotificationService from "./notificationservice.js";
 import * as ObservabilityService from "./observabilityservice.js";
 import * as PerfService from "./perfservice.js";
@@ -42,6 +43,7 @@ export {
     HiveConfigService,
     IntegrationsService,
     JobService,
+    MenuBarService,
     NotificationService,
     ObservabilityService,
     PerfService,
@@ -77,6 +79,8 @@ export type {
     InstalledFonts,
     KeybindingSettings,
     MarkImageView,
+    MenuBarLimits,
+    MenuBarNavigation,
     NotificationActivation,
     NotificationSettings,
     NotificationToast,

@@ -75,6 +75,18 @@ export interface Integration {
     "envOverride": boolean;
 }
 
+export interface MenuBarFeedChoice {
+    "feed": string;
+    "profileName": string;
+    "folder": string;
+    "name": string;
+}
+
+export interface MenuBarPin {
+    "feed": string;
+    "limit": number;
+}
+
 /**
  * PopupLauncher is one configured launcher, as much of it as a menu needs.
  * What it runs is deliberately absent: a caller invokes it by id.

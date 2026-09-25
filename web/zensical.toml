@@ -30,6 +30,7 @@ nav = [
       "inbox/flows.md",
       "inbox/sources.md",
       "inbox/actions.md",
+      "inbox/menu-bar.md",
     ]},
     { "Code" = [
       "code/terminal-mode.md",

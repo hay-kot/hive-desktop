@@ -133,6 +133,54 @@ type ProfileSettings struct {
 	Order []string `yaml:"order,omitempty"`
 }
 
+const (
+	// MaxMenuBarFeeds keeps the menu bar dropdown short enough to scan; the
+	// full inbox is the main window's job.
+	MaxMenuBarFeeds         = 3
+	DefaultMenuBarItemLimit = 3
+	MaxMenuBarItemLimit     = 10
+)
+
+// MenuBarSettings preserves feed order and permits missing feeds.
+type MenuBarSettings struct {
+	Feeds []MenuBarFeed `yaml:"feeds,omitempty"`
+}
+
+type MenuBarFeed struct {
+	// Feed is a feed id, "<flow id>/<feed node id>".
+	Feed string `yaml:"feed"`
+	// Zero uses DefaultMenuBarItemLimit.
+	Limit int `yaml:"limit,omitempty"`
+}
+
+func (f MenuBarFeed) ItemLimit() int {
+	if f.Limit == 0 {
+		return DefaultMenuBarItemLimit
+	}
+	return f.Limit
+}
+
+func (m MenuBarSettings) Validate() error {
+	if len(m.Feeds) > MaxMenuBarFeeds {
+		return fmt.Errorf("menu_bar.feeds allows at most %d feeds", MaxMenuBarFeeds)
+	}
+	seen := make(map[string]bool, len(m.Feeds))
+	for _, pin := range m.Feeds {
+		profile, node, ok := strings.Cut(pin.Feed, "/")
+		if !ok || profile == "" || node == "" {
+			return fmt.Errorf("menu_bar.feeds: %q is not a feed id of the form <profile>/<feed>", pin.Feed)
+		}
+		if seen[pin.Feed] {
+			return fmt.Errorf("menu_bar.feeds: %q is listed twice", pin.Feed)
+		}
+		seen[pin.Feed] = true
+		if pin.Limit < 0 || pin.Limit > MaxMenuBarItemLimit {
+			return fmt.Errorf("menu_bar.feeds: %q limit must be between 1 and %d, or omitted for the default", pin.Feed, MaxMenuBarItemLimit)
+		}
+	}
+	return nil
+}
+
 // AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to
 // <ConfigDir>/workspaces; a leading `~` is expanded at read time. It is
 // configurable because iCloud Drive is an expected destination (spec §4.4).
@@ -296,6 +344,7 @@ type Settings struct {
 	// struct is all-zero, and an omitted section would read back as defaults.
 	Appearance      Appearance              `yaml:"appearance"`
 	Profiles        ProfileSettings         `yaml:"profiles,omitempty"`
+	MenuBar         MenuBarSettings         `yaml:"menu_bar,omitempty"`
 	HTTP            HTTPSettings            `yaml:"http"`
 	Telemetry       TelemetrySettings       `yaml:"telemetry"`
 	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
@@ -380,6 +429,9 @@ func (s Settings) Validate() error {
 	}
 	if s.Paths.Tmux != "" && !filepath.IsAbs(s.Paths.Tmux) {
 		return fmt.Errorf("paths.tmux must be an absolute path")
+	}
+	if err := s.MenuBar.Validate(); err != nil {
+		return err
 	}
 	if len(strings.Fields(s.Editor.Command)) > 1 {
 		return fmt.Errorf("editor.command must be a single word — a command name or path, without flags")

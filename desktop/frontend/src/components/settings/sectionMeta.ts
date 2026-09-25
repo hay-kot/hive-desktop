@@ -7,6 +7,7 @@ import IconSquareTerminal from '~icons/lucide/square-terminal'
 import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
+import IconPin from '~icons/lucide/pin'
 import IconInfo from '~icons/lucide/info'
 import IconSliders from '~icons/lucide/sliders-horizontal'
 import IconZap from '~icons/lucide/zap'
@@ -31,6 +32,7 @@ export const applicationSettingsSectionMeta: Record<
   launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
   hive: { label: 'Hive CLI', title: 'Hive CLI', icon: IconBoxes },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
+  menubar: { label: 'Menu bar', title: 'Menu bar', icon: IconPin },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   observability: { label: 'Observability', title: 'Observability', icon: IconActivity },
   about: { label: 'About', title: 'About', icon: IconInfo },

@@ -200,6 +200,9 @@ appearance:
 profiles:
   order: [] # flow ids, top of the rail first; ids left out sort alphabetically
             # behind them. Written by dragging a tile in the rail.
+menu_bar:
+  feeds: [] # up to 3 {feed: <profile>/<feed>, limit: 1-10, default 3} pins shown in the
+            # menu bar dropdown (ADR menu-bar-pins-are-feed-ids-in-settings-yaml-and-the-menu-runs-only-actions-that-need-no-input)
 http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
   host: 127.0.0.1

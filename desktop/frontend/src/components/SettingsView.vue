@@ -21,6 +21,7 @@ import KeybindingSettingsView from './KeybindingSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import TerminalSettingsView from './TerminalSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
+import MenuBarSettingsView from './MenuBarSettingsView.vue'
 import ObservabilitySettingsView from './ObservabilitySettingsView.vue'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
 import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
@@ -57,7 +58,7 @@ const emit = defineEmits<{ close: []; 'select-category': [category: ApplicationS
 // against applicationSettingsSections so a new pane cannot be routable but
 // absent from the nav.
 const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection[] }> = [
-  { title: 'Preferences', ids: ['general', 'appearance', 'notifications', 'keybindings'] },
+  { title: 'Preferences', ids: ['general', 'appearance', 'notifications', 'menubar', 'keybindings'] },
   { title: 'Inbox', ids: ['integrations', 'actions'] },
   { title: 'Code', ids: ['terminal', 'launchers', 'hive'] },
   { title: 'Chats', ids: ['agents'] },
@@ -202,6 +203,7 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
     <AboutSettingsView v-else-if="props.activeCategory === 'about'" />
 
     <NotificationSettingsView v-else-if="props.activeCategory === 'notifications'" />
+    <MenuBarSettingsView v-else-if="props.activeCategory === 'menubar'" />
 
     <SettingsPage v-else testid="settings-integrations">
       <SettingsSection

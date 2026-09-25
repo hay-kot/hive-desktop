@@ -96,6 +96,7 @@ type App struct {
 	Flows      *FlowsService
 	Actions    *ActionsService
 	Settings   *SettingsService
+	MenuBar    *MenuBarService
 	System     *SystemService
 	HiveConfig *HiveConfigService
 	Webhooks   *WebhookService
@@ -479,6 +480,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	a.outputs = a.buildOutputWorker(cfg)
 	a.Inbox = newInboxService(InboxDeps{Items: a.Stores.InboxItems, Commands: a.Stores.OutputCommands, NodeRuns: a.Stores.NodeRuns, Catalog: a.actionStore, Worker: a.outputs})
+	a.MenuBar = newMenuBarService(MenuBarDeps{
+		Settings: cfg.SettingsStore,
+		Flows:    a.flowStore,
+		Items:    a.Stores.InboxItems,
+		Catalog:  a.actionStore,
+		Polls:    a.lastTicker(),
+		Events:   a.Events,
+	})
 	a.Sessions = newSessionsService(SessionsDeps{
 		Launcher: a.launcher, WorkspaceLauncher: a.AgentWorkspaces,
 		Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
@@ -1037,6 +1046,15 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 		factories[rss.Descriptor.Type] = rss.NewFactory(rssFetchers)
 	}
 	return factories
+}
+
+// lastTicker keeps mock modes' missing producer a nil interface rather than
+// a non-nil one wrapping a nil pointer.
+func (a *App) lastTicker() LastTicker {
+	if a.producer == nil {
+		return nil
+	}
+	return a.producer
 }
 
 // buildProducer starts nothing; it wires the event-log producer over every

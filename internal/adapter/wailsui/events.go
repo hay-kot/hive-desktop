@@ -13,8 +13,8 @@ import (
 
 // Every event this adapter emits is registered and emitted from this file.
 // They are wake-up signals: the frontend re-reads the relevant service on
-// receipt, and only log:appended, notification:activated, notification:toast
-// and update:available carry a payload that matters.
+// receipt, and only log:appended, notification:activated, notification:toast,
+// menubar:open and update:available carry a payload that matters.
 
 // Package-variable initialization instead of init(): this repo enables
 // gochecknoinits.
@@ -77,6 +77,8 @@ func registerEvents() struct{} {
 	// Delivery). The frontend surfaces it through the same toast stack every
 	// other in-app notification uses.
 	application.RegisterEvent[NotificationToast]("notification:toast")
+	// The tray raises the window before emitting menubar:open.
+	application.RegisterEvent[MenuBarNavigation]("menubar:open")
 	return struct{}{}
 }
 
@@ -93,13 +95,19 @@ func registerEvents() struct{} {
 // This is where the core's typed payload is deliberately degraded. Wails
 // events are wake-up signals by design — an adapter that needs the delta gets
 // it from the bus instead.
-func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (cancel func()) {
+func Subscribe(ctx context.Context, bus *events.Bus, onTrayStale func()) (cancel func()) {
+	trayStale := func() {
+		if onTrayStale != nil {
+			onTrayStale()
+		}
+	}
 	cancels := []func(){
 		events.Subscribe(ctx, bus, "wailsui.log", events.Coalesce(), func(_ context.Context, e events.LogAppended) {
 			emitLogAppended(e.NextOffset)
 		}),
 		events.Subscribe(ctx, bus, "wailsui.inbox", events.Coalesce(), func(context.Context, events.InboxUpdated) {
 			emitInboxUpdated()
+			trayStale()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.activity", events.Coalesce(), func(_ context.Context, e events.ActivityAppended) {
 			emitActivityAppended(e.ID)
@@ -114,6 +122,10 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
 			emitActionsUpdated()
+			trayStale()
+		}),
+		events.Subscribe(ctx, bus, "wailsui.menu-bar", events.Coalesce(), func(context.Context, events.MenuBarUpdated) {
+			trayStale()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.canvas", events.Coalesce(), func(_ context.Context, e events.CanvasUpdated) {
 			emitCanvasUpdated(e.Session)
@@ -129,9 +141,7 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.flows", events.Coalesce(), func(context.Context, events.FlowsUpdated) {
 			emitFlowsUpdated()
-			if onFlowsUpdated != nil {
-				onFlowsUpdated()
-			}
+			trayStale()
 		}),
 		// A notify terminal's delivery is not state to re-read: it is the
 		// message, so every one gets a slot in the queue rather than risking
@@ -225,6 +235,20 @@ func emitJobsUpdated() {
 func emitSessionCreateFailed(name string) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("sessions:create-failed", name)
+	}
+}
+
+// MenuBarNavigation routes Settings before ItemID, and ItemID before FeedID.
+type MenuBarNavigation struct {
+	ProfileID string `json:"profileId"`
+	FeedID    string `json:"feedId"`
+	ItemID    int64  `json:"itemId"`
+	Settings  bool   `json:"settings"`
+}
+
+func emitMenuBarOpen(nav MenuBarNavigation) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("menubar:open", nav)
 	}
 }
 

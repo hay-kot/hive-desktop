@@ -2,34 +2,31 @@ package wailsui
 
 import (
 	"context"
+	"fmt"
 	"runtime"
+	"strings"
 	"sync"
+	"time"
+	"unicode/utf8"
 
 	"github.com/rs/zerolog"
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/hay-kot/hive-desktop/internal/app"
 )
 
 type trayProfile struct {
-	ID      string
-	Label   string
-	Enabled bool
-	Valid   bool
+	ID    string
+	Label string
+	Valid bool
 }
 
-// trayProfiles projects a flow listing onto the tray's checkbox rows: a valid
-// flow shows its name, an invalid one is disabled and labeled with its id so
-// a broken flow file stays visible instead of vanishing from the menu.
-//
-// It takes []FlowSummary — the same DTO FlowsService.ListFlows returns to the
-// frontend — rather than reading *flow.FlowStore itself. The tray used to
-// call store.Statuses() directly and re-derive this exact projection by hand;
-// that was a second, independent read of "is this flow valid, is it
-// enabled", drifting from the one the frontend's listing already computes.
+// FlowSummary order is the profile rail order and must be preserved in the tray.
 func trayProfiles(summaries []FlowSummary) []trayProfile {
 	profiles := make([]trayProfile, 0, len(summaries))
 	for _, s := range summaries {
 		if s.Valid {
-			profiles = append(profiles, trayProfile{ID: s.ID, Label: s.Name, Enabled: s.Enabled, Valid: true})
+			profiles = append(profiles, trayProfile{ID: s.ID, Label: s.Name, Valid: true})
 			continue
 		}
 		profiles = append(profiles, trayProfile{ID: s.ID, Label: s.ID + " (invalid)"})
@@ -37,45 +34,36 @@ func trayProfiles(summaries []FlowSummary) []trayProfile {
 	return profiles
 }
 
-// ProfileTray owns the dynamic native tray menu. Profile rows are checkboxes:
-// checked profiles poll and run, while unchecked profiles retain their feed
-// data without executing. Invalid flow files remain visible but non-interactive.
-//
-// It goes through FlowsService rather than a raw *flow.FlowStore: toggling a
-// checkbox is the same "enable/disable a flow" operation the frontend
-// performs, and FlowsService.SetFlowEnabled already wraps the typed error and
-// publishes the flows-updated event that this tray's own Refresh subscribes
-// to (see Subscribe in events.go, and buildTray in ui.go) — a second,
-// hand-rolled notification path here would just race the first.
-type ProfileTray struct {
-	app    *application.App
-	flows  *FlowsService
-	logger zerolog.Logger
-	show   func()
-	quit   func()
-	tray   *application.SystemTray
-	mu     sync.Mutex
-	active bool
+type TrayDeps struct {
+	App                     *application.App
+	Flows                   *FlowsService
+	MenuBar                 *app.MenuBarService
+	Inbox                   *app.InboxService
+	Sources                 *app.SourcesService
+	Logger                  zerolog.Logger
+	TemplateIcon, LinuxIcon []byte
+	Show                    func()
+	Quit                    func()
 }
 
-func NewProfileTray(
-	app *application.App,
-	flows *FlowsService,
-	logger zerolog.Logger,
-	templateIcon, linuxIcon []byte,
-	show func(),
-	quit func(),
-) *ProfileTray {
-	result := &ProfileTray{
-		app:    app,
-		flows:  flows,
-		logger: logger,
-		show:   show,
-		quit:   quit,
-		active: true,
-	}
-	result.tray = applyTrayIcon(app.SystemTray.New(), templateIcon, linuxIcon)
+type MenuBarTray struct {
+	deps       TrayDeps
+	tray       *application.SystemTray
+	mu         sync.Mutex
+	active     bool
+	lastPolled time.Time
+	stop       chan struct{}
+}
+
+// trayPollCheckInterval bounds how stale the footer's poll time can get. A
+// poll that changes nothing publishes no event, so the tray has to look.
+const trayPollCheckInterval = 30 * time.Second
+
+func NewMenuBarTray(deps TrayDeps) *MenuBarTray {
+	result := &MenuBarTray{deps: deps, active: true, stop: make(chan struct{})}
+	result.tray = applyTrayIcon(deps.App.SystemTray.New(), deps.TemplateIcon, deps.LinuxIcon)
 	result.Refresh()
+	go result.watchPolls()
 	return result
 }
 
@@ -91,9 +79,8 @@ func applyTrayIcon(tray *application.SystemTray, templateIcon, linuxIcon []byte)
 	return tray.SetTemplateIcon(templateIcon)
 }
 
-// Refresh replaces the tray menu from the current flow listing. Wails
-// marshals SetMenu onto the native UI thread after app startup.
-func (t *ProfileTray) Refresh() {
+// Wails marshals SetMenu onto the native UI thread after startup.
+func (t *MenuBarTray) Refresh() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.active {
@@ -102,38 +89,190 @@ func (t *ProfileTray) Refresh() {
 	t.tray.SetMenu(t.menu())
 }
 
-// Close prevents filesystem watcher callbacks from touching the native tray
+// Close prevents event and watcher callbacks from touching the native tray
 // once Wails begins tearing down its UI loop.
-func (t *ProfileTray) Close() {
+func (t *MenuBarTray) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.active {
+		close(t.stop)
+	}
 	t.active = false
 }
 
-func (t *ProfileTray) menu() *application.Menu {
-	menu := t.app.NewMenu()
-	menu.Add("Show Hive").OnClick(func(*application.Context) { t.show() })
+func (t *MenuBarTray) watchPolls() {
+	ticker := time.NewTicker(trayPollCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-t.stop:
+			return
+		case <-ticker.C:
+			polled := t.deps.MenuBar.LastPolled()
+			t.mu.Lock()
+			stale := !polled.Equal(t.lastPolled)
+			t.mu.Unlock()
+			if stale {
+				t.Refresh()
+			}
+		}
+	}
+}
+
+// menu builds the whole menu. Caller holds t.mu.
+func (t *MenuBarTray) menu() *application.Menu {
+	menu := t.deps.App.NewMenu()
+	menu.Add("Show Hive").OnClick(func(*application.Context) { t.deps.Show() })
 	menu.AddSeparator()
 
-	summaries, err := t.flows.ListFlows(context.Background())
+	snapshot, err := t.deps.MenuBar.Snapshot(context.Background())
 	if err != nil {
-		t.logger.Warn().Err(err).Msg("tray: listing flows failed")
+		t.deps.Logger.Warn().Err(err).Msg("tray: reading the menu bar snapshot failed")
 	}
-	for _, profile := range trayProfiles(summaries) {
-		item := menu.AddCheckbox(profile.Label, profile.Enabled).SetEnabled(profile.Valid)
-		if !profile.Valid {
-			continue
+	t.lastPolled = snapshot.LastPolled
+
+	if len(snapshot.Pinned) == 0 {
+		menu.Add("Pin feeds to the menu bar…").OnClick(func(*application.Context) {
+			t.open(MenuBarNavigation{Settings: true})
+		})
+		menu.AddSeparator()
+	}
+	for _, feed := range snapshot.Pinned {
+		t.addPinnedFeed(menu, feed)
+		menu.AddSeparator()
+	}
+
+	menu.Add("Refresh").OnClick(func(*application.Context) { t.refreshSources() })
+	t.addProfiles(menu.AddSubmenu("Profiles"))
+	menu.AddSeparator()
+
+	menu.Add(trayUpdated(snapshot.LastPolled, time.Now())).SetEnabled(false)
+	menu.Add("Quit").OnClick(func(*application.Context) { t.deps.Quit() })
+	return menu
+}
+
+func (t *MenuBarTray) addPinnedFeed(menu *application.Menu, feed app.MenuBarFeedView) {
+	feedNav := MenuBarNavigation{ProfileID: feed.ProfileID, FeedID: feed.Feed}
+	menu.Add(trayFeedPath(feed.MenuBarFeedName)).OnClick(func(*application.Context) { t.open(feedNav) })
+	if len(feed.Items) == 0 {
+		menu.Add("Nothing here").SetBitmap(trayBlankMark).SetEnabled(false)
+		return
+	}
+	for _, item := range feed.Items {
+		mark := trayBlankMark
+		if item.Unread {
+			mark = trayUnreadMark
 		}
-		id := profile.ID
-		enabled := !profile.Enabled
-		item.OnClick(func(*application.Context) {
-			if _, err := t.flows.SetFlowEnabled(context.Background(), id, enabled); err != nil {
-				t.logger.Warn().Err(err).Str("profile", id).Msg("tray: updating profile enablement failed")
+		row := application.NewSubMenuItem(truncateRunes(item.Title, trayTitleLimit)).SetBitmap(mark)
+		menu.Append(application.NewMenuFromItems(row))
+		t.addItemActions(row.GetSubmenu(), feed.ProfileID, item)
+	}
+	if more := feed.Total - int64(len(feed.Items)); more > 0 {
+		menu.Add(fmt.Sprintf("%d more…", more)).SetBitmap(trayBlankMark).OnClick(func(*application.Context) { t.open(feedNav) })
+	}
+}
+
+func (t *MenuBarTray) addItemActions(sub *application.Menu, profileID string, item app.MenuBarItem) {
+	itemNav := MenuBarNavigation{ProfileID: profileID, ItemID: item.ID}
+	if item.URL != "" {
+		url := item.URL
+		sub.Add("Open in Browser").OnClick(func(*application.Context) {
+			if err := t.deps.App.Browser.OpenURL(url); err != nil {
+				t.deps.Logger.Warn().Err(err).Msg("tray: opening an item in the browser failed")
 			}
 		})
+		sub.Add("Copy Link").OnClick(func(*application.Context) { t.deps.App.Clipboard.SetText(url) })
 	}
+	sub.Add("Open in Hive").OnClick(func(*application.Context) { t.open(itemNav) })
+	if len(item.Actions) == 0 {
+		return
+	}
+	sub.AddSeparator()
+	for _, action := range item.Actions {
+		sub.Add(action.Label).OnClick(func(*application.Context) { t.runAction(action, itemNav) })
+	}
+}
 
-	menu.AddSeparator()
-	menu.Add("Quit").OnClick(func(*application.Context) { t.quit() })
-	return menu
+func (t *MenuBarTray) addProfiles(sub *application.Menu) {
+	summaries, err := t.deps.Flows.ListFlows(context.Background())
+	if err != nil {
+		t.deps.Logger.Warn().Err(err).Msg("tray: listing flows failed")
+	}
+	for _, profile := range trayProfiles(summaries) {
+		item := sub.Add(profile.Label).SetEnabled(profile.Valid)
+		if profile.Valid {
+			nav := MenuBarNavigation{ProfileID: profile.ID}
+			item.OnClick(func(*application.Context) { t.open(nav) })
+		}
+	}
+}
+
+// Failures and reruns requiring confirmation open the item in Hive, where
+// the user can continue from the detail pane.
+func (t *MenuBarTray) runAction(action app.MenuBarAction, item MenuBarNavigation) {
+	ctx := context.Background()
+	logger := t.deps.Logger.With().Str("action", action.ID).Int64("item", item.ItemID).Logger()
+	if action.Clipboard {
+		text, err := t.deps.Inbox.RenderClipboardAction(ctx, action.ID, []int64{item.ItemID}, nil)
+		if err != nil {
+			logger.Warn().Err(err).Msg("tray: rendering a clipboard action failed")
+			t.open(item)
+			return
+		}
+		t.deps.App.Clipboard.SetText(text)
+		return
+	}
+	run, err := t.deps.Inbox.InvokeAction(ctx, app.InvokeActionRequest{ActionID: action.ID, ItemID: item.ItemID})
+	if err != nil {
+		logger.Warn().Err(err).Msg("tray: running an action failed")
+		t.open(item)
+		emitNotificationToast(NotificationToast{Title: action.Label + " failed", Body: err.Error(), Severity: "error"})
+		return
+	}
+	if run.ConfirmationRequired {
+		t.open(item)
+	}
+}
+
+func (t *MenuBarTray) refreshSources() {
+	if _, err := t.deps.Sources.Refresh(context.Background()); err != nil {
+		t.deps.Logger.Warn().Err(err).Msg("tray: refreshing sources failed")
+	}
+	t.Refresh()
+}
+
+func (t *MenuBarTray) open(nav MenuBarNavigation) {
+	t.deps.Show()
+	emitMenuBarOpen(nav)
+}
+
+func trayFeedPath(name app.MenuBarFeedName) string {
+	parts := make([]string, 0, 3)
+	for _, part := range []string{name.ProfileName, name.Folder, name.Name} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return strings.Join(parts, " › ")
+}
+
+const trayTitleLimit = 60
+
+func trayUpdated(polled, now time.Time) string {
+	if polled.IsZero() {
+		return "Not polled yet"
+	}
+	polled = polled.In(now.Location())
+	if y, m, d := polled.Date(); y == now.Year() && m == now.Month() && d == now.Day() {
+		return "Updated at " + polled.Format("3:04 PM")
+	}
+	return "Updated " + polled.Format("Jan 2, 3:04 PM")
+}
+
+func truncateRunes(s string, limit int) string {
+	if utf8.RuneCountInString(s) <= limit {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:limit-1]) + "…"
 }

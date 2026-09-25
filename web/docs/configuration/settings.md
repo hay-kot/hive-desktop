@@ -16,6 +16,7 @@ Settings shows or changes:
 - terminal spacing, visible windows, and the status bar;
 - keyboard shortcuts;
 - notification delivery and sound;
+- the feeds pinned to the menu bar;
 - connected source accounts and the local webhook listener;
 - actions and quick terminals;
 - the agent workspace folder location;

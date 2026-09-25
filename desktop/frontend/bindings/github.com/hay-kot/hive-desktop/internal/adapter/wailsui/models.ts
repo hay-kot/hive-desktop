@@ -247,6 +247,22 @@ export interface MarkImageView {
     "image": string;
 }
 
+export interface MenuBarLimits {
+    "maxFeeds": number;
+    "defaultItemLimit": number;
+    "maxItemLimit": number;
+}
+
+/**
+ * MenuBarNavigation routes Settings before ItemID, and ItemID before FeedID.
+ */
+export interface MenuBarNavigation {
+    "profileId": string;
+    "feedId": string;
+    "itemId": number;
+    "settings": boolean;
+}
+
 /**
  * NotificationActivation is the notification:activated payload: which
  * workspace and inbox item a clicked notification came from. ItemID is 0 when

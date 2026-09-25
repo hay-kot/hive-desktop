@@ -157,6 +157,22 @@ func TestHeadlessCapable_RequiredInputWithoutDefault(t *testing.T) {
 	assert.True(t, action.HeadlessCapable())
 }
 
+func TestRunsWithoutInput(t *testing.T) {
+	t.Parallel()
+
+	clipboard := Action{ID: "copy", Type: "clipboard", Config: &ClipboardConfig{TextTemplate: "x"}}
+	assert.True(t, clipboard.RunsWithoutInput(), "a clipboard render needs no flow worker")
+
+	clipboard.Inputs = []InputSpec{{Name: "branch", Type: InputTypeText, Required: true}}
+	assert.False(t, clipboard.RunsWithoutInput())
+
+	clipboard.Inputs[0].Default = "main"
+	assert.True(t, clipboard.RunsWithoutInput())
+
+	interactive := Action{ID: "launch", Type: "launch-session", Config: &LaunchSessionConfig{}}
+	assert.False(t, interactive.RunsWithoutInput(), "the New Session dialog is input")
+}
+
 func TestActionEnvelopeInputsRoundTripThroughTheYAMLWriterAndLoader(t *testing.T) {
 	t.Parallel()
 

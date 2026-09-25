@@ -2173,6 +2173,18 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  it('opens the feed a menu bar heading names', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    const open = mocks.On.mock.calls.find(([event]) => event === 'menubar:open')?.[1] as ((ev: { data: unknown }) => void) | undefined
+
+    open?.({ data: { profileId: 'personal', feedId: 'personal/desktop', itemId: 0, settings: false } })
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.feed).toBe('personal/desktop')
+    expect(wrapper.find('[data-testid="sidebar-feed"][data-id="personal/desktop"]').classes()).toContain('sidebar-entry-selected')
+    wrapper.unmount()
+  })
+
   it('records feed and unread navigation in back/forward history', async () => {
     const { wrapper, router } = await mountAppWithRouter()
 
