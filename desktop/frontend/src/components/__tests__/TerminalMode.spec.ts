@@ -752,6 +752,43 @@ describe('TerminalMode', () => {
     expect(sessions[3].dispose).not.toHaveBeenCalled()
   })
 
+  it('does not bring back a window closed while attached once the session is evicted', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'aaa', slug: 'hive-aaa', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'bbb', slug: 'hive-bbb', repo: 'hay-kot/hive', state: 'active' },
+      { id: '3', name: 'ccc', slug: 'hive-ccc', repo: 'hay-kot/hive', state: 'active' },
+      { id: '4', name: 'ddd', slug: 'hive-ddd', repo: 'hay-kot/hive', state: 'active' },
+    ])
+    const tmux: Record<string, FakeWindow[]> = {
+      'hive-aaa': [
+        { windowId: '@1', name: 'agent', active: true, width: 0, height: 0 },
+        { windowId: '@2', name: 'shell', active: false, width: 0, height: 0 },
+      ],
+    }
+    mocks.createTerminalClient.mockReturnValue({ listWindows: vi.fn(async (slugs: string[]) => Object.fromEntries(
+      slugs.filter((slug) => tmux[slug]).map((slug) => [slug, tmux[slug]]))) })
+    const sessions = [fakeSession(), fakeSession(), fakeSession(), fakeSession()]
+    for (const session of sessions) mocks.useTerminalWindows.mockReturnValueOnce(session)
+    const { wrapper } = await mountAt()
+    const rows = sessionRows(wrapper)
+
+    await rows[0].trigger('click')
+    await flushPromises()
+    sessions[0].tabs.value = sessions[0].tabs.value.filter((tab) => tab.windowId !== '@2')
+    tmux['hive-aaa'] = tmux['hive-aaa'].filter((win) => win.windowId !== '@2')
+    await flushPromises()
+
+    for (const row of rows.slice(1)) {
+      await row.trigger('click')
+      await flushPromises()
+    }
+    expect(sessions[0].dispose).toHaveBeenCalledTimes(1)
+
+    const listed = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
+      .filter((row) => row.attributes('data-tree-key')?.startsWith('w:1:'))
+    expect(listed.map((row) => row.text())).toEqual(['agent'])
+  })
+
   it('refocuses the terminal when the attached row is reselected', async () => {
     const { wrapper, session } = await mountAvailable()
     await sessionRows(wrapper)[0].trigger('click')

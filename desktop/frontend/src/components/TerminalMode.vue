@@ -153,11 +153,18 @@ function touchPool(slug: string): void {
   evictOverLimit()
 }
 
+// An evicted session's subtree falls back to the cached listing, which predates
+// every window opened or closed while it was attached, so eviction re-sweeps.
 function evictOverLimit(): void {
+  let evicted = false
   for (const victim of [...lastUsed]) {
-    if (pool.size <= poolSize.value) return
-    if (victim !== activeSlug.value && pool.get(victim) !== displayed.value) dropSession(victim)
+    if (pool.size <= poolSize.value) break
+    if (victim !== activeSlug.value && pool.get(victim) !== displayed.value) {
+      dropSession(victim)
+      evicted = true
+    }
   }
+  if (evicted) sweepListings()
 }
 
 // Shrinking the setting takes effect without a re-entry; growing it simply
