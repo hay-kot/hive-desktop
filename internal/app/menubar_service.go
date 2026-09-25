@@ -32,8 +32,8 @@ type MenuBarDeps struct {
 	Flows    *flow.FlowStore
 	Items    *stores.InboxItemStore
 	Catalog  *actions.ActionStore
-	Polls  LastTicker
-	Events *events.Bus
+	Polls    LastTicker
+	Events   *events.Bus
 }
 
 func newMenuBarService(d MenuBarDeps) *MenuBarService {

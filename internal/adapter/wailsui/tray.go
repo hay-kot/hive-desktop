@@ -35,22 +35,22 @@ func trayProfiles(summaries []FlowSummary) []trayProfile {
 }
 
 type TrayDeps struct {
-	App     *application.App
-	Flows   *FlowsService
-	MenuBar *app.MenuBarService
-	Inbox   *app.InboxService
-	Sources *app.SourcesService
-	Logger  zerolog.Logger
+	App                     *application.App
+	Flows                   *FlowsService
+	MenuBar                 *app.MenuBarService
+	Inbox                   *app.InboxService
+	Sources                 *app.SourcesService
+	Logger                  zerolog.Logger
 	TemplateIcon, LinuxIcon []byte
 	Show                    func()
 	Quit                    func()
 }
 
 type MenuBarTray struct {
-	deps   TrayDeps
-	tray   *application.SystemTray
-	mu     sync.Mutex
-	active bool
+	deps       TrayDeps
+	tray       *application.SystemTray
+	mu         sync.Mutex
+	active     bool
 	lastPolled time.Time
 	stop       chan struct{}
 }
