@@ -29,9 +29,9 @@ function scrollback(term: Terminal): string[] {
     buffer.getLine(row)?.translateToString(true) ?? '')
 }
 
-/** The Go snapshot's layout: history rows, exactly ROWS screen rows, cursor. */
-function snapshot(history: string[], screen: string[], cursor: { row: number; col: number }): string {
-  return [...history, ...screen].join('\r\n') + `\x1b[${cursor.row + 1};${cursor.col + 1}H`
+/** The Go snapshot's layout: history rows, exactly ROWS screen rows, private modes, cursor. */
+function snapshot(history: string[], screen: string[], cursor: { row: number; col: number }, modes = ''): string {
+  return [...history, ...screen].join('\r\n') + modes + `\x1b[${cursor.row + 1};${cursor.col + 1}H`
 }
 
 describe('first-paint replay', () => {
@@ -45,6 +45,18 @@ describe('first-paint replay', () => {
     expect(viewport(term)).toEqual(screen)
     expect(scrollback(term)).toEqual(history)
     expect([term.buffer.active.cursorY, term.buffer.active.cursorX]).toEqual([1, 2])
+  })
+
+  it('restores mouse tracking without giving up the normal-buffer scrollback', async () => {
+    const term = freshTerminal()
+    const history = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+    const screen = ['nvim', '~', '~', '~', '~']
+
+    await replay(term, snapshot(history, screen, { row: 0, col: 4 }, '\x1b[?1002;1006h'))
+
+    expect(term.buffer.active.type).toBe('normal')
+    expect(scrollback(term)).toEqual(history)
+    expect(term.modes.mouseTrackingMode).toBe('drag')
   })
 
   // The alignment claim, stated as the thing it protects: a program redrawing

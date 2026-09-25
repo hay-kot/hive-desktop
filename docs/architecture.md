@@ -1263,8 +1263,10 @@ them is the constraint (ADR terminal-transport):
   the token it was handed.
 
 **A first paint is a pane's scrollback, its screen at exactly the pane's
-height, and its cursor** (ADR terminal-first-paint-carries-scrollback) — three tmux commands per pane, replayed
-as one byte stream into a fresh emulator. **An attach paints the active
+height, its mouse mode, and its cursor** (ADR terminal-first-paint-carries-scrollback) — three tmux commands per pane, replayed
+as one byte stream into a fresh emulator. Mouse mode is reconstructed from
+`mouse_*_flag` format variables because captured cells cannot carry the DEC
+private mode that makes xterm route wheel input to the pane. **An attach paints the active
 window's panes and answers; the rest are painted straight after on the
 client's own lifetime** (ADR attach-paints-the-active-window-first). `capture-pane -e` is what a first paint costs — 7.5x the same
 capture without escape reconstruction, linear in scrollback depth — so painting

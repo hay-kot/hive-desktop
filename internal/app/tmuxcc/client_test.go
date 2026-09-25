@@ -64,17 +64,17 @@ func TestAttachRunsTheHandshakeSequence(t *testing.T) {
 	// show yet. The bound is spelled out rather than built from historyLines:
 	// it is a decision about startup cost, so changing it should fail a test.
 	require.Equal(t, []string{
-		`display-message -p -t %1 "` + cursorFormat + `"`,
+		`display-message -p -t %1 "` + paneStateFormat + `"`,
 		"capture-pane -pe -J -S -2000 -E -1 -t %1",
 		"capture-pane -pe -S 0 -t %1",
-	}, commands[2:5], "the active window is snapshotted cursor-first, then history, then screen")
+	}, commands[2:5], "the active window is snapshotted state-first, then history, then screen")
 
 	// The rest follow on the client's own lifetime, in the same shape. The wait
 	// is on the last command of the sequence, not the first: anything earlier
 	// races the two that follow it.
 	f.awaitCommands(t, "capture-pane -pe -S 0 -t %2", 1)
 	require.Equal(t, []string{
-		`display-message -p -t %2 "` + cursorFormat + `"`,
+		`display-message -p -t %2 "` + paneStateFormat + `"`,
 		"capture-pane -pe -J -S -2000 -E -1 -t %2",
 		"capture-pane -pe -S 0 -t %2",
 	}, f.sentCommands()[5:8], "a deferred window is snapshotted the same way")
@@ -193,6 +193,22 @@ func TestFirstPaintReplaysHistoryAheadOfTheScreen(t *testing.T) {
 
 	require.Equal(t, "$ echo hi\r\nhi\r\n$ \r\n\x1b[1;3H", outputData(events, "@1"),
 		"history scrolls out of the viewport, the screen fills it, the cursor lands last")
+}
+
+func TestFirstPaintRestoresMouseTrackingAheadOfTheCursor(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 2 0 b25f,120x2,0,0,1 nvim")
+	f.setHistory("%1", "$ nvim README.md")
+	f.setCapture("%1", "README.md", "~")
+	f.setPaneState("%1", 0, 4, 1002, true)
+
+	client := attachFake(t, f, Options{})
+	events, unsubscribe := subscribeAndCollect(t, client, lifecycleIs(LifecycleAttached))
+	defer unsubscribe()
+
+	require.Equal(t, "$ nvim README.md\r\nREADME.md\r\n~\x1b[?1002;1006h\x1b[1;5H", outputData(events, "@1"))
 }
 
 // An emulator pins its viewport to the last rows written, so the screen has to
@@ -615,10 +631,10 @@ func TestSplitPaintsTheNewPaneAtItsOwnHeight(t *testing.T) {
 
 	f.awaitCommands(t, "capture-pane -pe -S 0 -t %2", 1)
 	require.Equal(t, []string{
-		`display-message -p -t %2 "` + cursorFormat + `"`,
+		`display-message -p -t %2 "` + paneStateFormat + `"`,
 		"capture-pane -pe -J -S -2000 -E -1 -t %2",
 		"capture-pane -pe -S 0 -t %2",
-	}, f.commandsMatching("-t %2"), "the new pane is snapshotted once, cursor-first")
+	}, f.commandsMatching("-t %2"), "the new pane is snapshotted once, state-first")
 
 	var painted []byte
 	require.Eventually(t, func() bool {
@@ -693,7 +709,7 @@ func TestZoomedPanePaintsAtTheWindowHeight(t *testing.T) {
 
 	require.True(t, client.Windows()[0].Zoomed)
 	commands := f.sentCommands()
-	require.Equal(t, `display-message -p -t %2 "`+cursorFormat+`"`, commands[2], "the zoomed pane paints before the attach answers")
+	require.Equal(t, `display-message -p -t %2 "`+paneStateFormat+`"`, commands[2], "the zoomed pane paints before the attach answers")
 	f.awaitCommands(t, "capture-pane -pe -S 0 -t %1", 1)
 
 	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
