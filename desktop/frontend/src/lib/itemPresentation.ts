@@ -181,10 +181,10 @@ export function snippet(item: InboxItem): string {
   return bodySnippet(body(item))
 }
 
-/** Haystack matchesSearch filters the feed against: title, container,
+/** Haystack matchesSearch filters the feed against: title, container line,
  *  byline, kind label, source label, and the body snippet. */
 export function searchText(item: InboxItem): string {
-  return [item.title, container(item), byline(item), kindLabel(item), presentationFor(item.sourceKind).sourceLabel, snippet(item)]
+  return [item.title, containerLine(item), byline(item), kindLabel(item), presentationFor(item.sourceKind).sourceLabel, snippet(item)]
     .join(' ')
 }
 
