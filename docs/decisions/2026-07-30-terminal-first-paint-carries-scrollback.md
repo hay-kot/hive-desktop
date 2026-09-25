@@ -1,4 +1,4 @@
-# First paint carries bounded scrollback and restores the cursor
+# First paint carries bounded scrollback and restores input state
 
 - **Status:** accepted
 - **Date:** 2026-07-30
@@ -25,14 +25,15 @@ need exactly them.
 
 ## Decision
 
-1. **A first paint is three commands per pane, not one:** the cursor
-   (`display-message -p "#{cursor_y} #{cursor_x}"`), then history
-   (`capture-pane -pe -J -S -2000 -E -1`), then the visible screen
+1. **A first paint is three commands per pane, not one:** pane state
+   (`display-message -p` with the cursor and `mouse_*_flag` formats), then
+   history (`capture-pane -pe -J -S -2000 -E -1`), then the visible screen
    (`capture-pane -pe -S 0`). They are replayed as history rows, the screen at
-   exactly the window's height, and a cursor-position escape. Nothing homes or
-   clears first: writing history-plus-a-full-screen scrolls the history out of
-   the viewport by itself, which leaves the screen occupying the viewport
-   exactly and the history above it as scrollback.
+   exactly the window's height, the pane's mouse protocol and encoding, and a
+   cursor-position escape. Nothing homes or clears first: writing
+   history-plus-a-full-screen scrolls the history out of the viewport by
+   itself, which leaves the screen occupying the viewport exactly and the
+   history above it as scrollback.
 
 2. **The bound is 2000 lines, which is tmux's own default `history-limit`.** On
    an unconfigured tmux it is therefore the whole history rather than a bound
@@ -56,14 +57,22 @@ need exactly them.
    painted; putting the emulator into *its* alternate buffer would throw away
    the scrollback this whole decision exists to deliver.
 
-5. **The cursor is read first, and after the paint gate's mark rather than
+5. **Mouse reporting is restored independently of the buffer.** A running
+   program may have enabled mouse reporting before this client attached. Its
+   enable sequence is then absent from every captured row, so xterm otherwise
+   treats a wheel gesture as a request to move its normal-buffer scrollback.
+   The first command reads tmux's standard, button, all-motion and SGR flags,
+   and the replay emits their DECSET sequence after the screen. Live output
+   still carries later mode changes.
+
+6. **The cursor is read first, and after the paint gate's mark rather than
    before it.** Output tmux produces between the read and the captures is
    absent from the cursor but present in the replay that follows the snapshot,
    which redraws it and carries the cursor where it belongs. Read before the
    mark, that output would be discarded as already-snapshotted and nothing
    would ever correct the position.
 
-6. **Search is `@xterm/addon-search`, one addon per window, one bar over the
+7. **Search is `@xterm/addon-search`, one addon per window, one bar over the
    active tab.** The bar floats over the pane rather than sitting above it: a
    bar in the flex column would shrink the pane's box, and that box is what
    this client votes tmux's window size from — opening a find bar would reflow

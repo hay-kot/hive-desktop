@@ -263,9 +263,29 @@ func (f *fakeTmux) setHistory(pane string, lines ...string) {
 }
 
 func (f *fakeTmux) setCursor(pane string, row, col int) {
+	f.setPaneState(pane, row, col, 0, false)
+}
+
+func (f *fakeTmux) setPaneState(pane string, row, col, mouseProtocol int, sgr bool) {
+	standard, button, all := 0, 0, 0
+	switch mouseProtocol {
+	case 1000:
+		standard = 1
+	case 1002:
+		button = 1
+	case 1003:
+		all = 1
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.cursors[pane] = fmt.Sprintf("%d %d", row, col)
+	f.cursors[pane] = fmt.Sprintf("%d %d %d %d %d %d", row, col, standard, button, all, boolInt(sgr))
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (f *fakeTmux) sentCommands() []string {

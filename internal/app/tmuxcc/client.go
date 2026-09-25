@@ -47,8 +47,9 @@ const (
 	// spaces.
 	listPanesFormat = "#{pane_id} #{pane_pid} #{pane_active} #{pane_dead} #{pane_current_command}"
 
-	// The pane's cursor as an emulator addresses it: 0-based row, then column.
-	cursorFormat = "#{cursor_y} #{cursor_x}"
+	// The pane state a snapshot cannot recover from captured cells: cursor
+	// position, mouse protocol, and mouse encoding.
+	paneStateFormat = "#{cursor_y} #{cursor_x} #{mouse_standard_flag} #{mouse_button_flag} #{mouse_all_flag} #{mouse_sgr_flag}"
 
 	// Where a target's active pane is. tmux expands it against the target of the
 	// command it is given to, so it reads the pane on screen from an attached
@@ -295,10 +296,9 @@ func (c *Client) Write(ctx context.Context, pane string, p []byte) error {
 
 // Paste inserts text into a pane as a paste rather than as keystrokes. tmux
 // applies the brackets because tmux is the only side that
-// knows whether the pane's program asked for them: a first paint carries cells
-// and SGR but no DEC private mode, and tmux never re-sends one to a control
-// client, so the emulator on the other end of this stream cannot learn the
-// mode from anything it is given (ADR pastes-are-tmux-paste-buffer-operations-not-keystrokes).
+// knows whether the pane's program asked for them: a first paint reconstructs
+// mouse input state, but not bracketed-paste mode, and tmux never re-sends that
+// mode to a control client (ADR pastes-are-tmux-paste-buffer-operations-not-keystrokes).
 //
 // The text rides tmux's stdin rather than an argument so it stays out of the
 // process table, and the buffer is named so it stays out of the numbered stack
@@ -1001,7 +1001,7 @@ func (c *Client) firstPaint(ctx context.Context, pane string, rows int) error {
 
 // snapshot renders a pane as the byte stream an emulator replays into an empty
 // grid: bounded scrollback, then the visible screen at exactly the grid's
-// height, then the cursor.
+// height, then the mouse mode and cursor.
 //
 // The height is what makes this safe for a pane whose program is on the
 // alternate screen. An emulator pins its viewport to the last rows it was
@@ -1015,7 +1015,7 @@ func (c *Client) firstPaint(ctx context.Context, pane string, rows int) error {
 // where it belongs. Read before the mark, that output would be discarded as
 // already snapshotted and nothing would ever correct the position.
 func (c *Client) snapshot(ctx context.Context, pane string, rows int) ([]byte, error) {
-	cursor, err := c.snapshotCmd(ctx, pane, `display-message -p -t `+pane+` "`+cursorFormat+`"`)
+	stateLines, err := c.snapshotCmd(ctx, pane, `display-message -p -t `+pane+` "`+paneStateFormat+`"`)
 	if err != nil {
 		return nil, err
 	}
@@ -1031,7 +1031,7 @@ func (c *Client) snapshot(ctx context.Context, pane string, rows int) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	return snapshotBytes(history, screen, rows, parseCursor(cursor)), nil
+	return snapshotBytes(history, screen, rows, parsePaneState(stateLines)), nil
 }
 
 // snapshotCmd runs one snapshot command. A tmux-side failure — a pane that
@@ -1421,11 +1421,12 @@ func parsePaneLine(line string) (Pane, bool) {
 }
 
 // snapshotBytes joins a captured pane into one replay: history rows, then
-// exactly rows screen rows, then the cursor. Nothing homes or clears first —
-// writing history-plus-a-full-screen scrolls the history out of the viewport on
-// its own, which leaves the screen occupying the viewport exactly and the
-// history reachable above it as scrollback.
-func snapshotBytes(history, screen []string, rows int, cur cursor) []byte {
+// exactly rows screen rows, then the modes captured cells cannot carry, and
+// finally the cursor. Nothing homes or clears first — writing
+// history-plus-a-full-screen scrolls the history out of the viewport on its
+// own, which leaves the screen occupying the viewport exactly and the history
+// reachable above it as scrollback.
+func snapshotBytes(history, screen []string, rows int, state paneState) []byte {
 	screen = fitRows(screen, rows)
 	if len(history)+len(screen) == 0 {
 		return nil
@@ -1435,8 +1436,9 @@ func snapshotBytes(history, screen []string, rows int, cur cursor) []byte {
 	lines = append(lines, screen...)
 
 	out := []byte(strings.Join(lines, "\r\n"))
-	if cur.reported {
-		out = fmt.Appendf(out, "\x1b[%d;%dH", cur.row+1, cur.col+1)
+	out = append(out, state.mouse.sequence()...)
+	if state.cursor.reported {
+		out = fmt.Appendf(out, "\x1b[%d;%dH", state.cursor.row+1, state.cursor.col+1)
 	}
 	return out
 }
@@ -1458,6 +1460,11 @@ func fitRows(screen []string, rows int) []string {
 	}
 }
 
+type paneState struct {
+	cursor cursor
+	mouse  mouseMode
+}
+
 // cursor is a pane's cursor as tmux reports it: 0-based row and column within
 // the visible screen. An unreported cursor leaves the replay's own end position
 // standing rather than guessing at one.
@@ -1466,15 +1473,48 @@ type cursor struct {
 	reported bool
 }
 
-func parseCursor(lines []string) cursor {
+// mouseMode is the terminal protocol tmux last saw the pane enable. Captured
+// cells cannot carry DEC private modes, so a fresh emulator needs this restored
+// before its wheel listener can report input to the program.
+type mouseMode struct {
+	protocol int
+	sgr      bool
+}
+
+func (m mouseMode) sequence() []byte {
+	if m.protocol == 0 {
+		return nil
+	}
+	if m.sgr {
+		return fmt.Appendf(nil, "\x1b[?%d;1006h", m.protocol)
+	}
+	return fmt.Appendf(nil, "\x1b[?%dh", m.protocol)
+}
+
+func parsePaneState(lines []string) paneState {
 	if len(lines) == 0 {
-		return cursor{}
+		return paneState{}
 	}
-	row, col, found := strings.Cut(strings.TrimSpace(lines[0]), " ")
-	if !found || !isDigits([]byte(row)) || !isDigits([]byte(col)) {
-		return cursor{}
+	fields := strings.Fields(lines[0])
+	if len(fields) < 2 || !isDigits([]byte(fields[0])) || !isDigits([]byte(fields[1])) {
+		return paneState{}
 	}
-	return cursor{row: atoi([]byte(row)), col: atoi([]byte(col)), reported: true}
+	state := paneState{cursor: cursor{
+		row: atoi([]byte(fields[0])), col: atoi([]byte(fields[1])), reported: true,
+	}}
+	if len(fields) < 6 {
+		return state
+	}
+	switch {
+	case fields[4] == "1":
+		state.mouse.protocol = 1003
+	case fields[3] == "1":
+		state.mouse.protocol = 1002
+	case fields[2] == "1":
+		state.mouse.protocol = 1000
+	}
+	state.mouse.sgr = fields[5] == "1"
+	return state
 }
 
 // quoteArgument single-quotes a tmux command argument. A newline would break
