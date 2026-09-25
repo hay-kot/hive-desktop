@@ -7,7 +7,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
-// MenuBarService is the Settings ▸ Menu bar pane's view of the pinned feeds.
 type MenuBarService struct {
 	menuBar *app.MenuBarService
 }
@@ -16,7 +15,6 @@ func NewMenuBarService(m *app.MenuBarService) *MenuBarService {
 	return &MenuBarService{menuBar: m}
 }
 
-// MenuBarLimits are the bounds the pane enforces before Go does.
 type MenuBarLimits struct {
 	MaxFeeds         int `json:"maxFeeds"`
 	DefaultItemLimit int `json:"defaultItemLimit"`

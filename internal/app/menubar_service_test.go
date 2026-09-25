@@ -29,8 +29,6 @@ type menuBarFixture struct {
 	bus      *events.Bus
 }
 
-// newMenuBarFixture loads one profile "p" whose graph declares two feeds,
-// "p/prs" (named "Reviews") and "p/other".
 func newMenuBarFixture(t *testing.T, polls LastTicker) menuBarFixture {
 	t.Helper()
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))

@@ -21,12 +21,7 @@ type trayProfile struct {
 	Valid bool
 }
 
-// trayProfiles projects a flow listing onto the tray's profile links: a valid
-// flow shows its name, an invalid one is disabled and labeled with its id so
-// a broken flow file stays visible instead of vanishing from the menu.
-//
-// It takes []FlowSummary — the same DTO FlowsService.ListFlows returns to the
-// frontend — so the tray lists profiles in rail order through one projection.
+// FlowSummary order is the profile rail order and must be preserved in the tray.
 func trayProfiles(summaries []FlowSummary) []trayProfile {
 	profiles := make([]trayProfile, 0, len(summaries))
 	for _, s := range summaries {
@@ -39,7 +34,6 @@ func trayProfiles(summaries []FlowSummary) []trayProfile {
 	return profiles
 }
 
-// TrayDeps is what the menu bar tray reads and what its clicks call back into.
 type TrayDeps struct {
 	App     *application.App
 	Flows   *FlowsService
@@ -47,22 +41,16 @@ type TrayDeps struct {
 	Inbox   *app.InboxService
 	Sources *app.SourcesService
 	Logger  zerolog.Logger
-	// TemplateIcon is the macOS/Windows tintable mark, LinuxIcon the
-	// pre-coloured one (see applyTrayIcon).
 	TemplateIcon, LinuxIcon []byte
 	Show                    func()
 	Quit                    func()
 }
 
-// MenuBarTray owns the dynamic native tray menu: the pinned feeds and their
-// items, and links that open each profile in Hive.
 type MenuBarTray struct {
 	deps   TrayDeps
 	tray   *application.SystemTray
 	mu     sync.Mutex
 	active bool
-	// lastPolled is the poll time the current menu shows; the watcher
-	// rebuilds when the producer moves past it.
 	lastPolled time.Time
 	stop       chan struct{}
 }
@@ -91,8 +79,7 @@ func applyTrayIcon(tray *application.SystemTray, templateIcon, linuxIcon []byte)
 	return tray.SetTemplateIcon(templateIcon)
 }
 
-// Refresh replaces the tray menu from current state. Wails marshals SetMenu
-// onto the native UI thread after app startup.
+// Wails marshals SetMenu onto the native UI thread after startup.
 func (t *MenuBarTray) Refresh() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -220,9 +207,8 @@ func (t *MenuBarTray) addProfiles(sub *application.Menu) {
 	}
 }
 
-// runAction runs one item action from the menu. Anything the menu cannot
-// finish on its own — a rerun that needs confirming, or a failure the user
-// has to read — opens the item in Hive, where the detail pane can.
+// Failures and reruns requiring confirmation open the item in Hive, where
+// the user can continue from the detail pane.
 func (t *MenuBarTray) runAction(action app.MenuBarAction, item MenuBarNavigation) {
 	ctx := context.Background()
 	logger := t.deps.Logger.With().Str("action", action.ID).Int64("item", item.ItemID).Logger()
@@ -260,8 +246,6 @@ func (t *MenuBarTray) open(nav MenuBarNavigation) {
 	emitMenuBarOpen(nav)
 }
 
-// trayFeedPath reads "Profile › Folder › Feed", the way the sidebar nests it.
-// A feed outside any folder skips that segment.
 func trayFeedPath(name app.MenuBarFeedName) string {
 	parts := make([]string, 0, 3)
 	for _, part := range []string{name.ProfileName, name.Folder, name.Name} {

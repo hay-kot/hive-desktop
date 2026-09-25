@@ -60,7 +60,6 @@ async function save(next: MenuBarPin[]): Promise<void> {
   }
 }
 
-// Mirrors the tray's heading: Profile › Folder › Feed, skipping an empty folder.
 function feedPath(choice: MenuBarFeedChoice, withName = true): string {
   return [choice.profileName, choice.folder, withName ? choice.name : '']
     .filter((part) => part !== '')

@@ -141,9 +141,7 @@ const (
 	MaxMenuBarItemLimit     = 10
 )
 
-// MenuBarSettings pins feeds to the menu bar dropdown, top first. A pin that
-// names no loaded feed is skipped rather than rejected, so deleting a feed or
-// profile never invalidates the setting that named it.
+// MenuBarSettings preserves feed order and permits missing feeds.
 type MenuBarSettings struct {
 	Feeds []MenuBarFeed `yaml:"feeds,omitempty"`
 }
@@ -151,12 +149,10 @@ type MenuBarSettings struct {
 type MenuBarFeed struct {
 	// Feed is a feed id, "<flow id>/<feed node id>".
 	Feed string `yaml:"feed"`
-	// Limit caps the items listed under the feed; 0 means
-	// DefaultMenuBarItemLimit.
+	// Zero uses DefaultMenuBarItemLimit.
 	Limit int `yaml:"limit,omitempty"`
 }
 
-// ItemLimit resolves Limit's zero value to the default.
 func (f MenuBarFeed) ItemLimit() int {
 	if f.Limit == 0 {
 		return DefaultMenuBarItemLimit

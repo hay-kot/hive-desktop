@@ -257,8 +257,8 @@ func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	return summary
 }
 
-// LastTick is when the most recent tick finished, whether or not it found
-// anything; zero before the first.
+// LastTick advances after every completed tick, even when it finds nothing.
+// It is zero before the first tick.
 func (pr *Producer) LastTick() time.Time {
 	pr.scheduleMu.Lock()
 	defer pr.scheduleMu.Unlock()

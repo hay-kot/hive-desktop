@@ -41,7 +41,6 @@ type FlowsUpdated struct{ Reason string }
 // ActionsUpdated reports that the actions catalog was reloaded or mutated.
 type ActionsUpdated struct{ Count int }
 
-// MenuBarUpdated reports that the feeds pinned to the menu bar changed.
 type MenuBarUpdated struct{}
 
 // AgentWorkspacesUpdated reports that the workspace set was reloaded.

@@ -77,9 +77,7 @@ func registerEvents() struct{} {
 	// Delivery). The frontend surfaces it through the same toast stack every
 	// other in-app notification uses.
 	application.RegisterEvent[NotificationToast]("notification:toast")
-	// menubar:open carries where a menu bar click asked to go: an item, a
-	// feed, or the Menu bar settings pane. Like notification:activated the
-	// window is already raised and the payload is the whole message.
+	// The tray raises the window before emitting menubar:open.
 	application.RegisterEvent[MenuBarNavigation]("menubar:open")
 	return struct{}{}
 }
@@ -97,9 +95,6 @@ func registerEvents() struct{} {
 // This is where the core's typed payload is deliberately degraded. Wails
 // events are wake-up signals by design — an adapter that needs the delta gets
 // it from the bus instead.
-//
-// onTrayStale runs whenever something the menu bar tray renders may have
-// changed: feeds, their items, the action catalog, or the pins themselves.
 func Subscribe(ctx context.Context, bus *events.Bus, onTrayStale func()) (cancel func()) {
 	trayStale := func() {
 		if onTrayStale != nil {
@@ -243,8 +238,7 @@ func emitSessionCreateFailed(name string) {
 	}
 }
 
-// MenuBarNavigation is the menubar:open payload. ItemID wins over FeedID;
-// Settings opens the Menu bar settings pane and ignores the rest.
+// MenuBarNavigation routes Settings before ItemID, and ItemID before FeedID.
 type MenuBarNavigation struct {
 	ProfileID string `json:"profileId"`
 	FeedID    string `json:"feedId"`

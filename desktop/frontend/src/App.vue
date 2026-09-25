@@ -528,8 +528,7 @@ async function revealNotification(activation: NotificationActivation): Promise<v
   await revealInboxItem(profileId, itemId)
 }
 
-// A menu bar click has already raised the window; what is left is routing to
-// the item, feed, or settings pane it named.
+// The window is raised before the menu bar event is emitted.
 async function openFromMenuBar(nav: MenuBarNavigation): Promise<void> {
   if (nav.settings) {
     selectApplicationSettingsSection('menubar')

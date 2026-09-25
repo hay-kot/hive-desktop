@@ -14,9 +14,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
-// MenuBarService owns the feeds pinned to the menu bar and the read that
-// renders them: each pinned feed's newest items with the actions a click can
-// run on them.
 type MenuBarService struct {
 	settings *settings.Store
 	flows    *flow.FlowStore
@@ -26,7 +23,6 @@ type MenuBarService struct {
 	events   *events.Bus
 }
 
-// LastTicker reports when sources were last polled; zero means not yet.
 type LastTicker interface {
 	LastTick() time.Time
 }
@@ -36,7 +32,6 @@ type MenuBarDeps struct {
 	Flows    *flow.FlowStore
 	Items    *stores.InboxItemStore
 	Catalog  *actions.ActionStore
-	// Polls is nil in mock modes, which run no producer.
 	Polls  LastTicker
 	Events *events.Bus
 }
@@ -45,20 +40,17 @@ func newMenuBarService(d MenuBarDeps) *MenuBarService {
 	return &MenuBarService{settings: d.Settings, flows: d.Flows, items: d.Items, actions: d.Catalog, polls: d.Polls, events: d.Events}
 }
 
-// MenuBarPin is one pinned feed. Limit is always resolved, never zero.
 type MenuBarPin struct {
 	Feed  string `json:"feed"`
 	Limit int    `json:"limit"`
 }
 
-// MenuBarFeedChoice is a feed that can be pinned.
 type MenuBarFeedChoice struct {
 	Feed string `json:"feed"`
 	MenuBarFeedName
 }
 
-// MenuBarFeedName is where a feed sits: its profile, the sidebar folder
-// holding it (empty at the top level), and its own name.
+// MenuBarFeedName uses an empty Folder for feeds at the sidebar's top level.
 type MenuBarFeedName struct {
 	ProfileName string `json:"profileName"`
 	Folder      string `json:"folder"`
@@ -86,9 +78,6 @@ type MenuBarItem struct {
 	Actions []MenuBarAction
 }
 
-// MenuBarAction is an action a menu click can run with no further input.
-// Clipboard actions are included: they render text for the caller to copy
-// rather than enqueueing a command.
 type MenuBarAction struct {
 	ID        string
 	Label     string
@@ -107,9 +96,8 @@ func (s *MenuBarService) Pins(context.Context) ([]MenuBarPin, error) {
 	return pins, nil
 }
 
-// SetPins replaces the pinned feeds, top first. Pins are not checked against
-// the loaded flows, for the same reason profiles.order is not: a pin naming
-// nothing is skipped when read.
+// SetPins preserves list order but does not require feeds to exist; missing
+// feeds are skipped when read.
 func (s *MenuBarService) SetPins(ctx context.Context, pins []MenuBarPin) error {
 	next := settings.MenuBarSettings{Feeds: make([]settings.MenuBarFeed, 0, len(pins))}
 	for _, pin := range pins {
@@ -132,8 +120,7 @@ func (s *MenuBarService) SetPins(ctx context.Context, pins []MenuBarPin) error {
 	return nil
 }
 
-// FeedChoices lists every feed of every loaded profile, in rail then
-// declaration order.
+// FeedChoices preserves profile rail and feed declaration order.
 func (s *MenuBarService) FeedChoices(context.Context) []MenuBarFeedChoice {
 	choices := make([]MenuBarFeedChoice, 0)
 	for _, f := range s.flows.List() {
@@ -186,8 +173,7 @@ func (s *MenuBarService) Snapshot(ctx context.Context) (MenuBarSnapshot, error) 
 	return snapshot, nil
 }
 
-// LastPolled is when sources were last polled; zero before the first poll
-// and in mock modes.
+// LastPolled returns zero before the first poll and in mock modes.
 func (s *MenuBarService) LastPolled() time.Time {
 	if s.polls == nil {
 		return time.Time{}
@@ -195,9 +181,6 @@ func (s *MenuBarService) LastPolled() time.Time {
 	return s.polls.LastTick()
 }
 
-// runnableActions is the catalog subset a menu click can run: offered on
-// items and needing no input. An action that needs a form or the New Session
-// dialog stays in the main window.
 func (s *MenuBarService) runnableActions() []actions.Action {
 	out := make([]actions.Action, 0)
 	for _, action := range s.actions.List() {
@@ -227,8 +210,7 @@ func menuBarItem(row stores.InboxItem, runnable []actions.Action) MenuBarItem {
 	return item
 }
 
-// feedFolders maps a profile's feed node ids to the sidebar folder holding
-// them. The sidebar layout is cosmetic, so a missing file means no folders.
+// A missing sidebar layout leaves every feed at the top level.
 func (s *MenuBarService) feedFolders(profileID string) map[string]string {
 	folders := map[string]string{}
 	for _, item := range s.flows.GetSidebar(profileID).Items {
@@ -255,7 +237,6 @@ func feedNode(f flow.Flow, nodeID string) (flow.Node, bool) {
 	return flow.Node{}, false
 }
 
-// feedCountCache reads each profile's counts once per snapshot.
 type feedCountCache struct {
 	items     *stores.InboxItemStore
 	byProfile map[string]map[string]stores.FeedCount
