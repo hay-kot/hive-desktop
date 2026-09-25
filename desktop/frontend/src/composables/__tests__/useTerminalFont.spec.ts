@@ -16,7 +16,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
-  mocks.AppearanceSettings.mockResolvedValue({ terminalFontSize: '' })
+  mocks.AppearanceSettings.mockResolvedValue({ terminalFontSizePx: 0 })
   mocks.SetTerminalFontSize.mockResolvedValue(undefined)
 })
 
@@ -28,77 +28,103 @@ async function settle(): Promise<void> {
 }
 
 describe('useTerminalFont', () => {
-  it('hydrates from settings.yaml and exposes the preset in pixels', async () => {
-    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSize: 'large' })
+  it('hydrates the pixel size the service resolved', async () => {
+    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSizePx: 17 })
     const { useTerminalFont } = await import('../useTerminalFont')
 
-    const { size, px } = useTerminalFont()
+    const { px } = useTerminalFont()
     await settle()
 
-    expect(size.value).toBe('large')
-    expect(px.value).toBe(14)
+    expect(px.value).toBe(17)
   })
 
-  it('steps through the presets and holds at both ends', async () => {
-    const { stepTerminalFontSize, terminalFontSizes, useTerminalFont } = await import('../useTerminalFont')
-    const { size } = useTerminalFont()
+  it('steps by two and holds at both ends', async () => {
+    const {
+      maxTerminalFontSizePx, minTerminalFontSizePx, stepTerminalFontSize, useTerminalFont,
+    } = await import('../useTerminalFont')
+    const { px } = useTerminalFont()
+    await settle()
+    const start = px.value
+
+    await stepTerminalFontSize(1)
+    expect(px.value).toBe(start + 2)
+    expect(mocks.SetTerminalFontSize).toHaveBeenLastCalledWith(start + 2)
+
+    for (let i = 0; i < 100; i++) await stepTerminalFontSize(1)
+    expect(px.value).toBe(maxTerminalFontSizePx)
+
+    for (let i = 0; i < 100; i++) await stepTerminalFontSize(-1)
+    expect(px.value).toBe(minTerminalFontSizePx)
+  })
+
+  it('clamps the final step onto the bound', async () => {
+    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSizePx: 63 })
+    const { maxTerminalFontSizePx, stepTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
+    const { px } = useTerminalFont()
     await settle()
 
     await stepTerminalFontSize(1)
-    expect(size.value).toBe('large')
-    expect(mocks.SetTerminalFontSize).toHaveBeenLastCalledWith('large')
 
-    for (let i = 0; i < terminalFontSizes.length; i++) await stepTerminalFontSize(1)
-    expect(size.value).toBe(terminalFontSizes.at(-1))
-
-    for (let i = 0; i < terminalFontSizes.length; i++) await stepTerminalFontSize(-1)
-    expect(size.value).toBe(terminalFontSizes[0])
+    expect(px.value).toBe(maxTerminalFontSizePx)
   })
 
-  it('resets to the default preset', async () => {
-    const { defaultTerminalFontSize, resetTerminalFontSize, setTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
-    const { size } = useTerminalFont()
+  it('resets to the default size', async () => {
+    const {
+      defaultTerminalFontSizePx, resetTerminalFontSize, setTerminalFontSize, useTerminalFont,
+    } = await import('../useTerminalFont')
+    const { px } = useTerminalFont()
     await settle()
 
-    setTerminalFontSize('xxl')
-    resetTerminalFontSize()
+    setTerminalFontSize(32)
+    await resetTerminalFontSize()
 
-    expect(size.value).toBe(defaultTerminalFontSize)
+    expect(px.value).toBe(defaultTerminalFontSizePx)
+  })
+
+  it('resets a persisted size even when nothing has hydrated yet', async () => {
+    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSizePx: 18 })
+    const { defaultTerminalFontSizePx, resetTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
+
+    await resetTerminalFontSize()
+    await settle()
+
+    expect(useTerminalFont().px.value).toBe(defaultTerminalFontSizePx)
+    expect(mocks.SetTerminalFontSize).toHaveBeenCalledWith(defaultTerminalFontSizePx)
   })
 
   it('steps from the persisted size when nothing has hydrated yet', async () => {
-    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSize: 'xl' })
+    mocks.AppearanceSettings.mockResolvedValue({ terminalFontSizePx: 16 })
     const { stepTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
 
     await stepTerminalFontSize(1)
 
-    expect(useTerminalFont().size.value).toBe('xxl')
+    expect(useTerminalFont().px.value).toBe(18)
     expect(mocks.SetTerminalFontSize).toHaveBeenCalledTimes(1)
-    expect(mocks.SetTerminalFontSize).toHaveBeenCalledWith('xxl')
+    expect(mocks.SetTerminalFontSize).toHaveBeenCalledWith(18)
   })
 
   it('keeps the chosen size when persisting fails', async () => {
     mocks.SetTerminalFontSize.mockRejectedValue(new Error('disk full'))
     const { setTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
-    const { size } = useTerminalFont()
+    const { px } = useTerminalFont()
     await settle()
 
-    setTerminalFontSize('large')
+    setTerminalFontSize(14)
     await settle()
 
-    expect(size.value).toBe('large')
+    expect(px.value).toBe(14)
   })
 
   it('does not let a slow settings read clobber a size chosen meanwhile', async () => {
-    let resolveRead: (value: { terminalFontSize: string }) => void = () => {}
+    let resolveRead: (value: { terminalFontSizePx: number }) => void = () => {}
     mocks.AppearanceSettings.mockReturnValue(new Promise((resolve) => { resolveRead = resolve }))
     const { setTerminalFontSize, useTerminalFont } = await import('../useTerminalFont')
-    const { size } = useTerminalFont()
+    const { px } = useTerminalFont()
 
-    setTerminalFontSize('large')
-    resolveRead({ terminalFontSize: 'small' })
+    setTerminalFontSize(14)
+    resolveRead({ terminalFontSizePx: 12 })
     await settle()
 
-    expect(size.value).toBe('large')
+    expect(px.value).toBe(14)
   })
 })

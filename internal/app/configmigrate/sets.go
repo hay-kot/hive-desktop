@@ -2,6 +2,7 @@ package configmigrate
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -20,12 +21,15 @@ var (
 	// version 3 drops `skills`, the retired global installer's configuration
 	// (ADR skills-are-declared-by-a-workspace); version 4 turns the terminal
 	// status bar on in every existing file, once; version 5 drops the development
-	// instance id after service.instance.id becomes a per-launch UUID.
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 5, AllowMissingVersion: true, Migrations: []Migration{
+	// instance id after service.instance.id becomes a per-launch UUID; version 6
+	// turns a named terminal text size into its pixel count
+	// (ADR the-terminal-text-size-is-a-pixel-count).
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 6, AllowMissingVersion: true, Migrations: []Migration{
 		{To: 2, Migrate: dropExperimentalSection},
 		{To: 3, Migrate: dropSkillsSection},
 		{To: 4, Migrate: showTerminalStatusBar},
 		{To: 5, Migrate: dropDevelopmentInstance},
+		{To: 6, Migrate: terminalFontSizeToPixels},
 	}}
 	FlowSet    = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet = Set{Name: "actions", Baseline: 1, Current: 1}
@@ -162,6 +166,30 @@ func dropDevelopmentInstance(doc map[string]any) error {
 		return nil
 	}
 	delete(development, "instance")
+	return nil
+}
+
+// The name table is frozen here on purpose. A value that is neither a name nor
+// a number is dropped; the strict decoder would otherwise refuse to start.
+func terminalFontSizeToPixels(doc map[string]any) error {
+	appearance, ok := doc["appearance"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	value, ok := appearance["terminal_font_size"].(string)
+	if !ok {
+		return nil
+	}
+	names := map[string]int{"small": 12, "medium": 13, "large": 14, "xl": 16, "xxl": 18}
+	if px, named := names[value]; named {
+		appearance["terminal_font_size"] = px
+		return nil
+	}
+	if px, err := strconv.Atoi(value); err == nil {
+		appearance["terminal_font_size"] = px
+		return nil
+	}
+	delete(appearance, "terminal_font_size")
 	return nil
 }
 

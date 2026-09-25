@@ -44,12 +44,7 @@ export interface AppearanceSettings {
      */
     "fontFamily": string;
     "monoFontFamily": string;
-
-    /**
-     * TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
-     * pixel count — the frontend owns the mapping.
-     */
-    "terminalFontSize": string;
+    "terminalFontSizePx": number;
 
     /**
      * TerminalFontFamily is an installed monospace family for the terminal

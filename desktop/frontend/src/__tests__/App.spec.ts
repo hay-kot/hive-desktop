@@ -14,7 +14,7 @@ import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/use
 import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { formatCombo, SEQUENCE_TIMEOUT_MS, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
-import { resetTerminalFontForTests, useTerminalFont } from '../composables/useTerminalFont'
+import { defaultTerminalFontSizePx, resetTerminalFontForTests, useTerminalFont } from '../composables/useTerminalFont'
 import { resetTerminalSessionsForTests, useTerminalSessions } from '../composables/useTerminalSessions'
 import { resetAttachedTerminalWindowsForTests, setAttachedTerminalWindows } from '../composables/useAttachedTerminalWindows'
 import { resetTerminalPinnedChatsForTests } from '../composables/useTerminalPinnedChats'
@@ -185,7 +185,7 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   SetNotificationSettings: mocks.SetNotificationSettings,
   OnboardingSettings: mocks.OnboardingSettings,
   SetOnboardingCompleted: mocks.SetOnboardingCompleted,
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSizePx: 13, terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
   Fonts: vi.fn().mockResolvedValue({ all: [], monospace: [] }),
   SetTheme: vi.fn(),
   SetTerminalFontSize: vi.fn(),
@@ -1378,7 +1378,7 @@ describe('App', () => {
       await router.push('/terminal/hive-fix-parser')
       await flushPromises()
 
-      const { size } = useTerminalFont()
+      const { px } = useTerminalFont()
       const pane = focusedPane()
       const press = async (init: KeyboardEventInit): Promise<void> => {
         pane.dispatchEvent(new KeyboardEvent('keydown', { metaKey: true, bubbles: true, ...init }))
@@ -1386,18 +1386,18 @@ describe('App', () => {
       }
 
       await press({ key: '=' })
-      expect(size.value).toBe('large')
+      expect(px.value).toBe(defaultTerminalFontSizePx + 2)
 
       // The bare plus of a layout with its own plus key. The shifted spelling
       // ⌘+ produces is macOS-only, so catalog.spec pins that one.
       await press({ key: '+' })
-      expect(size.value).toBe('xl')
+      expect(px.value).toBe(defaultTerminalFontSizePx + 4)
 
       await press({ key: '-' })
-      expect(size.value).toBe('large')
+      expect(px.value).toBe(defaultTerminalFontSizePx + 2)
 
       await press({ key: '0' })
-      expect(size.value).toBe('medium')
+      expect(px.value).toBe(defaultTerminalFontSizePx)
 
       pane.remove()
       wrapper.unmount()
@@ -1408,12 +1408,12 @@ describe('App', () => {
       usePopupTerminal().show()
       await flushPromises()
 
-      const { size } = useTerminalFont()
+      const { px } = useTerminalFont()
       const pane = focusedPane()
       pane.dispatchEvent(new KeyboardEvent('keydown', { key: '=', metaKey: true, bubbles: true }))
       await flushPromises()
 
-      expect(size.value).toBe('large')
+      expect(px.value).toBe(defaultTerminalFontSizePx + 2)
       pane.remove()
       wrapper.unmount()
     })
@@ -1426,11 +1426,11 @@ describe('App', () => {
       await router.push(path)
       await flushPromises()
 
-      const { size } = useTerminalFont()
+      const { px } = useTerminalFont()
       window.dispatchEvent(new KeyboardEvent('keydown', { key: '=', metaKey: true }))
       await flushPromises()
 
-      expect(size.value).toBe('medium')
+      expect(px.value).toBe(defaultTerminalFontSizePx)
       wrapper.unmount()
     })
 

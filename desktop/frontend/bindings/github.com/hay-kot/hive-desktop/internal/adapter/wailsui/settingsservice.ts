@@ -100,8 +100,8 @@ export function SetTerminalFontFamily(family: string): $CancellablePromise<void>
     return $Call.ByID(2359069387, family);
 }
 
-export function SetTerminalFontSize(size: string): $CancellablePromise<void> {
-    return $Call.ByID(736291786, size);
+export function SetTerminalFontSize(px: number): $CancellablePromise<void> {
+    return $Call.ByID(736291786, px);
 }
 
 export function SetTerminalFontWeights(weight: number, weightBold: number): $CancellablePromise<void> {

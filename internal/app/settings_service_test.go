@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -184,7 +185,7 @@ func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	got, err := service.Appearance(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, got.Theme)
-	require.Empty(t, got.TerminalFontSize)
+	require.Equal(t, settings.DefaultTerminalFontSizePx, got.TerminalFontSizePx)
 	require.Empty(t, got.CanvasFontSize)
 	require.Empty(t, got.CanvasLineSpacing)
 	require.True(t, got.TerminalShowWindows, "the terminal window listing ships on")
@@ -200,7 +201,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 
 	service := newSettingsService(SettingsDeps{Store: settings.NewStore(settings.SettingsPath())})
 	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
-	require.NoError(t, service.SetTerminalFontSize(t.Context(), "large"))
+	require.NoError(t, service.SetTerminalFontSize(t.Context(), 14))
 	require.NoError(t, service.SetCanvasFontSize(t.Context(), "xl"))
 	require.NoError(t, service.SetCanvasLineSpacing(t.Context(), "relaxed"))
 	require.NoError(t, service.SetTerminalShowWindows(t.Context(), false))
@@ -209,7 +210,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "midnight", got.Appearance.Theme)
-	require.Equal(t, "large", got.Appearance.TerminalFontSize)
+	require.Equal(t, 14, got.Appearance.TerminalFontSize)
 	require.Equal(t, "xl", got.Appearance.CanvasFontSize)
 	require.Equal(t, "relaxed", got.Appearance.CanvasLineSpacing)
 	require.False(t, got.Appearance.TerminalShowWindows)
@@ -220,11 +221,28 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	roundTripped, err := service.Appearance(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "midnight", roundTripped.Theme)
-	require.Equal(t, "large", roundTripped.TerminalFontSize, "one appearance setter must not clobber the other field")
+	require.Equal(t, 14, roundTripped.TerminalFontSizePx, "one appearance setter must not clobber the other field")
 	require.Equal(t, "xl", roundTripped.CanvasFontSize)
 	require.Equal(t, "relaxed", roundTripped.CanvasLineSpacing)
 	require.False(t, roundTripped.TerminalShowWindows)
 	require.Equal(t, 5, roundTripped.TerminalPoolSize)
+}
+
+func TestSettingsServiceTerminalFontSizeReadsALegacyName(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	path := settings.SettingsPath()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.WriteFile(path, []byte("version: 5\nappearance:\n  terminal_font_size: large\n"), 0o600))
+	service := newSettingsService(SettingsDeps{Store: settings.NewStore(path)})
+
+	got, err := service.Appearance(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 14, got.TerminalFontSizePx)
+
+	require.NoError(t, service.SetTerminalFontSize(t.Context(), 16))
+	stored, err := settings.LoadSettings()
+	require.NoError(t, err)
+	require.Equal(t, 16, stored.Appearance.TerminalFontSize)
 }
 
 func TestSettingsServiceTerminalShowWindowsOffSurvivesUnrelatedSaves(t *testing.T) {

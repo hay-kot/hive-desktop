@@ -346,6 +346,44 @@ func TestSettings_DropsDevelopmentInstanceID(t *testing.T) {
 	assert.Contains(t, development, "github", "an unrelated development value is untouched")
 }
 
+func TestSettings_TurnsTheTerminalFontSizeIntoPixels(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		value string
+		want  any
+	}{
+		{"a name", "large", 14},
+		{"the largest name", "xxl", 18},
+		{"a quoted number", `"15"`, 15},
+		{"an integer", "20", 20},
+		{"empty", `""`, nil},
+		{"unreadable", "enormous", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			raw := []byte("version: 5\nappearance:\n  theme: midnight\n  terminal_font_size: " + tc.value + "\n")
+			migrated, changed, err := SettingsSet.Apply(raw)
+			require.NoError(t, err)
+			require.True(t, changed)
+
+			doc := decodeDoc(t, migrated)
+			assert.Equal(t, SettingsSet.Current, doc["version"])
+			appearance, ok := doc["appearance"].(map[string]any)
+			require.True(t, ok)
+			if tc.want == nil {
+				assert.NotContains(t, appearance, "terminal_font_size")
+			} else {
+				assert.Equal(t, tc.want, appearance["terminal_font_size"])
+			}
+			assert.Equal(t, "midnight", appearance["theme"], "an unrelated appearance value is untouched")
+		})
+	}
+}
+
 // A file with no appearance section decodes onto the defaults, which say on,
 // so the step has nothing to add and must not invent the section.
 func TestSettings_TerminalStatusBarStepLeavesAMissingAppearanceSectionAlone(t *testing.T) {

@@ -8,22 +8,22 @@ import SettingsPage from './settings/SettingsPage.vue'
 import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
+import SettingsStepper from './settings/SettingsStepper.vue'
 import {
+  maxTerminalFontSizePx,
+  minTerminalFontSizePx,
   setTerminalFontFamily,
   setTerminalFontSize,
   setTerminalFontWeight,
   setTerminalFontWeightBold,
   setTerminalLetterSpacing,
   setTerminalLineHeight,
-  terminalFontSizeLabels,
-  terminalFontSizePx,
-  terminalFontSizes,
+  terminalFontSizeStepPx,
   terminalFontWeightLabels,
   terminalFontWeights,
   terminalLetterSpacings,
   terminalLineHeights,
   useTerminalFont,
-  type TerminalFontSize,
   type TerminalFontWeight,
   type TerminalLetterSpacing,
   type TerminalLineHeight,
@@ -39,7 +39,7 @@ import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/u
 const TerminalPreview = defineAsyncComponent(() => import('./settings/TerminalPreview.vue'))
 
 const {
-  size: fontSize,
+  px: fontSizePx,
   selectedFamily: fontFamily,
   weight: fontWeight,
   weightBold: fontWeightBold,
@@ -51,11 +51,6 @@ const { showWindows } = useTerminalShowWindows()
 const { showStatusBar } = useTerminalStatusBar()
 const { poolSize } = useTerminalPoolSize()
 
-const fontSizeOptions = terminalFontSizes.map((value) => ({
-  value,
-  label: `${terminalFontSizePx[value]}px`,
-  title: terminalFontSizeLabels[value],
-}))
 // The bundled face leads the list whether or not it is also installed
 // system-wide, so the shipped default is always the first thing offered.
 const fontFamilyOptions = computed(() => [
@@ -77,10 +72,6 @@ const letterSpacingOptions = terminalLetterSpacings.map((value) => ({
   label: value === 0 ? 'None' : `+${value}`,
 }))
 const poolSizeOptions = terminalPoolSizes.map((value) => ({ value: String(value), label: String(value) }))
-
-function onFontSizeChange(value: string): void {
-  setTerminalFontSize(value as TerminalFontSize)
-}
 
 function onFontWeightChange(value: string): void {
   setTerminalFontWeight(Number(value) as TerminalFontWeight)
@@ -134,14 +125,17 @@ onMounted(() => {
       </SettingsRow>
       <SettingsRow
         label="Font size"
-        hint="Applies immediately to open terminals; tmux re-fits their grid. The text size shortcuts step through these from a terminal."
+        hint="Applies immediately to open terminals; tmux re-fits their grid. The text size shortcuts step it by the same amount from a terminal."
       >
-        <SettingsSegmented
-          :model-value="fontSize"
-          :options="fontSizeOptions"
+        <SettingsStepper
+          :model-value="fontSizePx"
+          :display="`${fontSizePx}px`"
+          :min="minTerminalFontSizePx"
+          :max="maxTerminalFontSizePx"
+          :step="terminalFontSizeStepPx"
           aria-label="Font size"
           testid="settings-terminal-font-size"
-          @update:model-value="onFontSizeChange"
+          @update:model-value="setTerminalFontSize"
         />
       </SettingsRow>
       <SettingsRow
