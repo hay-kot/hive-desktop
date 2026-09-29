@@ -119,21 +119,29 @@ func createGitHubRelease(ctx context.Context, version releaseVersion, tag string
 		return err
 	}
 
-	prerelease := version.channel() != "stable"
-	fmt.Printf("==> creating GitHub release %s (prerelease=%t)\n", tag, prerelease)
+	fmt.Printf("==> creating GitHub release %s (prerelease=%t)\n", tag, version.channel() != "stable")
 
+	notes := releaseNotesBody(version, entry, downloadBaseURL())
+	return runCommand(ctx, "gh", gitHubReleaseCreateArgs(version, tag, notes)...)
+}
+
+// gitHubReleaseCreateArgs always passes --latest=false, stable included. The
+// desktop moves into colonyops/hive, where it shares one releases page with the
+// hive CLI, and the CLI's update check reads releases/latest. A desktop release
+// that took Latest would break that check (ADR
+// desktop-github-releases-never-take-github-latest).
+func gitHubReleaseCreateArgs(version releaseVersion, tag, notes string) []string {
 	args := []string{
 		"release", "create", tag,
 		"--verify-tag",
 		"--title", releaseTitle(version),
-		"--notes", releaseNotesBody(version, entry, downloadBaseURL()),
+		"--notes", notes,
+		"--latest=false",
 	}
-	if prerelease {
-		// dev and beta builds never sit above a shipped stable on the releases
-		// page; only a stable release is "Latest".
-		args = append(args, "--prerelease", "--latest=false")
+	if version.channel() != "stable" {
+		args = append(args, "--prerelease")
 	}
-	return runCommand(ctx, "gh", args...)
+	return args
 }
 
 func releaseTitle(version releaseVersion) string {
