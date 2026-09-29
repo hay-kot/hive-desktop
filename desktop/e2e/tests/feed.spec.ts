@@ -75,6 +75,25 @@ test('filters the feed to its remaining unread items', async ({ page }) => {
   ])
 })
 
+test('filters by author together with search and clears back to the full feed', async ({ page }, testInfo) => {
+  await page.getByTestId('view-menu-toggle').click()
+  await page.getByTestId('view-author-option').filter({ hasText: /^octocat$/ }).click()
+  await expect(page.getByTestId('feed-item')).toHaveCount(2)
+  expect(await page.getByTestId('feed-item').evaluateAll((items) => items.map((item) => item.getAttribute('data-id')))).toEqual(['iss1190', 'iss1177'])
+  await expect(page.getByTestId('clear-author-filter')).toContainText('octocat')
+  await page.getByTestId('feed-search').fill('notifications')
+  await expect(page.getByTestId('feed-item')).toHaveCount(1)
+  await page.getByTestId('feed-search').fill('')
+  await page.getByTestId('view-menu-toggle').click()
+  await expect(page.getByTestId('view-author-option').filter({ hasText: /^octocat$/ })).toHaveAttribute('aria-checked', 'true')
+  const screenshots = join(here, '..', 'screenshots')
+  await mkdir(screenshots, { recursive: true })
+  await page.screenshot({ path: join(screenshots, `author-filter-${testInfo.project.name}.png`), fullPage: true })
+  await page.keyboard.press('Escape')
+  await page.getByTestId('clear-author-filter').click()
+  await expect(page.getByTestId('feed-item')).toHaveCount(6)
+})
+
 test('archives, restores, and marks the selected inbox item unread from keyboard commands', async ({ page }) => {
   const item = page.locator('[data-testid="feed-item"][data-id="pr2841"]')
   await expect(item).toBeVisible()

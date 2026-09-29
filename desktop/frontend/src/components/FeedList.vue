@@ -36,6 +36,8 @@ const props = defineProps<{
   unreadOnly: boolean
   unreadCount: number
   search: string
+  authors: string[]
+  authorFilter: string
   sort: FeedSort
   loadError: string | null
   refreshing: boolean
@@ -60,6 +62,7 @@ const emit = defineEmits<{
   'run-selection-action': [actionId: string]
   'create-session-from-selection': []
   'update:search': [value: string]
+  'update:author-filter': [value: string]
   'set-sort': [value: FeedSort]
   // Row-level intents from a FeedListItem's hover pill / "…" menu, re-emitted
   // with the item so the store can act on rows that are not the selection.
@@ -114,6 +117,7 @@ function chooseSelectionAction(actionID: string): void {
 
 function closeViewMenu(): void { viewMenuOpen.value = false }
 function chooseSort(value: FeedSort): void { emit('set-sort', value); closeViewMenu() }
+function chooseAuthor(value: string): void { emit('update:author-filter', value); closeViewMenu() }
 function refreshFromMenu(): void { emit('refresh'); closeViewMenu() }
 // Trash has no unread semantics, so it gets no mark-all-read entry at all.
 function markAllReadFromMenu(): void { emit('mark-all-read'); closeViewMenu() }
@@ -186,6 +190,22 @@ watch(() => props.selectedId, async (id) => {
             <IconCheck class="size-3.5" :class="option.value === sort ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
             <span>{{ option.label }}</span>
           </button>
+          <template v-if="authors.length || authorFilter">
+            <div class="view-menu-divider" />
+            <div class="view-menu-label" id="feed-author-label">Filter by author</div>
+            <div role="group" aria-labelledby="feed-author-label" data-testid="view-author-filter">
+              <button type="button" class="view-menu-item" role="menuitemradio" :aria-checked="!authorFilter" data-testid="view-author-all" @click="chooseAuthor('')">
+                <IconCheck class="size-3.5 shrink-0" :class="!authorFilter ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
+                <span>All authors</span>
+              </button>
+              <div class="hive-scroll max-h-48 overflow-y-auto">
+                <button v-for="author in authors" :key="author" type="button" class="view-menu-item" role="menuitemradio" :aria-checked="author === authorFilter" data-testid="view-author-option" @click="chooseAuthor(author)">
+                  <IconCheck class="size-3.5 shrink-0" :class="author === authorFilter ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
+                  <span class="truncate" :title="author">{{ author }}</span>
+                </button>
+              </div>
+            </div>
+          </template>
           <div class="view-menu-divider" />
           <button type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-select-items" @click="enterSelectionFromMenu">
             <IconSquareCheckBig class="size-3.5 text-text-3" />
@@ -202,6 +222,12 @@ watch(() => props.selectedId, async (id) => {
         </div>
       </div>
     </header>
+    <div v-if="authorFilter" class="flex shrink-0 border-b border-border px-3.5 py-2">
+      <button type="button" class="flex min-w-0 items-center gap-2 rounded-md border border-strong px-2 py-1 text-xs text-text-2 hover:text-text" data-testid="clear-author-filter" :aria-label="`Clear author filter: ${authorFilter}`" @click="emit('update:author-filter', '')">
+        <span class="truncate">Author: {{ authorFilter }}</span>
+        <IconX class="size-3 shrink-0" />
+      </button>
+    </div>
     <div v-if="selectionMode" class="selection-bar" data-testid="feed-selection-bar">
       <span class="selection-count" :title="`${selectedItemIds.length} selected`" :aria-label="`${selectedItemIds.length} selected`">
         <IconSquareCheckBig class="size-3.5" />
@@ -292,10 +318,11 @@ watch(() => props.selectedId, async (id) => {
         <!-- Empty feed: "You're all caught up" when the unread filter drained
              the list, "No matches" when a search did, a plain empty state otherwise. -->
         <div v-if="visibleItems.length === 0 && (trash || archivedCount === 0)" class="state-frame" data-testid="feed-empty">
-          <template v-if="search.trim()">
+          <template v-if="search.trim() || authorFilter">
             <div class="state-icon text-text-3"><IconSearch class="size-5" /></div>
             <div class="text-[13.5px] font-semibold">No matches</div>
-            <div class="max-w-[240px] text-xs leading-relaxed text-text-3">Nothing here matches "{{ search.trim() }}". Try a different search.</div>
+            <div v-if="authorFilter" class="max-w-[240px] text-xs leading-relaxed text-text-3">No items by {{ authorFilter }} match the current filters.</div>
+            <div v-else class="max-w-[240px] text-xs leading-relaxed text-text-3">Nothing here matches "{{ search.trim() }}". Try a different search.</div>
           </template>
           <template v-else-if="unreadOnly">
             <div class="state-icon text-kind-pr"><IconCheck class="size-5" /></div>
@@ -307,7 +334,7 @@ watch(() => props.selectedId, async (id) => {
             <div class="text-[13.5px] font-semibold">No items yet</div>
             <div class="max-w-[240px] text-xs leading-relaxed text-text-3">New items will show up here as they arrive.</div>
           </template>
-          <button v-if="!search.trim()" class="state-action" :disabled="refreshing" @click="emit('refresh')">{{ refreshing ? 'Refreshing…' : 'Refresh now' }}</button>
+          <button v-if="!search.trim() && !authorFilter" class="state-action" :disabled="refreshing" @click="emit('refresh')">{{ refreshing ? 'Refreshing…' : 'Refresh now' }}</button>
         </div>
       </template>
       </div>

@@ -275,6 +275,77 @@ describe('useFeedState', () => {
     expect(get().selectedItems.value.map((row) => row.id)).toEqual([1])
   })
 
+  it('offers distinct authors from loaded items across sources, including archives', async () => {
+    mocks.ListByFeed.mockResolvedValue([
+      item(6, { payload: { author: ' zoe ' } }),
+      item(5, { sourceKind: 'exec', payload: { author: 'amy' } }),
+      item(4, { payload: { author: 'zoe' } }),
+      item(3, { payload: { author: '  ' } }),
+      item(2, { payload: { author: { login: 'unknown' } } }),
+      item(1, { payload: null }),
+    ])
+    mocks.ListArchivedByFeed.mockResolvedValue([item(9, { payload: { author: 'ben' }, archivedAt: 9 })])
+    const get = mountState(); await flushPromises()
+    expect(get().authors.value).toEqual(['amy', 'zoe'])
+    get().search.value = 'no match'
+    expect(get().authors.value).toEqual(['amy', 'zoe'])
+    await get().toggleArchivedSection()
+    expect(get().authors.value).toEqual(['amy', 'ben', 'zoe'])
+  })
+
+  it('combines author, search and unread filters and keeps navigation inside the result', async () => {
+    mocks.ListByFeed.mockResolvedValue([
+      item(5, { title: 'Fix first', payload: { author: 'amy' } }),
+      item(4, { title: 'Fix other author', payload: { author: 'ben' } }),
+      item(3, { title: 'Fix read', payload: { author: 'amy' }, unread: false }),
+      item(2, { title: 'Unrelated', payload: { author: 'amy' } }),
+      item(1, { title: 'Fix last', payload: { author: 'amy' } }),
+    ])
+    const get = mountState(); await flushPromises()
+    get().authorFilter.value = 'amy'
+    get().search.value = 'fix'
+    get().unreadOnly.value = true
+    expect(get().visibleItems.value.map(row => row.id)).toEqual([5, 1])
+    await get().selectItem(5)
+    await get().selectNext()
+    expect(get().selectedId.value).toBe(1)
+    expect(get().visibleItems.value).toEqual([])
+    await get().selectSidebar({ type: 'trash' })
+    expect(get().authorFilter.value).toBe('')
+  })
+
+  it('keeps the author filter when switching to unread items', async () => {
+    mocks.ListByFeed.mockResolvedValue([
+      item(3, { payload: { author: 'ben' } }),
+      item(2, { payload: { author: 'amy' } }),
+      item(1, { unread: false, payload: { author: 'amy' } }),
+    ])
+    const get = mountState(); await flushPromises()
+    await get().selectItem(1)
+    get().authorFilter.value = 'amy'
+    await get().selectUnreadView()
+    expect(get().selectedId.value).toBe(2)
+  })
+
+  it('filters archived authors and can clear a selection after that author disappears', async () => {
+    mocks.ListByFeed.mockResolvedValue([item(1, { payload: { author: 'amy' } })])
+    mocks.ListArchivedByFeed.mockResolvedValue([
+      item(9, { payload: { author: 'amy' }, archivedAt: 9 }),
+      item(8, { payload: { author: 'ben' }, archivedAt: 8 }),
+    ])
+    const get = mountState(); await flushPromises()
+    await get().toggleArchivedSection()
+    get().authorFilter.value = 'amy'
+    expect(get().visibleArchivedItems.value.map(row => row.id)).toEqual([9])
+    mocks.ListByFeed.mockResolvedValue([item(2, { payload: {} })])
+    mocks.ListArchivedByFeed.mockResolvedValue([])
+    await get().refresh()
+    expect(get().visibleItems.value).toEqual([])
+    expect(get().authorFilter.value).toBe('amy')
+    get().authorFilter.value = ''
+    expect(get().visibleItems.value.map(row => row.id)).toEqual([2])
+  })
+
   it('sorts feed items by newest, oldest, or unread-first recency and persists the choice', async () => {
     mocks.ListByFeed.mockResolvedValue([
       item(1, { title: 'Oldest', unread: false, lastEventAt: 100 }),

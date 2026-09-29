@@ -32,6 +32,10 @@ Selections remain active while you search, filter, sort, copy, or cancel the New
 
 Inbox is one of Hive's three main areas. See the [feature overview](../getting-started/features.md) for the core Inbox, Code, and Chats capabilities.
 
+## Filter a feed
+
+Open the **Feed options** (•••) menu and choose an author under **Filter by author** to show items from one author. This option appears when loaded items include an author. It works with search and the unread filter, and also filters archived items when you expand that section. Clear it with the author chip above the list or choose **All authors**. Switching feeds clears the author filter.
+
 ## Configure Hive
 
 Use the flow editor and Settings screens, edit the YAML files directly, or ask the built-in **Hive** workspace in Chats.

@@ -15,8 +15,8 @@ const longAgo = 400 * day
 const aged = (id: number, ageMs: number): InboxItem => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
 const dividerLabels = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="feed-date-label"]').map((label) => label.text())
 
-function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null; refreshing: boolean; selectionMode: boolean; selectedItemIds: number[]; selectionActions: ActionView[] }> = {}) {
-  return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', sort: 'newest', loadError: null, refreshing: false, selectionMode: false, selectedItemIds: [], selectionActions: [], ...overrides } })
+function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; authors: string[]; authorFilter: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null; refreshing: boolean; selectionMode: boolean; selectedItemIds: number[]; selectionActions: ActionView[] }> = {}) {
+  return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', authors: [], authorFilter: '', sort: 'newest', loadError: null, refreshing: false, selectionMode: false, selectedItemIds: [], selectionActions: [], ...overrides } })
 }
 
 describe('FeedList', () => {
@@ -57,6 +57,31 @@ describe('FeedList', () => {
     await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
     await wrapper.get('[data-testid="view-menu-refresh"]').trigger('click')
     expect(wrapper.emitted('refresh')).toHaveLength(1)
+  })
+
+  it('offers author filtering only when authors are available', async () => {
+    const wrapper = mountList()
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="view-author-filter"]').exists()).toBe(false)
+    await wrapper.setProps({ authors: ['amy', 'ben'] })
+    await wrapper.findAll('[data-testid="view-author-option"]')[0]!.trigger('click')
+    expect(wrapper.emitted('update:author-filter')).toEqual([['amy']])
+    expect(wrapper.find('[data-testid="view-menu"]').exists()).toBe(false)
+    await wrapper.setProps({ authorFilter: 'amy' })
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+    expect(wrapper.findAll('[data-testid="view-author-option"]')[0]!.attributes('aria-checked')).toBe('true')
+    await wrapper.get('[data-testid="view-author-all"]').trigger('click')
+    expect(wrapper.emitted('update:author-filter')).toEqual([['amy'], ['']])
+  })
+
+  it('keeps a missing author filter visible and clearable and explains empty results', async () => {
+    const wrapper = mountList({ authorFilter: 'amy', visibleItems: [], unreadOnly: true })
+    expect(wrapper.get('[data-testid="feed-empty"]').text()).toContain('No items by amy match the current filters')
+    expect(wrapper.get('[data-testid="feed-empty"]').text()).not.toContain("You're all caught up")
+    await wrapper.get('[data-testid="clear-author-filter"]').trigger('click')
+    expect(wrapper.emitted('update:author-filter')).toEqual([['']])
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="view-author-all"]').exists()).toBe(true)
   })
 
   it('offers mark all as read in the view menu and closes after', async () => {

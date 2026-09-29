@@ -7,7 +7,7 @@ import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-des
 import { Refresh as RefreshSources } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sourcesservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { appErrorKind, appErrorMessage, errorText } from '../lib/appError'
-import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
+import { canonicalPayload, clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
 import { useToasts } from './useToasts'
@@ -66,6 +66,7 @@ export function useFeedState() {
   // lives here — not in FeedList — so keyboard navigation moves over exactly
   // the rows the user sees. Cleared on feed/profile switch (see selectSidebar).
   const search = ref('')
+  const authorFilter = ref('')
   const items = ref<InboxItem[]>([])
   // Per-source-node feed icons for the active flow (node id → icon key),
   // read from sources.webhook configs in loadFeeds. Feed rows and the detail
@@ -195,6 +196,14 @@ export function useFeedState() {
   // The Unread badge counts the whole loaded list, independent of search.
   const unreadCount = computed(() => items.value.filter((item) => item.unread).length)
 
+  const authors = computed(() => [...new Set(
+    [...items.value, ...archivedItems.value].map((item) => canonicalPayload(item).author.trim()).filter(Boolean),
+  )].sort((a, b) => a.localeCompare(b)))
+
+  function matchesAuthor(item: InboxItem): boolean {
+    return !authorFilter.value || canonicalPayload(item).author.trim() === authorFilter.value
+  }
+
   function matchesSearch(item: InboxItem): boolean {
     const query = search.value.trim().toLowerCase()
     if (!query) return true
@@ -210,11 +219,11 @@ export function useFeedState() {
   const visibleItems = computed(() =>
     [...items.value]
       .sort(compareItems)
-      .filter((item) => (!unreadOnly.value || item.unread) && matchesSearch(item) && matchesTrashFilter(item)),
+      .filter((item) => (!unreadOnly.value || item.unread) && matchesSearch(item) && matchesAuthor(item) && matchesTrashFilter(item)),
   )
 
   const visibleArchivedItems = computed(() =>
-    [...archivedItems.value].filter((item) => matchesSearch(item)),
+    [...archivedItems.value].filter((item) => matchesSearch(item) && matchesAuthor(item)),
   )
 
   const selectedItems = computed(() => {
@@ -822,7 +831,7 @@ export function useFeedState() {
   async function moveSelection(delta: 1 | -1) {
     // Keyboard navigation continues into the archived section when expanded.
     const all = archivedExpanded.value ? [...items.value, ...archivedItems.value] : items.value
-    const passes = (item: InboxItem) => (!unreadOnly.value || item.unread) && matchesSearch(item) && matchesTrashFilter(item)
+    const passes = (item: InboxItem) => (!unreadOnly.value || item.unread) && matchesSearch(item) && matchesAuthor(item) && matchesTrashFilter(item)
     const currentIndex = all.findIndex((item) => item.id === selectedId.value)
     if (currentIndex === -1) {
       const visible = all.filter(passes)
@@ -870,6 +879,7 @@ export function useFeedState() {
     if (destinationChanged) cancelItemSelection()
     unreadOnly.value = false
     search.value = '' // a switched feed starts unfiltered
+    authorFilter.value = ''
     trashFilter.value = 'all'
     archivedExpanded.value = false
     archivedItems.value = []
@@ -886,8 +896,8 @@ export function useFeedState() {
   }
 
   async function reanchorToUnread() {
-    if (selectedItem.value && !selectedItem.value.unread) {
-      const firstUnread = items.value.find((item) => item.unread) ?? null
+    if (selectedItem.value && (!selectedItem.value.unread || !matchesAuthor(selectedItem.value))) {
+      const firstUnread = visibleItems.value.find((item) => item.unread) ?? null
       selectedId.value = firstUnread?.id ?? null
       await loadActions(firstUnread)
     }
@@ -1234,6 +1244,8 @@ export function useFeedState() {
     setTrashFilter,
     unreadCount,
     search,
+    authors,
+    authorFilter,
     loadError,
     selectedId,
     selectedItem,
