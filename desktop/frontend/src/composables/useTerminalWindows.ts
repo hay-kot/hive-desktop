@@ -137,6 +137,7 @@ export interface UseTerminalWindows {
   reconnect: () => Promise<void>
   select: (windowId: string) => Promise<void>
   newWindow: (command?: string) => Promise<void>
+  newAgentWindow: (agent: string) => Promise<void>
   closeWindow: (windowId: string) => Promise<void>
   rename: (windowId: string, name: string) => Promise<void>
   moveWindow: (windowId: string, position: number) => Promise<void>
@@ -1019,6 +1020,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
   }
 
+  async function newAgentWindow(agent: string): Promise<void> {
+    const created = await control(() => client.newAgentWindow(slug, agent), 'Could not start the agent.')
+    if (!created || disposed) return
+    if (findTab(created.windowId)) activateCreated(created.windowId)
+    else pendingActivate = created.windowId
+  }
+
   // A window this view asked for is one to type in, so it takes focus as well —
   // unlike one another client opened, which must not pull the keyboard out of
   // the pane in front of the user.
@@ -1144,7 +1152,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
     outputDropped, dismissOutputDropped, cell,
     search, openSearch, closeSearch, setSearchQuery, findNext, findPrevious,
-    start, reconnect, select, newWindow, closeWindow, rename, moveWindow, attachTab, attachPane, disposeTab,
+    start, reconnect, select, newWindow, newAgentWindow, closeWindow, rename, moveWindow, attachTab, attachPane, disposeTab,
     selectPane, splitPane, closePane, zoomPane, focusPane, resizePane,
     focusActive, scrollToBottom, dispose,
   }

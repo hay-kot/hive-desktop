@@ -775,6 +775,29 @@ func TestManagerNewWindowWithoutAClient(t *testing.T) {
 	}, cmds.calls)
 }
 
+func TestManagerNewCommandWindowPreservesCommandAndDirectory(t *testing.T) {
+	t.Parallel()
+	cmds := &fakeTmuxCommands{windows: []string{"@7"}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+	command := "wrapper codex --model 'custom model'"
+	id, err := m.NewCommandWindow(t.Context(), "hive-demo", "/work/shared checkout", "codex", command)
+	require.NoError(t, err)
+	require.Equal(t, "@7", id)
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "hive-demo"},
+		{"new-window", "-t", "=hive-demo:", "-c", "/work/shared checkout", "-n", "codex", "-P", "-F", "#{window_id}", "--", resolveLoginShell(), "-l", "-c", command},
+	}, cmds.calls)
+}
+
+func TestManagerNewCommandWindowDoesNotCreateAMissingSession(t *testing.T) {
+	t.Parallel()
+	cmds := &fakeTmuxCommands{absent: true}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+	_, err := m.NewCommandWindow(t.Context(), "hive-demo", "/work", "codex", "codex")
+	require.ErrorIs(t, err, ErrNotAttached)
+	require.Len(t, cmds.calls, 1)
+}
+
 func TestManagerCurrentPathReadsTheActivePane(t *testing.T) {
 	t.Parallel()
 

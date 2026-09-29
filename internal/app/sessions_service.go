@@ -99,6 +99,8 @@ type SessionsService struct {
 	statuses          sessionStatusSource
 	git               sessionGitSource
 	tmux              sessionTmux
+	agentWindows      sessionAgentWindows
+	agentCommands     func() map[string]string
 	jobs              sessionJobRunner
 	items             inboxItemRefReader
 	links             itemSessionStore
@@ -146,6 +148,8 @@ type SessionsDeps struct {
 	Statuses          sessionStatusSource
 	Git               sessionGitSource
 	Tmux              sessionTmux
+	AgentWindows      sessionAgentWindows
+	AgentCommands     func() map[string]string
 	Jobs              sessionJobRunner
 	Items             inboxItemRefReader
 	Links             itemSessionStore
@@ -179,6 +183,8 @@ func newSessionsService(d SessionsDeps) *SessionsService {
 		statuses:          d.Statuses,
 		git:               d.Git,
 		tmux:              d.Tmux,
+		agentWindows:      d.AgentWindows,
+		agentCommands:     d.AgentCommands,
 		jobs:              d.Jobs,
 		items:             d.Items,
 		links:             d.Links,

@@ -59,6 +59,28 @@ func (m *Manager) NewSession(ctx context.Context, name, dir, command string, env
 	return nil
 }
 
+// NewCommandWindow runs a command in a peer window using the same environment
+// and login-shell contract as NewSession. It never creates a missing session.
+func (m *Manager) NewCommandWindow(ctx context.Context, slug, dir, name, command string) (string, error) {
+	exists, err := m.HasSession(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("%w: %s is not running", ErrNotAttached, slug)
+	}
+	args := []string{"new-window", "-t", "=" + slug + ":", "-c", dir, "-n", name, "-P", "-F", "#{window_id}", "--"}
+	args = append(args, loginShellArgv(command)...)
+	lines, err := m.oneShot(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("tmuxcc: new command window in %s: %w", slug, err)
+	}
+	if len(lines) == 0 || !validWindowID(strings.TrimSpace(lines[0])) {
+		return "", fmt.Errorf("tmuxcc: new-window returned no window id")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
 // CapturePane returns the current screen of name's active pane. -p prints to
 // stdout and -J joins wrapped lines — the exact capture-pane invocation
 // hive's own status detection runs

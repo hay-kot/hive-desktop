@@ -134,6 +134,11 @@ EOF
       desktop/bin/hive-desktop-server &
   else
     local action_path="${data_dir}/fixtures/actions.yml"
+    mkdir -p "${config_home}/hive/desktop"
+    cat >"${config_home}/hive/desktop/settings.yaml" <<EOF
+onboarding:
+  completed: true
+EOF
     env \
       HIVE_DESKTOP_DATA_DIR="${data_dir}" \
       HIVE_DESKTOP_HTTP_PORT=0 \

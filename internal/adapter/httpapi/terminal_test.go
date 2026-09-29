@@ -112,6 +112,24 @@ func TestTerminalControlPlaneRequiresTheBearerToken(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode, "the right token is served")
 }
 
+func TestAgentWindowRequiresAuthenticationAndAProfile(t *testing.T) {
+	h := newTerminalHarness(t)
+	path := "/api/terminal/windows/agent"
+	body := map[string]any{"slug": "review-81", "agent": "codex"}
+	resp := h.post(t, path, "", body)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	_ = resp.Body.Close()
+	resp = h.post(t, path, "wrong-token", body)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	_ = resp.Body.Close()
+	resp = h.post(t, path, testToken, map[string]any{"slug": "review-81"})
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+	_ = resp.Body.Close()
+	resp = h.post(t, path, testToken, map[string]any{"slug": "review-81", "agent": "unknown-profile"})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	_ = resp.Body.Close()
+}
+
 // 0x0 is the whole unsized case — "nothing measured yet". One measured
 // dimension without the other is a caller bug, and a resize is never unsized.
 func TestTerminalSizeValidationSeparatesAttachFromResize(t *testing.T) {

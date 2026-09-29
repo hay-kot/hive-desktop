@@ -184,6 +184,15 @@ describe('createTerminalClient', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ slug: 'hive-abc', windowId: '@2' })
   })
 
+  it('launches an agent by profile on the authenticated control plane', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { windowId: '@8' }))
+    expect(await createTerminalClient(endpoint).newAgentWindow('hive-abc', 'codex')).toEqual({ windowId: '@8' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/windows/agent')
+    expect(init.headers.Authorization).toBe('Bearer tok-123')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', agent: 'codex' })
+  })
+
   it('moves a window to a position and answers with the order tmux settled on', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, {
       windows: [
