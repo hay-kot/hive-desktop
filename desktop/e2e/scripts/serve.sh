@@ -133,6 +133,11 @@ EOF
       HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE="${mode}" WAILS_SERVER_PORT="${port}" \
       desktop/bin/hive-desktop-server &
   else
+    mkdir -p "${config_home}/hive/desktop"
+    cat >"${config_home}/hive/desktop/settings.yaml" <<EOF
+onboarding:
+  completed: true
+EOF
     local action_path="${data_dir}/fixtures/actions.yml"
     env \
       HIVE_DESKTOP_DATA_DIR="${data_dir}" \
