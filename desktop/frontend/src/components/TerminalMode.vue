@@ -43,7 +43,7 @@ import SessionRowMenu from './SessionRowMenu.vue'
 import SessionStatusChips from './SessionStatusChips.vue'
 import TerminalTab from './TerminalTab.vue'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
-import { useCommandPalette, useCommands, useShellEscape, type Command } from '../composables/useCommands'
+import { useCommands, useShellEscape, type Command } from '../composables/useCommands'
 import { useTerminalActions } from '../composables/useTerminalActions'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { sessionRepository, terminalSessionGroups, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
@@ -427,6 +427,34 @@ const openNewWindowMenu = ref('')
 const newWindowToggle = ref<HTMLElement | null>(null)
 const newWindowMenuFlip = ref(false)
 const agentWindowBusy = ref(false)
+const agentProfiles = ref<string[]>([])
+const defaultAgentProfile = ref('')
+const agentProfilesLoading = ref(false)
+const agentProfilesFailed = ref(false)
+let agentProfilesRequest: Promise<void> | null = null
+
+function loadAgentProfiles(): Promise<void> {
+  if (agentProfilesRequest) return agentProfilesRequest
+  agentProfilesLoading.value = true
+  agentProfilesFailed.value = false
+  agentProfilesRequest = SessionLaunchOptions()
+    .then((options) => {
+      agentProfiles.value = options.agents ?? []
+      defaultAgentProfile.value = options.defaultAgent
+    })
+    .catch(() => {
+      agentProfilesFailed.value = true
+    })
+    .finally(() => {
+      agentProfilesLoading.value = false
+      agentProfilesRequest = null
+    })
+  return agentProfilesRequest
+}
+
+watch(() => props.active, (active) => {
+  if (active) void loadAgentProfiles()
+}, { immediate: true })
 const rowMenuFlip = ref(false)
 const rowMenuToggles = new Map<string, HTMLElement>()
 const openWindowMenu = ref('')
@@ -979,20 +1007,6 @@ function relativeWindow(delta: number): TerminalWindowTab | undefined {
   if (at < 0) return undefined
   return tabs[(at + delta + tabs.length) % tabs.length]
 }
-
-const agentProfiles = ref<string[]>([])
-const { open: paletteOpen } = useCommandPalette()
-watch(() => paletteOpen.value && props.active && !!attachedRow.value && isHiveSession(attachedRow.value), async (load, _previous, onCleanup) => {
-  if (!load) return
-  let cancelled = false
-  onCleanup(() => { cancelled = true })
-  try {
-    const options = await SessionLaunchOptions()
-    if (!cancelled) agentProfiles.value = options.agents ?? []
-  } catch {
-    if (!cancelled) agentProfiles.value = []
-  }
-}, { immediate: true })
 
 // The Code view's palette library: the attached session's own operations,
 // under the session's own name. Window and attach rows are registered at App
@@ -2178,9 +2192,14 @@ onBeforeUnmount(() => {
                             :running="rowRunning(row)"
                             :flip="newWindowMenuFlip"
                             :ignore="[newWindowToggle]"
+                            :agents="agentProfiles"
+                            :default-agent="defaultAgentProfile"
+                            :loading="agentProfilesLoading"
+                            :failed="agentProfilesFailed"
                             @close="openNewWindowMenu = ''"
                             @terminal="newWindowIn(row)"
                             @agent="newAgentWindowIn(row, $event)"
+                            @retry="loadAgentProfiles"
                           />
                           <span
                             v-if="rowRunning(row)"

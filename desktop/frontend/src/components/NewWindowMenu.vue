@@ -1,49 +1,49 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, markRaw, type Component } from 'vue'
 import IconTerminal from '~icons/lucide/terminal'
+import AgentIcon, { agentIconID } from './AgentIcon.vue'
 import AppMenu from './AppMenu.vue'
-import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { MenuEntry } from '../types/menu'
 
-const props = defineProps<{ running: boolean; flip: boolean; ignore: (HTMLElement | null)[] }>()
-const emit = defineEmits<{ close: []; terminal: []; agent: [profile: string] }>()
-const agents = ref<string[]>([])
-const defaultAgent = ref('')
-const loading = ref(true)
-const failed = ref(false)
+const props = defineProps<{
+  running: boolean
+  flip: boolean
+  ignore: (HTMLElement | null)[]
+  agents: string[]
+  defaultAgent: string
+  loading: boolean
+  failed: boolean
+}>()
+const emit = defineEmits<{ close: []; terminal: []; agent: [profile: string]; retry: [] }>()
 
-async function load(): Promise<void> {
-  loading.value = true
-  failed.value = false
-  try {
-    const options = await SessionLaunchOptions()
-    agents.value = options.agents ?? []
-    defaultAgent.value = options.defaultAgent
-  } catch {
-    failed.value = true
-  } finally {
-    loading.value = false
+const agentIcons = new Map<string, Component>()
+function agentIcon(agent: string): Component | undefined {
+  const id = agentIconID(agent)
+  if (!id) return undefined
+  let icon = agentIcons.get(id)
+  if (!icon) {
+    icon = markRaw(() => h(AgentIcon, { id }))
+    agentIcons.set(id, icon)
   }
+  return icon
 }
-onMounted(load)
 
 const entries = computed<MenuEntry[]>(() => [
   { kind: 'action', id: 'terminal', label: props.running ? 'New terminal' : 'Start session', icon: IconTerminal, testid: 'new-window-terminal' },
   { kind: 'separator' },
-  { kind: 'label', text: 'New agent · shared checkout' },
   ...(!props.running ? [{ kind: 'label' as const, text: 'Start the session to add an agent' }] : []),
-  ...(loading.value
+  ...(props.loading
     ? [{ kind: 'label' as const, text: 'Loading agents…' }]
-    : failed.value
+    : props.failed
       ? [{ kind: 'action' as const, id: 'retry', label: 'Could not load agents. Retry', testid: 'new-window-retry' }]
-      : agents.value.length
-        ? agents.value.map((agent) => ({ kind: 'action' as const, id: `agent:${agent}`, label: agent === defaultAgent.value ? `${agent} (default)` : agent, disabled: !props.running, testid: `new-window-agent-${agent}` }))
+      : props.agents.length
+        ? props.agents.map((agent) => ({ kind: 'action' as const, id: `agent:${agent}`, label: agent === props.defaultAgent ? `${agent} (default)` : agent, icon: agentIcon(agent), disabled: !props.running, testid: `new-window-agent-${agent}` }))
         : [{ kind: 'label' as const, text: 'No agents configured' }]),
 ])
 
 function select(id: string): void {
   if (id === 'retry') {
-    void load()
+    emit('retry')
     return
   }
   emit('close')
@@ -53,5 +53,5 @@ function select(id: string): void {
 </script>
 
 <template>
-  <AppMenu :entries="entries" :flip="flip" :ignore="ignore" width="min(260px, 100%)" testid="new-window-menu" @select="select" @close="emit('close')" />
+  <AppMenu :entries="entries" :flip="flip" :ignore="ignore" width="min(200px, 100%)" testid="new-window-menu" @select="select" @close="emit('close')" />
 </template>

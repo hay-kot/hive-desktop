@@ -1293,6 +1293,7 @@ describe('TerminalMode', () => {
   })
 
   it('offers configured agents without launching until one is selected', async () => {
+    mocks.SessionLaunchOptions.mockResolvedValue({ agents: ['claude', 'codex', 'fable', 'pi'], defaultAgent: 'claude' })
     const session = fakeSession()
     session.tabs.value.push({ ...session.tabs.value[0], uid: 5, windowId: '@5', name: 'codex' })
     session.activeWindowId.value = '@5'
@@ -1304,6 +1305,15 @@ describe('TerminalMode', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="new-window-agent-claude"]').text()).toBe('claude (default)')
+    expect(wrapper.get('[data-testid="new-window-menu"]').text()).not.toContain('New agent')
+    wrapper.get('[data-testid="new-window-agent-codex"] [data-agent-icon="codex"]')
+    wrapper.get('[data-testid="new-window-agent-fable"] [data-agent-icon="claude"]')
+    wrapper.get('[data-testid="new-window-agent-pi"] [data-agent-icon="pi"]')
+    expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
     expect(newAgentWindow).not.toHaveBeenCalled()
     await wrapper.get('[data-testid="new-window-agent-codex"]').trigger('click')
     await flushPromises()
@@ -2973,6 +2983,10 @@ describe('TerminalMode', () => {
       await flushPromises()
       palette.open.value = true
       await flushPromises()
+      palette.open.value = false
+      palette.open.value = true
+      await flushPromises()
+      expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
 
       const command = results.value.find((candidate) => candidate.id === 'terminal:session:agent:codex')
       expect(command?.title).toBe('New codex agent')
