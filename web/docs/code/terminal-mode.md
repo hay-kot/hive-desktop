@@ -41,6 +41,14 @@ If a session has no running terminal, select **Start session**. Hive creates its
 
 **Kill terminal** stops the tmux session and its processes while keeping the checkout and Hive session record. **Recycle** and **Delete** also change or remove the checkout.
 
+Use the session header's `+` to choose **New terminal** or a configured agent
+under **New agent · shared checkout**. For example, add Codex beside Claude
+in the same session. Each agent gets its own window and shares the checkout,
+branch, and files with its peers. The selected profile supplies its command
+and flags. Start a stopped session before adding a peer agent. You can also
+open the command palette and choose **New &lt;profile&gt; agent** for the current
+session.
+
 For repository sessions, the optional status bar shows the branch, changes against the default branch, uncommitted work, and unpushed commits. Connected GitHub, Gitea, and Forgejo repositories also show pull request, review, and check state. Use the status bar to open the checkout in your editor or file manager.
 
 ## Scratch terminals

@@ -133,6 +133,7 @@ export interface TerminalClient {
   listWindows(slugs: string[]): Promise<Record<string, WindowState[]>>
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>
+  newAgentWindow(slug: string, agent: string): Promise<{ windowId: string }>
   closeWindow(slug: string, windowId: string): Promise<void>
   /**
    * Reports whether a window is running anything a close would kill. `running`
@@ -222,6 +223,10 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
     async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },
     async newWindow(slug) {
       const body = await post<{ windowId: string }>('/api/terminal/windows/new', { slug })
+      return { windowId: body?.windowId ?? '' }
+    },
+    async newAgentWindow(slug, agent) {
+      const body = await post<{ windowId: string }>('/api/terminal/windows/agent', { slug, agent })
       return { windowId: body?.windowId ?? '' }
     },
     async closeWindow(slug, windowId) { await post('/api/terminal/windows/close', { slug, windowId }) },

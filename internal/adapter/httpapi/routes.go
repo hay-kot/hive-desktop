@@ -332,6 +332,11 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("the slug names no running tmux session"),
 		},
 		{
+			Method: "POST", Path: "/api/terminal/windows/agent", Summary: "Start a configured agent profile in a peer window of a running Hive session, sharing its checkout. Returns the new tmux window id.",
+			Request: terminalAgentWindowRequest{}, Response: terminalNewWindowResponse{}, Handler: ctrl.TerminalNewAgentWindow,
+			Errors: terminalErrors("the slug names no active Hive session or running tmux session"),
+		},
+		{
 			Method: "POST", Path: "/api/terminal/windows/close", Summary: "Kill one window of the attached session.",
 			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalCloseWindow,
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),

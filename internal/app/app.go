@@ -491,6 +491,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Sessions = newSessionsService(SessionsDeps{
 		Launcher: a.launcher, WorkspaceLauncher: a.AgentWorkspaces,
 		Manager: a.sessions, Statuses: a.sessions, Git: a.sessions, Tmux: a.terminals,
+		AgentWindows: a.terminals, AgentCommands: a.profileCommands,
 		Jobs: a.Jobs, Items: a.Stores.InboxItems, Links: a.Stores.ItemSessions, Catalog: a.actionStore, Dispatcher: a.dispatcher,
 		Recorder: a.Activity, Events: a.Events, Logger: cfg.Logger,
 		PullRequests: newSessionPullRequests(
@@ -1407,13 +1408,13 @@ func (a *App) profileCommands() map[string]string {
 }
 
 // agentCommands projects hive's agent profiles onto a full command line,
-// flags included, for the workspace editor's preset list.
+// flags included, for workspace presets and peer agent windows.
 //
 // Flags used to be dropped here so a workspace could not inherit
 // --dangerously-skip-permissions from hive's config. They now cross, because
 // the destination changed: a preset is seeded into the manifest once, where
 // the user reads and edits it, rather than resolved out of hive.yaml at every
-// launch. Nothing in a launch reads this map, so a hive config edit cannot
+// launch. Workspace launches do not read this map, so a hive config edit cannot
 // change what an existing workspace runs — which is the guarantee the old
 // seam was reaching for (ADR the-workspace-command-is-a-template, superseding
 // ADR a-workspace-declares-its-own-authority §1-2).

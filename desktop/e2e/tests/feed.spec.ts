@@ -65,7 +65,7 @@ test('filters the feed to its remaining unread items', async ({ page }) => {
   // read/unread feed rather than echoing the seed.
   const readItem = page.locator('[data-testid="feed-item"][data-id="iss1190"]')
   await readItem.click()
-  await expect(readItem.getByTestId('unread-dot')).toHaveCount(0)
+  await expect(readItem.getByTestId('item-title')).toHaveClass(/font-normal/)
 
   await page.getByTestId('filter-unread').click()
   const unreadItems = page.getByTestId('feed-item')
@@ -104,9 +104,9 @@ test('archives, restores, and marks the selected inbox item unread from keyboard
   // not merely the first rendered row. Wait for selecting an unread item to
   // finish its read mutation before exercising its next revision-guarded write.
   await item.click()
-  await expect(item.getByTestId('unread-dot')).toHaveCount(0)
+  await expect(item.getByTestId('item-title')).toHaveClass(/font-normal/)
   await page.keyboard.press('Shift+U')
-  await expect(item.getByTestId('unread-dot')).toBeVisible()
+  await expect(item.getByTestId('item-title')).toHaveClass(/font-semibold/)
 
   // Archiving demotes the item into the feed's collapsed archived section.
   await page.keyboard.press('e')
@@ -121,7 +121,7 @@ test('archives, restores, and marks the selected inbox item unread from keyboard
   // Archiving preserves unread, so selecting the archived row runs a read
   // mutation first; wait for it to land before the next revision-guarded write.
   await item.click()
-  await expect(item.getByTestId('unread-dot')).toHaveCount(0)
+  await expect(item.getByTestId('item-title')).toHaveClass(/font-normal/)
   await page.keyboard.press('e')
   await expect(item).toBeVisible()
   await expect(item.getByTestId('archive-reason')).toHaveCount(0)

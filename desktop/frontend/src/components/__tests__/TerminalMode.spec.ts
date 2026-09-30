@@ -6,7 +6,7 @@ import TerminalMode from '../TerminalMode.vue'
 import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
 import { resetTerminalFontForTests } from '../../composables/useTerminalFont'
 import { resetTerminalSessionsForTests, useTerminalSessions } from '../../composables/useTerminalSessions'
-import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
+import { resetSessionStatusesForTests, useSessionStatuses } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { setTerminalShowStatusBar } from '../../composables/useTerminalStatusBar'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   Scratch: vi.fn(),
   ListSessions: vi.fn(),
   SessionStatuses: vi.fn(),
+  SessionLaunchOptions: vi.fn(),
   SessionDetail: vi.fn(),
   SessionGitStatus: vi.fn(),
   SessionPullRequest: vi.fn(),
@@ -91,6 +92,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
   SessionStatuses: mocks.SessionStatuses,
+  SessionLaunchOptions: mocks.SessionLaunchOptions,
   SessionDetail: mocks.SessionDetail,
   SessionGitStatus: mocks.SessionGitStatus,
   SessionPullRequest: mocks.SessionPullRequest,
@@ -162,6 +164,7 @@ function fakeSession() {
     reconnect: vi.fn().mockResolvedValue(undefined),
     select: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue(undefined),
+    newAgentWindow: vi.fn().mockResolvedValue(undefined),
     closeWindow: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
     moveWindow: vi.fn().mockResolvedValue(undefined),
@@ -258,6 +261,7 @@ describe('TerminalMode', () => {
     mocks.allSessions.mockResolvedValue([])
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.Scratch.mockResolvedValue({ slug: 'Scratch', name: 'Terminals' })
+    mocks.SessionLaunchOptions.mockResolvedValue({ agents: ['claude', 'codex'], defaultAgent: 'claude' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
     // Every close asks what the tab is running first; idle is the answer that
     // keeps the rest of these tests closing on the click.
@@ -1103,6 +1107,7 @@ describe('TerminalMode', () => {
     // The attached session's row adds a window through its own client, which is
     // what makes the new one active.
     await wrapper.get('[data-testid="terminal-session-row"][data-attached="true"] [data-testid="terminal-new-window"]').trigger('click')
+    await wrapper.get('[data-testid="new-window-terminal"]').trigger('click')
     expect(session.newWindow).toHaveBeenCalled()
 
     await wrapper.findAll('[data-testid="terminal-close-window"]')[1].trigger('click')
@@ -1287,6 +1292,101 @@ describe('TerminalMode', () => {
     expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
   })
 
+  it('offers configured agents without launching until one is selected', async () => {
+    mocks.SessionLaunchOptions.mockResolvedValue({ agents: ['claude', 'codex', 'fable', 'pi'], defaultAgent: 'claude' })
+    const session = fakeSession()
+    session.tabs.value.push({ ...session.tabs.value[0], uid: 5, windowId: '@5', name: 'codex' })
+    session.activeWindowId.value = '@5'
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const newAgentWindow = vi.fn().mockResolvedValue({ windowId: '@5' })
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newAgentWindow })
+    const { wrapper, router } = await mountAt()
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="new-window-agent-claude"]').text()).toBe('claude (default)')
+    expect(wrapper.get('[data-testid="new-window-menu"]').text()).not.toContain('New agent')
+    wrapper.get('[data-testid="new-window-agent-codex"] [data-agent-icon="codex"]')
+    wrapper.get('[data-testid="new-window-agent-fable"] [data-agent-icon="claude"]')
+    wrapper.get('[data-testid="new-window-agent-pi"] [data-agent-icon="pi"]')
+    expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
+    expect(newAgentWindow).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="new-window-agent-codex"]').trigger('click')
+    await flushPromises()
+
+    expect(newAgentWindow).toHaveBeenCalledExactlyOnceWith('hive-bump-deps', 'codex')
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    expect(router.currentRoute.value.query.window).toBe('@5')
+    expect(mocks.openBlank).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="new-window-menu"]').exists()).toBe(false)
+  })
+
+  it('adds a peer to the selected session without replacing its existing windows', async () => {
+    const newAgentWindow = vi.fn().mockResolvedValue({ windowId: '@5' })
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newAgentWindow })
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+    await wrapper.get('[data-slug="hive-fix-parser"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="new-window-agent-codex"]').trigger('click')
+    await flushPromises()
+    expect(session.newAgentWindow).toHaveBeenCalledExactlyOnceWith('codex')
+    expect(newAgentWindow).not.toHaveBeenCalled()
+    expect(session.newWindow).not.toHaveBeenCalled()
+    expect(session.dispose).not.toHaveBeenCalled()
+    expect(session.tabs.value).toHaveLength(2)
+  })
+
+  it('reports an agent launch failure without opening a shell or changing sessions', async () => {
+    const newAgentWindow = vi.fn().mockRejectedValue(new Error('agent launch failed'))
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newAgentWindow })
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { wrapper, router } = await mountAt('/terminal/hive-fix-parser')
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="new-window-agent-codex"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('agent launch failed')
+    expect(router.currentRoute.value.params.slug).toBe('hive-fix-parser')
+    expect(session.newWindow).not.toHaveBeenCalled()
+  })
+
+  it('lets agent choices retry loading while retaining the terminal option', async () => {
+    mocks.SessionLaunchOptions.mockRejectedValueOnce(new Error('offline'))
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-slug="hive-fix-parser"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="new-window-terminal"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="new-window-retry"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="new-window-agent-codex"]').exists()).toBe(true)
+  })
+
+  it('shows a peer launch failure even before any terminal is selected', async () => {
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newAgentWindow: vi.fn().mockRejectedValue(new Error('session stopped')) })
+    const { wrapper } = await mountAt()
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="new-window-agent-codex"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="terminal-action-error"]').text()).toBe('session stopped')
+  })
+
+  it('disables peer agents when the session is stopped', async () => {
+    mocks.SessionStatuses.mockResolvedValue({ items: [{ sessionId: '1', running: true, windows: [] }, { sessionId: '2', running: false, windows: [] }], pollIntervalMs: 60_000 })
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="new-window-agent-codex"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="new-window-terminal"]').text()).toBe('Start session')
+  })
+
   it('adds a window to an unattached session and selects it', async () => {
     const start = vi.fn().mockResolvedValue({ started: true })
     const newWindow = vi.fn(async () => ({ windowId: '@5' }))
@@ -1294,6 +1394,7 @@ describe('TerminalMode', () => {
     const { wrapper, router } = await mountAt()
 
     await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await wrapper.get('[data-testid="new-window-terminal"]').trigger('click')
     await flushPromises()
 
     expect(newWindow).toHaveBeenCalledWith('hive-bump-deps')
@@ -1317,6 +1418,7 @@ describe('TerminalMode', () => {
     const { wrapper, router } = await mountAt()
 
     await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await wrapper.get('[data-testid="new-window-terminal"]').trigger('click')
     await flushPromises()
 
     expect(start).toHaveBeenCalledWith('hive-bump-deps')
@@ -1341,6 +1443,7 @@ describe('TerminalMode', () => {
     const { wrapper, router } = await mountAt()
 
     await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await wrapper.get('[data-testid="new-window-terminal"]').trigger('click')
     await flushPromises()
 
     expect(start).toHaveBeenCalledWith('hive-bump-deps')
@@ -2867,6 +2970,36 @@ describe('TerminalMode', () => {
       expect(byId.has('terminal:window:@2')).toBe(false)
       expect(byId.has('terminal:attach:hive-bump-deps')).toBe(false)
 
+      wrapper.unmount()
+    })
+
+    it('launches a peer from the palette and hides the choices for a stopped session', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+      const palette = useCommandPalette()
+      const results = paletteResults()
+      palette.open.value = false
+      await flushPromises()
+      palette.open.value = true
+      await flushPromises()
+      palette.open.value = false
+      palette.open.value = true
+      await flushPromises()
+      expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
+
+      const command = results.value.find((candidate) => candidate.id === 'terminal:session:agent:codex')
+      expect(command?.title).toBe('New codex agent')
+      expect(command?.group).toBe('fix the parser')
+      await command!.run()
+      await flushPromises()
+      expect(session.newAgentWindow).toHaveBeenCalledWith('codex')
+
+      mocks.SessionStatuses.mockResolvedValue({ items: [{ sessionId: '1', running: false, windows: [] }], pollIntervalMs: 60_000 })
+      await useSessionStatuses().reload()
+      await flushPromises()
+      expect(results.value.some((candidate) => candidate.id.startsWith('terminal:session:agent:'))).toBe(false)
+      palette.open.value = false
       wrapper.unmount()
     })
 

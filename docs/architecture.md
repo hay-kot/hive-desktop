@@ -1337,6 +1337,15 @@ terminal takes nothing from them (ADR the-app-s-faces-are-picked-from-installed-
 keep in step with it, and a window's controls — close, rename, and the add on
 its session's row — live on the rows themselves (ADR the-sidebar-tree-is-the-only-window-list).
 
+The Hive session row's add menu offers a terminal or a configured agent
+profile. A peer agent window shares the session's checkout and record;
+`SessionsService.NewAgentWindow` resolves its directory and the current
+profile command, and `tmuxcc.Manager.NewCommandWindow` launches it through
+the same environment and login-shell contract as `NewSession`. This does not
+replay session setup or the initial window layout. The token-guarded terminal
+HTTP surface owns the launch; the tmux session must already be running
+(ADR peer-agent-windows-run-configured-profiles-in-the-existing-checkout).
+
 **One tmux session in the tree belongs to no hive session: the scratch
 terminal** (ADR the-scratch-terminal-is-a-tmux-session-the-desktop-owns). It is an ordinary tmux session under a reserved slug —
 `Scratch`, which hive's `Slugify` cannot mint because it lowercases before it

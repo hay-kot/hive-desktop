@@ -34,6 +34,7 @@ import AppMenu from './AppMenu.vue'
 import AppTooltip from './AppTooltip.vue'
 import BaseButton from './BaseButton.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
+import NewWindowMenu from './NewWindowMenu.vue'
 import PaneStatusBar from './PaneStatusBar.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SessionDetailDialog from './SessionDetailDialog.vue'
@@ -64,11 +65,11 @@ import { useSessionStatuses } from '../composables/useSessionStatuses'
 import { useTerminalStatusBar } from '../composables/useTerminalStatusBar'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type WindowForeground, type WindowState } from '../lib/terminalClient'
-import { appErrorMessage } from '../lib/appError'
+import { appErrorMessage, errorText } from '../lib/appError'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
-import { OpenSessionInEditor, RevealSession } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import { OpenSessionInEditor, RevealSession, SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
@@ -422,6 +423,38 @@ const {
 useWailsEvent('actions:updated', () => { void loadTerminalActions() })
 
 const openRowMenu = ref('')
+const openNewWindowMenu = ref('')
+const newWindowToggle = ref<HTMLElement | null>(null)
+const newWindowMenuFlip = ref(false)
+const agentWindowBusy = ref(false)
+const agentProfiles = ref<string[]>([])
+const defaultAgentProfile = ref('')
+const agentProfilesLoading = ref(false)
+const agentProfilesFailed = ref(false)
+let agentProfilesRequest: Promise<void> | null = null
+
+function loadAgentProfiles(): Promise<void> {
+  if (agentProfilesRequest) return agentProfilesRequest
+  agentProfilesLoading.value = true
+  agentProfilesFailed.value = false
+  agentProfilesRequest = SessionLaunchOptions()
+    .then((options) => {
+      agentProfiles.value = options.agents ?? []
+      defaultAgentProfile.value = options.defaultAgent
+    })
+    .catch(() => {
+      agentProfilesFailed.value = true
+    })
+    .finally(() => {
+      agentProfilesLoading.value = false
+      agentProfilesRequest = null
+    })
+  return agentProfilesRequest
+}
+
+watch(() => props.active, (active) => {
+  if (active) void loadAgentProfiles()
+}, { immediate: true })
 const rowMenuFlip = ref(false)
 const rowMenuToggles = new Map<string, HTMLElement>()
 const openWindowMenu = ref('')
@@ -481,6 +514,7 @@ function menuFlipsUp(toggle: HTMLElement | undefined): boolean {
 }
 
 function toggleRowMenu(row: TerminalSessionRow, event?: MouseEvent): void {
+  openNewWindowMenu.value = ''
   if (openRowMenu.value === row.id && !event) {
     openRowMenu.value = ''
     return
@@ -1015,6 +1049,20 @@ useCommands(() => {
       })
     }
     if (hive) {
+      if (attached.state === 'active' && rowRunning(attached) && !agentWindowBusy.value) {
+        for (const agent of agentProfiles.value) {
+          cmds.push({
+            id: `terminal:session:agent:${agent}`,
+            title: `New ${agent} agent`,
+            group,
+            order: -3,
+            scope: 'actions',
+            keywords: ['peer', 'window', 'shared', 'checkout'],
+            icon: IconPlus,
+            run: () => void newAgentWindowIn(attached, agent),
+          })
+        }
+      }
       cmds.push({
         id: 'terminal:session:detail',
         title: 'Session details…',
@@ -1716,6 +1764,40 @@ async function newWindowIn(row: TerminalSessionRow): Promise<void> {
   }
 }
 
+function toggleNewWindowMenu(row: TerminalSessionRow, event: MouseEvent): void {
+  if (openNewWindowMenu.value === row.id) {
+    openNewWindowMenu.value = ''
+    return
+  }
+  openRowMenu.value = ''
+  openWindowMenu.value = ''
+  newWindowToggle.value = event.currentTarget as HTMLElement
+  newWindowMenuFlip.value = menuFlipsUp(newWindowToggle.value)
+  openNewWindowMenu.value = row.id
+}
+
+async function newAgentWindowIn(row: TerminalSessionRow, agent: string): Promise<void> {
+  const transport = client.value
+  if (!transport || agentWindowBusy.value) return
+  agentWindowBusy.value = true
+  treeError.value = ''
+  try {
+    const pooled = pool.get(row.slug)
+    if (pooled && pooled.status.value !== 'ended') {
+      selectSession(row.slug)
+      await pooled.newAgentWindow(agent)
+      return
+    }
+    const { windowId } = await transport.newAgentWindow(row.slug, agent)
+    await router.push({ name: 'terminal', params: { slug: row.slug }, query: { window: windowId } })
+    sweepListings()
+  } catch (e) {
+    treeError.value = errorText(e, 'Could not start the agent.')
+  } finally {
+    agentWindowBusy.value = false
+  }
+}
+
 // The rename field sits inside the row, so a double-click meant for its text
 // arrives here as well; restarting the rename would discard what was typed.
 function startRename(win: TreeWindowRow): void {
@@ -2072,7 +2154,7 @@ onBeforeUnmount(() => {
                       <div
                         v-if="group.kind !== 'scratch'"
                         class="session-row"
-                        :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
+                        :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id || openNewWindowMenu === row.id }"
                         role="button"
                         :tabindex="tabStopKey === `s:${row.id}` ? 0 : -1"
                         :data-testid="group.kind === 'chats' ? 'terminal-chat-row' : 'terminal-session-row'"
@@ -2099,9 +2181,26 @@ onBeforeUnmount(() => {
                             class="row-action row-lead"
                             title="New window"
                             aria-label="New window"
+                            aria-haspopup="menu"
+                            :aria-expanded="openNewWindowMenu === row.id"
+                            :disabled="agentWindowBusy"
                             data-testid="terminal-new-window"
-                            @click="newWindowIn(row)"
+                            @click="toggleNewWindowMenu(row, $event)"
                           ><IconPlus class="size-3" /></button>
+                          <NewWindowMenu
+                            v-if="openNewWindowMenu === row.id"
+                            :running="rowRunning(row)"
+                            :flip="newWindowMenuFlip"
+                            :ignore="[newWindowToggle]"
+                            :agents="agentProfiles"
+                            :default-agent="defaultAgentProfile"
+                            :loading="agentProfilesLoading"
+                            :failed="agentProfilesFailed"
+                            @close="openNewWindowMenu = ''"
+                            @terminal="newWindowIn(row)"
+                            @agent="newAgentWindowIn(row, $event)"
+                            @retry="loadAgentProfiles"
+                          />
                           <span
                             v-if="rowRunning(row)"
                             class="row-status text-severity-success"
@@ -2369,9 +2468,9 @@ onBeforeUnmount(() => {
           </template>
         </PaneStatusBar>
 
-        <template v-if="visible && !notStarted">
-          <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
+        <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
 
+        <template v-if="visible && !notStarted">
           <!-- The gap has to be said out loud. Recovering the view without
                naming what it cost would be worse than the teardown this
                replaced, which at least told the truth loudly. -->

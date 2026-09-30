@@ -88,6 +88,18 @@ type terminalSlugRequest struct {
 	Slug string `json:"slug"`
 }
 
+type terminalAgentWindowRequest struct {
+	Slug  string `json:"slug"`
+	Agent string `json:"agent"`
+}
+
+func (b terminalAgentWindowRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("slug", b.Slug, criterio.Required),
+		criterio.Run("agent", b.Agent, criterio.Required),
+	)
+}
+
 // terminalSlugsRequest names the sessions a sweep wants windows for. No
 // Validate: an empty set is a sidebar with nothing in it, which is an empty
 // answer rather than a bad request.
@@ -373,6 +385,18 @@ func (ctrl *Controller) TerminalNewWindow(w http.ResponseWriter, r *http.Request
 		return err
 	}
 	id, err := ctrl.core.Terminals.NewWindow(r.Context(), body.Slug)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalNewWindowResponse{WindowID: id})
+}
+
+func (ctrl *Controller) TerminalNewAgentWindow(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalAgentWindowRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	id, err := ctrl.core.Sessions.NewAgentWindow(r.Context(), body.Slug, body.Agent)
 	if err != nil {
 		return err
 	}

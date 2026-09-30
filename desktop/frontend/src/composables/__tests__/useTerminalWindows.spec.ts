@@ -283,6 +283,7 @@ function fakeClient(): MockedClient {
     listWindows: vi.fn().mockResolvedValue({}),
     resize: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),
+    newAgentWindow: vi.fn().mockResolvedValue({ windowId: '@4' }),
     closeWindow: vi.fn().mockResolvedValue(undefined),
     windowForeground: vi.fn().mockResolvedValue({ running: false, command: '' }),
     renameWindow: vi.fn().mockResolvedValue(undefined),
@@ -1328,6 +1329,32 @@ describe('useTerminalWindows', () => {
     expect(session.activeWindowId.value).toBe('@3')
     // A window this view asked for is one to type in.
     expect(xterm.FakeTerminal.instances.at(-1)?.focus).toHaveBeenCalled()
+  })
+
+  it.each(['before', 'after'])('activates a peer agent when tmux announces it %s the launch response', async (order) => {
+    const { client, session, socket } = await attached()
+    let resolveLaunch!: (value: { windowId: string }) => void
+    client.newAgentWindow.mockReturnValue(new Promise((resolve) => { resolveLaunch = resolve }))
+    const launch = session.newAgentWindow('codex')
+    if (order === 'before') socket.onmessage?.({ data: windowFrame('added', '@4', { name: 'codex' }) })
+    resolveLaunch({ windowId: '@4' })
+    await launch
+    if (order === 'after') socket.onmessage?.({ data: windowFrame('added', '@4', { name: 'codex' }) })
+    await flushPromises()
+    expect(client.newAgentWindow).toHaveBeenCalledExactlyOnceWith('hive-abc', 'codex')
+    expect(session.activeWindowId.value).toBe('@4')
+    expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2', '@4'])
+    expect(socket.sent).toHaveLength(0)
+    expect(xterm.FakeTerminal.instances.at(-1)?.focus).toHaveBeenCalled()
+  })
+
+  it('reports a failed peer launch and keeps the existing terminal active', async () => {
+    const { client, session } = await attached()
+    client.newAgentWindow.mockRejectedValue(new Error('profile launch refused'))
+    await session.newAgentWindow('codex')
+    expect(session.actionError.value).toContain('profile launch refused')
+    expect(session.activeWindowId.value).toBe('@1')
+    expect(client.newWindow).not.toHaveBeenCalled()
   })
 
   // tmux announces the window before it has a layout, and the line has to be
