@@ -104,7 +104,7 @@ const {
 } = useNotificationSettings()
 
 const {
-  profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, sourceImages, visibleItems, unreadCount, search, loadError,
+  profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, sourceImages, visibleItems, unreadCount, search, authors, authorFilter, loadError,
   itemSelectionActive, selectedItemIDs, selectedItems, selectionActions, enterItemSelection, toggleItemSelection, cancelItemSelection, copySelectedItemContents, invokeSelectionAction,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionInputsAction, actionInputsBusy, actionInputsError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
@@ -1593,6 +1593,8 @@ onUnmounted(() => {
               :trash="selection.type === 'trash'"
               :trash-filter="trashFilter"
               :search="search"
+              :authors="authors"
+              :author-filter="authorFilter"
               :sort="feedSort"
               :load-error="loadError"
               :refreshing="refreshingSources"
@@ -1604,6 +1606,7 @@ onUnmounted(() => {
               @select="selectItem"
               @activate="activateItemFromRow"
               @update:search="(value) => (search = value)"
+              @update:author-filter="(value) => (authorFilter = value)"
               @set-sort="setFeedSort"
               @set-unread="navigateUnreadFilter"
               @toggle-archived="toggleArchivedSection"
