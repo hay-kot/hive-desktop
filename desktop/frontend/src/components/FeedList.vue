@@ -5,6 +5,7 @@ import AppMenu from './AppMenu.vue'
 import FeedListItem from './FeedListItem.vue'
 import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCopy from '~icons/lucide/copy'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconGitBranch from '~icons/lucide/git-branch'
@@ -14,6 +15,7 @@ import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
 import IconSquareCheckBig from '~icons/lucide/square-check-big'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
+import IconUserRound from '~icons/lucide/user-round'
 import IconX from '~icons/lucide/x'
 import IconArchive from '~icons/lucide/archive'
 import { groupItemsByDate } from '../lib/dateGroups'
@@ -99,6 +101,14 @@ const itemGroups = computed<{ key: string; label: string | null; items: InboxIte
 
 const viewMenu = ref<HTMLElement | null>(null)
 const viewMenuOpen = ref(false)
+const authorMenuOpen = ref(false)
+const authorMenuTrigger = ref<HTMLElement | null>(null)
+const authorSearchInput = ref<HTMLInputElement | null>(null)
+const authorQuery = ref('')
+const filteredAuthors = computed(() => {
+  const query = authorQuery.value.trim().toLowerCase()
+  return query ? props.authors.filter((author) => author.toLowerCase().includes(query)) : props.authors
+})
 const selectionActionsToggle = ref<HTMLElement | null>(null)
 const selectionActionsOpen = ref(false)
 const selectedItemIDSet = computed(() => new Set(props.selectedItemIds))
@@ -115,7 +125,20 @@ function chooseSelectionAction(actionID: string): void {
   emit('run-selection-action', actionID)
 }
 
-function closeViewMenu(): void { viewMenuOpen.value = false }
+function closeViewMenu(): void {
+  viewMenuOpen.value = false
+  authorMenuOpen.value = false
+  authorQuery.value = ''
+}
+function toggleViewMenu(): void {
+  if (viewMenuOpen.value) closeViewMenu()
+  else viewMenuOpen.value = true
+}
+function openAuthorMenu(): void {
+  authorMenuOpen.value = true
+  authorQuery.value = ''
+  void nextTick(() => authorSearchInput.value?.focus())
+}
 function chooseSort(value: FeedSort): void { emit('set-sort', value); closeViewMenu() }
 function chooseAuthor(value: string): void { emit('update:author-filter', value); closeViewMenu() }
 function refreshFromMenu(): void { emit('refresh'); closeViewMenu() }
@@ -123,7 +146,11 @@ function refreshFromMenu(): void { emit('refresh'); closeViewMenu() }
 function markAllReadFromMenu(): void { emit('mark-all-read'); closeViewMenu() }
 function enterSelectionFromMenu(): void { emit('enter-selection'); closeViewMenu() }
 function onDocumentKeydown(event: KeyboardEvent): void {
-  if (viewMenuOpen.value && event.key === 'Escape') closeViewMenu()
+  if (!viewMenuOpen.value || event.key !== 'Escape') return
+  if (authorMenuOpen.value) {
+    authorMenuOpen.value = false
+    authorMenuTrigger.value?.focus()
+  } else closeViewMenu()
 }
 
 onClickOutside(viewMenu, () => { if (viewMenuOpen.value) closeViewMenu() })
@@ -181,7 +208,7 @@ watch(() => props.selectedId, async (id) => {
         </button>
       </div>
       <div ref="viewMenu" class="relative shrink-0">
-        <button type="button" class="view-trigger" title="Feed options" aria-label="Feed options" data-testid="view-menu-toggle" aria-haspopup="menu" :aria-expanded="viewMenuOpen" @click="viewMenuOpen = !viewMenuOpen">
+        <button type="button" class="view-trigger" title="Feed options" aria-label="Feed options" data-testid="view-menu-toggle" aria-haspopup="menu" :aria-expanded="viewMenuOpen" @click="toggleViewMenu">
           <IconEllipsis class="size-4" />
         </button>
         <div v-if="viewMenuOpen" class="view-menu" role="menu" data-testid="view-menu">
@@ -192,17 +219,29 @@ watch(() => props.selectedId, async (id) => {
           </button>
           <template v-if="authors.length || authorFilter">
             <div class="view-menu-divider" />
-            <div class="view-menu-label" id="feed-author-label">Filter by author</div>
-            <div role="group" aria-labelledby="feed-author-label" data-testid="view-author-filter">
-              <button type="button" class="view-menu-item" role="menuitemradio" :aria-checked="!authorFilter" data-testid="view-author-all" @click="chooseAuthor('')">
-                <IconCheck class="size-3.5 shrink-0" :class="!authorFilter ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
-                <span>All authors</span>
+            <div class="view-menu-label">Filter by</div>
+            <div class="relative">
+              <button ref="authorMenuTrigger" type="button" class="view-menu-item" role="menuitem" aria-haspopup="menu" :aria-expanded="authorMenuOpen" data-testid="view-author-filter" @click="openAuthorMenu">
+                <IconUserRound class="size-3.5 shrink-0 text-text-3" />
+                <span class="flex-1">Author</span>
+                <IconChevronRight class="size-3.5 shrink-0 text-text-4" />
               </button>
-              <div class="hive-scroll max-h-48 overflow-y-auto">
-                <button v-for="author in authors" :key="author" type="button" class="view-menu-item" role="menuitemradio" :aria-checked="author === authorFilter" data-testid="view-author-option" @click="chooseAuthor(author)">
-                  <IconCheck class="size-3.5 shrink-0" :class="author === authorFilter ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
-                  <span class="truncate" :title="author">{{ author }}</span>
-                </button>
+              <div v-if="authorMenuOpen" class="author-submenu flex max-h-64 flex-col overflow-hidden" role="menu" aria-label="Filter by author" data-testid="view-author-submenu">
+                <label class="flex shrink-0 items-center gap-2 border-b border-row px-2.5 py-2">
+                  <IconSearch class="size-3.5 shrink-0 text-text-4" />
+                  <input ref="authorSearchInput" v-model="authorQuery" type="text" placeholder="Search authors…" aria-label="Search authors" class="w-0 min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none placeholder:text-text-4" data-testid="view-author-search">
+                </label>
+                <div class="hive-scroll min-h-0 overflow-y-auto p-[5px]">
+                  <button v-if="!authorQuery.trim()" type="button" class="view-menu-item" role="menuitemradio" :aria-checked="!authorFilter" data-testid="view-author-all" @click="chooseAuthor('')">
+                    <IconCheck class="size-3.5 shrink-0" :class="!authorFilter ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
+                    <span>All authors</span>
+                  </button>
+                  <button v-for="author in filteredAuthors" :key="author" type="button" class="view-menu-item" role="menuitemradio" :aria-checked="author === authorFilter" data-testid="view-author-option" @click="chooseAuthor(author)">
+                    <IconCheck class="size-3.5 shrink-0" :class="author === authorFilter ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
+                    <span class="truncate" :title="author">{{ author }}</span>
+                  </button>
+                  <div v-if="authorQuery.trim() && filteredAuthors.length === 0" class="px-3 py-4 text-center text-[12.5px] text-text-4" data-testid="view-author-empty">No matches</div>
+                </div>
               </div>
             </div>
           </template>
@@ -363,6 +402,7 @@ watch(() => props.selectedId, async (id) => {
 .selection-action:disabled { cursor: default; color: var(--color-text-4); }
 .refresh-banner { position: absolute; top: 0; right: 0; left: 0; z-index: 10; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--color-border); background: var(--color-pane); padding: 7px 14px; color: var(--color-text-3); font-size: 12px; pointer-events: none; }
 .view-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: 180px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); padding: 5px; box-shadow: 0 20px 50px -14px rgb(0 0 0 / .5); }
+.author-submenu { position: absolute; top: -5px; right: calc(100% + 7px); width: 220px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); box-shadow: 0 20px 50px -14px rgb(0 0 0 / .5); }
 .view-menu-label { padding: 5px 9px 4px; color: var(--color-text-3); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }
 .view-menu-item:hover { background: var(--color-hover); color: var(--color-text); }
