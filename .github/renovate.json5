@@ -1,5 +1,7 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Development moved to colonyops/hive, which carries these dependencies now.
+  enabled: false,
   extends: [
     "config:recommended",
     // Rewrite `uses: org/action@v1` to a digest plus a version comment, then

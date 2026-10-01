@@ -1,5 +1,7 @@
 # Hive Desktop
 
+> **Development has moved.** Hive Desktop is now developed in [colonyops/hive](https://github.com/colonyops/hive) under `cmd/desktop`, together with the hive CLI. Open issues there. Releases, the installer, and the docs are unchanged.
+
 Hive pulls the work that wants your attention -- pull requests, issues, review
 requests, notifications, firing alerts, and anything that can POST a webhook --
 into one local queue. Flows you own filter it, route it into feeds, hand an item
